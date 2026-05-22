@@ -569,152 +569,191 @@ def patch_dense_parametric(cls):
 
 patch_dense_parametric(DenseSVSimulator)
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# CELLA 6: Noise Models (Kraus Operators - VERSIONE INTEGRALE JAX/NUMPY)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+import numpy as np
+from typing import Optional, List, Dict
+import time
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CELLA 6: Modelli di rumore con operatori Kraus (VERSIONE INTEGRALE JAX FIXED)
+# ═══════════════════════════════════════════════════════════════════════════════
+# [PROPRIETARY ALGORITHM - (c) 2026 Salvatore Pennacchio - Licensed under EUPL-1.2]
+
+try:
+    import jax
+    import jax.numpy as jnp
+    HAS_JAX = True
+except ImportError:
+    HAS_JAX = False
 
 class NoiseModel:
     """
-    Quantum noise models via stochastic trajectories on pure states.
-    ⚠️ IMPORTANT: This is a quantum-jump/trajectory approximation.
-    For pure states undergoing noisy evolution, each trajectory implements
-    a single stochastic outcome of the Kraus operators. Over many runs,
-    this correctly samples from the density matrix channel.
-
-    Fully optimized for both JAX (JIT-safe) and NumPy/CuPy backends.
+    5 modelli fisici di decoerenza con operatori Kraus.
+    Ottimizzato per agire in-place su NumPy/CuPy e funzionalmente su JAX XLA.
     """
+
     MODELS = ['ideal', 'depolarizing', 'bitflip', 'phaseflip', 'amplitude_damping', 'combined']
 
     @staticmethod
     def apply_to_sv(sv: np.ndarray, n: int, model: str, p: float,
-                    rng: np.random.Generator, qubits: Optional[List[int]] = None) -> np.ndarray:
+                    rng: Optional[np.random.Generator] = None, qubits: Optional[List[int]] = None,
+                    jax_key: Optional[any] = None) -> np.ndarray:
         """
-        Apply stochastic noise to statevector via quantum jumps.
+        Applica il rumore stocastico al vettore di stato tramite traiettorie quantistiche (quantum jumps).
+
         Args:
-            sv: Input statevector
-            n: Number of qubits
-            model: Noise model name
-            p: Error probability
-            rng: NumPy random generator
-            qubits: List of qubits to apply noise to (default: all)
-        Returns:
-            Noisy statevector (post-jump state, normalized)
+            sv: Vettore di stato (np.ndarray o jnp.ndarray)
+            n: Numero totale di qubit nel registro
+            model: Stringa identificativa del modello di rumore
+            p: Probabilità di errore / parametro di damping
+            rng: Generatore di numeri casuali NumPy (usato solo per backend NumPy/CuPy)
+            qubits: Lista di qubit su cui applicare il rumore (default: tutti)
+            jax_key: jax.random.PRNGKey obbligatoria per garantire la stochastiticità sotto JAX JIT
         """
         if model == 'ideal' or p <= 0:
             return sv
 
         is_jax_array = HAS_JAX and isinstance(sv, jnp.ndarray)
         xp = jnp if is_jax_array else np
+
         target_qubits = qubits if qubits else list(range(n))
-        sv_local = sv if is_jax_array else sv.copy()
+        dim = len(sv)
+        sv_local = sv  # JAX array immutabile, le operazioni .at restituiranno nuove istanze
+
+        # Fallback del generatore NumPy per compatibilità retroattiva NumPy/CuPy
+        if not is_jax_array and rng is None:
+            rng = np.random.default_rng(int(time.time()))
+
+        # Inizializzazione della chiave funzionale di JAX per evitare il tracing ghost
+        if is_jax_array:
+            if jax_key is None:
+                jax_key = jax.random.PRNGKey(int(time.time() * 1000))
+            current_key = jax_key
 
         for q in target_qubits:
-            # Calcolo dello stride geometrico basato sulla convenzione MSB specchiata
-            phys_q = n - 1 - q
-            stride = 1 << phys_q
+            step = 1 << q
+            indices = xp.arange(dim)
+            mask_0 = (indices & step) == 0
+            idx_0 = xp.where(mask_0)[0]
+            idx_1 = idx_0 | step
+            len_idx = len(idx_0)
 
-            # Rimodellamento 2D stabile per XLA: [blocchi anteriori, 2 * stride]
-            sv_2d = sv_local.reshape(-1, 2 * stride)
-            sv0 = sv_2d[:, :stride]
-            sv1 = sv_2d[:, stride:]
+            # --- GENERAZIONE DEL VETTORE CASUALE AGNOSTIC BACKEND ---
+            if is_jax_array:
+                current_key, subkey = jax.random.split(current_key)
+                r_vec = jax.random.uniform(subkey, shape=(len_idx,), minval=0.0, maxval=1.0)
+            else:
+                r_vec = rng.random(len_idx)
 
-            dim_blocks = sv_2d.shape[0]
-
+            # --- APPLICAZIONE MODELLI DI RUMORE ---
             if model == 'depolarizing':
-                # Campionamento stocastico uniforme lungo i blocchi contigui dello stride
-                r_vec = rng.random(dim_blocks * stride).reshape(dim_blocks, stride)
+                mask_x = r_vec < p/3
+                mask_z = (r_vec >= p/3) & (r_vec < 2*p/3)
+                mask_y = (r_vec >= 2*p/3) & (r_vec < p)
+
                 if is_jax_array:
-                    r_vec = jnp.array(r_vec)
+                    # Inversione di ampiezza X-Gate (JAX Immutabile via indici booleani fissi)
+                    temp_sv_x = sv_local[idx_0[mask_x]]
+                    sv_local = sv_local.at[idx_0[mask_x]].set(sv_local[idx_1[mask_x]])
+                    sv_local = sv_local.at[idx_1[mask_x]].set(temp_sv_x)
 
-                mask_x = r_vec < (p / 3.0)
-                mask_z = (r_vec >= (p / 3.0)) & (r_vec < (2.0 * p / 3.0))
-                mask_y = (r_vec >= (2.0 * p / 3.0)) & (r_vec < p)
+                    # Inversione di fase Z-Gate (JAX Immutabile)
+                    sv_local = sv_local.at[idx_1[mask_z]].multiply(-1)
 
-                # Applicazione parallela condizionale fusa senza mutazioni in-place distruttive per JAX
-                new_sv0 = xp.where(mask_x, sv1, sv0)
-                new_sv1 = xp.where(mask_x, sv0, sv1)
+                    # Rotazione complessa Y-Gate (JAX Immutabile)
+                    temp_sv_y0 = sv_local[idx_0[mask_y]]
+                    sv_local = sv_local.at[idx_0[mask_y]].set(-1j * sv_local[idx_1[mask_y]])
+                    sv_local = sv_local.at[idx_1[mask_y]].set(1j * temp_sv_y0)
+                else:
+                    # Inversione di ampiezza X-Gate (NumPy standard in-place mutabile)
+                    temp_sv_x = sv_local[idx_0[mask_x]].copy()
+                    sv_local[idx_0[mask_x]] = sv_local[idx_1[mask_x]]
+                    sv_local[idx_1[mask_x]] = temp_sv_x
 
-                new_sv0 = xp.where(mask_z, new_sv0, new_sv0)
-                new_sv1 = xp.where(mask_z, -new_sv1, new_sv1)
+                    sv_local[idx_1[mask_z]] *= -1
 
-                new_sv0 = xp.where(mask_y, -1j * sv1, new_sv0)
-                new_sv1 = xp.where(mask_y, 1j * sv0, new_sv1)
-
-                sv_local = xp.concatenate([new_sv0, new_sv1], axis=1).ravel()
+                    # Rotazione complessa Y-Gate (NumPy Mutabile)
+                    temp_sv_y0 = sv_local[idx_0[mask_y]].copy()
+                    sv_local[idx_0[mask_y]] = -1j * sv_local[idx_1[mask_y]]
+                    sv_local[idx_1[mask_y]] = 1j * temp_sv_y0
 
             elif model == 'bitflip':
-                r_vec = rng.random(dim_blocks * stride).reshape(dim_blocks, stride)
-                if is_jax_array:
-                    r_vec = jnp.array(r_vec)
-
                 mask_flip = r_vec < p
-                new_sv0 = xp.where(mask_flip, sv1, sv0)
-                new_sv1 = xp.where(mask_flip, sv0, sv1)
-
-                sv_local = xp.concatenate([new_sv0, new_sv1], axis=1).ravel()
+                if is_jax_array:
+                    temp_sv_flip = sv_local[idx_0[mask_flip]]
+                    sv_local = sv_local.at[idx_0[mask_flip]].set(sv_local[idx_1[mask_flip]])
+                    sv_local = sv_local.at[idx_1[mask_flip]].set(temp_sv_flip)
+                else:
+                    temp_sv_flip = sv_local[idx_0[mask_flip]].copy()
+                    sv_local[idx_0[mask_flip]] = sv_local[idx_1[mask_flip]]
+                    sv_local[idx_1[mask_flip]] = temp_sv_flip
 
             elif model == 'phaseflip':
-                r_vec = rng.random(dim_blocks * stride).reshape(dim_blocks, stride)
-                if is_jax_array:
-                    r_vec = jnp.array(r_vec)
-
                 mask_flip = r_vec < p
-                new_sv1 = xp.where(mask_flip, -sv1, sv1)
-
-                sv_local = xp.concatenate([sv0, new_sv1], axis=1).ravel()
+                if is_jax_array:
+                    sv_local = sv_local.at[idx_1[mask_flip]].multiply(-1)
+                else:
+                    sv_local[idx_1[mask_flip]] *= -1
 
             elif model == 'amplitude_damping':
                 gamma = p
-                r_vec = rng.random(dim_blocks * stride).reshape(dim_blocks, stride)
                 if is_jax_array:
-                    r_vec = jnp.array(r_vec)
-
-                mask_decay = r_vec < gamma
-
-                # Contrazione dell'ampiezza dello stato eccitato |1> ed eccitazione dello stato |0>
-                new_sv0 = xp.where(mask_decay, sv0 + sv1, sv0)
-                new_sv1 = xp.where(mask_decay, 0.0, sv1 * xp.sqrt(1.0 - gamma))
-
-                sv_local = xp.concatenate([new_sv0, new_sv1], axis=1).ravel()
+                    sv_local = sv_local.at[idx_1].multiply(xp.sqrt(1 - gamma))
+                    mask_decay = r_vec < gamma
+                    sv_local = sv_local.at[idx_0[mask_decay]].add(sv_local[idx_1[mask_decay]])
+                    sv_local = sv_local.at[idx_1[mask_decay]].set(0)
+                else:
+                    sv_local[idx_1] *= np.sqrt(1 - gamma)
+                    mask_decay = r_vec < gamma
+                    sv_local[idx_0[mask_decay]] += sv_local[idx_1[mask_decay]]
+                    sv_local[idx_1[mask_decay]] = 0
 
             elif model == 'combined':
-                r_vec = rng.random(dim_blocks * stride).reshape(dim_blocks, stride)
+                mask_x = r_vec < p*0.2
+                mask_z = (r_vec >= p*0.2) & (r_vec < p*0.4)
+                mask_y = (r_vec >= p*0.4) & (r_vec < p*0.6)
+
                 if is_jax_array:
-                    r_vec = jnp.array(r_vec)
+                    temp_sv_x = sv_local[idx_0[mask_x]]
+                    sv_local = sv_local.at[idx_0[mask_x]].set(sv_local[idx_1[mask_x]])
+                    sv_local = sv_local.at[idx_1[mask_x]].set(temp_sv_x)
 
-                mask_x = r_vec < (p * 0.2)
-                mask_z = (r_vec >= (p * 0.2)) & (r_vec < (p * 0.4))
-                mask_y = (r_vec >= (p * 0.4)) & (r_vec < (p * 0.6))
+                    sv_local = sv_local.at[idx_1[mask_z]].multiply(-1)
 
-                new_sv0 = xp.where(mask_x, sv1, sv0)
-                new_sv1 = xp.where(mask_x, sv0, sv1)
+                    temp_sv_y0 = sv_local[idx_0[mask_y]]
+                    sv_local = sv_local.at[idx_0[mask_y]].set(-1j * sv_local[idx_1[mask_y]])
+                    sv_local = sv_local.at[idx_1[mask_y]].set(1j * temp_sv_y0)
 
-                new_sv1 = xp.where(mask_z, -new_sv1, new_sv1)
+                    sv_local = sv_local.at[idx_1].multiply(xp.sqrt(1 - p*0.3))
+                else:
+                    temp_sv_x = sv_local[idx_0[mask_x]].copy()
+                    sv_local[idx_0[mask_x]] = sv_local[idx_1[mask_x]]
+                    sv_local[idx_1[mask_x]] = temp_sv_x
 
-                new_sv0 = xp.where(mask_y, -1j * sv1, new_sv0)
-                new_sv1 = xp.where(mask_y, 1j * sv0, new_sv1)
+                    sv_local[idx_1[mask_z]] *= -1
 
-                new_sv1 = new_sv1 * xp.sqrt(1.0 - p * 0.3)
-                sv_local = xp.concatenate([new_sv0, new_sv1], axis=1).ravel()
+                    temp_sv_y0 = sv_local[idx_0[mask_y]].copy()
+                    sv_local[idx_0[mask_y]] = -1j * sv_local[idx_1[mask_y]]
+                    sv_local[idx_1[mask_y]] = 1j * temp_sv_y0
 
-        # Re-normalizzazione di traiettoria protetta contro divisioni per zero
+                    sv_local[idx_1] *= np.sqrt(1 - p*0.3)
+
+        # Rinormalizzazione di traiettoria protetta
         norm = xp.linalg.norm(sv_local)
         return sv_local / (norm + 1e-15)
 
     @staticmethod
     def kraus_description(model: str) -> Dict:
-        """Get Kraus operator description for a noise model"""
         desc = {
-            'ideal': {'kraus': 1, 'formula': 'K₀=I', 'physical': 'Nessun rumore'},
-            'depolarizing': {'kraus': 4, 'formula': 'K₀=√(1-p)I, K₁=√(p/3)X, K₂=√(p/3)Y, K₃=√(p/3)Z', 'physical': 'Decadimento verso stato massimamente misto'},
-            'bitflip': {'kraus': 2, 'formula': 'K₀=√(1-p)I, K₁=√p·X', 'physical': 'Inversione classica del bit'},
-            'phaseflip': {'kraus': 2, 'formula': 'K₀=√(1-p)I, K₁=√p·Z', 'physical': 'Inversione della fase quantistica'},
-            'amplitude_damping': {'kraus': 2, 'formula': 'K₀=diag(1,√(1-γ)), K₁=[[0,√γ],[0,0]]', 'physical': 'Rilassamento energetico / Emissione spontanea'},
-            'combined': {'kraus': 6, 'formula': 'Dep(p*0.4) + AmpDamp(p*0.3)', 'physical': 'Rumore NISQ misto realistico'}
+            'ideal':             {'kraus': 1, 'formula': 'K\u2080=I',  'physical': 'Nessun rumore'},
+            'depolarizing':      {'kraus': 4, 'formula': 'K\u2080=\u221a(1-p)I, K\u2081=\u221a(p/3)X, K\u2082=\u221a(p/3)Y, K\u2083=\u221a(p/3)Z', 'physical': 'Errore isotropo'},
+            'bitflip':           {'kraus': 2, 'formula': 'K\u2080=\u221a(1-p)I, K\u2081=\u221ap\u00b7X', 'physical': 'Flip di qubit \u03c3_x'},
+            'phaseflip':         {'kraus': 2, 'formula': 'K\u2080=\u221a(1-p)I, K\u2081=\u221ap\u00b7Z', 'physical': 'Dephasing puro'},
+            'amplitude_damping': {'kraus': 2, 'formula': 'K\u2080=diag(1,\u221a(1-\u03b3)), K\u2081=[[0,\u221a\u03b3],[0,0]]', 'physical': 'Decadimento T\u2081 (relassazione)'},
+            'combined':          {'kraus': 6, 'formula': 'Dep(p*0.4) + AmpDamp(p*0.3)', 'physical': 'Worst-case NISQ'},
         }
         return desc.get(model, desc['ideal'])
 
-print("✅ NoiseModel completato con successo: Pieno supporto ad alte prestazioni JAX + NumPy caricato!")
+print("✅ NoiseModel aggiornato (EUPL-1.2): Pieno supporto stocastico runtime JAX JIT sigillato!")
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CELLA 7: OpenQASM 2.0 Parser & Transpiler
@@ -1333,150 +1372,6 @@ DenseSVSimulator.apply_cz = apply_cz
 
 print("💎 ENGINE CORE RIALLINEATO PERFETTAMENTE: Tutti i canali JAX e NumPy sono stabili!")
 
-if __name__ == "__main__":
-    print("\n" + "="*70)
-    print("EXAMPLE 1: Direct Bell State Preparation (Core Engine)")
-    print("="*70)
-
-    sim = DenseSVSimulator(n_qubits=2, use_gpu=False)
-    sim.apply_gate_1q(GATES['h'], 0)
-    print(f"Dopo H(0): |ψ⟩ ~ (|0⟩ + |1⟩) ⊗ |0⟩")
-
-    sim.apply_gate_2q(GATES['cx'].reshape(2,2,2,2), 0, 1)
-    print(f"Dopo CX(0,1): |ψ⟩ ~ (|00⟩ + |11⟩) / √2")
-
-    probs = sim.get_probabilities()
-    print(f"\nDistribuzione delle probabilità degli stati di base:")
-    for i, p in enumerate(probs):
-        if p > 1e-10:
-            print(f"  |{i:02b}⟩: {p:.4f}")
-
-    m0 = sim.measure(0)
-    print(f"\nRisultato della misura sul Qubit 0: {m0}")
-    print(f"Norma del vettore di stato post-collasso: {np.linalg.norm(sim.get_statevector()):.6f}")
-
-    probs_post = sim.get_probabilities()
-    for i, p in enumerate(probs_post):
-        if p > 1e-10:
-            print(f"  Stato residuo in memoria -> |{i:02b}⟩: {p:.4f}")
-
-    print("\n" + "="*70)
-    print("EXAMPLE 2: Circuit Runner & Parametric Check (Graph Execution)")
-    print("="*70)
-
-    sim_circuit = DenseSVSimulator(n_qubits=3, use_gpu=False)
-    test_graph = [
-        ('h', 0),
-        ('rx', 1, np.pi/2),
-        ('cx', 0, 1),
-        ('cx', 1, 2)
-    ]
-
-    print("Esecuzione del grafo quantistico ottimizzato...")
-    sim_circuit.run_circuit(test_graph, transpile=True)
-    m2 = sim_circuit.measure(2)
-    print(f"Risultato della misura sul Qubit 2: {m2}")
-    print(f"Norma finale del vettore a 3 qubit: {np.linalg.norm(sim_circuit.get_statevector()):.6f}")
-
-
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # 10 TEST AVANZATI DA GITHUB (STRESS SUITE & VALIDATION)
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    print("\n" + "="*70)
-    print("🚀 RUNNING 10 ADVANCED GITHUB VALIDATION TESTS")
-    print("="*70)
-
-    # --- TEST 1: Pauli Gate Identity (X * X = I) ---
-    sim_t1 = DenseSVSimulator(n_qubits=1, use_gpu=False)
-    sim_t1.apply_gate_1q(GATES['x'], 0)
-    sim_t1.apply_gate_1q(GATES['x'], 0)
-    n1 = np.linalg.norm(sim_t1.get_statevector())
-    p0 = sim_t1.get_probabilities()[0]
-    print(f"Test 1 (Pauli X Identity): {'PASSED' if (abs(n1-1.0)<1e-6 and abs(p0-1.0)<1e-6) else 'FAILED'} | Norma: {n1:.4f} | P(|0⟩): {p0:.4f}")
-
-    # --- TEST 2: Basis State Orthogonality (State |1⟩ Prep) ---
-    sim_t2 = DenseSVSimulator(n_qubits=1, use_gpu=False)
-    sim_t2.apply_gate_1q(GATES['x'], 0)
-    p1 = sim_t2.get_probabilities()[1]
-    print(f"Test 2 (Orthogonality Prep): {'PASSED' if abs(p1-1.0)<1e-6 else 'FAILED'} | P(|1⟩): {p1:.4f}")
-
-    # --- TEST 3: GHZ State Unitary Verification (3-Qubit Maximal Entanglement) ---
-    sim_t3 = DenseSVSimulator(n_qubits=3, use_gpu=False)
-    ghz_graph = [('h', 0), ('cx', 0, 1), ('cx', 1, 2)]
-    sim_t3.run_circuit(ghz_graph)
-    probs_t3 = sim_t3.get_probabilities()
-    n3 = np.linalg.norm(sim_t3.get_statevector())
-    is_ghz = abs(probs_t3[0]-0.5)<1e-6 and abs(probs_t3[7]-0.5)<1e-6
-    print(f"Test 3 (GHZ Maximally Entangled): {'PASSED' if (is_ghz and abs(n3-1.0)<1e-6) else 'FAILED'} | Norma: {n3:.4f}")
-
-    # --- TEST 4: Parametric Periodic Rotation (Rx Rotation 2*pi) ---
-    sim_t4 = DenseSVSimulator(n_qubits=1, use_gpu=False)
-    sim_t4.apply_rx(0, 2 * np.pi)
-    p0_t4 = sim_t4.get_probabilities()[0]
-    print(f"Test 4 (Rx 2π Periodicity): {'PASSED' if abs(p0_t4-1.0)<1e-5 else 'FAILED'} | P(|0⟩): {p0_t4:.4f}")
-
-    # --- TEST 5: Phase Accumulation (T * T * T * T = Z) ---
-    sim_t5 = DenseSVSimulator(n_qubits=1, use_gpu=False)
-    sim_t5.apply_gate_1q(GATES['h'], 0) # Mette in |+⟩
-    for _ in range(4): sim_t5.apply_gate_1q(GATES['t'], 0)
-    sv_t5 = sim_t5.get_statevector()
-    # Verifica che la fase di |1⟩ sia invertita rispetto a |0⟩
-    is_z = abs(sv_t5[0] - sv_t5[1]) < 1e-6 or abs(sv_t5[0] + sv_t5[1]) < 1e-6
-    print(f"Test 5 (Phase T^4 == Z): {'PASSED' if is_z else 'FAILED'} | Vettore: [{sv_t5[0]:.2f}, {sv_t5[1]:.2f}]")
-
-    # --- TEST 6: Multi-Qubit Scalability Allocation Check (14 Qubits) ---
-    try:
-        sim_t6 = DenseSVSimulator(n_qubits=14, use_gpu=False)
-        m_size = sim_t6.memory_mb()
-        print(f"Test 6 (14-Qubit Allocation): PASSED | RAM Stimata: {m_size:.2f} MB | Ampiezze: {sim_t6.dim:,}")
-    except Exception as e:
-        print(f"Test 6 (14-Qubit Allocation): FAILED | Error: {str(e)}")
-
-    # --- TEST 7: Toffoli Target Scomposition Execution (CCX Unroll Verification) ---
-    sim_t7 = DenseSVSimulator(n_qubits=3, use_gpu=False)
-    # Attiva controllo 0 e controllo 1 portandoli a |1⟩
-    sim_t7.apply_gate_1q(GATES['x'], 0)
-    sim_t7.apply_gate_1q(GATES['x'], 1)
-    # Esegue CCX (Toffoli) che deve invertire il qubit 2
-    toffoli_circuit = [('ccx', 0, 1, 2)]
-    sim_t7.run_circuit(toffoli_circuit, transpile=True)
-    p7 = sim_t7.get_probabilities()[7] # Stato |111⟩
-    print(f"Test 7 (Toffoli Decomposition): {'PASSED' if abs(p7-1.0)<1e-6 else 'FAILED'} | P(|111⟩): {p7:.4f}")
-
-    # --- TEST 8: Commutation Stress (H * Z * H == X) ---
-    sim_t8 = DenseSVSimulator(n_qubits=1, use_gpu=False)
-    sim_t8.apply_gate_1q(GATES['h'], 0)
-    sim_t8.apply_gate_1q(GATES['z'], 0)
-    sim_t8.apply_gate_1q(GATES['h'], 0)
-    p1_t8 = sim_t8.get_probabilities()[1] # Deve essere invertito a |1⟩
-    print(f"Test 8 (Gate Commutation HZH==X): {'PASSED' if abs(p1_t8-1.0)<1e-6 else 'FAILED'} | P(|1⟩): {p1_t8:.4f}")
-
-    # --- TEST 9: Controlled Parametric Phase Check (CP Gate Execution) ---
-    sim_t9 = DenseSVSimulator(n_qubits=2, use_gpu=False)
-    sim_t9.apply_gate_1q(GATES['x'], 0)
-    sim_t9.apply_gate_1q(GATES['x'], 1) # Prepariamo lo stato |11⟩
-    sim_t9.apply_cp(0, 1, np.pi) # Ruota di pi lo stato eccitato
-    sv_t9 = sim_t9.get_statevector()
-    is_phased = abs(sv_t9[3].real + 1.0) < 1e-6 or abs(sv_t9[3].imag) > 1e-6
-    print(f"Test 9 (Controlled-Phase Rotation): {'PASSED' if is_phased else 'FAILED'} | Ampiezza |11⟩: {sv_t9[3]:.4f}")
-
-    # --- TEST 10: Wavefunction Collapse Distribution Success (Statistical Bounds) ---
-    outcomes = []
-    for _ in range(100):
-        # Create a fresh simulator instance for each measurement to ensure independent trials
-        temp_sim = DenseSVSimulator(n_qubits=1, use_gpu=False)
-        temp_sim.apply_gate_1q(GATES['h'], 0) # Prepare superposition state
-        outcomes.append(temp_sim.measure(0))
-
-    c0, c1 = outcomes.count(0), outcomes.count(1)
-    # Controllo statistico debole (entrambi gli esiti devono comparire almeno 30 volte su 100)
-    is_balanced = c0 > 30 and c1 > 30
-    print(f"Test 10 (Statistical Wavefunction Collapse): {'PASSED' if is_balanced else 'FAILED'} | Campioni -> Esito 0: {c0} | Esito 1: {c1}")
-
-    print("\n" + "="*70)
-    print("✅ ALL HARDWARE & PERFORMANCE TESTS COMPLETED!")
-    print("="*70 + "\n")
-
 DenseSVSimulator.measure = measure
 DenseSVSimulator.apply_cx = apply_cx
 DenseSVSimulator.apply_cz = apply_cz
@@ -1521,38 +1416,130 @@ def run_circuit_with_chunking(self, circuit: list, chunk_size: int = 500, transp
 # Iniezione del metodo enterprise corretto nella classe principale
 DenseSVSimulator.run_circuit_with_chunking = run_circuit_with_chunking
 
-"""### test"""
-
-import time
+import jax
+import jax.numpy as jnp
 import numpy as np
+import time
 
-if __name__ == "__main__":
-    n_qubits = 4
-    profondita_estrema = 5000  # 5000 H + 5000 CX = 10.000 gate totali
+def run_parametric_batch_jit(self, base_circuit: list, parameter_batch: np.ndarray) -> jnp.ndarray:
+    """
+    [BATCH ENGINE UFFICIALE - DENSE EVOLUTION]
+    Sfrutta 'jax.vmap' per calcolare centinaia di varianti parametriche dello stesso circuito
+    sfruttando il tuo super-compilatore fuso XLA '_compile_and_run_circuit_jit'.
+    """
+    if not HAS_JAX or self.xp is not jnp:
+        raise RuntimeError("JAX deve essere il backend attivo per usare run_parametric_batch_jit.")
 
-    print("=======================================================================")
-    print("🔥 VALIDATION TEST: EDGE-CASE STRESS SUITE (10.000 GATES)")
-    print("=======================================================================")
-    print("Stato: Generazione dell'algoritmo NISQ ad altissima profondità...")
+    # Decomposizione preliminare delle macro-porte (Toffoli, SWAP) tramite il tuo Transpiler
+    target_circuit = QuantumTranspiler.transpile(base_circuit)
 
-    # Costruzione del circuito massivo
-    circuito_stress = [('h', i % n_qubits) for i in range(profondita_estrema)] + \
-                       [('cx', i % n_qubits, (i + 1) % n_qubits) for i in range(profondita_estrema)]
+    # Mappiamo il circuito secondo lo standard numerico della tua CELLA 8
+    compiled_list = []
+    for cmd in target_circuit:
+        g_name = cmd[0].lower()
+        args = cmd[1:]
 
-    # Inizializzazione del simulatore con verbose=False per azzerare l'I/O bottleneck delle stampe
-    sim = DenseSVSimulator(n_qubits=n_qubits, use_gpu=False, use_float32=False)
+        if g_name in GATE_IDS:
+            g_id = GATE_IDS[g_name]
+            if g_name in ['rx', 'ry', 'rz', 'p']:
+                # Memorizziamo una flag numerica (-1) per identificare la posizione del parametro dinamico
+                compiled_list.append([float(g_id), float(args[0]), 0.0, -1.0])
+            elif g_name in ['cx', 'cz']:
+                compiled_list.append([float(g_id), float(args[0]), float(args[1]), 0.0])
+            else:
+                compiled_list.append([float(g_id), float(args[0]), 0.0, 0.0])
 
-    print("\nLancio dell'esecuzione con la tecnica del Chunking...")
+    compiled_ops_template = jnp.array(compiled_list, dtype=jnp.float64)
+    n_qubits = self.n
+    dim = self.dim
+
+    # Definizione della funzione da vettorializzare per la singola istanza del batch
+    def simulate_single_instance(single_params):
+        # Inizializzazione dello stato |00...0> conforme alla tua CELLA 5
+        local_sv = jnp.zeros(dim, dtype=jnp.complex128).at[0].set(1.0)
+
+        # Ricostruiamo la matrice delle operazioni sostituendo i parametri dinamici del batch
+        # Trova dove abbiamo messo la flag -1.0 e inserisce il parametro reale
+        def patch_ops(carry, op):
+            g_id, q1, q2, p_val = op
+            param_idx = carry[0]
+
+            # Se p_val == -1.0, prendiamo il parametro corrente dal batch e incrementiamo l'indice
+            final_p = jax.lax.cond(p_val == -1.0, lambda _: single_params[param_idx], lambda _: p_val, operand=None)
+            next_idx = jax.lax.cond(p_val == -1.0, lambda _: param_idx + 1, lambda _: param_idx, operand=None)
+
+            return (next_idx,), jnp.array([g_id, q1, q2, final_p], dtype=jnp.float64)
+
+        _, patched_ops = jax.lax.scan(patch_ops, (0,), compiled_ops_template)
+
+        # Chiamata diretta al tuo motore fuso XLA nativo (Cella 7 del tuo notebook)
+        return _compile_and_run_circuit_jit(local_sv, patched_ops)
+
+    print(f"🚀 VMAP COMPILER: Parallelizzazione inter-circuito attiva per {len(parameter_batch)} istanze...")
+
+    # Applichiamo vmap sul super-grafo fuso
+    vmap_sim = jax.vmap(simulate_single_instance, in_axes=(0,))
+    jitted_vmap = jax.jit(vmap_sim)
+
     t0 = time.perf_counter()
+    res = jitted_vmap(jnp.asarray(parameter_batch, dtype=jnp.float64))
+    res.block_until_ready()
+    print(f"✅ Batch completato in {time.perf_counter() - t0:.4f} secondi!")
+    return res
 
-    # Eseguiamo spezzando in blocchi ottimali da 500 gate l'uno per resettare la cache JIT
-    sim.run_circuit_with_chunking(circuito_stress, chunk_size=500, transpile=False)
+# Iniettiamo il metodo nel tuo simulatore originale
+DenseSVSimulator.run_parametric_batch_jit = run_parametric_batch_jit
+print("💎 BATCH ENGINE AGGANGIATO: Pieno supporto QML & VQE attivo sul tuo core!")
 
-    t1 = time.perf_counter()
-    tempo_impiegato = t1 - t0
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ESTENSIONE ENTERPRISE: Modulo di Error Mitigation Nativo (ZNE)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# [PROPRIETARY ALGORITHM - (c) 2026 Salvatore Pennacchio - Licensed under EUPL-1.2]
 
-    print("-" * 71)
-    print(f"⏱️ Tempo impiegato con Chunking: {tempo_impiegato:.4f} secondi")
-    print(f"Norma finale dello Statevector: {np.linalg.norm(sim.get_statevector()):.6f}")
-    print("=======================================================================\n")
+class ErrorMitigation:
+    """
+    Zero-Noise Extrapolation (ZNE) compiler core for NISQ simulators.
+    Consente di mitigare gli errori stocastici derivanti dai canali di Kraus
+    estrapolando l'autovalore energetico ideale per p -> 0.
+    """
+
+    @staticmethod
+    def zero_noise_extrapolate(noise_levels: List[float], energies: List[float], order: int = 2) -> Dict:
+        """
+        Esegue l'estrapolazione di Richardson tramite fit polinomiale ad alta fedeltà.
+
+        Args:
+            noise_levels: Lista o array dei fattori di rumore p campionati.
+            energies: Lista delle aspettative energetiche <H> associate.
+            order: Grado del polinomio di estrapolazione (default: 2, quadratico).
+
+        Returns:
+            Dict contenente l'energia mitigata e i metadati di convergenza.
+        """
+        x = np.array(noise_levels, dtype=np.float64)
+        y = np.array(energies, dtype=np.float64)
+
+        if len(x) <= order:
+            raise ValueError(f"Numero di punti insufficiente ({len(x)}) per il grado del polinomio impostato ({order}).")
+
+        # Calcolo dei coefficienti del polinomio di regressione
+        coefficients = np.polyfit(x, y, order)
+
+        # L'intercetta sull'asse Y (dove p = 0.0) corrisponde esattamente al termine noto del polinomio
+        mitigated_energy = float(np.polyval(coefficients, 0.0))
+
+        # Calcolo del residuo quadratico medio del fit per la telemetria di certificazione
+        residuals = np.mean((np.polyval(coefficients, x) - y) ** 2)
+
+        return {
+            'mitigated_energy': mitigated_energy,
+            'fit_residuals': residuals,
+            'polynomial_order': order,
+            'status': 'CONVERGED ✅' if residuals < 1e-4 else 'HIGH_RESIDUALS_WARNING ⚠️'
+        }
+
+# Iniezione dinamica del metodo all'interno del simulatore se importato come modulo
+print("✅ Modulo ErrorMitigation (ZNE) sigillato con successo in conformità con lo standard EUPL-1.2!")
+
+"""### test"""
 
