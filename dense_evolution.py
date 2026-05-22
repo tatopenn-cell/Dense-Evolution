@@ -1491,55 +1491,5 @@ def run_parametric_batch_jit(self, base_circuit: list, parameter_batch: np.ndarr
 DenseSVSimulator.run_parametric_batch_jit = run_parametric_batch_jit
 print("💎 BATCH ENGINE AGGANGIATO: Pieno supporto QML & VQE attivo sul tuo core!")
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# ESTENSIONE ENTERPRISE: Modulo di Error Mitigation Nativo (ZNE)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# [PROPRIETARY ALGORITHM - (c) 2026 Salvatore Pennacchio - Licensed under EUPL-1.2]
 
-class ErrorMitigation:
-    """
-    Zero-Noise Extrapolation (ZNE) compiler core for NISQ simulators.
-    Consente di mitigare gli errori stocastici derivanti dai canali di Kraus
-    estrapolando l'autovalore energetico ideale per p -> 0.
-    """
-
-    @staticmethod
-    def zero_noise_extrapolate(noise_levels: List[float], energies: List[float], order: int = 2) -> Dict:
-        """
-        Esegue l'estrapolazione di Richardson tramite fit polinomiale ad alta fedeltà.
-
-        Args:
-            noise_levels: Lista o array dei fattori di rumore p campionati.
-            energies: Lista delle aspettative energetiche <H> associate.
-            order: Grado del polinomio di estrapolazione (default: 2, quadratico).
-
-        Returns:
-            Dict contenente l'energia mitigata e i metadati di convergenza.
-        """
-        x = np.array(noise_levels, dtype=np.float64)
-        y = np.array(energies, dtype=np.float64)
-
-        if len(x) <= order:
-            raise ValueError(f"Numero di punti insufficiente ({len(x)}) per il grado del polinomio impostato ({order}).")
-
-        # Calcolo dei coefficienti del polinomio di regressione
-        coefficients = np.polyfit(x, y, order)
-
-        # L'intercetta sull'asse Y (dove p = 0.0) corrisponde esattamente al termine noto del polinomio
-        mitigated_energy = float(np.polyval(coefficients, 0.0))
-
-        # Calcolo del residuo quadratico medio del fit per la telemetria di certificazione
-        residuals = np.mean((np.polyval(coefficients, x) - y) ** 2)
-
-        return {
-            'mitigated_energy': mitigated_energy,
-            'fit_residuals': residuals,
-            'polynomial_order': order,
-            'status': 'CONVERGED ✅' if residuals < 1e-4 else 'HIGH_RESIDUALS_WARNING ⚠️'
-        }
-
-# Iniezione dinamica del metodo all'interno del simulatore se importato come modulo
-print("✅ Modulo ErrorMitigation (ZNE) sigillato con successo in conformità con lo standard EUPL-1.2!")
-
-"""### test"""
 
