@@ -1039,88 +1039,71 @@ if HAS_JAX:
     print("💎 CORE COMPILER SIGILLATO V4 (ULTRA): Rimossi definitivamente i reshape dinamici. Struttura JIT stabile ed esatta!")
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# PATCH CORE: Engine di Compilazione XLA Standard Enterprise (1D Pure)
+# CORE COMPILATION ENGINE (KERNEL FUSION LINEARE AD ALLOCAZIONE ZERO)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 if HAS_JAX:
     @jax.jit
     def _apply_gate_fast_step(sv, operation):
-       
         g_id, q1, q2, param = operation
         dim = sv.shape[0]
-
         inv2 = 1.0 / jnp.sqrt(2.0)
         cos_p = jnp.cos(param / 2.0)
         sin_p = jnp.sin(param / 2.0)
-
-        # Clamping protettivo dell'indice virtuale per evitare errori Out-of-Bounds in XLA
         safe_gid = jnp.where(g_id <= 11, g_id, 0).astype(jnp.int32)
 
         g_1q = jax.lax.switch(
             safe_gid,
             [
-                lambda _: jnp.eye(2, dtype=jnp.complex128),                                     # 0: id
-                lambda _: inv2 * jnp.array([[1.0, 1.0], [1.0, -1.0]], dtype=jnp.complex128),      # 1: h
-                lambda _: jnp.array([[0.0, 1.0], [1.0, 0.0]], dtype=jnp.complex128),            # 2: x
-                lambda _: jnp.array([[0.0, -1j], [1j, 0.0]], dtype=jnp.complex128),            # 3: y
-                lambda _: jnp.array([[1.0, 0.0], [0.0, -1.0]], dtype=jnp.complex128),           # 4: z
-                lambda _: jnp.array([[1.0, 0.0], [0.0, 1j]], dtype=jnp.complex128),             # 5: s
-                lambda _: jnp.array([[1.0, 0.0], [0.0, -1j]], dtype=jnp.complex128),            # 6: sdg
-                lambda _: jnp.array([[1.0, 0.0], [0.0, jnp.exp(1j * jnp.pi / 4)]], dtype=jnp.complex128),  # 7: t
-                lambda _: jnp.array([[1.0, 0.0], [0.0, jnp.exp(-1j * jnp.pi / 4)]], dtype=jnp.complex128), # 8: tdg
-                lambda _: jnp.array([[cos_p, -1j * sin_p], [-1j * sin_p, cos_p]], dtype=jnp.complex128), # 9: rx
-                lambda _: jnp.array([[cos_p, -sin_p], [sin_p, cos_p]], dtype=jnp.complex128),            # 10: ry
-                lambda _: jnp.array([[jnp.exp(-1j * param / 2.0), 0.0], [0.0, jnp.exp(1j * param / 2.0)]], dtype=jnp.complex128) # 11: rz
+                lambda _: jnp.eye(2, dtype=jnp.complex128),
+                lambda _: inv2 * jnp.array([[1.0, 1.0], [1.0, -1.0]], dtype=jnp.complex128),
+                lambda _: jnp.array([[0.0, 1.0], [1.0, 0.0]], dtype=jnp.complex128),
+                lambda _: jnp.array([[0.0, -1j], [1j, 0.0]], dtype=jnp.complex128),
+                lambda _: jnp.array([[1.0, 0.0], [0.0, -1.0]], dtype=jnp.complex128),
+                lambda _: jnp.array([[1.0, 0.0], [0.0, 1j]], dtype=jnp.complex128),
+                lambda _: jnp.array([[1.0, 0.0], [0.0, -1j]], dtype=jnp.complex128),
+                lambda _: jnp.array([[1.0, 0.0], [0.0, jnp.exp(1j * jnp.pi / 4)]], dtype=jnp.complex128),
+                lambda _: jnp.array([[1.0, 0.0], [0.0, jnp.exp(-1j * jnp.pi / 4)]], dtype=jnp.complex128),
+                lambda _: jnp.array([[cos_p, -1j * sin_p], [-1j * sin_p, cos_p]], dtype=jnp.complex128),
+                lambda _: jnp.array([[cos_p, -sin_p], [sin_p, cos_p]], dtype=jnp.complex128),
+                lambda _: jnp.array([[jnp.exp(-1j * param / 2.0), 0.0], [0.0, jnp.exp(1j * param / 2.0)]], dtype=jnp.complex128)
             ],
             operand=None
         )
 
-        # 1-QUUBIT: APPLICAZIONE LINEARE MATRICE-SPAZZATA (Zero indici dinamici intermedi)
         def do_1q(_sv):
             t_bit = q1.astype(jnp.int64)
             stride = 1 << t_bit
-
-            # Generazione implicita basata sulla dimensione fissa 1D del vettore
             idx_full = jnp.arange(dim, dtype=jnp.int64)
             mask_0 = (idx_full & stride) == 0
-
             idx_0 = jnp.where(mask_0, idx_full, idx_full ^ stride)
             idx_1 = idx_0 | stride
-
             g00, g01, g10, g11 = g_1q[0, 0], g_1q[0, 1], g_1q[1, 0], g_1q[1, 1]
-
             new_sv0 = g00 * _sv[idx_0] + g01 * _sv[idx_1]
             new_sv1 = g10 * _sv[idx_0] + g11 * _sv[idx_1]
-
             return jnp.where(mask_0, new_sv0, new_sv1)
 
-        # 2-QUBIT: APPLICAZIONE LINEARE CONTROLLATA (Zero Reshape, Previene l'OOM a 24 Qubit)
         def do_2q(_sv):
             ctrl = q1.astype(jnp.int64)
             trgt = q2.astype(jnp.int64)
-
             idx_full = jnp.arange(dim, dtype=jnp.int64)
             ctrl_active = (idx_full & (1 << ctrl)) != 0
             trgt_active = (idx_full & (1 << trgt)) != 0
-
             cx_sv = _sv[idx_full ^ (1 << trgt)]
             cz_sv = jnp.where(trgt_active, -_sv, _sv)
-
             target_sv = jax.lax.cond(g_id == 20, lambda _: cx_sv, lambda _: cz_sv, operand=None)
             return jnp.where(ctrl_active, target_sv, _sv)
 
-        # Routing condizionale statico
         exec_1q = g_id <= 11
         new_sv = jax.lax.cond(exec_1q, do_1q, do_2q, sv)
         return new_sv, None
 
     @jax.jit
     def _compile_and_run_circuit_jit(state_vector, compiled_ops):
-        """Pipeline lineare fusa in XLA tramite scansione nativa hardware"""
         final_sv, _ = jax.lax.scan(_apply_gate_fast_step, state_vector, compiled_ops)
         return final_sv
 
     print("💎 CORE COMPILER PATCHATO V4: Struttura 1D lineare stabilizzata a norma fissa.")
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # INTERFACCIA: run_circuit_jit_beast_mode (Mappatura Riallineata V2)
