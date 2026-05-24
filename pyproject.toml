@@ -1,3 +1,4 @@
+
 [build-system]
 requires = ["setuptools>=61.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
@@ -5,46 +6,42 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "dense-evolution"
 version = "8.0.0"
-description = "A micro-optimized, high-performance NISQ Statevector Quantum Simulator using JAX XLA Kernel Fusion."
+description = "A micro-optimized, high-performance NISQ statevector quantum circuit simulator with JAX and CuPy acceleration."
 readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
 authors = [
     { name = "Salvatore Pennacchio", email = "jtatopenn@libero.it" }
 ]
-license = { text = "MIT" }
+keywords = [
+    "quantum", "quantum-computing", "quantum-simulator", "statevector", 
+    "jax", "cupy", "cuda-acceleration", "openqasm", "nisq-noise", "hpc"
+]
 classifiers = [
-    "Programming Language :: Python :: 3",
-    "Development Status :: 5 :: Production/Stable",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Physics"
 ]
-requires-python = ">=3.9"
 dependencies = [
-    "numpy>=1.22.0",
-    "matplotlib>=3.5.0",
-    "psutil>=5.9.0"
+    "numpy>=1.22.0"
 ]
 
 [project.optional-dependencies]
-jax = [
-    "jax>=0.4.0",
-    "jaxlib>=0.4.0"
-]
-gpu = [
-    "cupy-cuda12x>=12.0.0"
-]
-
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["dense_evolution*"]
-
-keywords = [
-    "quantum-computing", "quantum-simulator", "statevector", 
-    "jax", "cupy", "cuda-acceleration", "openqasm", "nisq-noise"
-]
+gpu = ["cupy>=12.0.0"]
+jax = ["jax>=0.4.0", "jaxlib>=0.4.0"]
+dev = ["pytest>=7.0.0", "black>=23.0.0"]
 
 [project.urls]
-Homepage = "https://github.com/tatopenn-cell/Dense-Evolution"
-Documentation = "https://github.com"
-Repository = "https://github.com"
-Bug-Tracker = "https://github.com"
+Homepage = "https://github.com"
+Documentation = "https://github.com#readme"
+Repository = "https://github.com.git"
+Bug-Tracker = "https://github.com/issues"
 
+[tool.setuptools]
+py-modules = ["dense_evolution"]
