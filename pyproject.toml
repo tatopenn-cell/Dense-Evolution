@@ -54,7 +54,7 @@ Repository = "https://github.com/tatopenn-cell/Dense-Evolution"
 Bug-Tracker = "https://github.com/issues"
 
 [tool.setuptools]
-py-modules = ["dense_evolution"]
+py-modules = ["https://github.com/tatopenn-cell/Dense-Evolution/blob/main/dense_evolution.py"]
 
 [tool.black]
 line-length = 100
