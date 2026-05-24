@@ -951,12 +951,7 @@ GATE_IDS = {
 if HAS_JAX:
     @jax.jit
     def _apply_gate_fast_step(sv, operation):
-        """
-        Kernel ad altissima fusione (XLA) - ARCHITETTURA DI PRODUZIONE SIGILLATA.
-        - Elimina AL 100% .reshape() dinamici, jnp.arange() di blocco e .at[].set().
-        - Costo di allocazione RAM scratchpad intermedia = ESATTAMENTE ZERO.
-        - Preserva rigorosamente l'unitarità dello stato quantistico (Norma = 1.000000).
-        """
+       
         g_id, q1, q2, param = operation
         dim = sv.shape[0]
 
@@ -1050,12 +1045,7 @@ if HAS_JAX:
 if HAS_JAX:
     @jax.jit
     def _apply_gate_fast_step(sv, operation):
-        """
-        Kernel ad altissima fusione (XLA).
-        - 1-Qubit: Mappatura specchiata lineare tramite jnp.where (Zero .reshape dinamico).
-        - 2-Qubit: Selezione mascherata nativa in-place condizionale (Zero jnp.arange).
-        Mantiene il costo di allocazione RAM scratchpad a ESATTAMENTE ZERO.
-        """
+       
         g_id, q1, q2, param = operation
         dim = sv.shape[0]
 
@@ -1137,11 +1127,7 @@ if HAS_JAX:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def run_circuit_jit_beast_mode(self, circuit: List[Tuple]):
-    """
-    Esegue l'intero circuito in modalità fusa (Kernel Fusion) in XLA hardware.
-    Riallineato alla mappatura GATE_IDS ottimizzata (0-11 per 1Q, 20-21 per 2Q).
-    Massimizza il throughput azzerando le allocazioni intermedie Python.
-    """
+   
     if not (HAS_JAX and self.xp is jnp):
         print("⚠️ JAX non attivo o istanza non JAX. Esecuzione via run_circuit standard...")
         return self.run_circuit(circuit, transpile=True)
@@ -1195,10 +1181,7 @@ print("💎 INTERFACCIA RIALLINEATA: 'run_circuit_jit_beast_mode' agganciata con
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def measure(self, qubit_idx: int) -> int:
-    """
-    Measure a single qubit and collapse statevector.
-    FIXED: Uses micro-optimized stride-slicing without memory allocation.
-    """
+    
     if not 0 <= qubit_idx < self.n:
         raise ValueError(f"Qubit {qubit_idx} out of bounds")
 
@@ -1259,10 +1242,7 @@ print("🚀 Metodi 'measure' e 'memory_mb' agganciati ed iniettati con successo 
 import random # Import the standard random module
 
 def measure(self, qubit_idx: int) -> int:
-    """
-    Misura un singolo qubit e collassa lo stato quantistico.
-    Risolve il bug del Test 10 tramite estrazione esatta basata su assi tensoriali.
-    """
+    
     if not 0 <= qubit_idx < self.n:
         raise ValueError(f"Qubit {qubit_idx} out of bounds")
 
@@ -1413,11 +1393,7 @@ import numpy as np
 import time
 
 def run_parametric_batch_jit(self, base_circuit: list, parameter_batch: np.ndarray) -> jnp.ndarray:
-    """
-    [BATCH ENGINE UFFICIALE - DENSE EVOLUTION]
-    Sfrutta 'jax.vmap' per calcolare centinaia di varianti parametriche dello stesso circuito
-    sfruttando il tuo super-compilatore fuso XLA '_compile_and_run_circuit_jit'.
-    """
+    
     if not HAS_JAX or self.xp is not jnp:
         raise RuntimeError("JAX deve essere il backend attivo per usare run_parametric_batch_jit.")
 
