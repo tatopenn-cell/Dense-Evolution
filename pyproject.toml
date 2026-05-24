@@ -48,7 +48,7 @@ jax = ["jax>=0.4.0", "jaxlib>=0.4.0"]
 full = ["cupy>=12.0.0", "jax>=0.4.0", "jaxlib>=0.4.0"]
 
 [project.urls]
-Homepage = "https://github.com"
+Homepage = "https://github.com/tatopenn-cell/Dense-Evolution"
 Documentation = "https://github.com#readme"
 Repository = "https://github.com.git"
 Bug-Tracker = "https://github.com/issues"
