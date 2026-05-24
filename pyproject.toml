@@ -36,3 +36,15 @@ gpu = [
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["dense_evolution*"]
+
+keywords = [
+    "quantum-computing", "quantum-simulator", "statevector", 
+    "jax", "cupy", "cuda-acceleration", "openqasm", "nisq-noise"
+]
+
+[project.urls]
+Homepage = "https://github.com/tatopenn-cell/Dense-Evolution"
+Documentation = "https://github.com"
+Repository = "https://github.com"
+Bug-Tracker = "https://github.com"
+
