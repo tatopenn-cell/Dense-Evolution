@@ -1,4 +1,4 @@
-# 💎 Dense Evolution v8.0 (TurboQuant Core)
+# 💎 Dense Evolution v8.0 
 
 [![Python Version](https://shields.io)](https://pypi.org/project/dense-evolution/)
 [![Backend](https://shields.io)](https://github.com/tatopenn-cell/Dense-Evolution)
