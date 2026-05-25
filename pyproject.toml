@@ -63,7 +63,7 @@ full = [
 Homepage = "https://github.com/tatopenn-cell/Dense-Evolution"
 Documentation = "https://github.com/tatopenn-cell/Dense-Evolution/wiki"
 Repository = "https://github.com/tatopenn-cell/Dense-Evolution"
-"Bug Tracker" = "dense_evolution.py"
+"Bug Tracker" = "https://github.com/tatopenn-cell/Dense-Evolution/blob/main/dense_evolution.py"
 
 [tool.setuptools]
 py-modules = ["dense_evolution"]
