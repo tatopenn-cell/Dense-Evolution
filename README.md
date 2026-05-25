@@ -2,7 +2,7 @@
 
 [![Python Version](https://shields.io)](https://pypi.org/project/dense-evolution/)
 [![Backend](https://shields.io)](https://github.com/tatopenn-cell/Dense-Evolution)
-[![License](https://shields.io)](https://opensource.org)
+[![License](https://shields.io)](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/LICENSE)
 
 **Dense Evolution v8.0** è un simulatore quantistico basato su vettori di stato (*Statevector*) ad altissime prestazioni, ingegnerizzato specificamente per l'esecuzione di circuiti NISQ (Noisy Intermediate-Scale Quantum) complessi, profondi e algoritmi di Quantum Machine Learning (QML) e VQE.
 
