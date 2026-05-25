@@ -1,7 +1,7 @@
 # 💎 Dense Evolution v8.0 (TurboQuant Core)
 
-[![Python Version](https://shields.io)](https://python.org)
-[![Backend](https://shields.io)](https://github.com)
+[![Python Version](https://shields.io)](https://pypi.org/project/dense-evolution/)
+[![Backend](https://shields.io)](https://github.com/tatopenn-cell/Dense-Evolution)
 [![License](https://shields.io)](https://opensource.org)
 
 **Dense Evolution v8.0** è un simulatore quantistico basato su vettori di stato (*Statevector*) ad altissime prestazioni, ingegnerizzato specificamente per l'esecuzione di circuiti NISQ (Noisy Intermediate-Scale Quantum) complessi, profondi e algoritmi di Quantum Machine Learning (QML) e VQE.
@@ -18,37 +18,39 @@ L’architettura interna si basa sul principio della **Linear Kernel Fusion** ad
 * **📉 Modelli di Rumore a Traiettoria Kraus:** Consente la simulazione realistica di hardware affetti da rumore ambientale tramite canali di *Amplitude Damping*, *Phase Damping* e *Depolarizzazione*, applicati como salti quantici stocastici discreti senza l’onere computazionale $2^{2n}$ delle matrici di densità piene.
 * **🎛️ Disaccoppiamento Hardware (Agnostic Backend):** Sfrutta un’astrazione polimorfa per selezionare a runtime l’hardware più efficiente: NumPy (CPU standard), JAX (Compilazione JIT hardware parallelizzata CPU/TPU) o CuPy (Calcolo parallelo accelerato su NVIDIA GPU CUDA).
 
----
 
+------------------------------
 ## ⚙️ Istruzioni di Installazione
+Il motore è strutturato in conformità con lo standard PEP 621 (tramite pyproject.toml) ed è completamente installabile tramite pip. È possibile scegliere tra l'installazione rapida dal registro ufficiale, la build locale o la modalità di sviluppo.
+## 1. Installazione Rapida (da PyPI)
+Per l'utilizzo standard del simulatore, installa l'ultima versione stabile direttamente dall'indice ufficiale dei pacchetti:
 
-Il motore è strutturato in conformità con lo standard **PEP 621** (tramite `pyproject.toml`) ed è completamente installabile tramite `pip` in modalità isolata o editabile per gli sviluppatori.
+pip install dense-evolution
 
-```bash
-# Clone della repository locale
-git clone
- https://github.com/tatopenn-cell/Dense-Evolution.git
+## 2. Installazione Locale e Sviluppo (da Repository)
+Se desideri accedere al codice sorgente in locale o collaborare allo sviluppo del motore:
 
-
-# Installazione Standard (Backend CPU standard NumPy)
+# Clona la repository ufficiale
+git clone https://github.com/tatopenn-cell/Dense-Evolution.git
+cd Dense-Evolution
+# Opzione A: Installazione Standard (Backend CPU standard NumPy)
 pip install .
-
-# Installazione High-Performance (Raccomandata in modalità sviluppatore editable)
+# Opzione B: Installazione High-Performance (Modalità editable per sviluppatori)
 pip install -e .
-```
- da colab 
 
- # 1. Scarica l'intera repository nel runtime di Google
+## 3. Esecuzione su Google Colab 🚀
+Se utilizzi l'ambiente cloud di Google Colab, esegui questa cella di codice per configurare automaticamente l'ambiente in modalità sviluppatore:
+
+# 1. Scarica la repository nel runtime di Colab
 !git clone https://github.com/tatopenn-cell/Dense-Evolution.git
-
-# 2. Spostati dentro la cartella del progetto
+# 2. Spostati nella cartella principale del progetto
 %cd Dense-Evolution
-
-# 3. Installa il pacchetto in modalità sviluppatore
+# 3. Installa il pacchetto in modalità editable
 !pip install -e .
 
+------------------------------
 
----
+
 
 ## 📊 Benchmark Industriali e Limiti del Sistema
 
