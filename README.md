@@ -26,8 +26,9 @@ Il motore è strutturato in conformità con lo standard **PEP 621** (tramite `py
 
 ```bash
 # Clone della repository locale
-git clone https://github.com.git
-cd Dense-Evolution
+git clone
+ https://github.com/tatopenn-cell/Dense-Evolution.git
+
 
 # Installazione Standard (Backend CPU standard NumPy)
 pip install .
