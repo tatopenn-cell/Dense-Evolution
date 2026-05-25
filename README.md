@@ -36,6 +36,17 @@ pip install .
 # Installazione High-Performance (Raccomandata in modalità sviluppatore editable)
 pip install -e .
 ```
+ da colab 
+
+ # 1. Scarica l'intera repository nel runtime di Google
+!git clone https://github.com/tatopenn-cell/Dense-Evolution.git
+
+# 2. Spostati dentro la cartella del progetto
+%cd Dense-Evolution
+
+# 3. Installa il pacchetto in modalità sviluppatore
+!pip install -e .
+
 
 ---
 
