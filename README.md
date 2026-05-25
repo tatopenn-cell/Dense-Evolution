@@ -15,7 +15,7 @@ L’architettura interna si basa sul principio della **Linear Kernel Fusion** ad
 * **⚡ Linear Kernel Fusion (JAX XLA):** Il simulatore non calcola mai esplicitamente le enormi matrici di gate derivanti dai prodotti tensoriali (Kronecker). L’applicazione degli operatori avviene tramite algoritmi di *stride-slicing* e permutazione lineare sui tensori contigui, riducendo la complessità di memoria spaziale al minimo teorico assoluto.
 * **🧩 Circuit Chunking Transpiler:** Risolve il problema del congelamento o degrado della cache JIT di JAX quando si lavora con migliaia di porte logiche. Il circuito viene frammentato in sotto-blocchi (chunk) geometrici equivalenti, garantendo stabilità computazionale infinita, azzerando l'overhead di tracing su circuiti massivi.
 * **🎲 Coerenza Stocastica e Collasso d'Onda:** La funzione di misura implementa uno *stride-slicing* chirurgico direttamente sulle matrici di vista hardware (NumPy/CuPy/JAX). Questo garantisce la perfetta convergenza binomiale ed evita l'allocazione di maschere booleane giganti in RAM, prevenendo crash di sistema.
-* **📉 Modelli di Rumore a Traiettoria Kraus:** Consente la simulazione realistica di hardware affetti da rumore ambientale tramite canali di *Amplitude Damping*, *Phase Damping* e *Depolarizzazione*, applicati come salti quantici stocastici discreti senza l’onere computazionale $2^{2n}$ delle matrici di densità piene.
+* **📉 Modelli di Rumore a Traiettoria Kraus:** Consente la simulazione realistica di hardware affetti da rumore ambientale tramite canali di *Amplitude Damping*, *Phase Damping* e *Depolarizzazione*, applicati como salti quantici stocastici discreti senza l’onere computazionale $2^{2n}$ delle matrici di densità piene.
 * **🎛️ Disaccoppiamento Hardware (Agnostic Backend):** Sfrutta un’astrazione polimorfa per selezionare a runtime l’hardware più efficiente: NumPy (CPU standard), JAX (Compilazione JIT hardware parallelizzata CPU/TPU) o CuPy (Calcolo parallelo accelerato su NVIDIA GPU CUDA).
 
 ---
@@ -26,7 +26,7 @@ Il motore è strutturato in conformità con lo standard **PEP 621** (tramite `py
 
 ```bash
 # Clone della repository locale
-git clone https://github.com
+git clone https://github.com.git
 cd Dense-Evolution
 
 # Installazione Standard (Backend CPU standard NumPy)
@@ -45,7 +45,7 @@ Il motore è stato sottoposto a stress-test aggressivi in ambienti a risorse lim
 ### 1. Stabilità Numerica Assoluta (Zero-Drift Execution)
 Sottoposto ad Ansatz variazionali profondi (oltre 80 strati e 1360 porte parametriche consecutive fuse in un unico blocco XLA), il core del simulatore ha registrato una deriva numerica assoluta controllata pari a:
 $$\Delta = 1.1102230246251565 \times 10^{-16}$$
-Questo valore coincide esattamente con l'**Epsilon di macchina ($\epsilon$)** per la precisione doppia a 64 bit (`float64`). La fusiome algebrica dei kernel in XLA annulla l'accumulo sequenziale degli errori di arrotondamento delle funzioni trigonometriche.
+Questo valore coincide esattamente con l'**Epsilon di macchina ($\epsilon$)** per la precisione doppia a 64 bit (`float64`). La fusione algebrica dei kernel in XLA annulla l'accumulo sequenziale degli errori di arrotondamento delle funzioni trigonometriche.
 
 ### 2. Scaling dei Qubit e Throughput Computazionale (Chunking Engine)
 Grazie al motore di chunking in-place, il simulatore gestisce registri quantistici estesi ottimizzando chirurgicamente la cache di sistema senza generare copie temporanee dello stato:
@@ -93,7 +93,7 @@ print(f"Probabilità di estrazione: {sim.get_probabilities()}")
 ```
 
 ### 🧠 Esempio 2: Decomposizione Topologica con il QuantumTranspiler
-Il transpiler integrato non si limita all'ottimizzazione formale, ma scompone le porte logiche non native e complesse a più qubit nelle primitive a 1 e 2 qubit accettate dal core lineare 1D:
+Il transpiler integrato scompone le porte logiche non native e complesse a più qubit nelle primitive a 1 e 2 qubit accettate dal core lineare 1D:
 
 ```python
 import dense_evolution as de
@@ -152,5 +152,30 @@ Dense-Evolution/
 
 ## 📜 Licenza e Note Legali
 
-Il progetto è distribuito sotto licenza **MIT** ed è parzialmente protetto secondo le specifiche **EUPL-1.2** per i moduli di coerenza stocastica runtime sigillati. Sei libero di utilizzare, modificare e distribuire questo codice in progetti accademici, personali o commerciali, mantenendo la citazione dell’autore originale.
+Il progetto è interamente distribuito sotto i termini della licenza ufficiale **MIT**.
+
+```text
+MIT License
+
+Copyright (c) 2026 salvatore pennacchio [tatopenn-cell]
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 
