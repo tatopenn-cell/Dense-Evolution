@@ -364,7 +364,9 @@ print(f"Stato degradato dal rumore applicato: {sim.get_statevector()}")
 
 > **Consiglio:** Per circuiti superiori a 12 qubit con rumore, si consiglia di utilizzare la modalità di simulazione "Traiettoria" (Monte Carlo) su campioni ridotti, piuttosto che cercare di simulare l'operatore di densità completo, che crescerebbe esponenzialmente ($2^{2n}$).
 
-### 🚀 Esempio 4: Addestramento VQE/QML con il Batch Engine Nativo (Parameter Shift Rule)```python
+### 🚀 Esempio 4: Addestramento VQE/QML con il Batch Engine Nativo (Parameter Shift Rule)
+
+```python
 import time
 import numpy as np
 import jax
