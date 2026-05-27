@@ -461,10 +461,19 @@ print(f"🔹 Pesi Ottimizzati (Rad):     {np.round(weights, 4)}")
 
 ### 🧬 Esempio 5: Pipeline di Produzione ADAPT-VQE QM/MM con Dinamica Molecolare ed Embedding Elettrostatico Schermato
 Questo modulo introduce un'implementazione industriale avanzata che unisce il calcolo quantistico variazionale adattivo (**ADAPT-VQE**) con la dinamica molecolare classica (**QM/MM MD**). L'algoritmo esegue una selezione dinamica degli operatori quantistici a massimo gradiente direttamente dal pool di eccitazioni fermioniche, ottimizzando l'efficienza computazionale del circuito in tempo reale lungo la traiettoria fisica delle particelle.
-#### 🛠️ Caratteristiche Principali del Framework:*   **Selezione Dinamica ADAPT (Dynamic Operator Selection):** Calcola ad ogni step temporale il commutatore $[H, A_i]$ simulato sul pool di eccitazione. Identifica ed applica istantaneamente solo l'operatore d'élite a pendenza massima (es. trasferimento di carica o back-bonding), minimizzando la profondità del circuito variazionale.*   **Embedding Elettrostatico Schermato:** Integra l'influenza delle cariche classiche circostanti sull'Hamiltoniana quantistica core. Applica una funzione di sfoltimento e protezione geometrica a corto raggio per azzerare le singolarità numeriche derivanti dalla sovrapposizione atomica.*   **Rumore Termico Non-Markoviano e Spettroscopia dell'Entanglement:** Sfrutta le routine matematiche di JAX per calcolare in tempo reale metriche fisiche cruciali come l'Entropia di von Neumann dello stato quantistico e la purezza, soggette a decadimento termico simulato non-Markoviano.
-*   **Hellmann-Feynman Forces via JAX Autograd:** Estrae i gradienti cartesiani tridimensionali (forze interatomiche) direttamente dalla loss differenziabile energetica mediante `jax.value_and_grad`. Questo alimenta un integratore cinematico alla Verlet per far evolvere le coordinate spaziali del sistema.
-#### 💎 Risoluzione Critica dei Tracer (JAX Core Patch):Nelle implementazioni standard di JAX JIT, l'uso di cast nativi di Python (come `float()` o `int()`) su variabili interne tracciate distrugge il grafo computazionale e solleva eccezioni bloccanti di tipo `TracerArrayConversionError`. 
-Questa pipeline implementa il **FIX DEFINITIVO** sfruttando i metodi `.astype(jnp.float64)` nativi di JAX. Questo preserva l'integrità dei vettori di telemetria (come l'indice dell'operatore scelto e la correzione variazionale $\theta$) all'interno del super-grafo di Hellmann-Feynman fuso e sigillato da XLA, garantendo esecuzioni stabili a regime in frazioni di millisecondo.
+#### 🛠️ Caratteristiche Principali del Framework:
+*   **Selezione Dinamica ADAPT (Dynamic Operator Selection):
+*   ** Calcola ad ogni step temporale il commutatore $[H, A_i]$ simulato sul pool di eccitazione. Identifica ed applica istantaneamente solo l'operatore d'élite a pendenza massima (es. trasferimento di carica o back-bonding), minimizzando la profondità del circuito variazionale.*   **Embedding Elettrostatico Schermato:
+*   ** Integra l'influenza delle cariche classiche circostanti sull'Hamiltoniana quantistica core. Applica una funzione di sfoltimento e protezione geometrica a corto raggio per azzerare le singolarità numeriche derivanti dalla sovrapposizione atomica.
+*   *   **Rumore Termico Non-Markoviano e Spettroscopia dell'Entanglement:
+    *   ** Sfrutta le routine matematiche di JAX per calcolare in tempo reale metriche fisiche cruciali come l'Entropia di von Neumann dello stato quantistico e la purezza, soggette a decadimento termico simulato non-Markoviano.
+*   **Hellmann-Feynman Forces via JAX Autograd:
+*   ** Estrae i gradienti cartesiani tridimensionali (forze interatomiche) direttamente dalla loss differenziabile energetica mediante `jax.value_and_grad`. Questo alimenta un integratore cinematico alla Verlet per far evolvere le coordinate spaziali del sistema.
+#### 💎 Risoluzione Critica dei Tracer (JAX Core Patch):
+Nelle implementazioni standard di JAX JIT, l'uso di cast nativi di Python (come `float()` o `int()`) su variabili interne tracciate distrugge il grafo computazionale e solleva eccezioni bloccanti di tipo `TracerArrayConversionError`. 
+Questa pipeline implementa il 
+**FIX DEFINITIVO
+** sfruttando i metodi `.astype(jnp.float64)` nativi di JAX. Questo preserva l'integrità dei vettori di telemetria (come l'indice dell'operatore scelto e la correzione variazionale $\theta$) all'interno del super-grafo di Hellmann-Feynman fuso e sigillato da XLA, garantendo esecuzioni stabili a regime in frazioni di millisecondo.
 
 ```python
 import numpy as np
