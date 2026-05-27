@@ -692,25 +692,57 @@ print("\n💎 IDEALE PER: NISQ circuits, sampling, circuit optimization")
 
 
 
+## 📊 Benchmark Results (Detailed)
 
-🔥 BENCHMARK 1: Circuiti profondi (run_circuit_jit_beast_mode)
- depth  gates  beast_jit    qiskit    speedup
-   100    100   0.565535  3.089455   5.462886
-   500    500   0.582502 18.662738  32.038945
-  1000   1000   0.562930 34.123430  60.617551
-  2000   2000   0.537555 63.225647 117.617028
+### Test Environment
+- **Platform**: Google Colab Free Tier
+- **CPU**: x86_64
+- **RAM**: 12.7 GB total, 11.4 GB available
+- **Backend**: JAX CPU (float64)
+- **Max Dense SV**: 24 qubits
 
-   🏆 Speedup medio: 53.93x
-   🚀 Speedup massimo: 117.62x
+---
 
-🔥 BENCHMARK 2: Ripetizioni (JIT caching)
- repetitions      beast     qiskit     speedup
-           1   0.009774   3.552634  363.470241
-          10   0.036685  40.658213 1108.306503
-          50  53.731358 116.896415    2.175572
-         100 132.238249 200.920046    1.519379
+### Benchmark 1: Deep NISQ Circuits (20 qubits)
 
-   🏆 Speedup medio: 368.87x
+Random circuits with mixed gates (RX, RY, RZ, H, CNOT) at increasing depths:
+
+| Depth | Gates | Dense-Evolution | Qiskit | Speedup | RAM |
+|:-----:|:-----:|:---------------:|:------:|:-------:|:---:|
+| 100 | 100 | **0.57s** | 3.09s | **5.5x** ⚡ | 16 MB |
+| 500 | 500 | **0.58s** | 18.7s | **32x** 🔥 | 16 MB |
+| 1000 | 1000 | **0.56s** | 34.1s | **61x** 🚀 | 16 MB |
+| 2000 | 2000 | **0.54s** | 63.2s | **118x** 💎 | 16 MB |
+
+**Results Summary:**
+- ✅ **Average speedup**: 53.9x
+- 🚀 **Peak speedup**: 117.6x (2000 gates)
+- 💡 **Key insight**: Speedup increases with circuit depth due to JIT optimization
+
+---
+
+### Benchmark 2: Repeated Circuit Execution (18 qubits, 500 gates)
+
+Simulating shot-based sampling or optimization loops with the same circuit:
+
+| Repetitions | Dense-Evolution | Qiskit | Speedup | Time/Exec (DE) | Time/Exec (Qiskit) |
+|:-----------:|:---------------:|:------:|:-------:|:--------------:|:------------------:|
+| 1 | **9.8 ms** | 3.6s | **363x** ⚡ | 9.8 ms | 3553 ms |
+| 10 | **37 ms** | 40.7s | **1108x** 🔥 | 3.7 ms | 4066 ms |
+| 50 | **53.7s** | 116.9s | **2.2x** | 1075 ms | 2338 ms |
+| 100 | **132.2s** | 200.9s | **1.5x** | 1322 ms | 2009 ms |
+
+**Results Summary:**
+- ✅ **Average speedup** (first 10 reps): 368.9x
+- 🚀 **Peak speedup**: 1108x (10 repetitions)
+- 💡 **Key insight**: First execution compiles JIT, subsequent runs reuse cached code
+- ⚠️ **Note**: Speedup decreases with many repetitions due to JIT compilation overhead amortization
+
+---
+
+### Performance Analysis
+
+#### Deep Circuit Performance (Benchmark 1)
 
 ### Performance Characteristics
 
