@@ -1,4 +1,3 @@
-```markdown
 # 💎 Dense Evolution v8.0
 
 [![PyPI version](https://img.shields.io/pypi/v/dense-evolution?style=flat-square)](https://pypi.org/project/dense-evolution/)
