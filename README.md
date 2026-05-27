@@ -87,23 +87,33 @@ Il modulo `run_parametric_batch_jit` sfrutta la parallelizzazione inter-circuito
 Dimostrazione dell'interfaccia ultra-veloce a zero allocazioni. La Beast Mode accetta un array lineare di operazioni stringa per bypassare completamente i controlli dell'interprete Python:
 
 ```python
+import jax
 import dense_evolution as de
 
-# Inizializzazione del simulatore a 2 Qubit
-sim = de.DenseSVSimulator(n_qubits=2)
+# 1. Definizione della struttura circuito compatibile con il Transpiler
+class BeastCircuit(de.QASMCircuit, list):
+    def __init__(self, n_qubits):
+        list.__init__(self)
+        de.QASMCircuit.__init__(self, n_qubits=n_qubits)
 
-# Definizione del circuito strutturato (Porta, Target, Controllo/Parametro)
-# Generazione nativa di uno Stato di Bell entangled
-ops = [
-    ["h", 0, -1],
-    ["cx", 1, 0]
-]
+# Inizializziamo il circuito a 2 qubit
+circuit = BeastCircuit(n_qubits=2)
 
-# Esecuzione istantanea nel compilatore fuso XLA
-sim.run_circuit_jit_beast_mode(ops)
+# Generazione dello Stato di Bell con tuple piatte lineari fisse
+circuit.append(('h', 0))       # Porta Hadamard sul qubit 0
+circuit.append(('cx', 0, 1))   # Porta CNOT (controllo=0, target=1)
 
-print(f"Stato Finale Entangled JIT: {sim.get_statevector()}")
+# 2. Inizializzazione del simulatore
+# FIX FONDAMENTALE: use_float32=False impedisce il crash JAX (complex64 vs complex128)
+sim = de.DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
+
+# 3. Esecuzione ultra-ottimizzata nel compilatore fuso XLA (Beast Mode)
+statevector = sim.run_circuit_jit_beast_mode(circuit)
+jax.block_until_ready(statevector) # Attende il completamento asincrono di JAX
+
+print(f"Stato Finale Entangled JIT: {statevector}")
 print(f"Probabilità di estrazione: {sim.get_probabilities()}")
+
 ```
 
 ### 🧠 Esempio 2: Decomposizione Topologica con il QuantumTranspiler
@@ -112,42 +122,49 @@ Il transpiler integrato scompone le porte logiche non native e complesse a più 
 ```python
 import dense_evolution as de
 
-transpiler = de.QuantumTranspiler()
+class TranspilerCircuit(de.QASMCircuit, list):
+    def __init__(self, n_qubits):
+        list.__init__(self)
+        de.QASMCircuit.__init__(self, n_qubits=n_qubits)
 
-# Estrazione della scomposizione esatta di una porta Toffoli (CCNOT) sui qubit 0, 1 e 2
-sequenza_primitive = transpiler.decompose_toffoli(0, 1, 2)
+circuit = TranspilerCircuit(n_qubits=3)
+circuit.append(('ccx', 0, 1, 2))
+
+transpiler = de.QuantumTranspiler()
+sequenza_primitive = transpiler.transpile(circuit)
 
 print(f"Totale porte primitive generate per il Core V4: {len(sequenza_primitive)}")
 for gate in sequenza_primitive:
     print(f"  -> {gate}")
-# Output generato: Sequenza esatta a 15 porte stabili (H, CNOT, T, Tdg)
+
 ```
 
 ### 📉 Esempio 3: Iniezione stocastica del NoiseModel
 Applicazione di canali di rumore realistici NISQ in modalità stocastica unificata JAX-safe:
 
 ```python
+import jax
 import dense_evolution as de
 import numpy as np
 
-sim = de.DenseSVSimulator(n_qubits=2)
+sim = de.DenseSVSimulator(n_qubits=2, use_gpu=False)
 
-# Applicazione manuale di una porta singola (Firma: Matrice, Qubit)
-h_matrix = de.GATES['h']
+h_matrix = np.array([[1/np.sqrt(2), 1/np.sqrt(2)], [1/np.sqrt(2), -1/np.sqrt(2)]], dtype=np.complex128)
 sim.apply_gate_1q(h_matrix, 0)
 
-# Lettura telemetria di sistema in tempo reale (Variabile float globale)
-print(f"RAM attualmente disponibile su Colab: {de.ram_avail:.2f} MB")
+print(f"RAM allocata per lo Statevector: {sim.memory_mb():.2f} MB")
 
-# Iniezione di rumore di depolarizzazione al 5% sul vettore di stato
+key = jax.random.PRNGKey(42)
 sim.sv = de.NoiseModel.apply_to_sv(
-    sv=sim.sv, 
+    sv=sim.get_statevector(), 
     n=2, 
     model='depolarizing', 
-    p=0.05
+    p=0.05,
+    jax_key=key
 )
 
 print(f"Stato rumoroso degradato: {sim.get_statevector()}")
+
 ```
 
 ---
