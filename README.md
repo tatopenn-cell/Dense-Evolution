@@ -471,12 +471,12 @@ All benchmarks performed on **Google Colab Free Tier** (CPU only, 12.7 GB RAM, x
 
 Performance comparison on increasingly deep random circuits with mixed gates (RX, RY, RZ, H, CNOT):
 
-| Circuit Depth | Gates | Dense-Evolution | Qiskit | **Speedup** |
-|--------------|-------|-----------------|--------|-------------|
-| 100          | 100   | 0.57s           | 3.09s  | **5.5x** ⚡  |
-| 500          | 500   | 0.58s           | 18.7s  | **32x** 🔥   |
-| 1000         | 1000  | 0.56s           | 34.1s  | **61x** 🚀   |
-| 2000         | 2000  | 0.54s           | 63.2s  | **118x** 💎  |
+| Circuit Depth | Gates | Dense-Evolution | Qiskit | Speedup |
+|:-------------:|:-----:|:---------------:|:------:|:-------:|
+| 100 | 100 | 0.57s | 3.09s | **5.5x** ⚡ |
+| 500 | 500 | 0.58s | 18.7s | **32x** 🔥 |
+| 1000 | 1000 | 0.56s | 34.1s | **61x** 🚀 |
+| 2000 | 2000 | 0.54s | 63.2s | **118x** 💎 |
 
 **Average speedup: 54x** | **Peak speedup: 118x**
 
@@ -484,12 +484,12 @@ Performance comparison on increasingly deep random circuits with mixed gates (RX
 
 Simulating shot-based sampling or circuit optimization loops:
 
-| Repetitions | Dense-Evolution | Qiskit  | **Speedup** |
-|-------------|-----------------|---------|-------------|
-| 1           | 9.8 ms          | 3.6 s   | **363x** ⚡  |
-| 10          | 3.7 ms/exec     | 4.1 s/exec | **1108x** 🔥 |
-| 50          | 1075 ms/exec    | 2338 ms/exec | **2.2x** |
-| 100         | 1322 ms/exec    | 2009 ms/exec | **1.5x** |
+| Repetitions | Dense-Evolution | Qiskit | Speedup |
+|:-----------:|:---------------:|:------:|:-------:|
+| 1 | 9.8 ms | 3552 ms | **363x** ⚡ |
+| 10 | 3.7 ms/exec | 4066 ms/exec | **1108x** 🔥 |
+| 50 | 1075 ms/exec | 2338 ms/exec | **2.2x** |
+| 100 | 1322 ms/exec | 2009 ms/exec | **1.5x** |
 
 **Average speedup: 369x** (first 10 repetitions)
 
@@ -643,7 +643,7 @@ print(f"⚡ Speedup: {time_qiskit_rep/time_beast_rep:.2f}x")
 ### Hardware Recommendations
 
 | Hardware | Max Qubits (Dense) | Speedup vs Qiskit | Notes |
-|----------|-------------------|-------------------|-------|
+|:---------|:-----------------:|:-----------------:|:------|
 | CPU (Colab Free) | 24 | 50-120x | Tested configuration |
 | CPU (High RAM) | 26 | 50-120x | 16+ GB recommended |
 | NVIDIA GPU | 28+ | 200-500x* | CUDA-enabled, estimated |
@@ -668,4 +668,3 @@ Found better (or worse) results on your hardware? Open an issue or PR with:
 Help us optimize Dense-Evolution for your use case!
 
 ---
-
