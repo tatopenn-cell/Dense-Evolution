@@ -690,75 +690,8 @@ print("   → Migliore per batch size piccoli (<20 circuiti)")
 print("\n💎 IDEALE PER: NISQ circuits, sampling, circuit optimization")
 ```
 
-### out put 
-======================================================================
-BENCHMARK 1: run_circuit_jit_beast_mode vs Qiskit
-Circuiti GRANDI e PROFONDI (NISQ realistic)
-======================================================================
 
-🔹 Depth: 100 (circuito random)
-⚡ DenseSV: JAX CPU/TPU | n=20 | dim=1,048,576 | float64
-   RAM allocata: 16.0 MB
-   💎 BEAST JIT:  0.5655s (100 gates)
-   🔵 Qiskit:     3.0895s
-   🔥 SPEEDUP: 5.46x
 
-🔹 Depth: 500 (circuito random)
-⚡ DenseSV: JAX CPU/TPU | n=20 | dim=1,048,576 | float64
-   RAM allocata: 16.0 MB
-   💎 BEAST JIT:  0.5825s (500 gates)
-   🔵 Qiskit:     18.6627s
-   🔥 SPEEDUP: 32.04x
-
-🔹 Depth: 1000 (circuito random)
-⚡ DenseSV: JAX CPU/TPU | n=20 | dim=1,048,576 | float64
-   RAM allocata: 16.0 MB
-   💎 BEAST JIT:  0.5629s (1000 gates)
-   🔵 Qiskit:     34.1234s
-   🔥 SPEEDUP: 60.62x
-
-🔹 Depth: 2000 (circuito random)
-⚡ DenseSV: JAX CPU/TPU | n=20 | dim=1,048,576 | float64
-   RAM allocata: 16.0 MB
-   💎 BEAST JIT:  0.5376s (2000 gates)
-   🔵 Qiskit:     63.2256s
-   🔥 SPEEDUP: 117.62x
-
-======================================================================
-BENCHMARK 2: Esecuzioni ripetute (sampling/shots simulation)
-======================================================================
-
-🔹 1 ripetizioni dello stesso circuito
-⚡ DenseSV: JAX CPU/TPU | n=18 | dim=262,144 | float64
-   RAM allocata: 4.0 MB
-   💎 BEAST:  0.0098s (9.77 ms/exec)
-   🔵 Qiskit: 3.5526s (3552.63 ms/exec)
-   🔥 SPEEDUP: 363.47x
-
-🔹 10 ripetizioni dello stesso circuito
-⚡ DenseSV: JAX CPU/TPU | n=18 | dim=262,144 | float64
-   RAM allocata: 4.0 MB
-   💎 BEAST:  0.0367s (3.67 ms/exec)
-   🔵 Qiskit: 40.6582s (4065.82 ms/exec)
-   🔥 SPEEDUP: 1108.31x
-
-🔹 50 ripetizioni dello stesso circuito
-⚡ DenseSV: JAX CPU/TPU | n=18 | dim=262,144 | float64
-   RAM allocata: 4.0 MB
-   💎 BEAST:  53.7314s (1074.63 ms/exec)
-   🔵 Qiskit: 116.8964s (2337.93 ms/exec)
-   🔥 SPEEDUP: 2.18x
-
-🔹 100 ripetizioni dello stesso circuito
-⚡ DenseSV: JAX CPU/TPU | n=18 | dim=262,144 | float64
-   RAM allocata: 4.0 MB
-   💎 BEAST:  132.2382s (1322.38 ms/exec)
-   🔵 Qiskit: 200.9200s (2009.20 ms/exec)
-   🔥 SPEEDUP: 1.52x
-
-======================================================================
-📊 RISULTATI FINALI
-======================================================================
 
 🔥 BENCHMARK 1: Circuiti profondi (run_circuit_jit_beast_mode)
  depth  gates  beast_jit    qiskit    speedup
@@ -778,18 +711,6 @@ BENCHMARK 2: Esecuzioni ripetute (sampling/shots simulation)
          100 132.238249 200.920046    1.519379
 
    🏆 Speedup medio: 368.87x
-
-======================================================================
-🎯 CONCLUSIONI
-======================================================================
-✅ Dense-Evolution DOMINA su circuiti profondi (500+ gates)
-✅ run_circuit_jit_beast_mode: fino a 117.6x più veloce
-✅ Ripetizioni con JIT caching: 368.9x speedup medio
-
-⚠️  run_parametric_batch_jit: overhead di ricompilazione JIT
-   → Migliore per batch size piccoli (<20 circuiti)
-
-💎 IDEALE PER: NISQ circuits, sampling, circuit optimization
 
 ### Performance Characteristics
 
