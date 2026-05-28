@@ -260,6 +260,7 @@ jax.block_until_ready(sv_final)
 print(f"🚀 Tempo di calcolo puro in Beast Mode: {time.time() - start:.6f} secondi")
 ```
 ## 🛠️ 2. Integrazione Nativa con QASMParser
+
 Il modulo QASMParser analizza il codice OpenQASM 2.0 traducendo le istruzioni nel formato richiesto dal backend. La stringa di testo grezza deve essere elaborata direttamente dal metodo parse(), il quale restituisce un oggetto QASMCircuit valido per l'esecuzione.
 ## Esempio di Parsing ed Esecuzione OpenQASM 2.0:
 
@@ -287,30 +288,24 @@ L'impatto prestazionale del canale stocastico è ridotto (overhead medio di circ
 import time
 import dense_evolution as de
 
-# Configurazione del test (14 Qubit)
 n_qubits = 14
 sim = de.DenseSVSimulator(n_qubits=n_qubits)
 
-# Generazione circuito di test lineare per la Beast Mode
 circuit_ops = [["h", q, -1] for q in range(n_qubits)] + [["cx", q, q + 1] for q in range(n_qubits - 1)]
 
-# 1. Esecuzione Pura in Beast Mode (Giro 2 con Caching JIT attivo)
-sim.run_circuit_jit_beast_mode(circuit_ops)  # Compilazione (Giro 1)
+sim.run_circuit_jit_beast_mode(circuit_ops)  
 t_start = time.time()
-sim.run_circuit_jit_beast_mode(circuit_ops)  # Esecuzione pura (Giro 2)
+sim.run_circuit_jit_beast_mode(circuit_ops)  
 time_beast = time.time() - t_start
 print(f"⏱️ Tempo Beast Mode (Puro): {time_beast:.6f} secondi")
 
-# 2. Iniezione del Rumore stocastico post-circuito
 pure_sv = sim.get_statevector()
 t_noise_start = time.time()
 noisy_sv = de.NoiseModel.apply_to_sv(pure_sv, n=n_qubits, model='depolarizing', p=0.05)
 time_noise = time.time() - t_noise_start
 print(f"⏱️ Tempo NoiseModel (Rumoroso): {time_noise:.6f} secondi")
 
-# Analisi dell'overhead effettivo
 print(f"📊 Rapporto d'impatto stocastico: {time_noise / time_beast:.2f}x")
-
 
 
 
