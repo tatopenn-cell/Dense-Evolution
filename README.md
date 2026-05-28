@@ -5,8 +5,11 @@
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/LICENSE)
 [![Build](https://img.shields.io/badge/Build-Passing-success?style=flat-square)](https://github.com/tatopenn-cell/Dense-Evolution/actions)
 
+# pip install dense-evolution
+
 Dense Evolution is an ultra-high-performance Statevector quantum simulator engineered explicitly for the execution of complex, deep NISQ (Noisy Intermediate-Scale Quantum) circuits, Quantum Machine Learning (QML) models, and Variational Quantum Eigensolvers (VQE).
 The internal architecture leverages controlled-allocation Linear Kernel Fusion, breaking through traditional latency bottlenecks associated with auxiliary memory allocation (scratchpad RAM) and expanding the computational boundaries of hardware-accelerated static compilation.
+
 ------------------------------
 ## 🚀 Architectural Core Features
 
