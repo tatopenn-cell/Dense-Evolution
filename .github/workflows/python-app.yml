@@ -26,7 +26,6 @@ jobs:
         python-version: "3.11"
         cache: 'pip'
 
-    
     - name: Installazione dipendenze e Dense-Evolution core
       run: |
         python -m pip install --upgrade pip
@@ -40,24 +39,20 @@ jobs:
         import jax.numpy as jnp
         import dense_evolution as de
 
-        # Configurazione minima di test
         num_qubits = 2
         base_ops = [('h', 0), ('cx', 0, 1)]
 
         sim = de.DenseSVSimulator(n_qubits=num_qubits, use_gpu=False, use_float32=False)
 
-        # Generazione di un batch di parametri casuali per il test JIT
         np.random.seed(42)
         batch_params = np.random.uniform(0, 2 * np.pi, (5, 4))
         jax_batch = jnp.array(batch_params, dtype=jnp.float64)
 
-        # Verifica esecuzione batch
         statevectors = sim.run_parametric_batch_jit(base_ops, jax_batch)
         jax.block_until_ready(statevectors)
 
-        print(f'Test completato con successo. Stato vettori generati: {statevectors.shape}')
-        assert statevectors.shape[0] == 5, 'Errore nella dimensione del batch'
-        "
+        print(f'Test completato con successo. Dimensioni output: {statevectors.shape}')
+        assert statevectors.shape == 5, 'Errore nella dimensione del batch'
         "
 
     - name: Esecuzione suite di test automatizzati
