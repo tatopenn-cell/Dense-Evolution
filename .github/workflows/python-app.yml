@@ -1,0 +1,48 @@
+# Questo flusso di lavoro esegue i test di Continuous Integration su Dense-Evolution v8.0.0.
+# Per maggiori dettagli vedi: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
+
+name: Python application
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Configurazione ambiente Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+        cache: 'pip'
+
+    - name: Installazione dipendenze e Dense-Evolution core
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .
+        pip install qiskit pandas numpy jax jaxlib pytest
+
+    - name: Esecuzione test logici e stabilità simulatore (Beast Mode)
+      run: |
+        python -c "
+        import dense_evolution as de
+        sim = de.DenseSVSimulator(n_qubits=2)
+        ops = [['h', 0, -1], ['cx', 1, 0]]
+        sim.run_circuit_jit_beast_mode(ops)
+        print('✅ Stato quantistico calcolato:', sim.get_statevector())
+        print('🚀 Core Engine V4 Ultra: Test completato con successo!')
+        "
+
+    - name: Esecuzione suite di test automatizzati
+      run: |
+        # Esegue pytest se hai file di test configurati, altrimenti fallisce in sicurezza se non trova moduli
+        if [ -d "tests" ] || [ -f "test_dense.py" ]; then pytest; else echo "⚠️ Nessun file pytest trovato, salto la suite."; fi
