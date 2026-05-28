@@ -224,8 +224,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-Appendice Tecnica 
-v8.0 ottimizza le prestazioni del simulatore in ambienti a risorse condivise, risolvendo le limitazioni di JAX XLA attraverso l'uso della "Beast Mode" con il metodo .run_circuit_jit_beast_mode(). Per ottenere una velocità superiore a 180x rispetto al C++ e prevenire errori di tracciamento, il simulatore utilizza nativamente la precisione doppia (complex128/float64) per garantire la stabilità numerica a 19 e 24 qubit.
+## Appendice Tecnica 
+
+Dense-evolution ottimizza le prestazioni del simulatore in ambienti a risorse condivise, risolvendo le limitazioni di JAX XLA attraverso l'uso della "Beast Mode" con il metodo .run_circuit_jit_beast_mode(). Per ottenere una velocità superiore a 180x rispetto al C++ e prevenire errori di tracciamento, il simulatore utilizza nativamente la precisione doppia (complex128/float64) per garantire la stabilità numerica a 19 e 24 qubit.
 
 ```python
 import time
