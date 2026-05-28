@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+# Abilita Node 24 a livello globale per eliminare i warning di deprecazione
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   build:
     runs-on: ubuntu-latest
