@@ -25,99 +25,75 @@ jobs:
 
     - name: Installazione dipendenze e Dense-Evolution core
       run: |
-        python -m pip install dense-evolution.
+        python -m pip install dense-evolution
 
     - name: Esecuzione test logici e stabilità simulatore (Beast Mode)
       run: |
         python -c "
-    import time
-import numpy as np
-import jax
-import jax.numpy as jnp
-import dense_evolution as de
+        import numpy as np
+        import jax
+        import jax.numpy as jnp
+        import dense_evolution as de
 
-num_qubits = 2
-num_parameters = num_qubits * 2
+        num_qubits = 2
+        num_parameters = num_qubits * 2
 
-base_ops = [
-    ('h', 0),
-    ('h', 1),
-    ('rx', 0, 0.0),
-    ('rx', 1, 0.0),
-    ('cx', 0, 1),
-    ('ry', 0, 0.0),
-    ('ry', 1, 0.0)
-]
+        base_ops = [
+            ('h', 0),
+            ('h', 1),
+            ('rx', 0, 0.0),
+            ('rx', 1, 0.0),
+            ('cx', 0, 1),
+            ('ry', 0, 0.0),
+            ('ry', 1, 0.0)
+        ]
 
-H_molecular = jnp.array([
-    [-1.050,  0.000,  0.000,  0.000],
-    [ 0.000, -0.424,  0.180,  0.000],
-    [ 0.000,  0.180, -0.424,  0.000],
-    [ 0.000,  0.000,  0.000, -1.050]
-], dtype=jnp.complex128)
+        H_molecular = jnp.array([
+            [-1.050,  0.000,  0.000,  0.000],
+            [ 0.000, -0.424,  0.180,  0.000],
+            [ 0.000,  0.180, -0.424,  0.000],
+            [ 0.000,  0.000,  0.000, -1.050]
+        ], dtype=jnp.complex128)
 
-exact_ground_energy = np.min(np.real(np.linalg.eigvals(H_molecular)))
-print(f"[🎯] Energia esatta del Ground-State (Teorica): {exact_ground_energy:.6f} Hartree\n")
+        exact_ground_energy = np.min(np.real(np.linalg.eigvals(H_molecular)))
+        sim = de.DenseSVSimulator(n_qubits=num_qubits, use_gpu=False, use_float32=False)
 
-sim = de.DenseSVSimulator(n_qubits=num_qubits, use_gpu=False, use_float32=False)
+        epochs = 40
+        learning_rate = 0.5
+        shift = np.pi / 2
 
-epochs = 40
-learning_rate = 0.5
-shift = np.pi / 2
+        np.random.seed(42)
+        weights = np.random.uniform(0, 2 * np.pi, num_parameters)
 
-np.random.seed(42)
-weights = np.random.uniform(0, 2 * np.pi, num_parameters)
+        for epoch in range(epochs):
+            batch_params = [weights]
+            for i in range(num_parameters):
+                w_plus = np.copy(weights)
+                w_plus[i] += shift
+                batch_params.append(w_plus)
+                
+                w_minus = np.copy(weights)
+                w_minus[i] -= shift
+                batch_params.append(w_minus)
+                
+            jax_batch = jnp.array(batch_params, dtype=jnp.float64)
+            statevectors = sim.run_parametric_batch_jit(base_ops, jax_batch)
+            jax.block_until_ready(statevectors)
+            
+            energies = [float(jnp.real(jnp.dot(sv.conj().T, jnp.dot(H_molecular, sv)))) for sv in statevectors]
+            current_energy = energies[0]
+            
+            gradients = np.zeros(num_parameters)
+            idx = 1
+            for i in range(num_parameters):
+                gradients[i] = 0.5 * (energies[idx] - energies[idx+1])
+                idx += 2
+                
+            weights -= learning_rate * gradients
 
-print(f"🏁 INIZIO ADDESTRAMENTO CON BATCH ENGINE ({epochs} Epoche)...")
-start_time = time.time()
-
-for epoch in range(epochs):
-    batch_params = []
-    batch_params.append(weights)
-    
-    for i in range(num_parameters):
-        w_plus = np.copy(weights)
-        w_plus[i] += shift
-        batch_params.append(w_plus)
-        
-        w_minus = np.copy(weights)
-        w_minus[i] -= shift
-        batch_params.append(w_minus)
-        
-    jax_batch = jnp.array(batch_params, dtype=jnp.float64)
-    statevectors = sim.run_parametric_batch_jit(base_ops, jax_batch)
-    jax.block_until_ready(statevectors)
-    
-    energies = []
-    for sv in statevectors:
-        energy = jnp.real(jnp.dot(sv.conj().T, jnp.dot(H_molecular, sv)))
-        energies.append(float(energy))
-        
-    current_energy = energies[0]
-    
-    gradients = np.zeros(num_parameters)
-    idx = 1
-    for i in range(num_parameters):
-        e_plus = energies[idx]
-        e_minus = energies[idx+1]
-        gradients[i] = 0.5 * (e_plus - e_minus)
-        idx += 2
-        
-    weights -= learning_rate * gradients
-    
-    if (epoch + 1) % 10 == 0 or epoch == 0:
         error = np.abs(current_energy - exact_ground_energy)
-        print(f"   Epoca {epoch+1:02d}/{epochs} -> Energia Batch: {current_energy:.6f} Hartree | Errore: {error:.2e}")
-
-total_time = time.time() - start_time
-print("\n==================================================")
-print("🏆 RISULTATI ADDESTRAMENTO BQE NATiVO (JAX BATCH)")
-print("==================================================")
-print(f"🔹 Energia Ottimizzata Finale: {current_energy:.6f} Hartree")
-print(f"🔹 Energia Esatta Teorica:     {exact_ground_energy:.6f} Hartree")
-print(f"🔹 Errore Chimico Residuo:     {np.abs(current_energy - exact_ground_energy):.6f} Hartree")
-print(f"🚀 Tempo Totale di Convergenza: {total_time:.4f} secondi")
-print(f"🔹 Pesi Ottimizzati (Rad):     {np.round(weights, 4)}")
+        print(f'Test completato. Errore chimico finale: {error:.6e}')
+        assert error < 1e-5, f'Errore troppo alto: {error}'
         "
 
     - name: Esecuzione suite di test automatizzati
