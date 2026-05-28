@@ -40,11 +40,13 @@ git clone https://github.com/tatopenn-cell/Dense-Evolution.git
 
 cd Dense-Evolution
 # Option A: 
-pip install .
-# Option B:
-Developer Mode (Live editable installation for immediate codebase testing)
+```python
+pip install
+```.
+# Option B:Developer Mode (Live editable installation for immediate codebase testing)
+```python
 pip install -e .
-
+```
 ## 3. Google Colab Cloud Deployment 🚀
 To instantly initialize an accelerated cloud developer workspace, execute the following commands inside a notebook cell:
 
