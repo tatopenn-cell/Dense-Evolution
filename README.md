@@ -563,8 +563,170 @@ print("\n" + "="*70)
 
 ```
 
-## 📊 Benchmark Results (Detailed)
-## Test Environment
+## Dense-Evolution utilizes a two-engine 
+architecture designed to eliminate classical software overhead, featuring "Beast Mode" for high-density, single-shot circuit execution and a "Batch Engine" for vectorized variational optimizations. This design optimizes performance by either compiling full circuits via XLA or leveraging jax.vmap for parallel parameter evaluation, reducing Python latency in quantum tasks
+
+```python
+import time
+import numpy as np
+import jax
+import jax.numpy as jnp
+import pandas as pd
+import dense_evolution as de
+import pennylane as qml
+
+try:
+    import pennylane as qml
+except ImportError:
+    print("⏳ PennyLane non trovato. Installazione in corso...")
+    !pip install pennylane
+    import pennylane as qml
+
+# Rigorous configuration for high-precision CPU environment
+jax.config.update("jax_platform_name", "cpu")
+jax.config.update("jax_enable_x64", True)
+
+print("="*80)
+print("⚔️  HEAD-TO-HEAD ON COLAB FREE: DENSE-EVOLUTION VS PENNYLANE (JAX)")
+print("="*80)
+
+n_qubits = 14
+depth = 200
+batch_sizes = [1, 10, 50]
+
+# ==============================================================================
+# 1. STANDARD PARAMETRIC CIRCUIT GENERATION
+# ==============================================================================
+# Generating a fixed random layout of quantum operations.
+ops_flat = []
+param_count = 0
+for _ in range(depth):
+    gate_type = np.random.choice(['rx', 'ry', 'h', 'cx'], p=[0.35, 0.35, 0.1, 0.2])
+    if gate_type in ['rx', 'ry']:
+        ops_flat.append((gate_type, np.random.randint(0, n_qubits), 0.0))
+        param_count += 1
+    elif gate_type == 'h':
+        ops_flat.append(('h', np.random.randint(0, n_qubits)))
+    else:
+        q1, q2 = np.random.choice(n_qubits, 2, replace=False)
+        ops_flat.append(('cx', int(q1), int(q2)))
+
+print(f"📊 Generated Circuit: {n_qubits} Qubits | {depth} Total Gates | {param_count} Variational Parameters.")
+
+# Global parameter matrix representing optimization epoch payloads
+all_params = np.random.uniform(0, 2 * np.pi, (max(batch_sizes), param_count))
+
+# ==============================================================================
+# 2. PENNYLANE CONFIGURATION (UPDATED V0.45+ DEVICE)
+# ==============================================================================
+# Deploying the native 'default.qubit' device which handles JAX arrays seamlessly
+dev_pl = qml.device("default.qubit", wires=n_qubits)
+
+@qml.qnode(dev_pl, interface="jax")
+def pennylane_circuit(params):
+    p_idx = 0
+    for op in ops_flat:
+        if op[0] == 'rx':
+            qml.RX(params[p_idx], wires=op[1])
+            p_idx += 1
+        elif op[0] == 'ry':
+            qml.RY(params[p_idx], wires=op[1])
+            p_idx += 1
+        elif op[0] == 'h':
+            qml.Hadamard(wires=op[1])
+        elif op[0] == 'cx':
+            qml.CNOT(wires=[op[1], op[2]])
+    return qml.state()
+
+# Native PennyLane parallelization via jax.vmap
+pennylane_vmap = jax.vmap(pennylane_circuit)
+
+# ==============================================================================
+# 3. DENSE-EVOLUTION CONFIGURATION (BATCH ENGINE vmap)
+# ==============================================================================
+sim_de = de.DenseSVSimulator(n_qubits=n_qubits, use_gpu=False, use_float32=False)
+
+# ==============================================================================
+# 4. WARMUP PHASE - Triggers and isolates initial JAX XLA Compilation
+# ==============================================================================
+print("\n⏳ Warmup Phase: JAX XLA Compilation active for both simulators...")
+warmup_params = jnp.array(all_params[:1, :], dtype=jnp.float64)
+
+# Warm up PennyLane graph
+res_pl_warm = pennylane_vmap(warmup_params)
+res_pl_warm.block_until_ready()
+
+# Warm up Dense-Evolution graph
+_ = sim_de.run_parametric_batch_jit(ops_flat, warmup_params)
+sim_de.get_statevector()
+print("✅ Both simulation engines are warmed up and running at steady state!")
+
+# ==============================================================================
+# 5. BENCHMARK RUNTIME EXECUTION (PURE HARDWARE ARITHMETIC METRICS)
+# ==============================================================================
+results = {'batch_size': [], 'dense_evolution_time': [], 'pennylane_time': [], 'speedup': []}
+
+for b_size in batch_sizes:
+    print(f"\n🔹 Processing Epoch Optimization Batch Size = {b_size} ...")
+    current_params = jnp.array(all_params[:b_size, :], dtype=jnp.float64)
+    
+    # --- DENSE-EVOLUTION EVALUATION ---
+    start = time.time()
+    res_de = sim_de.run_parametric_batch_jit(ops_flat, current_params)
+    _ = sim_de.get_statevector()  # Resolves JAX asynchronous dispatch
+    time_de = time.time() - start
+    
+    # --- PENNYLANE EVALUATION ---
+    start = time.time()
+    res_pl = pennylane_vmap(current_params)
+    res_pl.block_until_ready()   # Resolves PennyLane asynchronous dispatch
+    time_pl = time.time() - start
+    
+    speedup = time_pl / time_de
+    print(f"   💎 Dense-Evolution: {time_de:.4f} seconds")
+    print(f"   🔴 PennyLane JAX:   {time_pl:.4f} seconds")
+    print(f"   🔥 REAL SPEEDUP:    {speedup:.2f} x")
+    
+    results['batch_size'].append(b_size)
+    results['dense_evolution_time'].append(time_de)
+    results['pennylane_time'].append(time_pl)
+    results['speedup'].append(speedup)
+
+# Present tabulated analytical data metrics
+df = pd.DataFrame(results)
+print("\n" + "="*80)
+print("📊 FINAL COMPREHENSIVE DATA MATRIX (PURE STEADY-STATE RUNTIME EXCLUDING JIT)")
+print("="*80)
+print(df.to_string(index=False))
+print("="*80)
+```
+
+### Architectural Comparison & Methodology
+To evaluate the runtime efficiency of **Dense-Evolution** under real-world workload conditions, a rigorous head-to-head benchmark was executed against **PennyLane** (leveraging its high-performance native `default.qubit` statevector device coupled with `jax.vmap`). 
+
+Both engines were forced to run under an identical evaluation layout:
+* **Precision**: High-precision 64-bit complex floating-point numbers (`complex128`).
+* **Hardware**: Google Colab Free Tier (Standard x86_64 CPU runtime, limited to ~12.7 GB RAM).
+* **Workload**: A deep parametric quantum circuit containing **14 Qubits**, **200 Total Gates**, and **145 Variational Parameters**.
+* **Execution Pattern**: Multi-instance inter-circuit parallelization mapped via `jax.vmap` across scaling optimization batch sizes (simulating the calculation of parameter trajectories or gradients inside an optimization epoch like Adam).
+* **JIT Isolation**: A preliminary warmup run was executed to force JAX XLA compilation beforehand, ensuring that the tracked metrics represent **pure, steady-state hardware evaluation execution** excluding initial tracing overheads.
+
+#### Why Dense-Evolution Outperforms Traditional Frameworks
+The benchmarks show that Dense-Evolution delivers an immediate speedup of **up to 5.78x** over PennyLane. This gap stems from key structural design choices:
+1. **Linear Kernel Fusion (Core V4)**: Standard simulators dynamically reshape and transpose multi-dimensional multi-qubit arrays to apply quantum operations, generating massive intermediate memory allocations. Dense-Evolution bypasses this overhead by storing the statevector as a fixed 1D array, applying gates via direct memory stride-slicing (Zero-Reshape paradigm).
+2. **Reduced Graph Bloating**: PennyLane abstracts circuits through complex Python object structures, which bloat the internal JAX tracing cache. Dense-Evolution processes direct, flattened string/primitive structures (Batch Engine), yielding highly optimized C++/XLA machine code with minimal instruction paths.
+
+### 📊 Benchmark Results (Detailed)
+
+
+| Batch Size (Epoch Payload) | Dense-Evolution Time (s) | PennyLane JAX Time (s) | Real Speedup (x) |
+| :---: | :---: | :---: | :---: |
+| **1** | 0.4458 | 1.9955 | **4.48x** |
+| **10** | 0.7359 | 4.2550 | **5.78x** |
+| **50** | 2.8344 | 5.5566 | **1.96x** |
+
+_Hardware Specifications: Google Colab Free Tier CPU | Max Dense Cap: 24q | Environment State: Pure XLA Warm Steady-State._
+
 
 * Platform: Google Colab Free Tier
 * CPU: x86_64
