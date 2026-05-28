@@ -311,9 +311,9 @@ print(f"⏱️ Tempo NoiseModel (Rumoroso): {time_noise:.6f} secondi")
 print(f"📊 Rapporto d'impatto stocastico: {time_noise / time_beast:.2f}x")
 ```
 
- ### 4. Ottimizzazione VQE e QML
+ ### 4. Ottimizzazione VQE e QML con run_parametric_batch_jit 
  
- Con run_parametric_batch_jitIl metodo run_parametric_batch_jit implementa un'architettura di parallelizzazione inter-circuito basata su jax.vmap. Questo approccio consente di calcolare simultaneamente interi batch di parametri vettoriali (es. per la Parameter Shift Rule in algoritmi variazionali come il VQE), eliminando l'overhead dei cicli iterativi in Python.L'engine alloca dinamicamente i tracciatori statici strettamente necessari al calcolo chimico (es. 9 istanze parallele per un Ansatz a 4 parametri), garantendo la massima precisione numerica e un abbattimento dell'errore sotto la soglia di accuratezza chimica.
+ Il metodo run_parametric_batch_jit implementa un'architettura di parallelizzazione inter-circuito basata su jax.vmap. Questo approccio consente di calcolare simultaneamente interi batch di parametri vettoriali (es. per la Parameter Shift Rule in algoritmi variazionali come il VQE), eliminando l'overhead dei cicli iterativi in Python.L'engine alloca dinamicamente i tracciatori statici strettamente necessari al calcolo chimico (es. 9 istanze parallele per un Ansatz a 4 parametri), garantendo la massima precisione numerica e un abbattimento dell'errore sotto la soglia di accuratezza chimica.
 
 ### 🚀 Esempio 4: Addestramento VQE/QML con il Batch Engine Nativo (Parameter Shift Rule)  Esempio di Algoritmo VQE (Molecola \(H_{2}\)):
 
