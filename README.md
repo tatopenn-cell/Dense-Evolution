@@ -118,9 +118,10 @@ import dense_evolution as de
 transpiler = de.QuantumTranspiler()
 sequenza_primitive = transpiler.decompose_toffoli(0, 1, 2)
 
-print(f"Totale porte primitive generate per il Core V4: {len(sequenza_primitive)}")
+print(f"Total primitive gates generated for Core V4: {len(sequenza_primitive)}")
 for gate in sequenza_primitive:
     print(f" -> {gate}")
+
 
 ```
 
