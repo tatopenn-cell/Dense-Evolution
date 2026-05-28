@@ -264,6 +264,7 @@ print(f"🚀 Tempo di calcolo puro in Beast Mode: {time.time() - start:.6f} seco
 Il modulo QASMParser analizza il codice OpenQASM 2.0 traducendo le istruzioni nel formato richiesto dal backend. La stringa di testo grezza deve essere elaborata direttamente dal metodo parse(), il quale restituisce un oggetto QASMCircuit valido per l'esecuzione.
 ## Esempio di Parsing ed Esecuzione OpenQASM 2.0:
 
+```python
 import dense_evolution as de
 # Stringa QASM 2.0 standardqasm_string = """
 OPENQASM 2.0;
@@ -277,7 +278,7 @@ cx q, q;"""
     sim.run_circuit_jit_beast_mode(parsed_circuit)
 statevector = sim.get_statevector()
 print(f"✅ Stato finale dopo parsing QASM: {statevector}")
-
+```
 ------------------------------
 ## 🧠 3. Gestione del Calcolo con Rumore (NoiseModel)
 
@@ -285,6 +286,8 @@ La classe NoiseModel applica gli operatori di Kraus direttamente sul vettore di 
 L'impatto prestazionale del canale stocastico è ridotto (overhead medio di circa ~2.8x rispetto alla Beast Mode pura su 14 qubit). L'algoritmo mantiene l'esecuzione nell'ordine dei millisecondi anche su registri quantistici ampi, consentendo una scalabilità fluida.
 
 ## Cella di Test e Benchmark: Coerente vs Rumoroso
+
+```python
 import time
 import dense_evolution as de
 
@@ -306,7 +309,7 @@ time_noise = time.time() - t_noise_start
 print(f"⏱️ Tempo NoiseModel (Rumoroso): {time_noise:.6f} secondi")
 
 print(f"📊 Rapporto d'impatto stocastico: {time_noise / time_beast:.2f}x")
-
+```
 
 
 
