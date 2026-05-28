@@ -42,8 +42,9 @@ cd Dense-Evolution
 # Option A: 
 ```python
 pip install
-```.
-# Option B:Developer Mode (Live editable installation for immediate codebase testing)
+```
+# Option B:
+Developer Mode (Live editable installation for immediate codebase testing)
 ```python
 pip install -e .
 ```
