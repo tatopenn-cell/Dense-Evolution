@@ -89,7 +89,8 @@ The run_parametric_batch_jit interface exploits native inter-circuit vectorizati
 * Validated Throughput: Processes 64 deeply parameterized circuits simultaneously in 1.96 seconds.
 * Amortized Latency: ⏱️ 0.031 seconds per individual quantum circuit sequence.
 
-## 💻 Practical Code Examples## 🛠️ Example 1: High-Performance "Beast Mode" Execution (JIT Kernel Fusion)
+## 💻 Practical Code Examples
+## 🛠️ Example 1: High-Performance "Beast Mode" Execution (JIT Kernel Fusion)
 This demonstration showcases the ultra-fast, zero-allocation execution interface. Beast Mode processes a flat linear array of native Python string operations, completely bypassing Python interpreter overhead and tracking validations.
 This enables direct compilation into a single unified XLA microprocess block, yielding maximum raw hardware throughput on the host processor.
 
@@ -641,6 +642,3 @@ Found better (or worse) results on your hardware? Open an issue or PR with:
 
 Help us optimize Dense-Evolution for your use case!
 
-
-
----
