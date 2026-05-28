@@ -104,13 +104,13 @@ circuit = [["h", 0, -1], ["cx", 0, 1]]
 statevector = sim.run_circuit_jit_beast_mode(circuit)
 print(f"Stato Finale Entangled JIT: {statevector}")
 print(f"Probabilità di estrazione: {sim.get_probabilities()}")
-
 ```
 
-## 🧠 Example 2: Topological Decomposition via QuantumTranspiler
-The integrated QuantumTranspiler decomposes non-native, complex multi-qubit logic gates into standard 1-qubit and 2-qubit primitives accepted by the 1D linear core.
-This topological translation completely eliminates routing layout overhead, mapping high-level instructions into native execution primitives while preserving full hardware-level JIT acceleration.
+## 🧠 Example 2: Topological Decomposition via `QuantumTranspiler`
 
+The integrated `QuantumTranspiler` decomposes non-native, complex multi-qubit logic gates into standard 1-qubit and 2-qubit primitives accepted by the 1D linear core. 
+
+This topological translation completely eliminates routing layout overhead, mapping high-level instructions into native execution primitives while preserving full hardware-level JIT acceleration.
 
 ```python
 import dense_evolution as de
@@ -121,9 +121,8 @@ sequenza_primitive = transpiler.decompose_toffoli(0, 1, 2)
 print(f"Total primitive gates generated for Core V4: {len(sequenza_primitive)}")
 for gate in sequenza_primitive:
     print(f" -> {gate}")
-
-
 ```
+
 
 ### 📉 Esempio 3: Iniezione Stocastica del NoiseModel
 Applicazione di canali di rumore realistici NISQ in modalità stocastica unificata JAX-safe.
