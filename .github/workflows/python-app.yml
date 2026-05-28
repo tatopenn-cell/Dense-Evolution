@@ -26,9 +26,11 @@ jobs:
         python-version: "3.11"
         cache: 'pip'
 
+    
     - name: Installazione dipendenze e Dense-Evolution core
       run: |
-        python -m pip install dense-evolution
+        python -m pip install --upgrade pip
+        python -m pip install jax jaxlib dense-evolution
 
     - name: Esecuzione test logici e stabilità simulatore (Beast Mode)
       run: |
