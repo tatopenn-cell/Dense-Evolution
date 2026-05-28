@@ -28,21 +28,15 @@ The internal architecture leverages controlled-allocation Linear Kernel Fusion, 
 The core engine is structured in full compliance with the PEP 621 specification (pyproject.toml) and supports standardized deployment through pip.
 
 ## 1. Quick Installation (via PyPI)
-For standard end-user simulation tasks, deploy the latest verified stable release directly from PyPI:
-
 pip install dense-evolution
 
 ## 2. Local Source & Development Setup
 For direct source-code evaluation, custom modifications, or active development, configure the environment locally:
-
 # Clone the official repository production branch
 git clone https://github.com/tatopenn-cell/Dense-Evolution.git
 cd Dense-Evolution
-
 # Option A: 
-Standard Production Install (Falls back to the native NumPy CPU runtime)
 pip install .
-
 # Option B:
 Developer Mode (Live editable installation for immediate codebase testing)
 pip install -e .
