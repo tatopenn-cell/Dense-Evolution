@@ -224,19 +224,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
----
-
-## 💎 Appendice Tecnica v8.0: Ottimizzazioni Avanzate e Troubleshooting
-
-Durante i test di stress-test intensivi in ambienti a risorse condivise (come Google Colab CPU Free), sono state ingegnerizzate le migliori pratiche per spingere l'engine al massimo delle sue potenzialità teoriche, risolvendo rigidità strutturali di JAX XLA.
-
-### 🚀 1. Sbloccare la "Beast Mode" a 19 e 24 Qubit (Velocità 180x+ vs C++)
-Il metodo `.run_circuit_jit_beast_mode()` è l'unico canale ottimizzato in grado di fondere l'intera sequenza di operazioni in un unico blocco esecutivo a livello di microprocessore (*Linear Kernel Fusion*).
-
-**Problema:** A causa delle rigide restrizioni sui tipi di JAX (`lax.cond`), se si inizializza il simulatore con il flag predefinito `use_float32=True`, il compilatore fallirà con l'errore:
-`TracerArrayConversionError: cond branches must have equal output types (complex64 vs complex128)`.
-
-**Risoluzione Definitiva:** Forzare l'inizializzazione del simulatore in precisione doppia impostando `use_float32=False`. Questo allinea i tipi interni e sblocca l'esecuzione a codice macchina sigillato. Al secondo ciclo di calcolo (Giro 2), l'engine esegue circuiti complessi a 19 e 24 qubit in frazioni di millisecondo.
+Appendice Tecnica 
+v8.0 ottimizza le prestazioni del simulatore in ambienti a risorse condivise, risolvendo le limitazioni di JAX XLA attraverso l'uso della "Beast Mode" con il metodo .run_circuit_jit_beast_mode(). Per ottenere una velocità superiore a 180x rispetto al C++ e prevenire errori di tracciamento, il simulatore utilizza nativamente la precisione doppia (complex128/float64) per garantire la stabilità numerica a 19 e 24 qubit.
 
 ```python
 import time
