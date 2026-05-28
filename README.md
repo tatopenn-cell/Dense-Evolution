@@ -1,4 +1,4 @@
-# 💎 Dense Evolution v8.0
+# 💎 Dense Evolution 
 
 [![PyPI version](https://img.shields.io/pypi/v/dense-evolution?style=flat-square)](https://pypi.org/project/dense-evolution/)
 [![Python Version](https://img.shields.io/badge/Python-3.9+-blue?style=flat-square&logo=python)](https://www.python.org/)
@@ -396,6 +396,7 @@ print(f"🔹 Pesi Ottimizzati (Rad):     {np.round(weights, 4)}")
 ```
 
 ## 🔬 Benchmarks & Performance
+
 ## Why Use Dense-Evolution?
 Dense-Evolution outperforms standard quantum simulators like Qiskit through aggressive JAX JIT compilation and optimized statevector operations. The run_circuit_jit_beast_mode delivers exceptional speedups on deep NISQ circuits and repeated executions.
 ## Performance Evaluation Context
@@ -555,9 +556,8 @@ print("\n" + "="*70)
 
 ```
 
-
-
-## 📊 Benchmark Results (Detailed)## Test Environment
+## 📊 Benchmark Results (Detailed)
+## Test Environment
 
 * Platform: Google Colab Free Tier
 * CPU: x86_64
@@ -600,7 +600,10 @@ Results Summary:
 * 💡 Key insight: High loop execution triggers host thermal throttling on shared free tier runtimes, yet the core simulator preserves absolute speed supremacy over native C++ backends.
 
 ------------------------------
-## Performance Analysis## Deep Circuit Performance (Benchmark 1)## Performance Characteristics## ✅ Optimal Use Cases
+## Performance Analysis
+## Deep Circuit Performance (Benchmark 1)
+## Performance Characteristics
+## ✅ Optimal Use Cases
 
 * Deep NISQ circuits (500+ gates): JIT compilation eliminates Python overhead
 * Repeated circuit execution: First run compiles, subsequent runs reuse cached code
@@ -621,6 +624,7 @@ Results Summary:
 | TPU | 28+ | 20000x+* | Google Cloud, estimated |
 
 *GPU/TPU speedups are projected based on JAX scaling characteristics and will be benchmarked in future releases.
+
 ## Why These Results?
 
    1. JAX JIT Compilation: Circuit operations compiled to optimized XLA code, eliminating Python interpreter overhead
