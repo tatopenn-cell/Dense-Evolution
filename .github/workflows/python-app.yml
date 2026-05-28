@@ -33,17 +33,30 @@ jobs:
     - name: Esecuzione test logici e stabilità simulatore (Beast Mode)
       run: |
         python -c "
-       import jax
-import dense_evolution as de
+        import numpy as np
+        import jax
+        import jax.numpy as jnp
+        import dense_evolution as de
 
-sim = de.DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
-circuit = [["h", 0, -1], ["cx", 0, 1]]
+        # Configurazione minima di test
+        num_qubits = 2
+        base_ops = [('h', 0), ('cx', 0, 1)]
 
-statevector = sim.run_circuit_jit_beast_mode(circuit)
-print(f"Stato Finale Entangled JIT: {statevector}")
-print(f"Probabilità di estrazione: {sim.get_probabilities()}")
+        sim = de.DenseSVSimulator(n_qubits=num_qubits, use_gpu=False, use_float32=False)
+
+        # Generazione di un batch di parametri casuali per il test JIT
+        np.random.seed(42)
+        batch_params = np.random.uniform(0, 2 * np.pi, (5, 4))
+        jax_batch = jnp.array(batch_params, dtype=jnp.float64)
+
+        # Verifica esecuzione batch
+        statevectors = sim.run_parametric_batch_jit(base_ops, jax_batch)
+        jax.block_until_ready(statevectors)
+
+        print(f'Test completato con successo. Stato vettori generati: {statevectors.shape}')
+        assert statevectors.shape[0] == 5, 'Errore nella dimensione del batch'
         "
 
     - name: Esecuzione suite di test automatizzati
       run: |
-        if [ -d "tests" ] || [ -f "test_dense.py" ]; then pytest; else echo "⚠️ Nessun file pytest trovato, salto la suite."; fi
+        if [ -d "tests" ] || [ -f "test_dense.py" ]; then pytest; else echo "Nessun file pytest trovato."; fi
