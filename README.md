@@ -293,11 +293,16 @@ print(f"⏱️ Tempo NoiseModel (Rumoroso): {time_noise:.6f} secondi")
 print(f"📊 Rapporto d'impatto stocastico: {time_noise / time_beast:.2f}x")
 ```
 
- ### 4. Ottimizzazione VQE e QML con run_parametric_batch_jit 
- 
- Il metodo run_parametric_batch_jit implementa un'architettura di parallelizzazione inter-circuito basata su jax.vmap. Questo approccio consente di calcolare simultaneamente interi batch di parametri vettoriali (es. per la Parameter Shift Rule in algoritmi variazionali come il VQE), eliminando l'overhead dei cicli iterativi in Python.L'engine alloca dinamicamente i tracciatori statici strettamente necessari al calcolo chimico (es. 9 istanze parallele per un Ansatz a 4 parametri), garantendo la massima precisione numerica e un abbattimento dell'errore sotto la soglia di accuratezza chimica.
+### 🎯 4. VQE & QML Optimization via `run_parametric_batch_jit`
 
-### 🚀 Esempio 4: Addestramento VQE/QML con il Batch Engine Nativo (Parameter Shift Rule)  Esempio di Algoritmo VQE (Molecola \(H_{2}\)):
+The `run_parametric_batch_jit` method implements an advanced inter-circuit parallelization architecture powered by `jax.vmap`. This vectorized approach executes entire batches of parametric weights simultaneously (e.g., matching the Parameter Shift Rule requirements within variational algorithms like VQE), completely bypassing the latency bottlenecks of iterative Python loops. 
+
+The core engine dynamically provisions the exact static tracers required by the chemical system (allocating exactly 9 parallel execution tracks for a standard 4-parameter Ansatz), enforcing full double-precision numerical integrity and systematically driving residuals well below the chemical accuracy threshold.
+
+
+### 🚀 Example 4: VQE/QML Training via Native Batch Engine (Parameter Shift Rule)
+
+#### Variational Quantum Eigensolver (VQE) for the $H_{2}$ Molecule:
 
 ```python
 import time
@@ -390,7 +395,8 @@ print(f"🚀 Tempo Totale di Convergenza: {total_time:.4f} secondi")
 print(f"🔹 Pesi Ottimizzati (Rad):     {np.round(weights, 4)}")
 ```
 
-## 🔬 Benchmarks & Performance## Why Use Dense-Evolution?
+## 🔬 Benchmarks & Performance
+## Why Use Dense-Evolution?
 Dense-Evolution outperforms standard quantum simulators like Qiskit through aggressive JAX JIT compilation and optimized statevector operations. The run_circuit_jit_beast_mode delivers exceptional speedups on deep NISQ circuits and repeated executions.
 ## Performance Evaluation Context
 All evaluations are performed using a rigorous environment configuration to isolate pure computational throughput on shared infrastructure (Google Colab Free Tier, x86_64, 12.7 GB RAM).
