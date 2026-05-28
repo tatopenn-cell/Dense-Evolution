@@ -97,29 +97,13 @@ This enables direct compilation into a single unified XLA microprocess block, yi
 import jax
 import dense_evolution as de
 
-# 1. Definizione della struttura circuito compatibile con il Transpiler
-class BeastCircuit(de.QASMCircuit, list):
-    def __init__(self, n_qubits):
-        list.__init__(self)
-        de.QASMCircuit.__init__(self, n_qubits=n_qubits)
-
-# Inizializziamo il circuito a 2 qubit
-circuit = BeastCircuit(n_qubits=2)
-
-# Generazione dello Stato di Bell con tuple piatte lineari fisse
-circuit.append(('h', 0))       # Porta Hadamard sul qubit 0
-circuit.append(('cx', 0, 1))   # Porta CNOT (controllo=0, target=1)
-
-# 2. Inizializzazione del simulatore
-# FIX FONDAMENTALE: use_float32=False impedisce il crash JAX (complex64 vs complex128)
 sim = de.DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
+circuit = [["h", 0, -1], ["cx", 0, 1]]
 
-# 3. Esecuzione ultra-ottimizzata nel compilatore fuso XLA (Beast Mode)
 statevector = sim.run_circuit_jit_beast_mode(circuit)
-jax.block_until_ready(statevector) # Attende il completamento asincrono di JAX
-
 print(f"Stato Finale Entangled JIT: {statevector}")
 print(f"Probabilità di estrazione: {sim.get_probabilities()}")
+
 ```
 
 ## 🧠 Example 2: Topological Decomposition via QuantumTranspiler
@@ -130,20 +114,13 @@ This topological translation completely eliminates routing layout overhead, mapp
 ```python
 import dense_evolution as de
 
-class TranspilerCircuit(de.QASMCircuit, list):
-    def __init__(self, n_qubits):
-        list.__init__(self)
-        de.QASMCircuit.__init__(self, n_qubits=n_qubits)
-
-circuit = TranspilerCircuit(n_qubits=3)
-circuit.append(('ccx', 0, 1, 2)) # Toffoli gate
-
 transpiler = de.QuantumTranspiler()
-sequenza_primitive = transpiler.transpile(circuit)
+sequenza_primitive = transpiler.decompose_toffoli(0, 1, 2)
 
 print(f"Totale porte primitive generate per il Core V4: {len(sequenza_primitive)}")
 for gate in sequenza_primitive:
-    print(f"  -> {gate}")
+    print(f" -> {gate}")
+
 ```
 
 ### 📉 Esempio 3: Iniezione Stocastica del NoiseModel
