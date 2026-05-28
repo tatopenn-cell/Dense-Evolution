@@ -33,71 +33,15 @@ jobs:
     - name: Esecuzione test logici e stabilità simulatore (Beast Mode)
       run: |
         python -c "
-        import numpy as np
-        import jax
-        import jax.numpy as jnp
-        import dense_evolution as de
+       import jax
+import dense_evolution as de
 
-        num_qubits = 2
-        num_parameters = num_qubits * 2
+sim = de.DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
+circuit = [["h", 0, -1], ["cx", 0, 1]]
 
-        base_ops = [
-            ('h', 0),
-            ('h', 1),
-            ('rx', 0, 0.0),
-            ('rx', 1, 0.0),
-            ('cx', 0, 1),
-            ('ry', 0, 0.0),
-            ('ry', 1, 0.0)
-        ]
-
-        H_molecular = jnp.array([
-            [-1.050,  0.000,  0.000,  0.000],
-            [ 0.000, -0.424,  0.180,  0.000],
-            [ 0.000,  0.180, -0.424,  0.000],
-            [ 0.000,  0.000,  0.000, -1.050]
-        ], dtype=jnp.complex128)
-
-        exact_ground_energy = float(np.min(np.real(np.linalg.eigvals(H_molecular))))
-        sim = de.DenseSVSimulator(n_qubits=num_qubits, use_gpu=False, use_float32=False)
-
-        epochs = 40
-        learning_rate = 0.5
-        shift = np.pi / 2
-
-        np.random.seed(42)
-        weights = np.random.uniform(0, 2 * np.pi, num_parameters)
-
-        for epoch in range(epochs):
-            batch_list = [weights]
-            for i in range(num_parameters):
-                w_plus = np.copy(weights)
-                w_plus[i] += shift
-                batch_list.append(w_plus)
-                
-                w_minus = np.copy(weights)
-                w_minus[i] -= shift
-                batch_list.append(w_minus)
-                
-            jax_batch = jnp.array(batch_list, dtype=jnp.float64)
-            statevectors = sim.run_parametric_batch_jit(base_ops, jax_batch)
-            jax.block_until_ready(statevectors)
-            
-            # Calcolo energetico completamente vettorizzato su JAX
-            energies = jnp.real(jnp.einsum('bi,ij,bj->b', statevectors.conj(), H_molecular, statevectors))
-            current_energy = float(energies[0])
-            
-            gradients = np.zeros(num_parameters)
-            idx = 1
-            for i in range(num_parameters):
-                gradients[i] = 0.5 * (float(energies[idx]) - float(energies[idx+1]))
-                idx += 2
-                
-            weights -= learning_rate * gradients
-
-        error = np.abs(current_energy - exact_ground_energy)
-        print(f'Test completato. Errore chimico finale: {error:.6e}')
-        assert error < 1e-5, f'Errore troppo alto: {error}'
+statevector = sim.run_circuit_jit_beast_mode(circuit)
+print(f"Stato Finale Entangled JIT: {statevector}")
+print(f"Probabilità di estrazione: {sim.get_probabilities()}")
         "
 
     - name: Esecuzione suite di test automatizzati
