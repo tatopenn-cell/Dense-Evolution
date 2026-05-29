@@ -95,6 +95,69 @@ The run_parametric_batch_jit interface exploits native inter-circuit vectorizati
 * Validated Throughput: Processes 64 deeply parameterized circuits simultaneously in 1.96 seconds.
 * Amortized Latency: ⏱️ 0.031 seconds per individual quantum circuit sequence.
 
+# Trova tutte le classi e funzioni nel modulo
+all_members = inspect.getmembers(dense_evolution)
+
+'''python
+import dense_evolution
+import inspect
+
+# Trova tutte le classi e funzioni nel modulo
+all_members = inspect.getmembers(dense_evolution)
+
+# Filtra metodi di test
+test_methods = []
+for name, obj in all_members:
+    if 'test' in name.lower():
+        test_methods.append((name, obj, type(obj).__name__))
+
+# Cerca metodi run, validate, demo, example
+demo_methods = []
+for name, obj in all_members:
+    if any(keyword in name.lower() for keyword in ['run', 'validate', 'demo', 'example', 'benchmark']):
+        demo_methods.append((name, obj, type(obj).__name__))
+
+# Ispeziona le classi principali per trovare metodi pubblici
+classes_to_inspect = ['DenseSVSimulator', 'NoiseModel', 'QASMParser', 'QuantumTranspiler']
+class_methods = {}
+
+for class_name in classes_to_inspect:
+    if hasattr(dense_evolution, class_name):
+        cls = getattr(dense_evolution, class_name)
+        methods = [m for m in dir(cls) if not m.startswith('_') and callable(getattr(cls, m))]
+        class_methods[class_name] = methods
+
+print("=" * 70)
+print("🔍 METODI DI TEST TROVATI")
+print("=" * 70)
+for name, obj, obj_type in test_methods:
+    print(f"✓ {name} ({obj_type})")
+print(f"\nTotale: {len(test_methods)}")
+
+print("\n" + "=" * 70)
+print("🚀 METODI DEMO/RUN/VALIDATE TROVATI")
+print("=" * 70)
+for name, obj, obj_type in demo_methods:
+    print(f"✓ {name} ({obj_type})")
+print(f"\nTotale: {len(demo_methods)}")
+
+print("\n" + "=" * 70)
+print("📦 METODI PUBBLICI PER CLASSE")
+print("=" * 70)
+for class_name, methods in class_methods.items():
+    print(f"\n{class_name}:")
+    for method in methods:
+        print(f"  • {method}")
+
+# Funzioni standalone
+print("\n" + "=" * 70)
+print("🔧 FUNZIONI STANDALONE")
+print("=" * 70)
+functions = [name for name, obj in all_members if inspect.isfunction(obj)]
+for func_name in functions:
+    print(f"  • {func_name}")
+    '''
+    
 ## 💻 Practical Code Examples
 ## 🛠️ Example 1: High-Performance "Beast Mode" Execution (JIT Kernel Fusion)
 This demonstration showcases the ultra-fast, zero-allocation execution interface. Beast Mode processes a flat linear array of native Python string operations, completely bypassing Python interpreter overhead and tracking validations.
