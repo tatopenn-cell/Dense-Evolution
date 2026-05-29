@@ -376,18 +376,44 @@ Before execution, the circuit object can be verified through the native validate
 
 ```python
 import dense_evolution as de
-# Stringa QASM 2.0 standardqasm_string = """
+
+# Stringa QASM 2.0 standard
+qasm_string = """
 OPENQASM 2.0;
 include "qelib1.inc";
-qreg q;
-h q;
-cx q, q;"""
-# 1. Inizializzazione del simulatore e del parsersim = de.DenseSVSimulator(n_qubits=2)parser = de.QASMParser()
-# 2. Parsing diretto della stringa di testoparsed_circuit = parser.parse(qasm_string)
-# 3. Validazione dell'oggetto circuito ed esecuzione in Beast Modeis_valid, _ = parser.validate(parsed_circuit)if is_valid:
-    sim.run_circuit_jit_beast_mode(parsed_circuit)
+qreg q[2];
+h q[0];
+cx q[0], q[1];"""
+
+# 1. Inizializzazione del simulatore e del parser
+sim = de.DenseSVSimulator(n_qubits=2)
+parser = de.QASMParser()
+
+# 2. Parsing direct
+parsed_circuit = parser.parse(qasm_string)
+
+# DEBUG: Print the structure of parsed_circuit.ops
+print(f"DEBUG: parsed_circuit.ops type: {type(parsed_circuit.ops)}")
+print(f"DEBUG: parsed_circuit.ops content: {parsed_circuit.ops}")
+
+# 3. Esecution of circuit in Beast Mode
+# According to dense_evolution.py source code, the QASMCircuit object stores gates in 'ops' attribute.
+# The previous KeyError indicates a format mismatch, not an AttributeError.
+# We need to convert parsed_circuit.ops to the format expected by run_circuit_jit_beast_mode.
+
+converted_circuit_list = []
+for op in parsed_circuit.ops:
+    # Correctly access 'qubits' key instead of 'qargs'
+    gate_name = op['name']
+    qubits = op['qubits']
+    # Combine name and qubits into a tuple, ensuring qubits are appended as individual arguments
+    converted_circuit_list.append(tuple([gate_name] + qubits))
+
+sim.run_circuit_jit_beast_mode(converted_circuit_list)
+
 statevector = sim.get_statevector()
-print(f"✅ Stato finale dopo parsing QASM: {statevector}")
+print(f"✅ State final after parsing QASM: {statevector}")
+print(f"Probability  extraction: {sim.get_probabilities()}")
 ```
 ------------------------------
 ## 🧠 3. Stochastic Noise Simulation (NoiseModel)
