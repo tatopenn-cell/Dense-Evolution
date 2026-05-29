@@ -98,7 +98,7 @@ The run_parametric_batch_jit interface exploits native inter-circuit vectorizati
 # Trova tutte le classi e funzioni nel modulo
 all_members = inspect.getmembers(dense_evolution)
 
-'''python
+```python
 import dense_evolution
 import inspect
 
@@ -156,7 +156,7 @@ print("=" * 70)
 functions = [name for name, obj in all_members if inspect.isfunction(obj)]
 for func_name in functions:
     print(f"  • {func_name}")
-    '''
+    ```
     
 ## 💻 Practical Code Examples
 ## 🛠️ Example 1: High-Performance "Beast Mode" Execution (JIT Kernel Fusion)
