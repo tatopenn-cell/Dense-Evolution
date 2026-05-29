@@ -156,8 +156,11 @@ print("=" * 70)
 functions = [name for name, obj in all_members if inspect.isfunction(obj)]
 for func_name in functions:
     print(f"  • {func_name}")
+
     ```
-    
+
+
+
 ## 💻 Practical Code Examples
 ## 🛠️ Example 1: High-Performance "Beast Mode" Execution (JIT Kernel Fusion)
 This demonstration showcases the ultra-fast, zero-allocation execution interface. Beast Mode processes a flat linear array of native Python string operations, completely bypassing Python interpreter overhead and tracking validations.
