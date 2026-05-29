@@ -157,9 +157,7 @@ functions = [name for name, obj in all_members if inspect.isfunction(obj)]
 for func_name in functions:
     print(f"  • {func_name}")
 
-    ```
-
-
+```
 
 ## 💻 Practical Code Examples
 ## 🛠️ Example 1: High-Performance "Beast Mode" Execution (JIT Kernel Fusion)
