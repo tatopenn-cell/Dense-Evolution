@@ -95,8 +95,69 @@ The run_parametric_batch_jit interface exploits native inter-circuit vectorizati
 * Validated Throughput: Processes 64 deeply parameterized circuits simultaneously in 1.96 seconds.
 * Amortized Latency: ⏱️ 0.031 seconds per individual quantum circuit sequence.
 
-# Trova tutte le classi e funzioni nel modulo
-all_members = inspect.getmembers(dense_evolution)
+## 🎛️ API Reference: 
+
+The core `DenseSVSimulator` class exposes low-level and high-level interfaces designed to manipulate the quantum statevector, apply precise gate transformations, and execute complex quantum circuits under strict memory constraints.
+
+
+### 1. Simulator Initialization
+
+```python
+sim = de.DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
+```
+*   **`n_qubits`** *(int)*: Total number of qubits allocated in the quantum register.
+*   **`use_gpu`** *(bool)*: When set to `True`, enables NVIDIA GPU acceleration via CuPy.
+*   **`use_float32`** *(bool)*: Enables single-precision formats if `True`. Defaults to `False` (`complex128/float64`) to enforce absolute double-precision numerical stability (Zero-Drift execution).
+
+---
+
+### 2. Quantum Gates API
+
+The `apply_` method family performs in-place transformations directly on the active statevector layout.
+
+#### Single-Qubit Gates (1-Qubit Primitives)
+*   **`apply_gate_1q(matrix, target)`**: Maps an arbitrary $2 \times 2$ unitary operator matrix (NumPy/JAX/CuPy array) onto the specified `target` qubit.
+*   **`apply_rx(theta, target)`**: Executes an X-axis rotation by angle `theta` (in radians) on the `target` qubit.
+*   **`apply_ry(theta, target)`**: Executes a Y-axis rotation by angle `theta` on the `target` qubit.
+*   **`apply_rz(phi, target)`**: Executes a Z-axis rotation by angle `phi` on the `target` qubit.
+*   **`apply_p(phi, target)`**: Applies a phase shift gate by angle `phi` on the `target` qubit.
+*   **`apply_u1(lambda_param, target)`**: Executes a single-parameter $U_1(\lambda)$ phase gate.
+*   **`apply_u2(phi, lambda_param, target)`**: Executes a two-parameter $U_2(\phi, \lambda)$ unitary gate.
+*   **`apply_u3(theta, phi, lambda_param, target)`**: Executes a generic three-parameter $U_3(\theta, \phi, \lambda)$ single-qubit gate.
+
+#### Two-Qubit Gates (2-Qubit Primitives)
+*   **`apply_gate_2q(matrix, control, target)`**: Maps an arbitrary $4 \times 4$ controlled unitary operator onto the designated hardware views.
+*   **`apply_cx(control, target)`**: Executes a Controlled-NOT (CNOT) gate across the `control` and `target` qubits.
+*   **`apply_cz(control, target)`**: Executes a Controlled-Phase Z gate across the `control` and `target` qubits.
+*   **`apply_crz(theta, control, target)`**: Executes a Controlled Z-axis rotation by angle `theta`.
+*   **`apply_cp(theta, control, target)`**: Executes a Controlled-Phase shift gate by angle `theta`.
+
+---
+
+### 3. State Vector Management & Measurement
+
+*   **`set_initial_state()`**: Resets the internal quantum register to the standard computational ground state ($|00\dots0\rangle$).
+*   **`normalize()`**: Forces L2-norm stabilization of the statevector to $1.0$, mitigating microscopic accumulated numerical drift.
+*   **`get_statevector()`**: Returns the native JAX/NumPy/CuPy backend array containing the current quantum probability amplitudes.
+*   **`get_probabilities()`**: Extracts and evaluates the exact probability distribution vector across all basis states.
+*   **`measure(qubits_to_measure)`**: Injects zero-allocation stride-slicing logic to simulate stochastic wavefunction collapse without creating auxiliary array masks in RAM.
+*   **`memory_mb()`**: Returns the exact RAM/VRAM footprint currently allocated by the statevector engine in Megabytes (MB).
+
+---
+
+### 4. High-Throughput Execution Engines
+
+The simulation suite supports multiple runtime execution paradigms to ingest flat operational arrays (e.g., `[['h', 0], ['cx', 0, 1]]`):
+
+
+
+| Execution Method | Optimal Use Case | Operational Architecture |
+| :--- | :--- | :--- |
+| **`run_circuit(circuit)`** | Rapid Prototyping & Debugging | Standard sequential execution driven directly via the host Python interpreter loops. |
+| **`run_circuit_jit_beast_mode(circuit)`** | Deep NISQ Architectures (One-Shot) | Fuses the operational graph into a single compiled JAX XLA microprocess block, bypassing interpreter overhead. |
+| **`run_circuit_with_chunking(circuit)`** | Massively Deep Graphs (>1000 gates) | Decomposes deep gates into geometrically balanced structural blocks to eliminate JAX tracer cache bloating. |
+| **`run_parametric_batch_jit(circuit, batch_params)`** | QML & Variational VQE Optimization | Leverages native `jax.vmap` inter-circuit vectorization to map entire multi-instance weight payloads concurrently. |
+
 
 ```python
 import dense_evolution
