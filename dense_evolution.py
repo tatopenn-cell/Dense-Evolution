@@ -447,11 +447,13 @@ class DenseSVSimulator:
 # ┌─────────────────────────────────────────────────────────────────┐
     # │ FIX #2: VECTORIZED MEASURE (Stride Slicing — No Index Masks)    │
     # └─────────────────────────────────────────────────────────────────┘
-    def measure(self, qubit_idx: int) -> int:
+def measure(self, qubit_idx: int) -> int:
         """
         Measure a single qubit and collapse statevector.
         FIXED: Uses micro-optimized stride-slicing without memory allocation.
         """
+        
+
         if not 0 <= qubit_idx < self.n:
             raise ValueError(f"Qubit {qubit_idx} out of bounds")
 
@@ -466,8 +468,10 @@ class DenseSVSimulator:
             probs = self.xp.abs(self.sv)**2
             sv_shape = [2] * self.n
             sv_nd = probs.reshape(sv_shape)
-            prob_0 = float(jnp.sum(jnp.moveaxis(sv_nd, phys_q, 0)[0]))
-            prob_1 = float(jnp.sum(jnp.moveaxis(sv_nd, phys_q, 0)[1]))
+            # FIX: Use qubit_idx directly as axis, as sv_nd is MSB-first indexed
+            moved_probs = jnp.moveaxis(sv_nd, qubit_idx, 0)
+            prob_0 = float(jnp.sum(moved_probs[0]))
+            prob_1 = float(jnp.sum(moved_probs[1]))
         else:
             # Ramo NumPy/CuPy Ultra-Performante: Somma a salti in memoria (Zero allocazione)
             sv_reshaped = self.sv.reshape(-1, 2, stride)
@@ -487,9 +491,9 @@ class DenseSVSimulator:
         if xp is jnp:
             sv_shape = [2] * self.n
             sv_nd = self.sv.reshape(sv_shape)
-            moved_sv = jnp.moveaxis(sv_nd, phys_q, 0)
-            moved_sv = moved_sv.at[1 if result == 0 else 0].set(0.0)
-            self.sv = jnp.moveaxis(moved_sv, 0, phys_q).ravel()
+            moved_sv = jnp.moveaxis(sv_nd, qubit_idx, 0)
+            moved_sv = moved_sv.at[1 - result].set(0.0)
+            self.sv = jnp.moveaxis(moved_sv, 0, qubit_idx).ravel() # FIX: And here too
         else:
             # Slicing chirurgico nativo: azzera metà del vettore direttamente sulla matrice di vista
             sv_reshaped[:, 1 if result == 0 else 0, :] = 0.0
@@ -497,7 +501,7 @@ class DenseSVSimulator:
         self.normalize()
         return result
 
-    def memory_mb(self) -> float:
+def memory_mb(self) -> float:
         """Estimate RAM usage in MB"""
         elem_size = 8 if self.dtype == np.complex64 else 16
         return self.dim * elem_size / 1e6
@@ -1901,8 +1905,5 @@ def run_parametric_batch_jit(self, base_circuit: list, parameter_batch: np.ndarr
 # Iniettiamo il metodo nel tuo simulatore originale
 DenseSVSimulator.run_parametric_batch_jit = run_parametric_batch_jit
 print("💎 BATCH ENGINE AGGANGIATO: Pieno supporto QML & VQE attivo sul tuo core!")
-
-
-
 
 
