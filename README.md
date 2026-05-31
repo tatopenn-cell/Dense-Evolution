@@ -378,7 +378,7 @@ The `DenseSVSimulator` features an integrated OpenQASM 3.0 compilation pipeline.
   It generates a flattened primitive topology for the Beast Mode engine.
 
 * **Deterministic Resource Bound**
-  Strict structural alignment handles dynamic mathematical arguments like `rx(pi/4 * theta)`.
+  Strict structural alignment handles dynamic mathematical arguments like `$\text{rx}(\pi/4 \times \theta)$`.
   It preserves a machine-epsilon zero-drift footprint ($\Delta = 1.11 \times 10^{-16}$) during updates.
 
 
