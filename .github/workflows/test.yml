@@ -27,7 +27,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest numpy scipy pandas matplotlib psutil ipython # Aggiunto ipython
+          pip install pytest numpy scipy pandas matplotlib psutil ipython
           pip install . --no-deps # Installa il pacchetto locale
 
       - name: Run test suite
