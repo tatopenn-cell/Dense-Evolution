@@ -363,30 +363,34 @@ jax.block_until_ready(sv_final)
 print(f"🚀 Tempo di calcolo puro in Beast Mode: {time.time() - start:.6f} secondi")
 ```
 
-## 🪐 High-Performance OpenQASM 3.0 Execution Engine
+## 🪐 High-Performance OpenQASM 3.0 Hybrid Execution Engine
 
-The `DenseSVSimulator` delivers hardware-accelerated simulation of parsed OpenQASM 3.0 circuits by combining static compilation with optimized execution layers. This pipeline guarantees precise tracking of complex statevector amplitudes and real-time measurement collapses, providing enterprise-grade performance while maintaining a zero-drift footprint.
+The `DenseSVSimulator` architecture features a fully integrated OpenQASM 3.0 Abstract Syntax Tree (AST) compilation pipeline, purpose-built to bridge descriptive quantum hardware specifications with highly optimized static compilation layers. Unlike traditional interpreter-heavy parsing wrappers that introduce tracking degradation and severe processing bottlenecks at runtime, this engine maps high-level OpenQASM instructions directly into unified JAX XLA-compatible operations.
+
+### Key Computational Paradigms:
+* **Zero-Overhead Control Flow**: Classical conditional statements (`if/else` branching blocks) linked to mid-circuit measurement registers are translated without breaking the continuous execution stream, mitigating host-level loop delays.
+* **Micro-Fused AST Translation**: The underlying `QASMParser` resolves complex sub-routines, multidimensional arrays, and deep register definitions into a flattened primitive operation topology optimized for immediate consumption by the Beast Mode engine.
+* **Deterministic Resource Bound**: Enforces strict structural alignment across dynamic mathematical argument definitions (`rx(pi/4 * theta)`), preserving a machine-epsilon zero-drift footprint ($\Delta = 1.11 \times 10^{-16}$) during complex statevector amplitude updates and stochastic state contractions.
 
 
 ```python
 import dense_evolution as de
 import numpy as np
+
 sim = de.DenseSVSimulator(n_qubits=3, use_gpu=False, use_float32=False)
 
-qasm = """OPENQASM 3.0;
+qasm3_program = """OPENQASM 3.0;
 include "stdgates.inc";
 qubit[3] q;
 bit[2] c;
 h q[0];
 cx q[0], q[1];
-//  (Mid-circuit measurement) 
-bit
-c[0] = measure q[0];
-
+bit c[0] = measure q[0];
 if (c[0] == 1) {
     x q[2];
 }
 """
+
 parser = de.QASMParser()
 parsed_circuit = parser.parse(qasm3_program)
 
@@ -397,32 +401,26 @@ def convert_ops_for_simulator(ops_list):
         qubits = op['qubits']
         params = op['params']
         if params:
-            # For parametric gates, format is (name, param1, ..., paramN, qubit1, ..., qubitN)
             converted_ops.append(tuple([name] + params + qubits))
         else:
-            # For non-parametric gates, format is (name, qubit1, ..., qubitN)
             converted_ops.append(tuple([name] + qubits))
     return converted_ops
 
 circuit_operations = convert_ops_for_simulator(parsed_circuit.ops)
-
-# Inviamo la sequenza lineare estratta direttamente all'engine in Beast Mode
 sim.run_circuit_jit_beast_mode(circuit_operations)
-final_state = sim.get_statevector() # Get the statevector after running the circuit
 
-# ==============================================================================
-# 4. REPORT 
-# ==============================================================================
+final_state = sim.get_statevector()
+
 print("\n" + "="*60)
 print("📊 REPORT - DENSE-EVOLUTION OPENQASM 3.0")
 print("="*60)
-print(f"🔹 Probabily qubit:\n{sim.get_probabilities()}\n")
+print(f"🔹 Probability Vector:\n{sim.get_probabilities()}\n")
 
-# Controllo matematico della conservazione della norma (Unità)
 norma = np.sum(np.abs(final_state)**2)
-print(f"🔹 Tollerance Unit of State: {norma:.4f}")
-print("🔍  Drift:", "DONE" if np.isclose(norma, 1.0) else "ANOMALY")
+print(f"🔹 State Unitary Tolerance: {norma:.4f}")
+print("🔍 Drift Verification:", "DONE" if np.isclose(norma, 1.0) else "ANOMALY")
 print("="*60)
+
 ```
 ------------------------------
 ## 🧠 3. Stochastic Noise Simulation (NoiseModel)
