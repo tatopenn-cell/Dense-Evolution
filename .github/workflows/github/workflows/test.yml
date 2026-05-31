@@ -27,12 +27,12 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest numpy scipy pandas matplotlib psutil jax jaxlib
+          pip install pytest numpy scipy pandas matplotlib psutil
           pip install . --no-deps # Installa il pacchetto locale
 
       - name: Run test suite
         run: |
-          pytest test_dense_evolution.py -v --tb=short --junitxml=pytest-results.xml
+          pytest test_dense_evolution.py -v --tb=short
 
       - name: Upload test results on failure
         if: failure()
