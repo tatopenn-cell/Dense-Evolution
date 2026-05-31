@@ -180,62 +180,37 @@ The simulation suite supports multiple runtime execution paradigms to ingest fla
 
 ```python
 import dense_evolution
-import inspect
 
-# Trova tutte le classi e funzioni nel modulo
-all_members = inspect.getmembers(dense_evolution)
+def inspect_dense_evolution_module(keywords):
+    module_contents = dir(dense_evolution)
 
-# Filtra metodi di test
-test_methods = []
-for name, obj in all_members:
-    if 'test' in name.lower():
-        test_methods.append((name, obj, type(obj).__name__))
+    for keyword in keywords:
+        print(f"--- Searching for '{keyword}' related items ---")
+        related_items = [item for item in module_contents if keyword.lower() in item.lower()]
 
-# Cerca metodi run, validate, demo, example
-demo_methods = []
-for name, obj in all_members:
-    if any(keyword in name.lower() for keyword in ['run', 'validate', 'demo', 'example', 'benchmark']):
-        demo_methods.append((name, obj, type(obj).__name__))
+        if related_items:
+            print(f"'{keyword}'-related items found in the dense_evolution module:")
+            for item in sorted(related_items):
+                print(f"- {item}")
 
-# Ispeziona le classi principali per trovare metodi pubblici
-classes_to_inspect = ['DenseSVSimulator', 'NoiseModel', 'QASMParser', 'QuantumTranspiler']
-class_methods = {}
+            # Special handling for NoiseModel
+            if keyword.lower() == 'noise' and 'NoiseModel' in related_items:
+                print(f"\nMethods of dense_evolution.NoiseModel:")
+                noise_model_methods = [attr for attr in dir(dense_evolution.NoiseModel) if callable(getattr(dense_evolution.NoiseModel, attr)) and not attr.startswith('__')]
+                for method in sorted(noise_model_methods):
+                    print(f"- {method}")
+                print(f"\nAvailable Noise Models: {dense_evolution.NoiseModel.MODELS}")
 
-for class_name in classes_to_inspect:
-    if hasattr(dense_evolution, class_name):
-        cls = getattr(dense_evolution, class_name)
-        methods = [m for m in dir(cls) if not m.startswith('_') and callable(getattr(cls, m))]
-        class_methods[class_name] = methods
+        else:
+            print(f"No '{keyword}'-related items found directly in the dense_evolution module.")
 
-print("=" * 70)
-print("🔍 METODI DI TEST TROVATI")
-print("=" * 70)
-for name, obj, obj_type in test_methods:
-    print(f"✓ {name} ({obj_type})")
-print(f"\nTotale: {len(test_methods)}")
+        print("\n" + "-" * 50 + "\n") # Separator for clarity
 
-print("\n" + "=" * 70)
-print("🚀 METODI DEMO/RUN/VALIDATE TROVATI")
-print("=" * 70)
-for name, obj, obj_type in demo_methods:
-    print(f"✓ {name} ({obj_type})")
-print(f"\nTotale: {len(demo_methods)}")
+# Define the keywords to search for
+search_keywords = ['QASM', 'run', 'measure', 'noise']
 
-print("\n" + "=" * 70)
-print("📦 METODI PUBBLICI PER CLASSE")
-print("=" * 70)
-for class_name, methods in class_methods.items():
-    print(f"\n{class_name}:")
-    for method in methods:
-        print(f"  • {method}")
-
-# Funzioni standalone
-print("\n" + "=" * 70)
-print("🔧 FUNZIONI STANDALONE")
-print("=" * 70)
-functions = [name for name, obj in all_members if inspect.isfunction(obj)]
-for func_name in functions:
-    print(f"  • {func_name}")
+# Run the inspection
+inspect_dense_evolution_module(search_keywords)
 
 ```
 
