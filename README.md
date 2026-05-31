@@ -1,7 +1,7 @@
 # 💎 Dense Evolution
 
 
-[![CI](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/tests.yml/badge.svg)](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml)
+[![CI](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml/badge.svg)](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml)
 [![PyPI version](https://img.shields.io/pypi/v/dense-evolution?style=flat-square)](https://pypi.org/project/dense-evolution/)
 [![Python Version](https://img.shields.io/badge/Python-3.9+-blue?style=flat-square&logo=python)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/LICENSE)
