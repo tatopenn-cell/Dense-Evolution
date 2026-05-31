@@ -364,13 +364,11 @@ print(f"🚀 Tempo di calcolo puro in Beast Mode: {time.time() - start:.6f} seco
 ```
 
 ## 🪐 High-Performance OpenQASM 3.0 Hybrid Execution Engine
-
 The `DenseSVSimulator` architecture features a fully integrated OpenQASM 3.0 Abstract Syntax Tree (AST) compilation pipeline, purpose-built to bridge descriptive quantum hardware specifications with highly optimized static compilation layers. Unlike traditional interpreter-heavy parsing wrappers that introduce tracking degradation and severe processing bottlenecks at runtime, this engine maps high-level OpenQASM instructions directly into unified JAX XLA-compatible operations.
-
-### Key Computational Paradigms:
-* **Zero-Overhead Control Flow**: Classical conditional statements (`if/else` branching blocks) linked to mid-circuit measurement registers are translated without breaking the continuous execution stream, mitigating host-level loop delays.
+### Key Computational Paradigms:* **Zero-Overhead Control Flow**: Classical conditional statements (`if/else` branching blocks) linked to mid-circuit measurement registers are translated without breaking the continuous execution stream, mitigating host-level loop delays.
 * **Micro-Fused AST Translation**: The underlying `QASMParser` resolves complex sub-routines, multidimensional arrays, and deep register definitions into a flattened primitive operation topology optimized for immediate consumption by the Beast Mode engine.
 * **Deterministic Resource Bound**: Enforces strict structural alignment across dynamic mathematical argument definitions (`rx(pi/4 * theta)`), preserving a machine-epsilon zero-drift footprint ($\Delta = 1.11 \times 10^{-16}$) during complex statevector amplitude updates and stochastic state contractions.
+
 
 
 ```python
