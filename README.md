@@ -1388,7 +1388,7 @@ dash.py
 
 ## 6. Circuit Library
 
-The library ships with 80+ preset circuits across five categories. All circuits are stored as OpenQASM 2.0 strings in `QASM_LIBRARY` and can be extended without modifying the engine.
+The library ships with 30+ preset circuits across 4 categories. All circuits are stored as OpenQASM 2.0 strings in `QASM_LIBRARY` and can be extended without modifying the engine.
 
 ### Standard
 
@@ -1396,23 +1396,11 @@ Bell |Φ+⟩, QFT 4 qubit, Toffoli (CCX), Adder 2-bit, Deutsch-Jozsa balanced, B
 
 ### Quantum Algorithms
 
-Grover 3q Oracle |111⟩, Simon Algorithm 4q s=11, Shor 15 (Simplified), HHL Matrix Inversion, QAOA Max-Cut 4q, QPE Precision 5q, QFT 8q High-Res, Quantum Walk, Quantum Teleportation, BB84 Protocol Test
+Grover 3q Oracle |111⟩, Simon Algorithm 4q s=11, Shor 15 (Simplified), HHL Matrix Inversion, QAOA Max-Cut 4q, QPE Precision 5q, QFT 8q High-Res, Quantum Walk, Quantum Teleportation
 
 ### Advanced Topological
 
 Anyonic Braiding Fibonacci 6q, Topological Charge Pump 8q, MultiControlled-Z 5q, Hyper Inversion 8q, Deep Topological Unified 8q
-
-**Phase constants used across topological circuits:**
-
-| Constant | Value (rad) | Physical meaning |
-|---|---|---|
-| φ (Golden Ratio) | 1.6180 | Tatopenn φ-resonance |
-| sp³ diamond angle | 1.9106 | Carbon sp³ tetrahedral bond |
-| Topological lock | 3.0718 ≈ π − ε | Near-π translocation phase |
-| Omega / Fe₂S₂ | 6.1574 ≈ 2π − ε | Iron-sulfur cluster phase lock |
-| BGQ wormhole kick | 0.7000 | BGQ wormhole kickback amplitude |
-
-
 
 ---
 
