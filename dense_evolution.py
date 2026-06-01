@@ -20,9 +20,14 @@ import pandas as pd
 
 warnings.filterwarnings('ignore')
 
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CELLA 1: Hardware Detection & Configuration
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  Copyright (c) 2026 Salvatore Pennacchio <jtatopenn@libero.it>
+#  Distributed under the Business Source License 1.1 (BSL 1.1)
+#  See LICENSE.md in the project root for full license terms.
+
 
 def install(pkg):
     subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-q', pkg])
@@ -445,8 +450,12 @@ class DenseSVSimulator:
         return np.array(sv)
 
 # ┌─────────────────────────────────────────────────────────────────┐
-    # │ FIX #2: VECTORIZED MEASURE (Stride Slicing — No Index Masks)    │
-    # └─────────────────────────────────────────────────────────────────┘
+# │ FIX #2: VECTORIZED MEASURE (Stride Slicing — No Index Masks)    │
+# └─────────────────────────────────────────────────────────────────┘
+#  Copyright (c) 2026 Salvatore Pennacchio <jtatopenn@libero.it>
+#  Distributed under the Business Source License 1.1 (BSL 1.1)
+#  See LICENSE.md in the project root for full license terms.
+
 def measure(self, qubit_idx: int) -> int:
         """
         Measure a single qubit and collapse statevector.
@@ -507,7 +516,7 @@ def memory_mb(self) -> float:
         return self.dim * elem_size / 1e6
 
 # ┌─────────────────────────────────────────────────────────────────┐
-# │ PARAMETRIC GATE INJECTION (VERSIONE INTEGRALE DA REPOSITORY)    │
+# │ PARAMETRIC GATE INJECTION     │
 # └─────────────────────────────────────────────────────────────────┘
 
 def patch_dense_parametric(cls):
@@ -571,7 +580,10 @@ import time
 # ═══════════════════════════════════════════════════════════════════════════════
 # CELLA 6: Modelli di rumore con operatori Kraus (VERSIONE INTEGRALE JAX FIXED)
 # ═══════════════════════════════════════════════════════════════════════════════
-# [PROPRIETARY ALGORITHM - (c) 2026 Salvatore Pennacchio - Licensed under MIT]
+#  Copyright (c) 2026 Salvatore Pennacchio <jtatopenn@libero.it>
+#  Distributed under the Business Source License 1.1 (BSL 1.1)
+#  See LICENSE.md in the project root for full license terms.
+
 
 try:
     import jax
@@ -787,6 +799,10 @@ class QASMCircuit:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # § 7.2  PARSER  (QASM 2.0 + QASM 3.0 )
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  Copyright (c) 2026 Salvatore Pennacchio <jtatopenn@libero.it>
+#  Distributed under the Business Source License 1.1 (BSL 1.1)
+#  See LICENSE.md in the project root for full license terms.
+
 
 class QASMParser:
 
@@ -1044,7 +1060,7 @@ class QASMParser:
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# § 7.3  TRANSPILER  (full Barenco decomposition — corrected)
+# § 7.3  TRANSPILER  (full Barenco decomposition)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 class QuantumTranspiler:
@@ -1196,6 +1212,10 @@ class QASMRunner:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # § 7.5  CIRCUIT OPTIMIZER
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  Copyright (c) 2026 Salvatore Pennacchio <jtatopenn@libero.it>
+#  Distributed under the Business Source License 1.1 (BSL 1.1)
+#  See LICENSE.md in the project root for full license terms.
+
 
 class CircuitOptimizer:
     """
@@ -1299,7 +1319,7 @@ class CircuitOptimizer:
         }
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# CELLA 8: Circuit Execution (MSB-aware Engine Core - CORRETTA)
+# CELLA 8: Circuit Execution (MSB-aware Engine Core )
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def run_circuit(self, circuit: List[Tuple], transpile: bool = True):
@@ -1352,6 +1372,10 @@ print("✅ run_circuit patchato con successo: allineamento indici MSB stabilizza
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CORE COMPILATION ENGINE (KERNEL FUSION LINEARE AD ALLOCAZIONE ZERO)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  Copyright (c) 2026 Salvatore Pennacchio <jtatopenn@libero.it>
+#  Distributed under the Business Source License 1.1 (BSL 1.1)
+#  See LICENSE.md in the project root for full license terms.
+
 
 import time
 import numpy as np
@@ -1470,6 +1494,10 @@ if HAS_JAX:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # PATCH CORE: Engine di Compilazione XLA Standard Enterprise (1D Pure)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  Copyright (c) 2026 Salvatore Pennacchio <jtatopenn@libero.it>
+#  Distributed under the Business Source License 1.1 (BSL 1.1)
+#  See LICENSE.md in the project root for full license terms.
+
 
 if HAS_JAX:
     @jax.jit
@@ -1559,6 +1587,10 @@ if HAS_JAX:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # INTERFACCIA: run_circuit_jit_beast_mode (Mappatura Riallineata V2)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  Copyright (c) 2026 Salvatore Pennacchio <jtatopenn@libero.it>
+#  Distributed under the Business Source License 1.1 (BSL 1.1)
+#  See LICENSE.md in the project root for full license terms.
+
 
 def run_circuit_jit_beast_mode(self, circuit: List[Tuple]):
     """
@@ -1617,6 +1649,10 @@ print("💎 INTERFACCIA RIALLINEATA: 'run_circuit_jit_beast_mode' agganciata con
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # AGGANCIO RUNTIME MANCANTI: measure & memory_mb
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  Copyright (c) 2026 Salvatore Pennacchio <jtatopenn@libero.it>
+#  Distributed under the Business Source License 1.1 (BSL 1.1)
+#  See LICENSE.md in the project root for full license terms.
+
 
 def measure(self, qubit_idx: int) -> int:
     """
@@ -1905,5 +1941,3 @@ def run_parametric_batch_jit(self, base_circuit: list, parameter_batch: np.ndarr
 # Iniettiamo il metodo nel tuo simulatore originale
 DenseSVSimulator.run_parametric_batch_jit = run_parametric_batch_jit
 print("💎 BATCH ENGINE AGGANGIATO: Pieno supporto QML & VQE attivo sul tuo core!")
-
-
