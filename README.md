@@ -1690,7 +1690,7 @@ Dense Evolution is licensed under the **Business Source License 1.1 (BSL 1.1)**.
 - **Change date:** 1 June 2029 — the software converts permanently to **Apache License 2.0** on that date.
 - **Attribution required:** all copies or derivatives must carry `© 2026 Salvatore Pennacchio <jtatopenn@libero.it> — Dense Evolution`.
 
-Full license text: [LICENSE.md](LICENSE.md)
+Full license text: [LICENSE.md](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/LICENSE)
 
 ---
 
