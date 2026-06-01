@@ -7,60 +7,86 @@
 [![License](https://img.shields.io/badge/License-BSL_1.1-orange?style=flat-square)](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/LICENSE)
 [![Build](https://img.shields.io/badge/Build-Passing-success?style=flat-square)](https://github.com/tatopenn-cell/Dense-Evolution/actions)
 
-# pip install dense-evolution
+# ⚙️ Quick Installation
 
-Dense Evolution is an ultra-high-performance Statevector quantum simulator engineered explicitly for the execution of complex, deep NISQ (Noisy Intermediate-Scale Quantum) circuits, Quantum Machine Learning (QML) models, and Variational Quantum Eigensolvers (VQE).
-The internal architecture leverages controlled-allocation Linear Kernel Fusion, breaking through traditional latency bottlenecks associated with auxiliary memory allocation (scratchpad RAM) and expanding the computational boundaries of hardware-accelerated static compilation.
+```bash
+# Core installation with standard backend support
+pip install dense-evolution
+
+# Full installation (Recommended: Includes JAX, CUDA GPU acceleration, and Dashboard)
+pip install "dense-evolution[full]"
+```
+
+**Dense Evolution** is an ultra-high-performance Statevector quantum simulator engineered explicitly for the execution of complex, deep NISQ (Noisy Intermediate-Scale Quantum) circuits, Quantum Machine Learning (QML) models, and Variational Quantum Eigensolvers (VQE). 
+
+The internal architecture leverages controlled-allocation Linear Kernel Fusion, breaking through traditional latency bottlenecks associated with auxiliary memory allocation (scratchpad RAM) and expanding the computational boundaries of hardware-accelerated static compilation. The latest release introduces an integrated real-time visual telemetry layer (`dash.py`) for live monitoring of quantum statevectors and hardware performance.
 
 ------------------------------
+
 ## 🚀 Architectural Core Features
 
-* ⚡ Linear Kernel Fusion (JAX XLA): The simulator completely avoids explicit computation of massive gate matrices derived from tensor products (Kronecker). Operational transforms are executed via native stride-slicing algorithms and linear permutations on contiguous memory layouts, constraining spatial memory complexity to the absolute theoretical minimum.
-* 🧩 Circuit Chunking Transpiler: Solves JAX JIT cache bloating and tracing degradation when compiling thousands of logical operations. The circuit is segmented into geometrically balanced, equivalent sub-blocks (chunks), guaranteeing infinite structural stability and slashing JAX tracer overhead to zero across deep circuits.
-* 🎲 Stochastic Coherence & Wavefunction Collapse: The measurement routine injects surgical stride-slicing logic directly into the active hardware memory views (NumPy/CuPy/JAX). This yields exact binomial convergence while bypassing the need to allocate giant boolean array masks in RAM, systematically preventing out-of-memory system crashes.
-* 📉 Kraus Trajectory-Based Noise Models: Realistic simulation of noisy NISQ hardware utilizing Amplitude Damping, Phase Damping, and Depolarizing channels. These error footprints are injected as discrete, stochastic quantum jumps, avoiding the devastating $O(2^{2n})$ memory bottleneck of traditional density matrix simulators.
-* 🎛️ Agnostic Backend Hardware Decoupling: Polymorphic backend abstraction allows seamless, runtime selection of the most efficient host hardware architecture:
-* NumPy: Low-overhead standard CPU execution.
-   * JAX: Hardware-parallelized JIT compilation (optimized for CPU/TPU clusters).
-   * CuPy: Parallelized matrix-tensor transformations accelerated on NVIDIA GPUs via CUDA.
+* **⚡ Linear Kernel Fusion (JAX XLA)**: The simulator completely avoids explicit computation of massive gate matrices derived from tensor products (Kronecker). Operational transforms are executed via native stride-slicing algorithms and linear permutations on contiguous memory layouts, constraining spatial memory complexity to the absolute theoretical minimum.
+* **🧩 Circuit Chunking Transpiler**: Solves JAX JIT cache bloating and tracing degradation when compiling thousands of logical operations. The circuit is segmented into geometrically balanced, equivalent sub-blocks (chunks), guaranteeing infinite structural stability and slashing JAX tracer overhead to zero across deep circuits.
+* **🎲 Stochastic Coherence & Wavefunction Collapse**: The measurement routine injects surgical stride-slicing logic directly into the active hardware memory views (NumPy/CuPy/JAX). This yields exact binomial convergence while bypassing the need to allocate giant boolean array masks in RAM, systematically preventing out-of-memory system crashes.
+* **📉 Kraus Trajectory-Based Noise Models**: Realistic simulation of noisy NISQ hardware utilizing Amplitude Damping, Phase Damping, and Depolarizing channels. These error footprints are injected as discrete, stochastic quantum jumps, avoiding the devastating $O(2^{2n})$ memory bottleneck of traditional density matrix simulators.
+* **🖥️ Real-Time Telemetry Dashboard**: Features an interactive visualization control center (`dash.py`) powered by dynamic plotting to monitor statevector probability distribution, trace execution metrics, and audit compilation benchmarks on the fly.
+* **🎛️ Agnostic Backend Hardware Decoupling**: Polymorphic backend abstraction allows seamless, runtime selection of the most efficient host hardware architecture:
+  * **NumPy**: Low-overhead standard CPU execution.
+  * **JAX**: Hardware-parallelized JIT compilation (optimized for CPU/TPU clusters).
+  * **CuPy**: Parallelized matrix-tensor transformations accelerated on NVIDIA GPUs via CUDA.
 
 ---
-
 ## ⚙️ Installation
-The core engine is structured in full compliance with the PEP 621 specification (pyproject.toml) and supports standardized deployment through pip.
 
-## 1. Quick Installation (via PyPI)
-```python
+The core engine is structured in full compliance with the PEP 621 specification (`pyproject.toml`) and supports standardized deployment through `pip`.
+
+### 1. Quick Installation (via PyPI)
+```bash
+# Standard core engine installation
 pip install dense-evolution
+
+# Full installation (Includes JAX, CUDA GPU acceleration, and Dashboard)
+pip install "dense-evolution[full]"
+
+# Visualization layer only (Includes dashboard and core metrics)
+pip install "dense-evolution[dashboard]"
 ```
 
-## 2. Local Source & Development Setup
+### 2. Local Source & Development Setup
 For direct source-code evaluation, custom modifications, or active development, configure the environment locally:
+
+```bash
 # Clone the official repository production branch
-
 git clone https://github.com/tatopenn-cell/Dense-Evolution.git
-
 cd Dense-Evolution
-# Option A: 
-```python
-pip install
 ```
-# Option B:
-Developer Mode (Live editable installation for immediate codebase testing)
-```python
-pip install -e .
-```
-## 3. Google Colab Cloud Deployment 🚀
+
+* **Option A: Standard Local Installation**
+  ```bash
+  # Build the complete stack locally
+  pip install .[full]
+  ```
+
+* **Option B: Developer Mode** (Live editable installation for immediate codebase testing)
+  ```bash
+  # Recommended for active development and custom modifications
+  pip install -e .[full]
+  ```
+
+### 3. Google Colab Cloud Deployment 🚀
 To instantly initialize an accelerated cloud developer workspace, execute the following commands inside a notebook cell:
 
+```bash
 # 1. Fetch the remote repository into the active cloud runtime space
 !git clone https://github.com/tatopenn-cell/Dense-Evolution.git
+
 # 2. Re-anchor the active shell path to the project root
 %cd Dense-Evolution
-# 3. Mount the simulator module using live-linked editable parameters
-!pip install -e .
 
-------------------------------
+# 3. Mount the simulator using live-linked editable parameters with full stack extras
+!pip install -e .[full]
+```
+
 
 ```python
 # 1. Scarica la repository nel runtime di Colab
@@ -72,30 +98,36 @@ To instantly initialize an accelerated cloud developer workspace, execute the fo
 # 3. Installa il pacchetto in modalità editable
 !pip install -e .
 ```
-
 ## 📊 Industrial Benchmarks & Architectural Limits
-The engine has been subjected to rigorous stress-testing within highly constrained, shared-resource runtime environments (Google Colab Free Tier). It demonstrates elite efficiency in memory containment and algebraic runtime arithmetic.
-## 1. Absolute Numerical Stability (Zero-Drift Execution)
-When evaluated using deeply stratified variational Ansatz configurations exceeding 80 layers and 1,360 consecutive parametric gates fused into a singular XLA instruction block, the simulator core preserves a controlled numerical drift bounded by:
+
+The engine has been subjected to rigorous stress-testing within resource-constrained, shared-runtime environments (such as the Google Colab Free Tier). It demonstrates industry-leading efficiency in memory containment and algebraic runtime arithmetic.
+
+### 1. Absolute Numerical Stability (Zero-Drift Execution)
+When evaluated using deeply stratified variational Ansatz configurations exceeding 80 layers and 1,360 consecutive parametric gates fused into a singular XLA instruction block, the simulator core preserves a controlled numerical drift bounded precisely by:
+
 $$\Delta = 1.1102230246251565 \times 10^{-16}$$ 
-This value matches the exact mathematical limits of Machine Epsilon ($\epsilon$) for double-precision 64-bit architectures (float64/complex128). Fusing algebraic kernels inside XLA eliminates the progressive truncation and rounding errors typically accumulated via sequential trigonometric functional calls.
-## 2. Qubit Scaling & Computational Throughput
-Leveraging an in-place circuit chunking engine, the simulator manages extended quantum registers by surgically targeting cache layout alignments without introducing temporary copies of the state vector.
+
+This execution profile matches the exact mathematical limits of Machine Epsilon ($\epsilon$) for IEEE 754 double-precision 64-bit architectures (`float64`/`complex128`). Fusing algebraic kernels inside XLA completely eliminates the progressive truncation and rounding errors typically accumulated via sequential trigonometric functional calls in standard interpreter loops.
+
+### 2. Qubit Scaling & Computational Throughput
+Leveraging an in-place circuit chunking engine, the simulator scales to extended quantum registers by surgically targeting cache layout alignments without introducing temporary copies of the state vector.
+
 
 | Qubits | State Vector Dimension (Amplitudes) | Execution Time (s) | Gates / Second | Raw Allocated Memory | Runtime Memory Delta |
-|---|---|---|---|---|---|
-| 14 | 16,384 | 0.3546 | 2,819.9 | ~0.26 MB | 0.00 MB |
-| 16 | 65,536 | 0.4217 | 2,370.8 | ~1.04 MB | 0.00 MB |
-| 24 | 16,777,216 | 0.7090 | Standard JIT | ~256.00 MB | < 1.00 MB |
-| 29 | 536,870,912 | HPC Tier | Hardware Sat. | 8,192.00 MB | 0.00 MB |
+| :---: | :---: | :---: | :---: | :---: | :---: |
+| **14** | 16,384 | 0.3546 | 2,819.9 | ~0.26 MB | 0.00 MB |
+| **16** | 65,536 | 0.4217 | 2,370.8 | ~1.04 MB | 0.00 MB |
+| **24** | 16,777,216 | 0.7090 | Standard JIT | ~256.00 MB | < 1.00 MB |
+| **29** | 536,870,912 | HPC Tier | Hardware Sat. | 8,192.00 MB | 0.00 MB |
 
-💡 Architectural Note: Breaking past the 24-qubit threshold on standard systems limited to 12 GB of total RAM highlights the efficacy of the 1D fixed-norm linear design, which eliminates low-level dynamic array reshaping.
+> 💡 **Architectural Note:** Successfully breaking past the 24-qubit threshold on commodity hardware environments (capped at 12 GB of total RAM) highlights the efficacy of the 1D fixed-norm linear design, which systematically eliminates low-level dynamic array reshaping and memory fragmentation.
 
-## 3. JAX vmap Vectorized Parallelization (Batch Engine)
-The run_parametric_batch_jit interface exploits native inter-circuit vectorization for Quantum Machine Learning (QML) pipelines. It traces the operational graph once and maps $N$ distinct parameter states across concurrent virtual execution tracks:
+### 3. JAX vmap Vectorized Parallelization (Batch Engine)
+The `run_parametric_batch_jit` interface exploits native inter-circuit vectorization optimized for Quantum Machine Learning (QML) and optimization pipelines. It traces the operational graph once and maps $N$ distinct parameter states across concurrent virtual execution tracks via hardware-level primitives:
 
-* Validated Throughput: Processes 64 deeply parameterized circuits simultaneously in 1.96 seconds.
-* Amortized Latency: ⏱️ 0.031 seconds per individual quantum circuit sequence.
+* **Validated Throughput**: Processes 64 deeply parameterized circuits simultaneously in **1.96 seconds**.
+* **Amortized Latency**: ⏱️ **0.031 seconds** per individual quantum circuit sequence.
+
 
 ## 🏢 Enterprise Applications & Commercial Monetization Model
 
