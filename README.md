@@ -3,7 +3,7 @@
 
 [![CI](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml/badge.svg)](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml)
 [![PyPI version](https://img.shields.io/pypi/v/dense-evolution?style=flat-square)](https://pypi.org/project/dense-evolution/)
-[![Python Version](https://img.shields.io/badge/Python-3.9+-blue?style=flat-square&logo=python)](https://www.python.org/)
+[![Python Version](https://img.shields.io/badge/Python-3.9+-blue?style=flat-square&logo=python)](https://pypi.org/project/dense-evolution/)
 [![License](https://img.shields.io/badge/License-BSL_1.1-orange?style=flat-square)](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/LICENSE)
 [![Build](https://img.shields.io/badge/Build-Passing-success?style=flat-square)](https://github.com/tatopenn-cell/Dense-Evolution/actions)
 
@@ -12,7 +12,7 @@
 ```bash
 # Core installation with standard backend support
 pip install dense-evolution
-pip install dense_evolution[dashboard]
+import dash
 
 # Full installation (Recommended: Includes JAX, CUDA GPU acceleration, and Dashboard)
 pip install dense-evolution[full]
@@ -51,7 +51,8 @@ pip install dense-evolution
 pip install dense-evolution[full]
 
 # Visualization layer only (Includes dashboard and core metrics)
-pip install dense-evolution[dashboard]
+pip install dense-evolution
+import dash
 ```
 
 ### 2. Local Source & Development Setup
@@ -94,11 +95,12 @@ To instantly initialize an accelerated cloud developer workspace, execute the fo
 * **For Google Colab Free Tier (CPU Runtime)**
   ```bash
   # 1. Fetch the remote repository into the active cloud runtime space
-  !git clone https://github.com
+  !git clone !git clone https://github.com/tatopenn-cell/Dense-Evolution.git
   %cd Dense-Evolution
 
   # 2. Install the core engine and dashboard without heavy GPU drivers
-  !pip install "dense-evolution[dashboard]"
+  !pip install dense-evolution
+  import dash
   ```
 
 ```python
