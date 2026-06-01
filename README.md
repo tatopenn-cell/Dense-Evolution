@@ -4,7 +4,7 @@
 [![CI](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml/badge.svg)](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml)
 [![PyPI version](https://img.shields.io/pypi/v/dense-evolution?style=flat-square)](https://pypi.org/project/dense-evolution/)
 [![Python Version](https://img.shields.io/badge/Python-3.9+-blue?style=flat-square&logo=python)](https://www.python.org/)
-[![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/LICENSE)
+[![License](https://img.shields.io/badge/License-BSL_1.1-orange?style=flat-square)](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/LICENSE)
 [![Build](https://img.shields.io/badge/Build-Passing-success?style=flat-square)](https://github.com/tatopenn-cell/Dense-Evolution/actions)
 
 # pip install dense-evolution
@@ -293,32 +293,76 @@ Dense-Evolution/
 
 ---
 
-## 📜 Licenza e Note Legali
+## 📜 License and Legal Notice
 
-Il progetto è interamente distribuito sotto i termini della licenza **MIT**.
+This project is distributed under the terms of the **Business Source License 1.1 (BSL 1.1)**. 
+
+* **Non-Commercial Use:** Completely free and open for research, academic, and non-commercial purposes.
+* **Limited Commercial Use:** Free for commercial production up to **24 qubits** and **1,000 circuits (with max 10,000 shots each) per day**. Any use beyond these limits requires a separate commercial license.
+* **Future Open Source Transition:** On **June 1, 2026**, this project will automatically transition to a fully open-source **Apache License 2.0**.
+
 
 ```text
-MIT License
+# Business Source License 1.1 (BSL 1.1)
 
-Copyright (c) 2026 salvatore pennacchio [tatopenn-cell]
+**Software:** Dense Evolution  
+**Licensor:** Salvatore Pennacchio <jtatopenn@libero.it> [tatopenn-cell]  
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This Business Source License (the "License") applies to the source code, object code, algorithms, and configuration files of the software named "Dense Evolution" (the "Software").
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+## 1. License Parameters
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+* **Licensor:** Salvatore Pennacchio <jtatopenn@libero.it> [tatopenn-cell]
+* **Software:** Dense Evolution (including updates, patches, kernel optimizations, and derivative works provided by the Licensor)
+* **Change Date:** June 1, 2029
+* **Change License:** Apache License, Version 2.0 (or subsequent versions, at the Licensor's sole discretion)
+* **Licensed Use for Production:** Strictly non-commercial use. For use in commercial or industrial production environments, the computational limits set forth in Section 4 (Additional Use Grant) shall strictly apply.
+
+---
+
+## 2. Grant of License and Attribution Obligation
+
+Subject to the terms and computational limitations established herein, the Licensor hereby grants to the Licensee a non-exclusive, worldwide, royalty-free, and irrevocable (conditional upon continuous compliance with these terms) license to use, reproduce, distribute, modify, and create derivative works of the Software.
+
+**Mandatory Attribution Condition:** Any copy, portion, or derivative work of the Software (including third-party software, cloud platforms, or API interfaces integrating Dense Evolution) must visibly, permanently, and unaltered include the original copyright notice and attribution to the Licensor in the following format:  
+`© 2026 Salvatore Pennacchio <jtatopenn@libero.it> [tatopenn-cell] - Dense Evolution`.
+
+---
+
+## 3. General Use Conditions and Restrictions
+
+The Software may be used, reproduced, distributed, and modified, provided that such use is **not intended for commercial production purposes** or for providing commercial cloud/computational services that compete directly with the products or services offered by the Licensor, except as expressly permitted under Section 4 or as of the Change Date (Section 5).
+
+---
+
+## 4. Additional Use Grant (Limited Commercial Use)
+
+Notwithstanding the restrictions in Section 3, the Licensee is authorized to use the Software for commercial production, industrial, or paid consulting purposes, without the need for a separate paid license, exclusively if the following computational limits are respected:
+
+* **Total Qubit Limit:** The executed quantum simulation must not exceed a size of **24 qubits allocated in memory**. This limit applies to the cumulative sum of all instances, processes, threads, or parallel cluster nodes running concurrently by the same organization or end user.
+* **Circuits and Shots Limit:** The maximum computational volume allowed in a production environment is fixed at **1000 distinct quantum circuit structures per day**, each of which may be executed for a maximum of **10,000 equivalent samples (shots)** per individual circuit.
+
+Any use that exceeds or circumvents (via splitting, wrapping, or proxy techniques) any single parameter listed above strictly requires the prior execution of a separate commercial license agreement with the Licensor.
+
+---
+
+## 5. Transition to Change License
+
+As of **June 1, 2029** (the "Change Date"), this License shall automatically cease to have effect on the Software and all versions released prior to that date. From that moment forward, the Software will permanently and freely become available under the terms of the **Apache License 2.0**. Until the Change Date, this BSL 1.1 License shall remain in full force, validity, and effect.
+
+---
+
+## 6. Disclaimer of Warranty and Limitation of Liability
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. 
+
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+---
+
+## 7. Governing Law and Jurisdiction
+
+This License shall be governed by, construed, and enforced in accordance with the laws of **Italy**. Any dispute arising out of or in connection with the interpretation, execution, or validity of this License shall be submitted to the exclusive jurisdiction of the **Court of Milan, Italy**.
 ```
 
 ## 💎 Technical Appendix: Advanced JAX XLA Optimizations
@@ -1055,34 +1099,36 @@ print("="*80)
 * Circuit optimization loops: VQE, QAOA, variational algorithms with fixed structure
 * Shot-based sampling simulation: Execute same circuit many times with different measurements
 
-## ⚠️ Current Limitations
+## ⚠️ Performance & Scaling Limitations
 
-* Memory: Dense statevector limited to ~24 qubits on standard hardware (use MPS for larger systems)
+* **Memory Overhead:** The dense statevector simulation approach scales exponentially. On standard hardware architectures, execution is optimal up to **~24 qubits**. For deep or larger scale systems, consider alternative approaches like Matrix Product States (MPS).
+* **Licensing Threshold:** Please note that while the hardware can push further, commercial production use is capped at **24 qubits** under the terms of the BSL 1.1 license.
 
-## Hardware Recommendations
+## 🚀 Hardware Recommendations & Benchmarks
 
-| Hardware | Max Qubits (Dense) | Speedup vs Qiskit | Notes |
-|---|---|---|---|
-| CPU (Colab Free) | 24 | 120-5000x+ | Tested configuration |
-| CPU (High RAM) | 26 | 120-5000x+ | 16+ GB recommended |
-| NVIDIA GPU | 28+ | 10000x+* | CUDA-enabled, estimated |
-| TPU | 28+ | 20000x+* | Google Cloud, estimated |
 
-*GPU/TPU speedups are projected based on JAX scaling characteristics and will be benchmarked in future releases.
+| Hardware Platform | Max Practical Qubits (Dense) | Performance Gain vs Qiskit | Operational Notes |
+| :--- | :---: | :---: | :--- |
+| **Standard CPU** *(e.g., Colab Free)* | 24 | **120x – 5,000x+** | Verified and benchmarked baseline configuration. |
+| **High-RAM CPU** *(16+ GB RAM)* | 26 | **120x – 5,000x+** | Performance scales with host memory bandwidth. |
+| **NVIDIA GPU** *(CUDA-Enabled)* | 28+ | **10,000x+** * | Accelerated via CuPy backend execution. |
+| **Google Cloud TPU** | 28+ | **20,000x+** * | Optimized via JAX native XLA compilation. |
 
-## Why These Results?
+*\*Note: GPU/TPU performance gains are projected based on JAX/XLA scaling characteristics and native kernel execution profiles. Full automated benchmarks will be introduced in upcoming releases.*
 
-   1. JAX JIT Compilation: Circuit operations compiled to optimized XLA code, eliminating Python interpreter overhead
-   2. Kernel Fusion: Multiple gate operations fused into single GPU/CPU kernels
-   3. Memory Layout: Contiguous statevector storage optimized for vectorized operations
-   4. Caching: Compiled functions cached and reused across executions
+## 🧠 Architectural Insights: Why is it so fast?
 
-## Contribute Benchmarks
-Found better (or worse) results on your hardware? Open an issue or PR with:
+1. **JAX JIT Compilation:** Circuit operations are JIT-compiled directly into highly optimized XLA machine code, entirely bypassing the Python interpreter overhead.
+2. **Linear Kernel Fusion:** Multiple sequential gate operations are fused dynamically into single monolithic CPU/GPU computational kernels, minimizing memory roundtrips.
+3. **Hardware-Adaptive Memory Layout:** Contiguous statevector memory storage architecture, highly optimized for vectorization and parallel cache locality.
+4. **Graph Caching:** Compiled execution graphs are automatically cached and reused across subsequent execution loops or optimization shots.
 
-* Hardware specs (CPU/GPU, RAM)
-* Benchmark code
-* Timing results
+## 🤝 Contribute Benchmarks
 
-Help us optimize Dense-Evolution for your use case!
+Discovered different scaling behavior or performance metrics on your specific hardware stack? Help us refine and map the performance of **Dense Evolution**! Please open an Issue or Pull Request providing:
+
+* **Hardware Topology:** Exact CPU/GPU models, Host RAM, and CUDA toolkit version.
+* **Reproducible Example:** Code snippet or script used for the test run.
+* **Execution Metrics:** Timing results and memory allocation logs.
+
 
