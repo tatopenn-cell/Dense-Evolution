@@ -12,6 +12,7 @@
 ```bash
 # Core installation with standard backend support
 pip install dense-evolution
+pip install dense_evolution[dashboard]
 
 # Full installation (Recommended: Includes JAX, CUDA GPU acceleration, and Dashboard)
 pip install dense-evolution[full]
@@ -45,11 +46,12 @@ The core engine is structured in full compliance with the PEP 621 specification 
 # Standard core engine installation
 pip install dense-evolution
 
+
 # Full installation (Includes JAX, CUDA GPU acceleration, and Dashboard)
-pip install "dense-evolution[full]"
+pip install dense-evolution[full]
 
 # Visualization layer only (Includes dashboard and core metrics)
-pip install "dense-evolution[dashboard]"
+pip install dense-evolution[dashboard]
 ```
 
 ### 2. Local Source & Development Setup
@@ -86,7 +88,18 @@ To instantly initialize an accelerated cloud developer workspace, execute the fo
 # 3. Mount the simulator using live-linked editable parameters with full stack extras
 !pip install -e .[full]
 ```
+### 3. Google Colab Cloud Deployment 🚀
+To instantly initialize an accelerated cloud developer workspace, execute the following commands inside a notebook cell. Choose the installation target based on your active runtime tier:
 
+* **For Google Colab Free Tier (CPU Runtime)**
+  ```bash
+  # 1. Fetch the remote repository into the active cloud runtime space
+  !git clone https://github.com
+  %cd Dense-Evolution
+
+  # 2. Install the core engine and dashboard without heavy GPU drivers
+  !pip install "dense-evolution[dashboard]"
+  ```
 
 ```python
 # 1. Scarica la repository nel runtime di Colab
