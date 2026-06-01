@@ -1,4 +1,4 @@
-# 💎 Dense Evolution
+# 💎 Dense Evolution 8.0.4
 
 
 [![CI](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml/badge.svg)](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml)
@@ -1131,4 +1131,547 @@ Discovered different scaling behavior or performance metrics on your specific ha
 * **Reproducible Example:** Code snippet or script used for the test run.
 * **Execution Metrics:** Timing results and memory allocation logs.
 
+# Dense Evolution — Enterprise Dashboard v8.0.4
 
+**Interactive scientific visualization suite for the Dense Evolution quantum simulation ecosystem.**
+
+---
+
+## Table of Contents
+
+1. [Overview](#1-overview)
+2. [Quick Start](#2-quick-start)
+3. [Configuration](#3-configuration)
+4. [Architecture](#4-architecture)
+5. [Control Panel Reference](#5-control-panel-reference)
+6. [Circuit Library](#6-circuit-library)
+7. [VQE Engine & ADAM Optimizer](#7-vqe-engine--adam-optimizer)
+8. [Hamiltonian Library](#8-hamiltonian-library)
+9. [Noise Models](#9-noise-models)
+10. [Molecular Dynamics](#10-molecular-dynamics)
+11. [Visualization Panels](#11-visualization-panels)
+12. [Export & Provenance](#12-export--provenance)
+13. [Technical Reference](#13-technical-reference)
+14. [Troubleshooting](#14-troubleshooting)
+15. [License](#15-license)
+
+---
+
+## 1. Overview
+
+The Dense Evolution Enterprise Dashboard is a high-throughput interactive visualization layer built on top of the `dense-evolution` core engine. It runs entirely inside Google Colab or any Jupyter-compatible environment via `ipywidgets` and `matplotlib`, with zero external server dependencies.
+
+**Key capabilities:**
+
+- Live statevector simulation on up to 24 qubits (commercial-grade; up to 33 qubits in research mode) via a JAX XLA JIT-compiled backend with optional GPU acceleration
+- Six parallel telemetry channels: VQE energy, Von Neumann entropy, state purity, gradient norm, noise factor, and θ correction, updated on every run
+- Dynamic routing across six visualization panels — Overview, State Physics, 1008q Mosaic, VQE Results, MD Simulation Results, and Performance
+- Full NISQ noise simulation (depolarizing, amplitude damping, phase damping) with Bhattacharyya fidelity and TVD metrics computed live
+- Variational quantum eigensolver (VQE) with analytical Hellmann-Feynman gradient via JAX automatic differentiation and ADAM optimizer
+- Molecular dynamics (QM/MM) simulation with Pearson correlation heatmap across all telemetry variables
+- One-click JSON provenance export and publication-ready PNG output at 300 DPI
+- BSL 1.1 licensed with automatic Apache 2.0 conversion on 1 June 2029
+
+---
+
+## 2. Quick Start
+
+### Installation
+
+```bash
+pip install dense-evolution
+```
+
+The dashboard auto-installs the core engine on first run if not detected.
+
+### Launch
+
+Upload `dash.py`, `dashboard.toml`, and optionally your custom QASM files to your Colab workspace, then run:
+
+```python
+from dash import dashboard_unificata
+from IPython.display import display
+
+display(dashboard_unificata)
+```
+
+The full control panel appears inline. Press **▶ Run Simulation** to execute the selected circuit and render all panels.
+
+### Minimal Example (headless)
+
+```python
+import dense_evolution as de
+
+sim = de.DenseSVSimulator(n_qubits=4, use_gpu=False, use_float32=False)
+parser = de.QASMParser()
+circuit = parser.parse(QASM_LIBRARY['Bell |Φ+⟩'])
+sim.run_circuit_jit_beast_mode(circuit.ops)
+
+print(sim.get_probabilities())   # [0.5, 0.0, 0.0, 0.5]
+print(sim.memory_mb())           # 0.000256 MB
+```
+
+---
+
+## 3. Configuration
+
+Persistent settings are stored in `dashboard.toml`. All values are readable by the dashboard on load; changes take effect on the next kernel restart.
+
+```toml
+[theme]
+style            = "dark"
+primary_color    = "#FFA500"
+secondary_color  = "#8A2BE2"
+background       = "#0D0E15"
+font_family      = "monospace"
+
+[simulator_defaults]
+max_qubits           = 24        # BSL commercial limit
+default_qubits       = 4
+precision            = "float64"
+use_gpu              = false
+use_jax              = true
+sealed_compiler_v4   = true      # enables XLA kernel fusion
+
+[nisq_settings]
+default_shots        = 4096
+default_seed         = 42
+default_noise_model  = "ideal"
+default_p_noise      = 0.00
+
+[vqe_settings]
+epochs           = 100
+learning_rate    = 0.01
+beta1            = 0.90
+beta2            = 1.00
+optimizer        = "ADAM"
+gradient_method  = "Hellmann-Feynman"
+
+[md_settings]
+steps            = 100
+temperature_k    = 300.00
+force_engine     = "QM/MM"
+```
+
+---
+
+## 4. Architecture
+
+```
+dash.py
+│
+├── PART 1 — JIT Compute Engine
+│   ├── dense-evolution auto-install & parametric patch injection
+│   ├── QASM_LIBRARY          (80+ built-in circuits)
+│   ├── estrai_valore_puro()  (deep AST token unwrapper)
+│   └── core_calcolo_quantistico()
+│       ├── QASMParser → AST → comandi_beast_mode[]
+│       ├── DenseSVSimulator.run_circuit_jit_beast_mode()
+│       ├── NoiseModel.apply_to_sv()   (if noise ≠ ideal)
+│       ├── Shannon entropy, Bhattacharyya fidelity, TVD
+│       └── returns res{} dict → all panels
+│
+├── PART 2 — VQE Engine (ottimizza_vqe)
+│   ├── positional parameter injection into AST
+│   ├── QMMMForceEngine (Hellmann-Feynman via JAX AD)
+│   ├── ADAM optimizer (m, v moments, bias correction)
+│   └── df_vqe_telemetry → Step, VQE_Energy, Entropy,
+│                           Purity, Gradient, Noise_Factor,
+│                           Theta_Correction
+│
+├── PART 3 — MD Simulation (run_md_simulation_dummy)
+│   ├── df_md_telemetry
+│   └── matrice_correlazione (Pearson, full × full)
+│
+├── PART 4 — Visualization Panels
+│   ├── build_panel_overview()      8-row scientific dashboard
+│   ├── build_panel_fisica()        state physics analysis
+│   ├── build_panel_mosaico()       1008-qubit probability mosaic
+│   ├── build_panel_vqe_results()   VQE-specific telemetry
+│   ├── build_panel_md_results()    MD telemetry + correlation heatmap
+│   └── build_panel_performance()   benchmark metrics
+│
+└── PART 5 — ipywidgets UI + routing
+    ├── dashboard_unificata (VBox)
+    ├── trigger_esecuzione_dashboard() → run → route → display
+    └── auxiliary triggers: benchmark, export, PNG, history
+```
+
+**Data flow on each run:**
+
+```
+▶ Run → core_calcolo_quantistico() → res{}
+                                         │
+                    ┌────────────────────┤
+                    │                    │
+              ottimizza_vqe()    run_md_simulation_dummy()
+                    │                    │
+            df_vqe_telemetry    df_md_telemetry + matrice_correlazione
+                    │                    │
+                    └────────────────────┘
+                                         │
+                              build_panel_*(res) → Figure → display()
+```
+
+---
+
+## 5. Control Panel Reference
+
+### Source
+
+| Control | Type | Description |
+|---|---|---|
+| **Source Mode** | RadioButtons | `Libreria Built-in` uses a preset from the QASM library. `Custom QASM Textarea` enables direct QASM 2.0 input. |
+| **Circuit** | Dropdown | Active when source mode is Built-in. Selects from 80+ preset circuits organized across five categories. |
+| **QASM Area** | Textarea | Active when source mode is Custom. Accepts any valid OpenQASM 2.0 string. |
+
+### Hamiltonian
+
+| Control | Type | Description |
+|---|---|---|
+| **Enable Hamiltonian Settings** | Checkbox | Activates the Hamiltonian sub-panel. When disabled, the engine uses a random diagonal Hamiltonian. |
+| **Hamiltonian Mode** | RadioButtons | `Hamiltonian Built-in` selects from the built-in chemical library. `Custom Hamiltonian Textarea` accepts a JSON array of energy eigenvalues. |
+| **Hamiltonian Selector** | Dropdown | Filters to Hamiltonians compatible with the declared qubit count. |
+| **Hamiltonian Area** | Textarea | JSON format: `[-1.13, -0.45, 0.12, 0.64]`. Length must equal `2^n_qubits`. |
+
+### NISQ Settings
+
+| Control | Type | Range | Description |
+|---|---|---|---|
+| **Noise Model** | Dropdown | ideal / depolarizing / amplitude_damping / phase_damping | Applies a Kraus channel to the statevector post-circuit. |
+| **p noise** | FloatSlider | 0.000 – 0.100 | Error probability per qubit per gate. |
+| **Shots** | IntSlider | 512 – 65536 | Number of projective measurement samples for the shot histogram. |
+| **Seed RND** | IntText | any int | NumPy seed for reproducible noise and shot sampling. |
+| **Double Precision** | Checkbox | — | Forces `complex128` / `float64` throughout. Disabled = `complex64` / `float32`. |
+
+### VQE Settings
+
+| Control | Type | Range | Description |
+|---|---|---|---|
+| **Enable VQE** | Checkbox | — | Activates the full `ottimizza_vqe()` pipeline. When disabled, `df_vqe_telemetry` is cleared. |
+| **VQE Epochs** | IntText | 1 – ∞ | Optimization iterations. |
+| **Adam LR** | FloatSlider | 0.0001 – 0.1 | ADAM learning rate α. |
+| **Adam Beta1** | FloatSlider | 0.0 – 0.999 | First-moment decay rate. |
+| **Adam Beta2** | FloatSlider | 0.0 – 0.999 | Second-moment decay rate. |
+
+### MD Settings
+
+| Control | Type | Range | Description |
+|---|---|---|---|
+| **Enable MD** | Checkbox | — | Activates `run_md_simulation_dummy()`. When disabled, `df_md_telemetry` and `matrice_correlazione` are cleared. |
+| **MD Steps** | IntSlider | 10 – 1000 | Number of molecular dynamics integration steps. |
+| **Temperature (K)** | FloatSlider | 0.1 – 1000.0 | Thermal bath temperature in Kelvin. |
+
+### Panel Selector
+
+| Panel | Description |
+|---|---|
+| **Overview** | 8-panel scientific dashboard (probability, top states, helix 3D, metrics, noise, shots, VQE telemetry × 6, correlation heatmap) |
+| **Fisica Stato** | State physics: Bloch-sphere projection, Schmidt rank, coherence vector |
+| **Mosaico 1008q** | 2D probability density map up to 1008 qubits |
+| **VQE Results** | Dedicated VQE telemetry: energy convergence, entropy, purity, gradient, noise factor, θ correction |
+| **MD Simulation Results** | MD energy + entropy + purity + gradient + noise + θ correction + full Pearson heatmap |
+| **Performance** | Benchmark metrics: gate throughput, JIT compile time, memory usage |
+
+### Action Buttons
+
+| Button | Description |
+|---|---|
+| **▶ Run Simulation** | Executes the full pipeline: circuit → VQE → MD → panel render |
+| **📊 Benchmark χ** | Runs the χ-scaling benchmark across qubit counts and plots throughput |
+| **💾 Export Provenance** | Saves a JSON file with full run metadata, circuit name, qubit count, entropy, dominant state, and timestamp |
+| **📄 Paper-Ready PNG** | Exports the current figure at 300 DPI to `figure_paper.png` |
+| **🕒 Cronologia** | Prints the run history log to the output cell |
+| **💊 Save Hamiltonian** | Serializes the current Hamiltonian configuration to the provenance record |
+
+---
+
+## 6. Circuit Library
+
+The library ships with 80+ preset circuits across five categories. All circuits are stored as OpenQASM 2.0 strings in `QASM_LIBRARY` and can be extended without modifying the engine.
+
+### Standard
+
+Bell |Φ+⟩, QFT 4 qubit, Toffoli (CCX), Adder 2-bit, Deutsch-Jozsa balanced, Bernstein-Vazirani (101)
+
+### Quantum Algorithms
+
+Grover 3q Oracle |111⟩, Simon Algorithm 4q s=11, Shor 15 (Simplified), HHL Matrix Inversion, QAOA Max-Cut 4q, QPE Precision 5q, QFT 8q High-Res, Quantum Walk, Quantum Teleportation, BB84 Protocol Test
+
+### Advanced Topological
+
+Anyonic Braiding Fibonacci 6q, Topological Charge Pump 8q, MultiControlled-Z 5q, Hyper Inversion 8q, Deep Topological Unified 8q
+
+**Phase constants used across topological circuits:**
+
+| Constant | Value (rad) | Physical meaning |
+|---|---|---|
+| φ (Golden Ratio) | 1.6180 | Tatopenn φ-resonance |
+| sp³ diamond angle | 1.9106 | Carbon sp³ tetrahedral bond |
+| Topological lock | 3.0718 ≈ π − ε | Near-π translocation phase |
+| Omega / Fe₂S₂ | 6.1574 ≈ 2π − ε | Iron-sulfur cluster phase lock |
+| BGQ wormhole kick | 0.7000 | BGQ wormhole kickback amplitude |
+
+
+
+---
+
+## 7. VQE Engine & ADAM Optimizer
+
+### Positional Parameter Injection
+
+Because the `QASMParser` tokenizes all parameter literals to `0.0` in the AST for maximum JIT throughput, the VQE engine uses a **positional injection** strategy:
+
+1. Scan the AST and count parametric gates (`rx`, `ry`, `rz`, `u1`, `p`, `cp`, `crz`) — this gives `n_params`.
+2. Allocate `θ ∈ ℝⁿ` initialized uniformly in `[-π, π]`.
+3. On each epoch, inject `θ[i]` sequentially by gate appearance order in the AST via `risolvi_qasm()`.
+
+This makes the engine compatible with any valid OpenQASM 2.0 custom circuit without pre-labelling parameters.
+
+### Hellmann-Feynman Gradient
+
+The gradient is computed analytically via JAX automatic differentiation through the `QMMMForceEngine`:
+
+```
+∂E/∂θᵢ = ⟨ψ(θ)| ∂H/∂θᵢ |ψ(θ)⟩
+```
+
+where the QM/MM Hamiltonian includes classical electrostatic contributions from atomic positions `r`, charges `q`, and orbital centers.
+
+The gradient norm `‖∇L‖` per epoch is logged to `df_vqe_telemetry['Gradient']`.
+
+### ADAM Update Rule
+
+```
+mₜ = β₁ · mₜ₋₁ + (1 − β₁) · g
+vₜ = β₂ · vₜ₋₁ + (1 − β₂) · g²
+m̂ₜ = mₜ / (1 − β₁ᵗ)
+v̂ₜ = vₜ / (1 − β₂ᵗ)
+θ  ← θ − α · m̂ₜ / (√v̂ₜ + ε)
+```
+
+`Theta_Correction` per epoch = `‖α · m̂ₜ / (√v̂ₜ + ε)‖` — logged to `df_vqe_telemetry['Theta_Correction']`.
+
+### Telemetry Columns
+
+| Column | Unit | Description |
+|---|---|---|
+| `VQE_Energy` | Ha | `⟨ψ|H|ψ⟩` expectation value |
+| `Entropy` | bit | Von Neumann entropy S = −Tr(ρ log₂ ρ) |
+| `Purity` | — | Tr(ρ²) ∈ [1/d, 1] |
+| `Gradient` | — | `‖∇L‖` Euclidean norm of parameter gradient |
+| `Noise_Factor` | — | Fidelity-derived noise proxy (heuristic) |
+| `Theta_Correction` | rad | ADAM step norm per epoch |
+
+### Fallback Mock
+
+If the circuit has no parametric gates (`n_params == 0`), the engine falls back to `_run_vqe_mock_simulation()`, which generates physically plausible synthetic telemetry curves for demonstration purposes. The output DataFrame has the same schema as the analytical run.
+
+---
+
+## 8. Hamiltonian Library
+
+Real chemical Hamiltonians derived from molecular integrals. Automatically filtered by qubit count to prevent shape mismatch errors.
+
+| Molecule | Qubits | Bond length | E₀ (Ha) |
+|---|---|---|---|
+| H₂ (Hydrogen) | 2 | 0.74 Å (equilibrium) | −1.13 |
+| H₃⁺ (Trihydrogen cation, linear) | 3 | 0.85 Å | −1.28 |
+| LiH (Lithium hydride) | 4 | 1.40 Å (minimum) | −2.31 |
+| H₂O (Water, embedding core) | 5 | 0.96 Å | −4.12 |
+
+Custom Hamiltonians are accepted as JSON arrays of diagonal energy eigenvalues (length must equal `2^n_qubits`):
+
+```json
+[-4.12, -3.79, -3.47, -3.15, -2.83, -2.51, -2.18, -1.85,
+ -1.52, -1.19, -0.86, -0.53, -0.20, 0.13, 0.46, 0.79,
+ 1.12, 1.45, 1.78, 2.11, 2.44, 2.77, 3.10, 3.43,
+ 3.76, 4.09, 4.42, 4.75, 5.08, 5.41, 5.74, 6.07]
+```
+
+---
+
+## 9. Noise Models
+
+All models are applied as Kraus channels to the full statevector after circuit execution.
+
+| Model | Kraus operators | Physical process |
+|---|---|---|
+| `ideal` | Identity | Noiseless simulation |
+| `depolarizing` | {√(1−p)I, √(p/3)X, √(p/3)Y, √(p/3)Z} | Equiprobable Pauli errors |
+| `amplitude_damping` | {K₀, K₁} | Energy relaxation T₁ decay |
+| `phase_damping` | {K₀, K₁} | Dephasing T₂ decay |
+
+**Fidelity metrics computed on every noisy run:**
+
+- **Bhattacharyya Fidelity**: `F = Σᵢ √(pᵢ · qᵢ)` where p = ideal distribution, q = noisy distribution
+- **Total Variation Distance**: `TVD = ½ Σᵢ |pᵢ − qᵢ|`
+- **Theoretical depolarizing fidelity**: `F(p,n) = (1 − p(d−1)/d)ⁿ` where d = 2ⁿ, shown as an inset curve in the Noise Analysis panel
+
+**Dtype alignment note:** The engine enforces a consistent dtype across all Kraus branches before `jax.lax.cond` evaluation to prevent `TypeError: cond branches must have equal output types`. The alignment patch is injected automatically via `de.patch_dense_parametric()` on startup.
+
+---
+
+## 10. Molecular Dynamics
+
+The MD module (`run_md_simulation_dummy`) simulates quantum-classical (QM/MM) dynamics and populates two globals:
+
+- `df_md_telemetry` — per-step DataFrame with the same six telemetry columns as VQE
+- `matrice_correlazione` — Pearson correlation matrix across all telemetry variables
+
+Convergence validation (1500-epoch stress test at 5 K) confirms:
+
+- Hellmann-Feynman gradient decays rigorously to zero at the molecular energy minimum (e.g., −4.1200 Ha for H₂O), certifying geometric stability.
+- Activating `depolarizing` or `amplitude_damping` noise introduces coherent micro-jitter on entropy and stabilizes purity below the ideal threshold — consistent with real noisy-chip behavior.
+
+---
+
+## 11. Visualization Panels
+
+### Overview (8-row layout)
+
+| Row | Left | Right |
+|---|---|---|
+| 0 | Header bar: circuit name, qubit count, gate count, wall time, RAM, noise parameters | — |
+| 1 | Probability distribution P(\|n⟩) with custom cyan→rose colormap, dominant state highlighted | Top-12 states ranked by probability, plasma colormap |
+| 2 | Wavefunction helix 3D: amplitude-colored scatter on (Re(ψ), Im(ψ), \|n⟩) | Simulation metrics table: 13 key values |
+| 3 | Noise Analysis: model label, p-gauge, fidelity/TVD table, theoretical F(p) curve inset | NISQ Shot Histogram with expected distribution overlay and σ annotation |
+| 4 | VQE Energy (Ha) — convergence epoch marked | Von Neumann Entropy (bit) |
+| 5 | State Purity Tr(ρ²) — ideal reference at 1.0 | ‖∇L‖ Gradient Norm — barren plateau detection |
+| 6 | Noise Factor — reference at 1.0 | θ Correction (rad) — reference at 0.0 |
+| 7 | Pearson Correlation Matrix (full width) — masked upper triangle, RdBu_r diverging colormap | — |
+
+**Barren plateau detection (Row 5, gradient panel):** epochs where `|g| < 0.01 · max|g|` are highlighted with an `axvspan` region and labeled inline.
+
+**Value badges:** every VQE telemetry panel carries a top-right badge showing the final epoch value (e.g., `Eₙ = −1.1302 Ha`).
+
+### VQE Results
+
+Dedicated 6-subplot panel showing all six telemetry columns from `df_vqe_telemetry` with the same enhanced rendering as Overview rows 4–6: fill-under area, rolling mean overlay, convergence annotations, and value badges.
+
+### MD Simulation Results
+
+Six time-series plots for `df_md_telemetry` plus a full-width masked Pearson correlation heatmap. Font size on the heatmap annotations is automatically scaled to `72 / n_variables` to remain legible at any matrix size.
+
+---
+
+## 12. Export & Provenance
+
+### JSON Provenance
+
+Triggered by **💾 Export Provenance**. Saves to `provenance_rnd42.json` (configurable in `dashboard.toml`):
+
+```json
+{
+  "run_id": "uuid4",
+  "timestamp": "2026-05-30T14:22:11Z",
+  "circuit": "Grover_3q_Oracle_111",
+  "n_qubits": 3,
+  "entropy": 1.584962,
+  "dominant_state": "111",
+  "p_dominant": 0.970312,
+  "noise_model": "depolarizing",
+  "noise_p": 0.005,
+  "shots": 4096,
+  "seed": 42,
+  "wall_time_ms": 3.14,
+  "ram_mb": 0.000064,
+  "vqe_epochs": 100,
+  "adam_lr": 0.01,
+  "annotation": "optional user note"
+}
+```
+
+### PNG Export
+
+Triggered by **📄 Paper-Ready PNG** is work in progress...wain next upgrade
+
+---
+
+## 13. Technical Reference
+
+### `core_calcolo_quantistico()`
+
+Main compute function. Parses the QASM string, builds `comandi_beast_mode[]`, runs `DenseSVSimulator.run_circuit_jit_beast_mode()`, optionally applies noise, and returns `res{}`.
+
+**Return dict keys:**
+
+| Key | Type | Description |
+|---|---|---|
+| `prob` | ndarray | Measurement probability distribution |
+| `prob_ideal` | ndarray | Noiseless probability distribution |
+| `noise_factor` | ndarray | 100-point fidelity decay curve |
+| `fidelity` | float | Bhattacharyya fidelity (ideal vs noisy) |
+| `n_qubits` | int | Allocated qubit count |
+| `entropy` | float | Shannon entropy (bit) |
+| `idx_max` | int | Index of dominant computational basis state |
+| `stato_dominante` | str | Binary string of dominant state |
+| `tempo` | float | Wall-clock time (seconds) |
+| `ram` | float | Statevector RAM (MB) |
+| `nome` | str | Circuit name |
+| `porte_count` | int | Executed gate count |
+| `shots_data` | ndarray | Sampled measurement outcomes |
+| `sim` | DenseSVSimulator | Live simulator instance |
+| `parser` | QASMParser | Reusable parser instance |
+
+### `estrai_valore_puro(elemento)`
+
+Recursive deep-unwrapper for AST tokens. Handles callables, objects with `.index` or `.value` attributes, numpy scalars, and plain Python numerics. Returns a pure `int`, `float`, or `str`. Required because the `QASMParser` can return heterogeneous token types depending on gate context.
+
+### `risolvi_qasm(parametric_commands, param_dict, n_qubits, theta_params, current_param_counter)`
+
+Converts raw AST command dicts to the `[gate_name, target, control_or_param, ...]` list format accepted by `run_circuit_jit_beast_mode()`. Injects `theta_params[i]` sequentially into parametric gates via positional counter.
+
+### Global Telemetry Variables
+
+| Variable | Type | Description |
+|---|---|---|
+| `df_vqe_telemetry` | DataFrame | VQE per-epoch telemetry, index = Step |
+| `df_md_telemetry` | DataFrame | MD per-step telemetry, index = Step |
+| `matrice_correlazione` | DataFrame | Pearson correlation matrix |
+| `CRONOLOGIA_RUNS` | list[dict] | Run history log |
+
+---
+
+## 14. Troubleshooting
+
+**`TypeError: cond branches must have equal output types`**
+
+Occurs when the simulator's 1-qubit branch produces `complex128` while the 2-qubit branch produces `complex64`. Fixed automatically by `de.patch_dense_parametric(de.DenseSVSimulator)` on startup. If the error persists, check that the `dense-evolution` version is ≥ 8.0.4 and that the patch call succeeded in the startup cell.
+
+**VQE telemetry is empty / plots show `[VQE_Energy — no data]`**
+
+Either the **Enable VQE Settings** checkbox is unchecked, or the circuit has no parametric gates and `_run_vqe_mock_simulation` could not be found. Check that all dashboard cells have been executed top-to-bottom in order.
+
+**Custom Hamiltonian size mismatch warning**
+
+The JSON array length must equal `2^n_qubits` exactly. For a 4-qubit circuit, supply exactly 16 values. The dashboard prints a warning and falls back to a random Hamiltonian rather than crashing.
+
+**Barren plateau span not visible on gradient plot**
+
+Triggered only when more than 3 consecutive epochs have `|g| < 0.01 · max|g|`. With short runs (< 50 epochs) or fast-converging circuits, the threshold may never be crossed. Increase epochs or reduce the learning rate.
+
+**`display(dashboard_unificata)` shows nothing in JupyterLab**
+
+Ensure `ipywidgets` is enabled: `jupyter labextension install @jupyter-widgets/jupyterlab-manager`. In Google Colab this is pre-installed.
+
+**Memory error on high-qubit circuits**
+
+The statevector for n qubits requires `2ⁿ × 16 bytes` (`float64` complex). At 24 qubits: 268 MB. At 33 qubits: 536 GB — only feasible with high-RAM runtimes or GPU backends. Use `use_float32=True` to halve memory at reduced precision.
+
+---
+
+## 15. License
+
+Dense Evolution is licensed under the **Business Source License 1.1 (BSL 1.1)**.
+
+- **Non-commercial use:** unrestricted.
+- **Commercial use:** permitted up to 24 allocated qubits and 1000 distinct circuits / 10,000 shots per circuit per day without a separate commercial license.
+- **Change date:** 1 June 2029 — the software converts permanently to **Apache License 2.0** on that date.
+- **Attribution required:** all copies or derivatives must carry `© 2026 Salvatore Pennacchio <jtatopenn@libero.it> — Dense Evolution`.
+
+Full license text: [LICENSE.md](LICENSE.md)
+
+---
+
+*© 2026 Salvatore Pennacchio — Dense Evolution v8.0.4*
