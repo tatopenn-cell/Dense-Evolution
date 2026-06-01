@@ -8,7 +8,7 @@ version = "8.0.2"
 description = "Micro-optimized High-Performance NISQ Statevector Quantum Circuit Simulator (Hardware-Adaptive Integration of Native NumPy, CUDA-Accelerated CuPy, and Linear Kernel Fusion via JAX JIT/XLA Compilation)"
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "MIT" }
+license = { text = "Business Source License 1.1" }
 authors = [
     { name = "Salvatore Pennacchio", email = "jtatopenn@libero.it" }
 ]
@@ -28,7 +28,7 @@ classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: Other/Proprietary License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
@@ -61,7 +61,7 @@ full = [
 
 [project.urls]
 Homepage = "https://github.com/tatopenn-cell/Dense-Evolution"
-Documentation = "https://github.com/tatopenn-cell/Dense-Evolution/wiki"
+Documentation = "https://github.com/tatopenn-cell/Dense-Evolution/blob/main/LICENSE"
 Repository = "https://github.com/tatopenn-cell/Dense-Evolution"
 "Bug Tracker" = "https://github.com/tatopenn-cell/Dense-Evolution/blob/main/dense_evolution.py"
 
@@ -71,4 +71,5 @@ py-modules = ["dense_evolution"]
 [tool.black]
 line-length = 100
 target-version = ['py39', 'py310', 'py311', 'py312']
+
 
