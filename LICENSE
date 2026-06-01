@@ -1,21 +1,61 @@
-MIT License
+# Business Source License 1.1 (BSL 1.1)
 
-Copyright (c) 2026 salvatore pennacchio [tatopenn-cell]
+**Software:** Dense Evolution  
+**Licensor:** Salvatore Pennacchio <jtatopenn@libero.it> [tatopenn-cell]  
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This Business Source License (the "License") applies to the source code, object code, algorithms, and configuration files of the software named "Dense Evolution" (the "Software").
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+## 1. License Parameters
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+* **Licensor:** Salvatore Pennacchio <jtatopenn@libero.it> [tatopenn-cell]
+* **Software:** Dense Evolution (including updates, patches, kernel optimizations, and derivative works provided by the Licensor)
+* **Change Date:** June 1, 2029
+* **Change License:** Apache License, Version 2.0 (or subsequent versions, at the Licensor's sole discretion)
+* **Licensed Use for Production:** Strictly non-commercial use. For use in commercial or industrial production environments, the computational limits set forth in Section 4 (Additional Use Grant) shall strictly apply.
+
+---
+
+## 2. Grant of License and Attribution Obligation
+
+Subject to the terms and computational limitations established herein, the Licensor hereby grants to the Licensee a non-exclusive, worldwide, royalty-free, and irrevocable (conditional upon continuous compliance with these terms) license to use, reproduce, distribute, modify, and create derivative works of the Software.
+
+**Mandatory Attribution Condition:** Any copy, portion, or derivative work of the Software (including third-party software, cloud platforms, or API interfaces integrating Dense Evolution) must visibly, permanently, and unaltered include the original copyright notice and attribution to the Licensor in the following format:  
+`© 2026 Salvatore Pennacchio <jtatopenn@libero.it> [tatopenn-cell] - Dense Evolution`.
+
+---
+
+## 3. General Use Conditions and Restrictions
+
+The Software may be used, reproduced, distributed, and modified, provided that such use is **not intended for commercial production purposes** or for providing commercial cloud/computational services that compete directly with the products or services offered by the Licensor, except as expressly permitted under Section 4 or as of the Change Date (Section 5).
+
+---
+
+## 4. Additional Use Grant (Limited Commercial Use)
+
+Notwithstanding the restrictions in Section 3, the Licensee is authorized to use the Software for commercial production, industrial, or paid consulting purposes, without the need for a separate paid license, exclusively if the following computational limits are respected:
+
+* **Total Qubit Limit:** The executed quantum simulation must not exceed a size of **24 qubits allocated in memory**. This limit applies to the cumulative sum of all instances, processes, threads, or parallel cluster nodes running concurrently by the same organization or end user.
+* **Circuits and Shots Limit:** The maximum computational volume allowed in a production environment is fixed at **1000 distinct quantum circuit structures per day**, each of which may be executed for a maximum of **10,000 equivalent samples (shots)** per individual circuit.
+
+Any use that exceeds or circumvents (via splitting, wrapping, or proxy techniques) any single parameter listed above strictly requires the prior execution of a separate commercial license agreement with the Licensor.
+
+---
+
+## 5. Transition to Change License
+
+As of **June 1, 2029** (the "Change Date"), this License shall automatically cease to have effect on the Software and all versions released prior to that date. From that moment forward, the Software will permanently and freely become available under the terms of the **Apache License 2.0**. Until the Change Date, this BSL 1.1 License shall remain in full force, validity, and effect.
+
+---
+
+## 6. Disclaimer of Warranty and Limitation of Liability
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. 
+
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+---
+
+## 7. Governing Law and Jurisdiction
+
+This License shall be governed by, construed, and enforced in accordance with the laws of **Italy**. Any dispute arising out of or in connection with the interpretation, execution, or validity of this License shall be submitted to the exclusive jurisdiction of the **Court of Milan, Italy**.
+
