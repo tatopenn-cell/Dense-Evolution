@@ -1560,6 +1560,22 @@ Convergence validation (1500-epoch stress test at 5 K) confirms:
 - Activating `depolarizing` or `amplitude_damping` noise introduces coherent micro-jitter on entropy and stabilizes purity below the ideal threshold — consistent with real noisy-chip behavior.
 
 ---
+## 📊 Integrated Telemetry & Visual Analytics Control Center
+
+The `dense-evolution` ecosystem features a comprehensive, zero-overhead analytical dashboard (`dash.py`) built directly into the simulation runtime. It provides immediate, high-fidelity visual insights into quantum state behavior, hardware metrics, and convergence trajectories without impacting compilation efficiency.
+
+<p align="center">
+  <img src="<img width="2735" height="4326" alt="image" src="https://github.com/user-attachments/assets/c86086f9-b184-4b0d-a2dc-4789a07f643b" />
+">
+</p>
+
+### 🔍 Real-Time Visual Diagnostics Breakdown:
+* **Quantum State Analysis**: Dynamic mapping of probability distributions $|\psi(x)|^2$ alongside the top $k$-states selection for immediate statevector auditing.
+* **3D Statevector Helix**: Advanced spatial tracking of quantum amplitudes to evaluate phase and coherence transitions visually.
+* **Noise Footprint Auditing**: Live telemetry of Kraus channels (e.g., Depolarizing noise impacts) mapped against simulated circuit depth.
+* **VQE & Optimization Convergence**: Real-time evaluation of energy landscapes, optimizer paths, and gradient tracking profiles across execution epochs.
+* **Hardware Correlation Matrix**: Built-in performance diagnostics monitoring RAM utilization delta, JAX tracer overhead, and CPU/GPU resource utilization.
+
 
 ## 11. Visualization Panels
 
