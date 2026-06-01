@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dense-evolution"
-version = "8.0.3"
+version = "8.0.4"
 description = "Micro-optimized High-Performance NISQ Statevector Quantum Circuit Simulator (Hardware-Adaptive Integration of Native NumPy, CUDA-Accelerated CuPy, and Linear Kernel Fusion via JAX JIT/XLA Compilation)"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -22,7 +22,9 @@ keywords = [
     "openqasm", 
     "nisq-noise", 
     "hpc", 
-    "linear-kernel-fusion"
+    "linear-kernel-fusion",
+    "dashboard",
+    "visualization"
 ]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
@@ -53,10 +55,16 @@ jax = [
 gpu = [
     "cupy-cuda12x>=12.0.0"
 ]
+dashboard = [
+    "dash>=2.0.0",
+    "plotly>=5.0.0"
+]
 full = [
     "jax>=0.4.0", 
     "jaxlib>=0.4.0", 
-    "cupy-cuda12x>=12.0.0"
+    "cupy-cuda12x>=12.0.0",
+    "dash>=2.0.0",
+    "plotly>=5.0.0"
 ]
 
 [project.urls]
@@ -66,10 +74,8 @@ Repository = "https://github.com/tatopenn-cell/Dense-Evolution"
 "Bug Tracker" = "https://github.com/tatopenn-cell/Dense-Evolution/blob/main/dense_evolution.py"
 
 [tool.setuptools]
-py-modules = ["dense_evolution"]
+py-modules = ["dense_evolution", "dash"]
 
 [tool.black]
 line-length = 100
 target-version = ['py39', 'py310', 'py311', 'py312']
-
-
