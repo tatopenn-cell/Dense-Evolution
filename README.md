@@ -37,6 +37,10 @@ The internal architecture leverages controlled-allocation Linear Kernel Fusion, 
   * **CuPy**: Parallelized matrix-tensor transformations accelerated on NVIDIA GPUs via CUDA.
 
 ---
+<img width="2735" height="4326" alt="image" src="https://github.com/user-attachments/assets/98672121-b0c6-40b1-8cc7-c14d97aa10ca" />
+
+<img width="2547" height="1381" alt="image" src="https://github.com/user-attachments/assets/3ace2bca-c10e-452b-bafb-91801719603f" />
+
 <img width="2047" height="1339" alt="image" src="https://github.com/user-attachments/assets/260762ad-c6f8-434d-b706-12dc0482c8ce" />
 
 ## ⚙️ Installation
