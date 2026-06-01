@@ -37,6 +37,8 @@ The internal architecture leverages controlled-allocation Linear Kernel Fusion, 
   * **CuPy**: Parallelized matrix-tensor transformations accelerated on NVIDIA GPUs via CUDA.
 
 ---
+<img width="2047" height="1339" alt="image" src="https://github.com/user-attachments/assets/260762ad-c6f8-434d-b706-12dc0482c8ce" />
+
 ## ⚙️ Installation
 
 The core engine is structured in full compliance with the PEP 621 specification (`pyproject.toml`) and supports standardized deployment through `pip`.
