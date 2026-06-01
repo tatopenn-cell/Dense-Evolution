@@ -14,7 +14,7 @@
 pip install dense-evolution
 
 # Full installation (Recommended: Includes JAX, CUDA GPU acceleration, and Dashboard)
-pip install "dense-evolution[full]"
+pip install dense-evolution[full]
 ```
 
 **Dense Evolution** is an ultra-high-performance Statevector quantum simulator engineered explicitly for the execution of complex, deep NISQ (Noisy Intermediate-Scale Quantum) circuits, Quantum Machine Learning (QML) models, and Variational Quantum Eigensolvers (VQE). 
