@@ -62,6 +62,18 @@ pip install dense-evolution[full]
 pip install dense-evolution
 import dash
 ```
+Dashboard :
+
+```bash
+import dash
+from IPython.display import clear_output, display
+
+# 1. Ripuliamo lo schermo dal disordine iniziale dell'import
+clear_output()
+
+# 2. Mostriamo direttamente l'oggetto visivo (senza parentesi tonde!)
+display(dash.dashboard_unificata)
+```
 
 ### 2. Local Source & Development Setup
 For direct source-code evaluation, custom modifications, or active development, configure the environment locally:
