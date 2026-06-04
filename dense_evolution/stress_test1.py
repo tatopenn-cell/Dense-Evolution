@@ -3,7 +3,7 @@ import numpy as np
 from dense_evolution import DenseSVSimulator, QASMParser, QuantumTranspiler, NoiseModel
 
 print("====================================================")
-print("🔬 ADVANCED PRODUCTION STRESS-TEST: KRAUS & JIT SIMULATION")
+print("TEST: KRAUS & JIT SIMULATION")
 print("====================================================")
 
 try:
