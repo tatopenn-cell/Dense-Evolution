@@ -304,7 +304,7 @@ class DenseSVSimulator:
 
     # ── circuit execution ─────────────────────────────────────────────
 
-   def run_circuit(self, circuit: List[Tuple], transpile: bool = True):
+        def run_circuit(self, circuit: List[Tuple], transpile: bool = True):
         target = QuantumTranspiler.transpile(circuit) if transpile else circuit
         for cmd in target:
             name = cmd[0].lower()
@@ -329,6 +329,7 @@ class DenseSVSimulator:
                         PARAMETRIC_GATES[name](args[1], args[2], args[3]),
                         dtype=self.dtype)
                     self.apply_gate_1q(mat, int(args[0]))
+
 
 
     def run_circuit_jit_beast_mode(self, circuit: List):
