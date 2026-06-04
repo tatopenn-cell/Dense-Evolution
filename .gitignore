@@ -1,0 +1,13 @@
+# Ignora tutti i file di log generati dalle simulazioni
+*.log
+
+# Ignora i file temporanei e le cache di Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Ignora file di sistema invisibili di Windows
+Thumbs.db
+desktop.ini
