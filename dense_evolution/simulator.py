@@ -304,7 +304,7 @@ class DenseSVSimulator:
 
     # ── circuit execution ─────────────────────────────────────────────
 
-        def run_circuit(self, circuit: List[Tuple], transpile: bool = True):
+    def run_circuit(self, circuit: List[Tuple], transpile: bool = True):
         target = QuantumTranspiler.transpile(circuit) if transpile else circuit
         for cmd in target:
             name = cmd[0].lower()
