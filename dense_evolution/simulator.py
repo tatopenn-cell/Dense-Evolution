@@ -12,7 +12,7 @@ if HAS_JAX:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Internal helpers (module-level, not methods — so JAX can jit them cleanly)
+# Internal helpers 
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _qubit_stride_pairs(n: int, qubit: int):
@@ -337,14 +337,7 @@ class DenseSVSimulator:
                     self.apply_gate_1q(mat, int(args[0]))
 
     def run_circuit_jit_beast_mode(self, circuit: List):
-        """
-        Execute a pre-built beast-mode circuit on the JAX JIT engine.
-
-        Beast-mode format: each command is a list [name, q1, q2_or_param, ...]
-        as produced by core_calcolo_quantistico in dash.py.
-
-        Falls back to run_circuit if JAX is unavailable.
-        """
+       
         if not HAS_JAX:
             return self.run_circuit(circuit)
 
@@ -403,17 +396,7 @@ class DenseSVSimulator:
     def run_parametric_batch_jit(self,
                                   base_circuit:    List,
                                   parameter_batch: np.ndarray) -> "jnp.ndarray":
-        """
-        Vectorised VQE parameter sweep via jax.vmap.
-
-        For each row θ in *parameter_batch*, injects θ sequentially into
-        all parametric gate slots (marker value -1.0) and runs the full
-        circuit. Returns a (batch_size, 2**n) array of final statevectors.
-
-        BUG FIX (original): the nested lax.cond for idx increment used
-        `(0,)` as carry — a Python tuple, not a JAX scalar — causing
-        shape errors when jit-compiled. Fixed by using a plain jnp.int32.
-        """
+      
         if not HAS_JAX:
             raise RuntimeError("run_parametric_batch_jit requires JAX")
 
