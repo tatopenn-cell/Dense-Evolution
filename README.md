@@ -5,7 +5,7 @@
 [![Python Version](https://img.shields.io/badge/Python-3.9+-blue?style=flat-square&logo=python)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/LICENSE)
 [![Build](https://img.shields.io/badge/Build-Passing-success?style=flat-square)](https://github.com/tatopenn-cell/Dense-Evolution/actions)
-[!\[CI](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml/badge.svg)](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml)
+[!\[CI](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml/badge.svg)]
 
 
 
