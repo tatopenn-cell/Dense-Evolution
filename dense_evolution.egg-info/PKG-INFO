@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: dense-evolution
-Version: 8.0.6
+Version: 8.0.7
 Summary: Micro-optimized High-Performance NISQ Statevector Quantum Circuit Simulator (Hardware-Adaptive Integration of Native NumPy, CUDA-Accelerated CuPy, and Linear Kernel Fusion via JAX JIT/XLA Compilation)
 Author-email: Salvatore Pennacchio <jtatopenn@libero.it>
 License: Business Source License 1.1

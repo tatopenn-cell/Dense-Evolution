@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 # ── optional JAX import (same pattern as registry) ────────────────────────────
 try:
-    from registry import HAS_JAX
+    from .registry import HAS_JAX
 except ImportError:
     try:
         import jax

@@ -1,14 +1,14 @@
 import numpy as np
 from typing import List, Tuple, Optional
-from registry import HAS_JAX
-from gates import GATES, PARAMETRIC_GATES, GATE_IDS
-from compiler import QuantumTranspiler
+from .registry import HAS_JAX
+from .gates import GATES, PARAMETRIC_GATES, GATE_IDS
+from .compiler import QuantumTranspiler
 
 if HAS_JAX:
     import jax
     import jax.numpy as jnp
     jax.config.update("jax_enable_x64", True)
-    from compiler import _compile_and_run_circuit_jit
+    from .compiler import _compile_and_run_circuit_jit
 
 
 # ─────────────────────────────────────────────────────────────────────────────

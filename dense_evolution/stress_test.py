@@ -2,10 +2,10 @@ import time
 import numpy as np
 
 # Importiamo direttamente dai file che sono nella stessa cartella!
-from simulator import DenseSVSimulator
-from parser import QASMParser
-from compiler import QuantumTranspiler
-from registry import NoiseModel
+from .simulator import DenseSVSimulator
+from .parser import QASMParser
+from .compiler import QuantumTranspiler
+from .registry import NoiseModel
 
 print("====================================================")
 print("🔬 ADVANCED PRODUCTION STRESS-TEST: KRAUS & JIT SIMULATION")

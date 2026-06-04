@@ -1,5 +1,5 @@
 import numpy as np
-from registry import HAS_JAX
+from .registry import HAS_JAX
 
 if HAS_JAX:
     import jax.numpy as jnp
