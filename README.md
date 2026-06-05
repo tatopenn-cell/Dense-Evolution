@@ -157,25 +157,15 @@ dense_evolution/
 
 ---
 
-## ▍ Circuit Library (80+ presets)
+## ▍ Circuit Library (30+ presets)
 
 All circuits are stored as OpenQASM 2.0 strings in `QASM_LIBRARY`.
 
 **Standard** — Bell Φ⁺, QFT 4q/8q, Toffoli, Adder 2-bit, Deutsch-Jozsa, Bernstein-Vazirani  
 **Algorithms** — Grover 3q/4q, Simon 4q, Shor 15, HHL, QAOA Max-Cut 4q, QPE 5q, Quantum Walk, Teleportation, BB84  
-**Topological** — Anyonic Braiding 6q, Charge Pump 8q, DiamondPhi 12q, Omega Phase Lock 8q, Arecibo DeepField 16q, ARECIBO v11.3 SINGULARITY  
-**Peptide / Biological** — Furin RRAR 8q, Hemoglobin MVLSPADK 8q, Spike 8q/16q, p53 Guardian 24q, WormholeTriplePeptide 24q  
-**Stress Tests** — Hardware Stress, Quantum Supremacy, Interference Stress, BGQ 32q, Twin Shield Full Resonance 32q, Nuovo Circuito 33q
+**Topological** — Anyonic Braiding 6q, Charge Pump 8q   
+**Stress Tests** — Hardware Stress, Quantum Supremacy, Interference Stress
 
-**Proprietary phase constants used in topological circuits:**
-
-| Constant | Value (rad) | Physical origin |
-|---|:---:|---|
-| φ (Golden Ratio) | 1.6180 | Tatopenn φ-resonance |
-| sp³ diamond angle | 1.9106 | Carbon tetrahedral bond |
-| Topological lock | 3.0718 | Near-π translocation phase |
-| Omega / Fe₂S₂ | 6.1574 | Iron-sulfur cluster phase lock |
-| BGQ wormhole kick | 0.7000 | BGQ wormhole kickback amplitude |
 
 ---
 
