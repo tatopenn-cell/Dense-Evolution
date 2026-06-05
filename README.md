@@ -260,6 +260,7 @@ Model	Variables / Operators	Physical process
 `kappa_stabilization`	κ-strength routine	proactive statevector profile shielding
 `richardson_integration`	{λ₁ = 1.0, λ₂ = 2.0}	dual-point zero-noise trajectory approximation
 Compilation: Full **XLA Kernel Fusion** via `@jax.jit` for mass-parallelized trajectory sweeps (< 1.0s).
+
 ---
 ▍ Chunk Engines (Anti-OOM)
 All operations parcellized dynamically using dual-stage longitudinal and transverse architectural shields.
@@ -268,6 +269,7 @@ Model	Execution parameters	Physical process
 `chunk2`	`alloc_dim = 2 ** chunk_size_bits`	transverse Hilbert slicing
 `Chunk`	`sim = Chunk(n_qubits)`	hardware-adaptive anti-OOM
 Performance: Hard-locked at `15%` max RAM available with **-86.47% Latency Collapse** via global static JIT cache injection.
+
 ---
 🪐 [SHIELD::OOM] // Chunk Engine
 
