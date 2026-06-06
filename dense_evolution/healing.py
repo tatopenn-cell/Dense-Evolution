@@ -9,9 +9,9 @@ GLOBAL_CONSTANTS = {
     'TARGET_SIGMA_IDEALE': 10.0,
     'THRESHOLD_DELTA_PREEMP': 0.2,
     'SEMANTIC_LEARNING_RATE': 0.05,
-    'V_VITA_K_COEFF': 5.0,
+    'V_DINAMIC_K_COEFF': 5.0,
     'V_STATIC_K_PRIME_COEFF': 1.0,
-    'V_VITA_MIN_EFFECTIVE_VALUE': 0.01,
+    'V_DINAMIC_MIN_EFFECTIVE_VALUE': 0.01,
     'MAX_SEMANTIC_DISTANCE': jnp.sqrt(2.0),
     'WEIGHT_SEMANTIC': 0.6,
     'WEIGHT_COHERENCE': 0.4,
@@ -50,18 +50,18 @@ def calculate_phi_ab(state_A: jnp.ndarray, state_B: jnp.ndarray, ipg_vector: jnp
     return jnp.clip(phi_ab, 0.0, 1.0)
 
 @jax.jit
-def calculate_vettore_vita(E_A: jnp.ndarray, E_B: jnp.ndarray, Phi_AB: jnp.ndarray) -> jnp.ndarray:
-    """Calcola il Vettore Vita (V_vita) come variazione logaritmica differenziale energetica."""
+def calculate_vettore_dinamico(E_A: jnp.ndarray, E_B: jnp.ndarray, Phi_AB: jnp.ndarray) -> jnp.ndarray:
+    """Calcola il Vettore Dinamico (V_dinamic) come variazione logaritmica differenziale energetica."""
     valid_inputs = (E_A > 1e-12) & (E_B > 1e-12)
     ratio = jnp.where(valid_inputs, E_B / E_A, 1.0)
     log_ratio_clamped = jnp.clip(jnp.log(ratio), -5.0, 5.0)
-    v_vita = GLOBAL_CONSTANTS['V_VITA_K_COEFF'] * log_ratio_clamped * Phi_AB
-    return jnp.where(valid_inputs, v_vita, 0.0)
+    v_vita = GLOBAL_CONSTANTS['V_DINAMIC_K_COEFF'] * log_ratio_clamped * Phi_AB
+    return jnp.where(valid_inputs, v_dinamic, 0.0)
 
 @jax.jit
-def calculate_vettore_statico(v_vita_value: jnp.ndarray) -> jnp.ndarray:
+def calculate_vettore_statico(v_dinamic_value: jnp.ndarray) -> jnp.ndarray:
     """Calcola l'indicatore di stasi tensoriale Vettore Statico."""
-    is_growing = v_vita_value > GLOBAL_CONSTANTS['V_VITA_MIN_EFFECTIVE_VALUE']
+    is_growing = v_dinamic_value > GLOBAL_CONSTANTS['V_DINAMIC_MIN_EFFECTIVE_VALUE']
     return GLOBAL_CONSTANTS['V_STATIC_K_PRIME_COEFF'] * (1.0 - jnp.where(is_growing, 1.0, 0.0))
 
 @jax.jit
@@ -95,7 +95,7 @@ def calculate_jax_reflection(coherence_values: jnp.ndarray, noise_levels: jnp.nd
     return avg_coherence, var_coherence, avg_noise
 
 # =====================================================================
-# 🗂️ STRATO OPERATIVO: ENGINE DI LOGGING E STORICIZZAZIONE STATO
+#  STRATO OPERATIVO:  LOGGING E STORICIZZAZIONE 
 # =====================================================================
 
 class MemoryReflectionEngine:
