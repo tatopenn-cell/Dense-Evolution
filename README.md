@@ -66,13 +66,13 @@ The integrated `dash.py` dashboard provides live ipywidgets telemetry across 6 q
 
 \# core engine
 
->>>>>>> 10dd0b7 (v8.1.2 - SafeMemoryGuard Anti-OOM, chunk.py rewrite, README update)
+
 pip install dense-evolution
 
 # full stack: JAX · GPU · dashboard
 pip install dense-evolution[full]
 
-<<<<<<< HEAD
+
 # development
 git clone https://github.com/tatopenn-cell/Dense-Evolution.git
 cd Dense-Evolution && pip install -e .[full]
@@ -108,12 +108,11 @@ cd Dense-Evolution \&\& pip install -e .\[full]
 
 %cd Dense-Evolution
 
->>>>>>> 10dd0b7 (v8.1.2 - SafeMemoryGuard Anti-OOM, chunk.py rewrite, README update)
+
 !pip install -e .
 
 ```
 
-<<<<<<< HEAD
 ---
 
 ## ▍ Quick Start
@@ -188,13 +187,13 @@ sim.run\_circuit\_jit\_beast\_mode(circuit.ops)
 print(sim.get\_probabilities())   # \[0.5, 0, 0, 0, 0, 0, 0, 0.5]  — GHZ state
 
 print(sim.memory\_mb())           # 0.000128 MB
->>>>>>> 10dd0b7 (v8.1.2 - SafeMemoryGuard Anti-OOM, chunk.py rewrite, README update)
+
 
 print(sim.get_probabilities())   # [0.5, 0, 0, 0, 0, 0, 0, 0.5]  — GHZ state
 print(sim.memory_mb())           # 0.000128 MB
 ```
 
-<<<<<<< HEAD
+
 **Dashboard (Colab / Jupyter):**
 ```python
 import dash
@@ -271,29 +270,13 @@ dense_evolution/
 
 ---
 
-## ▍ Circuit Library (80+ presets)
+
 ## ▍ Circuit Library (30+ presets)
 
 All circuits are stored as OpenQASM 2.0 strings in `QASM_LIBRARY`.
 
 **Standard** — Bell Φ⁺, QFT 4q/8q, Toffoli, Adder 2-bit, Deutsch-Jozsa, Bernstein-Vazirani  
 **Algorithms** — Grover 3q/4q, Simon 4q, Shor 15, HHL, QAOA Max-Cut 4q, QPE 5q, Quantum Walk, Teleportation, BB84  
-**Topological** — Anyonic Braiding 6q, Charge Pump 8q, DiamondPhi 12q, Omega Phase Lock 8q, Arecibo DeepField 16q, ARECIBO v11.3 SINGULARITY  
-**Peptide / Biological** — Furin RRAR 8q, Hemoglobin MVLSPADK 8q, Spike 8q/16q, p53 Guardian 24q, WormholeTriplePeptide 24q  
-**Stress Tests** — Hardware Stress, Quantum Supremacy, Interference Stress, BGQ 32q, Twin Shield Full Resonance 32q, Nuovo Circuito 33q
-
-**Proprietary phase constants used in topological circuits:**
-
-| Constant | Value (rad) | Physical origin |
-|---|:---:|---|
-| φ (Golden Ratio) | 1.6180 | Tatopenn φ-resonance |
-| sp³ diamond angle | 1.9106 | Carbon tetrahedral bond |
-| Topological lock | 3.0718 | Near-π translocation phase |
-| Omega / Fe₂S₂ | 6.1574 | Iron-sulfur cluster phase lock |
-| BGQ wormhole kick | 0.7000 | BGQ wormhole kickback amplitude |
-**Topological** — Anyonic Braiding 6q, Charge Pump 8q   
-**Stress Tests** — Hardware Stress, Quantum Supremacy, Interference Stress
-
 
 ---
 
@@ -870,7 +853,7 @@ Performance: RAM hard-locked at ≤ `chunk\_size\_bits` qubits per allocation bl
 
 
 
-\### v8.1.2
+\### v8.1.3
 
 \- `chunk.py` — `SafeMemoryGuard` class: hard block at configurable free-RAM threshold (default 15%), soft warning at 2× threshold, `gc.collect()` before every check
 
