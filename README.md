@@ -23,11 +23,13 @@
 =======
 
 \*\*Dense Statevector Quantum Simulator · JAX XLA · NISQ · VQE · QML\*\*
+
 ---
 
 ## ▍ What It Is
 
 **Dense Evolution** is a high-performance statevector simulator engineered for deep NISQ circuits, VQE pipelines, and QML workloads. It eliminates Kronecker product overhead entirely via stride-sliced linear kernel fusion compiled through JAX XLA — keeping memory at the theoretical minimum of `2ⁿ × 16 bytes`.
+
 =======
 
 
@@ -46,7 +48,7 @@ The integrated `dash.py` dashboard provides live ipywidgets telemetry across 6 q
 
 The integrated `dash.py` dashboard provides live ipywidgets telemetry across 6 quantum observables per simulation run, directly inside Google Colab or Jupyter.
 
-<<<<<<< HEAD
+
 ---
 
 ## ▍ Install
