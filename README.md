@@ -20,7 +20,28 @@
 [![Python](https://img.shields.io/badge/Python-3.9+-blue?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-BSL_1.1-orange?style=flat-square)](LICENSE.md)
 [![Build](https://img.shields.io/badge/Build-Passing-00ff9d?style=flat-square)](https://github.com/tatopenn-cell/Dense-Evolution/actions)
-======
+=======
+
+\*\*Dense Statevector Quantum Simulator · JAX XLA · NISQ · VQE · QML\*\*
+
+
+
+\[!\[CI](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml/badge.svg)](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml)
+
+\[!\[PyPI](https://img.shields.io/pypi/v/dense-evolution?style=flat-square\&color=00e5ff)](https://pypi.org/project/dense-evolution/)
+
+\[!\[Python](https://img.shields.io/badge/Python-3.9+-blue?style=flat-square\&logo=python\&logoColor=white)](https://www.python.org/)
+
+\[!\[License](https://img.shields.io/badge/License-BSL\_1.1-orange?style=flat-square)](LICENSE.md)
+
+\[!\[Build](https://img.shields.io/badge/Build-Passing-00ff9d?style=flat-square)](https://github.com/tatopenn-cell/Dense-Evolution/actions)
+
+
+>>>>>>> 10dd0b7 (v8.1.2 - SafeMemoryGuard Anti-OOM, chunk.py rewrite, README update)
+
+</div>
+
+<<<<<<< HEAD
 ---
 
 ## ▍ What It Is
@@ -609,6 +630,12 @@ All circuits are stored as OpenQASM 2.0 strings in `QASM\_LIBRARY`.
 
 \*\*Algorithms\*\* — Grover 3q/4q, Simon 4q, Shor 15, HHL, QAOA Max-Cut 4q, QPE 5q, Quantum Walk, Teleportation, BB84  
 
+\*\*Topological\*\* — Anyonic Braiding 6q, Charge Pump 8q, DiamondPhi 12q, Omega Phase Lock 8q, Arecibo DeepField 16q, ARECIBO v11.3 SINGULARITY  
+
+\*\*Peptide / Biological\*\* — Furin RRAR 8q, Hemoglobin MVLSPADK 8q, Spike 8q/16q, p53 Guardian 24q, WormholeTriplePeptide 24q  
+
+\*\*Stress Tests\*\* — Hardware Stress, Quantum Supremacy, Interference Stress, BGQ 32q, Twin Shield Full Resonance 32q, Nuovo Circuito 33q
+
 
 \## ▍ VQE Engine
 
@@ -916,8 +943,7 @@ Contact: \[jtatopenn@libero.it](mailto:jtatopenn@libero.it)
 
 <sub>Dense Evolution · Salvatore Pennacchio · 2026</sub>
 
-</div>
->>>>>>> 10dd0b7 (v8.1.2 - SafeMemoryGuard Anti-OOM, chunk.py rewrite, README update)
 
-<div align="center">
-<sub>© 2026 Salvatore Pennacchio — Dense Evolution v8</sub>
+
+<
+<sub>© 2026 Salvatore Pennacchio — Dense Evolution </sub>
