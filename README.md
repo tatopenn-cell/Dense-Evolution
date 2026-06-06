@@ -23,25 +23,6 @@
 =======
 
 \*\*Dense Statevector Quantum Simulator · JAX XLA · NISQ · VQE · QML\*\*
-
-
-
-\[!\[CI](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml/badge.svg)](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml)
-
-\[!\[PyPI](https://img.shields.io/pypi/v/dense-evolution?style=flat-square\&color=00e5ff)](https://pypi.org/project/dense-evolution/)
-
-\[!\[Python](https://img.shields.io/badge/Python-3.9+-blue?style=flat-square\&logo=python\&logoColor=white)](https://www.python.org/)
-
-\[!\[License](https://img.shields.io/badge/License-BSL\_1.1-orange?style=flat-square)](LICENSE.md)
-
-\[!\[Build](https://img.shields.io/badge/Build-Passing-00ff9d?style=flat-square)](https://github.com/tatopenn-cell/Dense-Evolution/actions)
-
-
->>>>>>> 10dd0b7 (v8.1.2 - SafeMemoryGuard Anti-OOM, chunk.py rewrite, README update)
-
-</div>
-
-<<<<<<< HEAD
 ---
 
 ## ▍ What It Is
