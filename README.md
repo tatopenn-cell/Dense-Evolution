@@ -56,13 +56,6 @@ The integrated `dash.py` dashboard provides live ipywidgets telemetry across 6 q
 ```bash
 
 
-\## ▍ Install
-
-
-
-```bash
-
-
 
 
 pip install dense-evolution
