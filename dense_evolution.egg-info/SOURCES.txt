@@ -3,9 +3,10 @@ dash.py
 license.md
 pyproject.toml
 dense_evolution/__init__.py
+dense_evolution/chunk.py
 dense_evolution/compiler.py
 dense_evolution/gates.py
-dense_evolution/mega_stress_test.py
+dense_evolution/healing.py
 dense_evolution/parser.py
 dense_evolution/registry.py
 dense_evolution/simulator.py

@@ -12,7 +12,7 @@ if HAS_JAX:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Internal helpers (module-level, not methods — so JAX can jit them cleanly)
+# Internal helpers 
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _qubit_stride_pairs(n: int, qubit: int):
@@ -226,20 +226,22 @@ class DenseSVSimulator:
             self.sv = _cz_numpy(np.array(self.sv), self.n, ctrl, tgt)
 
     def apply_rx(self, qubit: int, theta: float):
-        cos, sin = np.cos(theta / 2), np.sin(theta / 2)
-        mat = np.array([[cos, -1j * sin], [-1j * sin, cos]], dtype=self.dtype)
+        """Apply a parameterized RX gate using the active backend (NumPy/JAX)."""
+        cos, sin = self.xp.cos(theta / 2), self.xp.sin(theta / 2)
+        mat = self.xp.array([[cos, -1j * sin], [-1j * sin, cos]], dtype=self.dtype)
         self.apply_gate_1q(mat, qubit)
 
     def apply_ry(self, qubit: int, theta: float):
-        cos, sin = np.cos(theta / 2), np.sin(theta / 2)
-        mat = np.array([[cos, -sin], [sin, cos]], dtype=self.dtype)
+        """Apply a parameterized RY gate using the active backend (NumPy/JAX)."""
+        cos, sin = self.xp.cos(theta / 2), self.xp.sin(theta / 2)
+        mat = self.xp.array([[cos, -sin], [sin, cos]], dtype=self.dtype)
         self.apply_gate_1q(mat, qubit)
 
     def apply_rz(self, qubit: int, theta: float):
-        mat = np.array([
-            [np.exp(-1j * theta / 2), 0],
-            [0,                        np.exp(1j * theta / 2)],
-        ], dtype=self.dtype)
+        """Apply a parameterized RZ gate using the active backend (NumPy/JAX)."""
+        exp_neg = self.xp.exp(-1j * theta / 2)
+        exp_pos = self.xp.exp(1j * theta / 2)
+        mat = self.xp.array([[exp_neg, 0.0], [0.0, exp_pos]], dtype=self.dtype)
         self.apply_gate_1q(mat, qubit)
 
     # ── measurement ───────────────────────────────────────────────────
@@ -303,48 +305,35 @@ class DenseSVSimulator:
     # ── circuit execution ─────────────────────────────────────────────
 
     def run_circuit(self, circuit: List[Tuple], transpile: bool = True):
-        """
-        Execute a circuit given as a list of (gate_name, qubit, [qubit2], [param]).
-
-        Parameters are always the *last* element(s) of the tuple.
-        Gate names are matched case-insensitively.
-        """
         target = QuantumTranspiler.transpile(circuit) if transpile else circuit
         for cmd in target:
             name = cmd[0].lower()
             args = cmd[1:]
 
             if name in GATES:
-                mat = np.array(GATES[name], dtype=self.dtype)
+                mat = self.xp.array(GATES[name], dtype=self.dtype)
                 if mat.shape == (2, 2):
                     self.apply_gate_1q(mat, int(args[0]))
                 else:
                     self.apply_gate_2q(mat, int(args[0]), int(args[1]))
 
             elif name in PARAMETRIC_GATES:
-                # Tuple layout: (name, qubit, param)          for 1-qubit
-                #               (name, ctrl,  tgt,   param)   for 2-qubit
-                if len(args) == 2:                              # 1-qubit parametric
-                    mat = np.array(PARAMETRIC_GATES[name](args[1]), dtype=self.dtype)
+                if len(args) == 2:
+                    mat = self.xp.array(PARAMETRIC_GATES[name](args[1]), dtype=self.dtype)
                     self.apply_gate_1q(mat, int(args[0]))
-                elif len(args) == 3:                            # 2-qubit parametric
-                    mat = np.array(PARAMETRIC_GATES[name](args[2]), dtype=self.dtype)
+                elif len(args) == 3:
+                    mat = self.xp.array(PARAMETRIC_GATES[name](args[2]), dtype=self.dtype)
                     self.apply_gate_2q(mat, int(args[0]), int(args[1]))
-                elif len(args) == 4:                            # u3-style (θ, φ, λ)
-                    mat = np.array(
+                elif len(args) == 4:
+                    mat = self.xp.array(
                         PARAMETRIC_GATES[name](args[1], args[2], args[3]),
                         dtype=self.dtype)
                     self.apply_gate_1q(mat, int(args[0]))
 
+
+
     def run_circuit_jit_beast_mode(self, circuit: List):
-        """
-        Execute a pre-built beast-mode circuit on the JAX JIT engine.
-
-        Beast-mode format: each command is a list [name, q1, q2_or_param, ...]
-        as produced by core_calcolo_quantistico in dash.py.
-
-        Falls back to run_circuit if JAX is unavailable.
-        """
+       
         if not HAS_JAX:
             return self.run_circuit(circuit)
 
@@ -403,17 +392,7 @@ class DenseSVSimulator:
     def run_parametric_batch_jit(self,
                                   base_circuit:    List,
                                   parameter_batch: np.ndarray) -> "jnp.ndarray":
-        """
-        Vectorised VQE parameter sweep via jax.vmap.
-
-        For each row θ in *parameter_batch*, injects θ sequentially into
-        all parametric gate slots (marker value -1.0) and runs the full
-        circuit. Returns a (batch_size, 2**n) array of final statevectors.
-
-        BUG FIX (original): the nested lax.cond for idx increment used
-        `(0,)` as carry — a Python tuple, not a JAX scalar — causing
-        shape errors when jit-compiled. Fixed by using a plain jnp.int32.
-        """
+      
         if not HAS_JAX:
             raise RuntimeError("run_parametric_batch_jit requires JAX")
 

@@ -1,11 +1,6 @@
 import time
 import numpy as np
-
-# Importiamo direttamente dai file che sono nella stessa cartella!
-from .simulator import DenseSVSimulator
-from .parser import QASMParser
-from .compiler import QuantumTranspiler
-from .registry import NoiseModel
+from dense_evolution import DenseSVSimulator, QASMParser, QuantumTranspiler, NoiseModel
 
 print("====================================================")
 print("🔬 ADVANCED PRODUCTION STRESS-TEST: KRAUS & JIT SIMULATION")
@@ -28,6 +23,7 @@ try:
     """
     
     print("1. Parsing e Transpilazione del circuito QASM...")
+    # Questo testa la corretta importazione e funzione di parser.py e compiler.py
     parser = QASMParser()
     circ = parser.parse(qasm_bench)
     tuples = QuantumTranspiler.transpile(circ.to_tuples())
@@ -43,13 +39,17 @@ try:
     print(f"✓ Successo ideale in {t_ideale:.4f} s | Dimensione stato: {len(prob_ideale)}")
 
     print("\n3. Validazione NoiseModel (registry.py): Canale stocastico Amplitude Damping...")
+    
+    # Run Noisy 1
     t0 = time.perf_counter()
     sim_noisy1 = DenseSVSimulator(n_qubits)
     sim_noisy1.run_circuit_jit_beast_mode(tuples)
+    # Iniezione diretta del rumore Kraus sullo statevector compilato
     sim_noisy1.sv = NoiseModel.apply_to_sv(sim_noisy1.sv, n_qubits, model='amplitude_damping', p=0.15)
     prob_noisy1 = sim_noisy1.get_probabilities()
     t_noisy1 = time.perf_counter() - t0
     
+    # Run Noisy 2
     sim_noisy2 = DenseSVSimulator(n_qubits)
     sim_noisy2.run_circuit_jit_beast_mode(tuples)
     sim_noisy2.sv = NoiseModel.apply_to_sv(sim_noisy2.sv, n_qubits, model='amplitude_damping', p=0.15)

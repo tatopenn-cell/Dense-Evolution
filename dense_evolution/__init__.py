@@ -9,4 +9,4 @@ from .compiler import QuantumTranspiler
 from .registry import NoiseModel, QuantumHardwareRegistry
 from .gates import GATES, PARAMETRIC_GATES, GATE_IDS
 
-__version__ = "8.0.4"
+__version__ = "8.1.2"
