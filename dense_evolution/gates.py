@@ -1,7 +1,11 @@
 import numpy as np
 from .registry import HAS_JAX
 
+<<<<<<< HEAD
 # Scegli il backend corretto una volta sola
+=======
+
+>>>>>>> 10dd0b7 (v8.1.2 - SafeMemoryGuard Anti-OOM, chunk.py rewrite, README update)
 if HAS_JAX:
     import jax.numpy as jnp
     xp = jnp
@@ -36,7 +40,11 @@ GATE_IDS = {
     'rx': 9, 'ry': 10, 'rz': 11, 'cx': 20, 'cz': 21
 }
 
+<<<<<<< HEAD
 # Un dizionario unico, pulito e senza codice duplicato
+=======
+
+>>>>>>> 10dd0b7 (v8.1.2 - SafeMemoryGuard Anti-OOM, chunk.py rewrite, README update)
 PARAMETRIC_GATES = {
     'rx': lambda theta: xp.array([[xp.cos(theta/2), -1j*xp.sin(theta/2)], [-1j*xp.sin(theta/2), xp.cos(theta/2)]], dtype=complex),
     'ry': lambda theta: xp.array([[xp.cos(theta/2), -xp.sin(theta/2)], [xp.sin(theta/2), xp.cos(theta/2)]], dtype=complex),

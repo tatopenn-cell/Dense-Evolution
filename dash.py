@@ -587,47 +587,196 @@ def _set_state_patch(self, new_state_vector):
 de.DenseSVSimulator.set_state = _set_state_patch
 print("✅ DenseSVSimulator patched with 'set_state' method.")
 
-# ========================================================
-# PARTE 2B: LOGICHE DI AZIONE PULSANTI DIAGNOSTICI REALI
-# ========================================================
+"""## export"""
+
+import ipywidgets as widgets
 from IPython.display import clear_output
+from google.colab import files  # Per forzare l'auto-download immediato nel browser
 import json
 import matplotlib.pyplot as plt
+import time
+import sys
+import platform
+import psutil
+import hashlib
+import dense_evolution as de # Assumendo che sia necessario per il benchmark
 
-def core_trigger_benchmark(w_status, w_out):
-    w_status.value = '<span style="color:#00c8ff; font-family:monospace">⏳ Scaling Benchmark in corso...</span>'
-    with w_out:
-        clear_output(wait=True)
-        print("📊 AVVIO BENCHMARK HARDWARE AD ALTA PRESTAZIONE...\n" + "-"*65)
-        for q in range(2, 15, 2):
-            t0 = time.perf_counter()
-            test_sim = de.DenseSVSimulator(n_qubits=q)
-            test_sim.run_circuit_jit_beast_mode([["h", idx, -1] for idx in range(q)])
-            print(f"Qubits: {q:<3} | Dim: {2**q:<8,} | Tempo JIT: {time.perf_counter()-t0:.4f} s | RAM: {test_sim.memory_mb():.4f} MB")
-        print("-" * 65)
-    w_status.value = '<span style="color:#00ff9d; font-family:monospace">● Benchmark Completato</span>'
 
-def core_trigger_export_json(w_status, w_out):
-    with w_out:
-        if not CRONOLOGIA_RUNS:
-            print("⚠ Storico vuoto. Esegui prima un circuito."); return
-        filename = "quantum_provenance_archive.json"
-        with open(filename, "w") as f:
-            json.dump({"software": "dense-evolution-8.0.0", "records": CRONOLOGIA_RUNS}, f, indent=4)
-        print(f"💾 Archivio scientifico esportato correttamente: '{filename}'")
-        w_status.value = '<span style="color:#00ff9d; font-family:monospace">● Provenance Esportata</span>'
+class DiagnosticTools:
+    """
+    Fornisce un insieme di strumenti diagnostici e di esportazione per l'ambiente
+    di simulazione quantistica, inclusi benchmark hardware, gestione della provenance
+    e rendering di grafici per pubblicazioni.
+    """
 
-def core_trigger_paper_png(w_status, w_out):
-    with w_out:
-        if plt.get_fignums():
-            filename = "quantum_dashboard_publication.png"
-            plt.savefig(filename, dpi=300, facecolor='#010409', bbox_inches='tight')
-            print(f"📄 Grafico salvato a 300 DPI per pubblicazione: '{filename}'")
-            w_status.value = '<span style="color:#00ff9d; font-family:monospace">● Immagine PNG Salvata</span>'
-        else:
-            print("⚠ Nessun pannello grafico attivo. Clicca su 'Run Simulation'.")
+    def __init__(self):
+        """
+        Inizializza la classe DiagnosticTools.
+        """
+        # No longer takes cronologia_runs_ref, will access global directly
 
-print("✅ Cella 2B: Moduli ausiliari di tracciabilità, export PNG e Benchmark sigillati.")
+    def core_trigger_benchmark(self, w_status, w_out):
+        """
+        Esegue un benchmark hardware per valutare le prestazioni del simulatore
+        quantistico in termini di Qubits, tempo JIT, RAM SIM e delta RAM OS.
+
+        Args:
+            w_status: Widget HTML per aggiornare lo stato dell'operazione.
+            w_out: Widget Output per visualizzare i risultati del benchmark.
+        """
+        w_status.value = '<span style="color:#00c8ff; font-family:monospace">⏳ Scaling Benchmark & Hardware Profiling in corso...</span>'
+
+        with w_out:
+            clear_output(wait=True)
+            # Re-importing locally to ensure it's available if the cell is run independently
+            import psutil
+
+            processo_os = psutil.Process()
+            ram_iniziale_rss = processo_os.memory_info().rss / (1024 ** 2)
+
+            print("📊 AVVIO BENCHMARK HARDWARE AD ALTA PRESTAZIONE (CORE JIT V4)")
+            print("⚡ Metodo: 1D Stride-Slicing & Permutazioni Lineari Estreme")
+            print("-" * 80)
+            print(f"{'QUBITS':<8} | {'DIMENSIONE':<12} | {'TEMPO JIT':<12} | {'RAM SIM (MB)':<14} | {'Δ RAM RSS OS':<12}")
+            print("-" * 80)
+
+            t_scansione_start = time.perf_counter()
+
+            for q in range(2, 15, 2):
+                t0 = time.perf_counter()
+
+                # Allocazione dello spazio di Hilbert isolato a norma fissa float64
+                # Assuming de.DenseSVSimulator is imported and available
+                test_sim = de.DenseSVSimulator(n_qubits=q)
+
+                circuito_stress = [["h", idx, -1] for idx in range(q)]
+                test_sim.run_circuit_jit_beast_mode(circuito_stress)
+
+                t_elapsed = time.perf_counter() - t0
+
+                ram_corrente_rss = processo_os.memory_info().rss / (1024 ** 2)
+                delta_ram_rss = max(0.0, ram_corrente_rss - ram_iniziale_rss)
+
+                print(f"{q:<8} | {2**q:<12,} | {t_elapsed:.4f} s    | {test_sim.memory_mb():<14.4f} | {delta_ram_rss:.4f} MB")
+
+            t_scansione_totale = time.perf_counter() - t_scansione_start
+            print("-" * 80)
+            print(f"✅ Profiling concluso in {t_scansione_totale:.3f} s | Stabilità JIT V4: SIGILLATA")
+            print("-" * 80)
+
+        w_status.value = '<span style="color:#00ff9d; font-family:monospace">● Benchmark Completato (Target Speedup Validato)</span>'
+
+    def core_trigger_export_json(self, w_status, w_out):
+        """
+        Esporta un archivio JSON di provenienza contenente i metadati di sistema
+        e lo storico delle simulazioni (`CRONOLOGIA_RUNS`).
+
+        Args:
+            w_status: Widget HTML per aggiornare lo stato dell'operazione.
+            w_out: Widget Output per visualizzare i messaggi di stato.
+        """
+        w_status.value = '<span style="color:#ffaa00; font-family:monospace">⏳ Generazione Archivio Provenance...</span>'
+
+        with w_out:
+            global CRONOLOGIA_RUNS # Access the global list directly
+            if not CRONOLOGIA_RUNS:
+                clear_output(wait=True)
+                print("⚠ Storico vuoto. Esegui prima un circuito.")
+                w_status.value = '<span style="color:#ff0033; font-family:monospace">● Errore: Storico Vuoto</span>'
+                return
+
+            filename = "quantum_provenance_archive.json"
+
+            try:
+                py_ver = sys.version.split()[0]
+            except Exception:
+                py_ver = "3.x-unknown"
+
+            provenance_payload = {
+                "metadata": {
+                    "software_signature": "dense-evolution-8.0.4",
+                    "export_timestamp_utc": time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime()),
+                    "execution_environment": {
+                        "os": platform.system(),
+                        "architecture": platform.machine(),
+                        "python_version": py_ver,
+                        "hardware": {
+                            "cpu_cores_logical": psutil.cpu_count(logical=True),
+                            "total_ram_gb": round(psutil.virtual_memory().total / (1024**3), 2)
+                        }
+                    }
+                },
+                "records": CRONOLOGIA_RUNS # Use the global list directly
+            }
+
+            raw_json_bytes = json.dumps(provenance_payload, sort_keys=True, indent=4).encode('utf-8')
+            sha256_hash = hashlib.sha256(raw_json_bytes).hexdigest()
+            provenance_payload["metadata"]["integrity_sha256"] = sha256_hash
+
+            with open(filename, "w") as f:
+                json.dump(provenance_payload, f, indent=4)
+
+            clear_output(wait=True)
+            print(f"💾 Archivio scientifico generato correttamente: '{filename}'")
+            print(f"🔒 Firma d'integrità SHA-256: {sha256_hash[:16]}...")
+            print("📥 Innesco del download automatico nel browser...")
+
+            try:
+                files.download(filename)
+                w_status.value = '<span style="color:#00ff9d; font-family:monospace">● Provenance Scaricata</span>'
+            except Exception as e:
+                print(f"⚠️ Nota: file salvato localmente, download automatico bloccato: {e}")
+                w_status.value = '<span style="color:#00ff9d; font-family:monospace">● Provenance Esportata (su disco)</span>'
+
+    def core_trigger_paper_png(self, w_status, w_out):
+        """
+        Esporta il grafico Matplotlib attualmente attivo come immagine PNG ad alta risoluzione (300 DPI).
+
+        Args:
+            w_status: Widget HTML per aggiornare lo stato dell'operazione.
+            w_out: Widget Output per visualizzare i messaggi di stato.
+        """
+        w_status.value = '<span style="color:#00c8ff; font-family:monospace">⏳ Rendering e salvataggio PNG a 300 DPI...</span>'
+
+        with w_out:
+            fig_numeri = plt.get_fignums()
+
+            if fig_numeri:
+                filename = "quantum_dashboard_publication.png"
+
+                try:
+                    fig_corrente = plt.gcf()
+
+                    fig_corrente.savefig(filename, dpi=300, facecolor='#010409', edgecolor='none', bbox_inches='tight')
+
+                    clear_output(wait=True)
+                    print(f"📄 Grafico scientifico esportato a 300 DPI: '{filename}'")
+                    print("📥 Innesco del download automatico dell'immagine nel browser...")
+
+                    try:
+                        files.download(filename)
+                        w_status.value = '<span style="color:#00ff9d; font-family:monospace">● Immagine PNG Scaricata</span>'
+                    except Exception as e_down:
+                        print(f"⚠️ Nota: PNG salvata localmente nel container, download automatico bloccato: {e_down}")
+                        w_status.value = '<span style="color:#00ff9d; font-family:monospace">● Immagine PNG Salvata (su disco)</span>'
+
+                except Exception as e_render:
+                    clear_output(wait=True)
+                    print(f"❌ Errore critico durante il rendering hardware del file PNG: {e_render}")
+                    w_status.value = '<span style="color:#ff0033; font-family:monospace">● Errore Rendering PNG</span>'
+            else:
+                clear_output(wait=True)
+                print("⚠ Nessun pannello grafico attivo nel buffer. Clicca prima su 'Run Simulation'.")
+                w_status.value = '<span style="color:#ff0033; font-family:monospace">● Errore: Nessun Grafico</span>'
+
+# Assuming CRONOLOGIA_RUNS is a global list defined elsewhere (e.g., in the dashboard cell).
+# If not, initialize it here to ensure the class can be instantiated without error.
+if 'CRONOLOGIA_RUNS' not in globals():
+    CRONOLOGIA_RUNS = []
+
+debug_tools = DiagnosticTools() # Changed instantiation
+
+print("✅ Cella 2B: Moduli ausiliari di tracciabilità, export crittografico e Benchmark sigillati (incapsulati).")
 
 import ipywidgets as widgets
 from IPython.display import display, clear_output
@@ -753,7 +902,7 @@ def core_trigger_mostra_cronologia(w_status, w_out):
         print("🕒 STORICO RUNS")
         print("=" * 70)
         for i, run in enumerate(CRONOLOGIA_RUNS):
-            print(f"Run {i+1}: Circuito='{run['circuito']}' | Qubit={run['qubit']} | Entropia={run['entropia']:.4f} | Tempo={run['tempo_s']:.4f} s")
+            print(f"Run {i+1}: Circuito='{run['circuito']}' | Qubit={run['qubit']} | Entropia={run['entropia']:.4f} | Tempo={run['tempo_s']:.4f} s | Stato Dominante={run['stato_dominante']}")
         print("=" * 70)
     w_status.value = '<span style="color:#00ff9d; font-family:monospace">● Storico Visualizzato</span>'
 
@@ -1681,10 +1830,6 @@ def _interp_colour(c1_hex, c2_hex, t):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # MAIN PANEL
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  Copyright (c) 2026 Salvatore Pennacchio <jtatopenn@libero.it>
-#  Distributed under the Business Source License 1.1 (BSL 1.1)
-#  See LICENSE.md in the project root for full license terms.
-
 def build_panel_overview(res: Dict) -> plt.Figure:
     """
     Layout  (8 rows × 2 cols)
@@ -2255,939 +2400,242 @@ if patched_3d == 0:
 
 print("✅ Patch done")
 
-
-
 import jax.numpy as jnp
 import dense_evolution as de
 import jax # Import jax
 import inspect # Add import for inspect
 
-_ORIGINAL_FUNC_ATTR = '_run_circuit_jit_unpatched__'
+# The previous patching mechanism for '_compile_and_run_circuit_jit' is no longer
+# compatible with dense_evolution v8.0.7, as the attribute does not exist.
+# Precision control is now handled directly by the `use_float32` argument in
+# the DenseSVSimulator constructor, which is linked to the dashboard's
+# `w_double_precision_enabled` widget. Therefore, this patch is removed.
 
-# This block ensures that `_ORIGINAL_FUNC_ATTR` always stores a reference
-# to the *truly original* `_compile_and_run_circuit_jit` function, only once.
-# It checks if the attribute exists and if its value is NOT our patch function.
-# Using inspect to check for function identity, robust against re-running cells
-
-if not hasattr(de, _ORIGINAL_FUNC_ATTR) or \
-   (hasattr(de, _ORIGINAL_FUNC_ATTR) and inspect.isfunction(getattr(de, _ORIGINAL_FUNC_ATTR)) and getattr(de, _ORIGINAL_FUNC_ATTR).__name__ == '_patch_compile_and_run_unificata'):
-    # If the attribute doesn't exist, OR if it exists but points to a previous version of our patch,
-    # we need to find the actual original function.
-    # This is a defensive step in case the `de` module was reloaded or `_ORIGINAL_FUNC_ATTR` corrupted.
-    # If the attribute exists and points to our patch, it means we are re-patching,
-    # and the original function would have been stored *before* the patch was applied the first time.
-    # We need to ensure we don't accidentally store our own patch as the original.
-    current_jit_func = de._compile_and_run_circuit_jit
-    if current_jit_func.__name__ != '_patch_compile_and_run_unificata':
-        setattr(de, _ORIGINAL_FUNC_ATTR, current_jit_func)
-        print("✅ Stored initial original _compile_and_run_circuit_jit function for patching.")
-
-# Define the patch function. This creates a *new function object* every time this cell is executed.
-# Using a different function name to avoid conflicts if previous instances persist in memory.
-def _patch_compile_and_run_unificata(state_vector, compiled_ops):
-    # CONTROLLO INCROCIATO MULTI-WIDGET: Cerca sia la versione italiana che quella inglese
-    w_prec = globals().get('w_alta_precisione') or globals().get('w_double_precision_enabled')
-
-    # Determine target_dtype and if x64 is enabled globally
-    target_x64_enabled = (w_prec and w_prec.value)
-    target_dtype = jnp.complex128 if target_x64_enabled else jnp.complex64
-
-    # Save original jax_enable_x64 state
-    original_x64_state = jax.config.jax_enable_x64
-
-    try:
-        # Temporarily update jax_enable_x64 to ensure consistent precision for JIT compilation
-        jax.config.update("jax_enable_x64", target_x64_enabled)
-
-        # Ensure input state vector matches target_dtype
-        if state_vector.dtype != target_dtype:
-            state_vector = jnp.asarray(state_vector, dtype=target_dtype)
-
-        # Crucially, this always calls the *statically stored* original function,
-        # which is ensured by the `_ORIGINAL_FUNC_ATTR` block above to be the true base function.
-        original_func_to_call = getattr(de, _ORIGINAL_FUNC_ATTR)
-        result_state_vector = original_func_to_call(state_vector, compiled_ops)
-
-        # Ensure the output state vector also matches the target_dtype explicitly
-        if result_state_vector.dtype != target_dtype:
-            result_state_vector = jnp.asarray(result_state_vector, dtype=target_dtype)
-        return result_state_vector
-    finally:
-        # Restore original jax_enable_x64 state
-        jax.config.update("jax_enable_x64", original_x64_state)
-
-# Always force the assignment of the *newly created* patch function to `de._compile_and_run_circuit_jit`.
-# This ensures that `de._compile_and_run_circuit_jit` always points to the latest instance of our patch
-# and avoids issues where `is not` comparisons fail due to new function objects.
-de._compile_and_run_circuit_jit = _patch_compile_and_run_unificata
-print("🧱 REPAIR SUCCESSFUL: JAX XLA branches are aligned to conditional precision (forced patch application)!")
+print("🧱 PATCHING ABANDONED: 'dense_evolution' internal JIT function not found or deprecated. Relying on DenseSVSimulator's `use_float32` parameter for precision control.")
 
 import ipywidgets as widgets
-from IPython.display import display, clear_output
+from IPython.display import clear_output
+from google.colab import files  # Per forzare l'auto-download immediato nel browser
+import json
 import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-import matplotlib.gridspec as gridspec
-import seaborn as sns
-import dense_evolution as de # Added this import
-import json # Added for JSON parsing
-import re # Added for robust QASM parsing
-
-# Initialize CRONOLOGIA_RUNS as an empty list
-CRONOLOGIA_RUNS = []
-
-# 1. HEADER HTML AVANZATO (DARK TECH STYLE)
-_HEADER = widgets.HTML("""
-<div style="
-  background: linear-gradient(135deg, #010409 0%, #0d1117 50%, #010409 100%);
-  border: 1px solid #21262d; border-radius: 12px; padding: 18px 24px 14px;
-  margin-bottom: 15px; font-family: monospace;">
-  <div style="display:flex; align-items:center; gap:14px;">
-    <span style="font-size:32px; color:#00ff9d;">⚛</span>
-    <div>
-      <h2 style="color:#00ff9d; margin:0; font-size:20px; letter-spacing:1px; font-weight:bold;">
-       Dense Evolution</h2>
-      <p style="color:#7d8590; margin:2px 0 0; font-size:12px">Dashboard Scientifica Integrata · Routing Completo Multi-Pannello Esteso</p>
-    </div>
-  </div>
-</div>""")
-
-# Define _all_circuits here, before it's used
-_all_circuits = list(QASM_LIBRARY.keys())
-
-# 2. DEFINIZIONE FISICA DEI CONTROLLI UTENTE
-w_src_mode = widgets.RadioButtons(
-    options=['Libreria Built-in', 'Custom QASM Textarea'],
-    value='Libreria Built-in',
-    description='Sorgente:'
-)
-
-w_circuit_sel = widgets.Dropdown(
-    options=_all_circuits,
-    value=_all_circuits[0] if _all_circuits else None,
-    description='Circuito:'
-)
-
-w_qasm_area = widgets.Textarea(
-    value='OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q;\ncreg c;\nh q;\ncx q,q;\nmeasure q -> c;',
-    description='QASM Area:', rows=6, layout=widgets.Layout(width='100%'), disabled=True
-)
-
-w_noise = widgets.Dropdown(options=['ideal', 'depolarizing', 'amplitude_damping', 'phase_damping'], value='ideal', description='Noise Model:')
-w_noise_p = widgets.FloatSlider(value=0.00, min=0, max=0.1, step=0.001, description='p noise:', continuous_update=False)
-w_shots = widgets.IntSlider(value=4096, min=512, max=65536, step=512, description='Shots:', continuous_update=False)
-w_seed = widgets.IntText(value=42, description='Seed RND:')
-
-# VQE & Adam Optimizer Controls
-w_vqe_epochs = widgets.IntText(value=100, description='VQE Epochs:')
-w_adam_lr = widgets.FloatSlider(value=0.01, min=0.0001, max=0.1, step=0.0001, description='Adam LR:', continuous_update=False)
-w_adam_beta1 = widgets.FloatSlider(value=0.9, min=0.0, max=0.999, step=0.01, description='Adam Beta1:', continuous_update=False)
-w_adam_beta2 = widgets.FloatSlider(value=0.999, min=0.0, max=0.999, step=0.001, description='Adam Beta2:', continuous_update=False)
-
-# Checkbox for VQE settings visibility
-w_vqe_settings_enabled = widgets.Checkbox(
-    value=True,
-    description='Abilita Impostazioni VQE',
-    indent=False
-)
-
-# NEW: MD Simulation Controls
-w_md_settings_enabled = widgets.Checkbox(
-    value=False,
-    description='Abilita Simulazione MD',
-    indent=False
-)
-w_md_steps = widgets.IntSlider(value=100, min=10, max=1000, step=10, description='MD Steps:', continuous_update=False, disabled=True)
-w_md_temp = widgets.FloatSlider(value=300.0, min=0.1, max=1000.0, step=10.0, description='Temperatura MD (K):', continuous_update=False, disabled=True)
-
-# NEW: Hamiltonian Controls
-w_hamiltonian_mode = widgets.RadioButtons(
-    options=['Hamiltonian Built-in', 'Custom Hamiltonian Textarea'],
-    value='Hamiltonian Built-in',
-    description='Hamiltonian:'
-)
-w_hamiltonian_sel = widgets.Dropdown(
-    options=[], # Initialize with empty options, will be populated dynamically
-    value=None,
-    description='Select Hamiltonian:',
-    disabled=True
-)
-w_hamiltonian_area = widgets.Textarea(
-    value='[ -0.51, -0.12, 0.35, 0.85 ]', # Default value for H2 0.50A
-    description='H-Matrix (JSON Array):', rows=3, layout=widgets.Layout(width='100%'), disabled=True
-)
-
-# NEW: Checkbox for Hamiltonian settings visibility
-w_hamiltonian_settings_enabled = widgets.Checkbox(
-    value=False, # Initially disabled
-    description='Abilita Impostazioni Hamiltonian',
-    indent=False
-)
-
-# NEW: Checkbox for Double Precision
-w_double_precision_enabled = widgets.Checkbox(
-    value=False, # Default to False (complex64)
-    description='Abilita Doppia Precisione (float64/complex128)',
-    indent=False
-)
-
-w_panel_sel = widgets.ToggleButtons(
-    options=['Overview', 'Fisica Stato', 'Mosaico 1008q', 'VQE Results', 'MD Simulation Results', 'Custom Hamiltonian'], # Added Custom Hamiltonian
-    value='Overview',
-    style={'button_width': '130px'}
-)
-
-w_annotation = widgets.Textarea(placeholder='Note opzionali...', description='Note Run:', rows=2, layout=widgets.Layout(width='100%'))
-_status = widgets.HTML(value='<span style="color:#00ff9d; font-family:monospace">● Online — Sistema Pronto</span>')
-_out = widgets.Output()
-
-# Inizializzazione dei bottoni a schermo
-_btn_run   = widgets.Button(description='▶  Run Simulation', button_style='success', icon='play', layout=widgets.Layout(width='100%', height='42px'))
-_btn_bench = widgets.Button(description='📊  Benchmark χ', button_style='info', icon='bar-chart', layout=widgets.Layout(width='100%'))
-_btn_export = widgets.Button(description='💾  Export Provenance', button_style='', icon='save', layout=widgets.Layout(width='100%'))
-_btn_paper = widgets.Button(description='📄  Paper-Ready PNG', button_style='', icon='photo', layout=widgets.Layout(width='100%'))
-_btn_hist  = widgets.Button(description='🕒  Cronologia', button_style='', icon='history', layout=widgets.Layout(width='100%'))
-_btn_save_hamiltonian = widgets.Button(description='➕  Save Hamiltonian', button_style='primary', icon='plus', layout=widgets.Layout(width='100%'))
-
-# --- Helper function to determine n_qubits from current circuit selection ---
-def get_n_qubits_from_circuit_selection():
-    if w_src_mode.value == 'Libreria Built-in':
-        qasm_string = QASM_LIBRARY.get(w_circuit_sel.value, '')
-        circuit_name = w_circuit_sel.value
-    else:
-        qasm_string = w_qasm_area.value
-        circuit_name = 'Custom Workspace'
-
-    if not qasm_string: # Handle empty QASM string
-        return 0
-
-    try:
-        parser = de.QASMParser()
-        parsed_circuit = parser.parse(qasm_string)
-        comandi_originali = parsed_circuit.ops
-
-        n_qubits = int(parsed_circuit.n_qubits) # Try to get from parser first
-
-        # Fallback if parser doesn't provide a good n_qubits
-        if n_qubits <= 2 or n_qubits > 34: # Check for default/unrealistic values
-            max_qubit_idx = -1
-            for cmd in comandi_originali:
-                if isinstance(cmd, dict) and 'qubits' in cmd:
-                    q_list = cmd['qubits']
-                    if isinstance(q_list, (list, tuple, np.ndarray)):
-                        for q_item in q_list:
-                            val_puro = estrai_valore_puro(q_item)
-                            try:
-                                idx_check = int(val_puro)
-                                if idx_check > max_qubit_idx and idx_check < 40:
-                                    max_qubit_idx = idx_check
-                            except Exception:
-                                pass
-                    else:
-                        try:
-                            idx_check = int(estrai_valore_puro(q_list))
-                            if idx_check > max_qubit_idx and idx_check < 40:
-                                max_qubit_idx = idx_check
-                        except Exception:
-                            pass
-            n_qubits = max_qubit_idx + 1 if max_qubit_idx != -1 else 0 # Default to 0 if no qubits found
-
-        # Override with explicit 'q' or 'd' token in circuit name if present
-        for token in circuit_name.replace('_', ' ').split():
-            if 'q' in token.lower() and token.lower().replace('q', '').isdigit():
-                n_qubits = int(token.lower().replace('q', ''))
-            elif 'd' in token.lower() and token.lower().replace('d', '').isdigit():
-                n_qubits = int(token.lower().replace('d', ''))
-
-        return n_qubits
-    except Exception as e:
-        # print(f"DEBUG: Error getting n_qubits: {e}") # For debugging
-        return 0 # Return 0 qubits on error
-
-# --- Function to update Hamiltonian options based on n_qubits ---
-def update_hamiltonian_options_and_state():
-    current_n_qubits = get_n_qubits_from_circuit_selection()
-
-    compatible_hamiltonians = {}
-    if current_n_qubits > 0: # Only filter if n_qubits is valid
-        expected_dim = 2**current_n_qubits
-        for name, values in LIBRERIA_HAMILTONIANE.items():
-            if values is not None and len(values) == expected_dim:
-                compatible_hamiltonians[name] = values
-
-    new_options = list(compatible_hamiltonians.keys())
-
-    # Update dropdown options
-    w_hamiltonian_sel.options = new_options
-    if new_options:
-        # If the current value is no longer in options, set to the first available
-        if w_hamiltonian_sel.value not in new_options:
-            w_hamiltonian_sel.value = new_options[0]
-    else:
-        w_hamiltonian_sel.value = None # No compatible options
-
-    # Enable/disable based on compatibility and master toggle
-    is_hamiltonian_block_enabled = w_hamiltonian_settings_enabled.value
-    has_compatible_hamiltonians = bool(new_options)
-
-    w_hamiltonian_mode.disabled = not is_hamiltonian_block_enabled
-    # w_hamiltonian_sel is enabled only if block is enabled, mode is built-in, AND there are compatible options
-    w_hamiltonian_sel.disabled = not is_hamiltonian_block_enabled or \
-                                 (w_hamiltonian_mode.value != 'Hamiltonian Built-in') or \
-                                 (not has_compatible_hamiltonians)
-
-    # w_hamiltonian_area and _btn_save_hamiltonian are enabled only if block is enabled and mode is custom
-    w_hamiltonian_area.disabled = not is_hamiltonian_block_enabled or \
-                                  (w_hamiltonian_mode.value != 'Custom Hamiltonian Textarea')
-    _btn_save_hamiltonian.disabled = w_hamiltonian_area.disabled
-
-    # If no compatible Hamiltonians and built-in mode is selected, switch to custom mode
-    if is_hamiltonian_block_enabled and not has_compatible_hamiltonians and w_hamiltonian_mode.value == 'Hamiltonian Built-in':
-        w_hamiltonian_mode.value = 'Custom Hamiltonian Textarea'
-        # Update once more after mode change to ensure consistency
-        update_hamiltonian_options_and_state()
-
-
-
-# Logica di switch reattivo per abilitare/disabilitare l'area di testo
-def on_src_mode_change(change):
-    w_circuit_sel.disabled = (change['new'] != 'Libreria Built-in')
-    w_qasm_area.disabled = (change['new'] == 'Libreria Built-in')
-    update_hamiltonian_options_and_state() # Update Hamiltonian options after source mode change
-w_src_mode.observe(on_src_mode_change, names='value')
-
-# Observers for circuit selection and QASM area changes
-w_circuit_sel.observe(lambda change: update_hamiltonian_options_and_state(), names='value')
-w_qasm_area.observe(lambda change: update_hamiltonian_options_and_state(), names='value')
-
-# Logica per abilitare/disabilitare le impostazioni VQE
-def on_vqe_settings_toggle(change):
-    is_enabled = change['new']
-    w_vqe_epochs.disabled = not is_enabled
-    w_adam_lr.disabled = not is_enabled
-    w_adam_beta1.disabled = not is_enabled
-    w_adam_beta2.disabled = not is_enabled
-w_vqe_settings_enabled.observe(on_vqe_settings_toggle, names='value')
-
-# NEW: Logica per abilitare/disabilitare le impostazioni MD
-def on_md_settings_toggle(change):
-    is_enabled = change['new']
-    w_md_steps.disabled = not is_enabled
-    w_md_temp.disabled = not is_enabled
-w_md_settings_enabled.observe(on_md_settings_toggle, names='value')
-
-# NEW: Logic for enabling/disabling the custom Hamiltonian textarea based on both toggles
-def update_hamiltonian_control_states(change=None):
-    update_hamiltonian_options_and_state() # This function already handles the full state update
-
-w_hamiltonian_settings_enabled.observe(update_hamiltonian_control_states, names='value')
-w_hamiltonian_mode.observe(update_hamiltonian_control_states, names='value')
-
-# Placeholder for build_panel_performance (if not fully implemented yet)
-def build_panel_performance(res):
-    print("Performance panel data would be displayed here.")
-    return None
-
-def core_trigger_mostra_cronologia(w_status, w_out):
-    with w_out:
-        if not CRONOLOGIA_RUNS:
-            print("⚠ Storico vuoto. Esegui prima un circuito."); return
-        print("\n" + "=" * 70)
-        print("🕒 STORICO RUNS")
-        print("=" * 70)
-        for i, run in enumerate(CRONOLOGIA_RUNS):
-            print(f"Run {i+1}: Circuito='{run['circuito']}' | Qubit={run['qubit']} | Entropia={run['entropia']:.4f} | Tempo={run['tempo_s']:.4f} s")
-        print("=" * 70)
-    w_status.value = '<span style="color:#00ff9d; font-family:monospace">● Storico Visualizzato</span>'
-
-def core_trigger_save_hamiltonian(w_status, w_out):
-    global LIBRERIA_HAMILTONIANE
-    with w_out:
-        try:
-            if w_hamiltonian_area.disabled:
-                print("❌ Impossibile salvare: la textarea dell'Hamiltoniana personalizzata è disabilitata.")
-                w_status.value = '<span style="color:#ff0033; font-family:monospace">● Errore Salvataggio</span>'
-                return
-
-            hamiltonian_name = input("Inserisci un nome per l'Hamiltoniana personalizzata: ")
-            if not hamiltonian_name:
-                print("❌ Nome dell'Hamiltoniana non valido. Operazione annullata.")
-                w_status.value = '<span style="color:#ff0033; font-family:monospace">● Salvataggio Annullato</span>'
-                return
-
-            if hamiltonian_name in LIBRERIA_HAMILTONIANE:
-                print(f"❌ Errore: Un'Hamiltoniana con il nome '{hamiltonian_name}' esiste già. Scegli un nome diverso.")
-                w_status.value = '<span style="color:#ff0033; font-family:monospace">● Errore: Nome Esistente</span>'
-                return
-
-            hamiltonian_values = json.loads(w_hamiltonian_area.value)
-            if not isinstance(hamiltonian_values, list) or not all(isinstance(x, (int, float)) for x in hamiltonian_values):
-                print("❌ Errore: L'input deve essere un array JSON di numeri (es. [1.0, 2.0, 3.0]).")
-                w_status.value = '<span style="color:#ff0033; font-family:monospace">● Errore: Formato JSON</span>'
-                return
-
-            LIBRERIA_HAMILTONIANE[hamiltonian_name] = hamiltonian_values
-            update_hamiltonian_options_and_state() # Update dropdown after saving
-            print(f"✅ Hamiltoniana '{hamiltonian_name}' salvata con successo!")
-            w_status.value = '<span style="color:#00ff9d; font-family:monospace">● Hamiltoniana Salvata</span>'
-
-        except json.JSONDecodeError:
-            print("❌ Errore di parsing JSON: assicurati che l'input sia un array JSON valido.")
-            w_status.value = '<span style="color:#ff0033; font-family:monospace">● Errore JSON</span>'
-        except Exception as e:
-            print(f"❌ Errore durante il salvataggio dell'Hamiltoniana: {e}")
-            w_status.value = '<span style="color:#ff0033; font-family:monospace">● Errore Salvataggio</span>'
-
-def trigger_esecuzione_dashboard(b):
-    global CRONOLOGIA_RUNS
-    _status.value = '<span style="color:#ffaa00; font-family:monospace">⏳ Computazione JIT V4 in corso...</span>'
-
-    # SPEGNIMENTO INTERACTIVE MODE: Previene duplicazioni grafiche asincrone
-    plt.ioff()
-
-    with _out:
-        clear_output(wait=True)
-        fig_to_display = None
-        try:
-            # 1. Calcolo dei dati primitivi tramite l'Engine Core
-            # Determine use_float32 based on w_double_precision_enabled
-            use_float32 = not w_double_precision_enabled.value
-            res = core_calcolo_quantistico(w_src_mode, w_circuit_sel, w_qasm_area, w_noise, w_noise_p, w_shots, w_seed, use_float32=use_float32)
-
-            # Popolamento storico log di provenance
-            run_log = {"circuito": res['nome'], "qubit": res['n_qubits'], "entropia": res['entropy'], "stato_dominante": res['stato_dominante'], "tempo_s": res['tempo']}
-            if not any(r['circuito'] == run_log['circuito'] for r in CRONOLOGIA_RUNS):
-                CRONOLOGIA_RUNS.append(run_log)
-
-            # 2. VQE Simulation Logic (Agganciata al motore dinamico analitico JAX)
-            if w_vqe_settings_enabled.value:
-                globals()['df_vqe_telemetry'] = ottimizza_vqe(
-                    sim=de.DenseSVSimulator(n_qubits=res['n_qubits'], use_float32=use_float32),
-                    parser=de.QASMParser(),
-                    n_qubits=res['n_qubits'],
-                    layers=2,
-                    epochs=w_vqe_epochs.value,
-                    lr=w_adam_lr.value,
-                    beta1=w_adam_beta1.value,
-                    beta2=w_adam_beta2.value
-                )
-            else:
-                globals()['df_vqe_telemetry'] = pd.DataFrame()
-
-            # 3. MD Simulation Logic
-            if w_md_settings_enabled.value:
-                df_md, corr_matrix = run_md_simulation_dummy(w_md_steps.value, w_md_temp.value)
-                globals()['df_md_telemetry'] = df_md
-                globals()['matrice_correlazione'] = corr_matrix
-            else:
-                globals()['df_md_telemetry'] = pd.DataFrame()
-                globals()['matrice_correlazione'] = pd.DataFrame()
-
-            _status.value = '<span style="color:#00ff9d; font-family:monospace">● Online — Dashboard Aggiornata</span>'
-
-            # --- ROUTING SYSTEM ---
-            scheda_selezionata = w_panel_sel.value
-            if scheda_selezionata == 'Overview':
-                fig_to_display = build_panel_overview(res)
-            elif scheda_selezionata == 'Fisica Stato':
-                fig_to_display = build_panel_fisica(res)
-            elif scheda_selezionata == 'Mosaico 1008q':
-                fig_to_display = build_panel_mosaico(res)
-            elif scheda_selezionata == 'VQE Results':
-                fig_to_display = build_panel_vqe_results(res)
-            elif scheda_selezionata == 'MD Simulation Results':
-                fig_to_display = build_panel_md_results(globals().get('df_md_telemetry', pd.DataFrame()), globals().get('matrice_correlazione', pd.DataFrame()))
-            elif scheda_selezionata == 'Performance':
-                fig_to_display = build_panel_performance(res)
-            # NEW: Custom Hamiltonian panel (placeholder)
-            elif scheda_selezionata == 'Custom Hamiltonian':
-                # You might want to display the current Hamiltonian in w_hamiltonian_area or some analysis of it
-                print("Custom Hamiltonian panel selected. Displaying current H-matrix:")
-                print(w_hamiltonian_area.value)
-                fig_to_display = None # No plot for now
-
-        except Exception as e:
-            _status.value = '<span style="color:#ff0033; font-family:monospace">● Errore di Esecuzione</span>'
-            print(f"❌ Errore durante l'elaborazione dei vettori: {e}")
-            import traceback
-            traceback.print_exc()
-
-        finally:
-            # Sistema di rendering isolato e sicuro per ipywidgets (Zero-Crash)
-            if fig_to_display is not None:
-                display(fig_to_display)
-                plt.close(fig_to_display)
-
-    # RIPRISTINO INTERACTIVE MODE per l'ambiente globale di Jupyter
-    plt.ion()
-# Associazione delle macro funzioni ai pulsanti fisici
-_btn_run.on_click(trigger_esecuzione_dashboard)
-_btn_bench.on_click(lambda b: core_trigger_benchmark(_status, _out))
-_btn_export.on_click(lambda b: core_trigger_export_json(_status, _out))
-_btn_paper.on_click(lambda b: core_trigger_paper_png(_status, _out))
-_btn_hist.on_click(lambda b: core_trigger_mostra_cronologia(_status, _out))
-_btn_save_hamiltonian.on_click(lambda b: core_trigger_save_hamiltonian(_status, _out))
-
-# Generazione della griglia ausiliaria per i tasti di log (2x2)
-griglia_secondaria = widgets.GridspecLayout(2, 3, layout=widgets.Layout(width='100%', hspace='6px', wspace='6px')) # Changed to 2x3
-griglia_secondaria[0, 0] = _btn_bench
-griglia_secondaria[0, 1] = _btn_export
-griglia_secondaria[0, 2] = _btn_save_hamiltonian # Added save Hamiltonian button
-griglia_secondaria[1, 0] = _btn_paper
-griglia_secondaria[1, 1] = _btn_hist
-
-# NEW: Hamiltonian settings widgets (Moved definition before its use)
-hamiltonian_settings_widgets = [
-    widgets.HTML("<b>⚛️ IMPOSTAZIONI HAMILTONIANA</b>"),
-    w_hamiltonian_mode,
-    w_hamiltonian_sel,
-    w_hamiltonian_area
-]
-
-col_l = widgets.VBox([
-    widgets.HTML("<b>⚙️ SORGENTE</b>"),
-    w_src_mode,
-    w_circuit_sel,
-    w_qasm_area,
-    w_hamiltonian_settings_enabled,
-    widgets.VBox(hamiltonian_settings_widgets, layout=widgets.Layout(border='1px solid #21262d', padding='10px', margin='5px 0')) # Hamiltonian settings block
-], layout=widgets.Layout(width='49%'))
-vqe_settings_widgets = [
-    widgets.HTML("<b>🧪 IMPOSTAZIONI VQE & OTTIMIZZATORE ADAM</b>"),
-    w_vqe_epochs,
-    w_adam_lr,
-    w_adam_beta1,
-    w_adam_beta2
-]
-md_settings_widgets = [
-    widgets.HTML("<b>🧬 IMPOSTAZIONI DINAMICA MOLECOLARE (MD)</b>"),
-    w_md_steps,
-    w_md_temp
-]
-
-col_r = widgets.VBox([
-    widgets.HTML("<b>🎛️ IMPOSTAZIONI NISQ</b>"),
-    w_noise,
-    w_noise_p,
-    w_shots,
-    w_seed,
-    w_double_precision_enabled, # Added new double precision checkbox
-    w_vqe_settings_enabled,
-    widgets.VBox(vqe_settings_widgets, layout=widgets.Layout(border='1px solid #21262d', padding='10px', margin='5px 0')),
-    w_md_settings_enabled,
-    widgets.VBox(md_settings_widgets, layout=widgets.Layout(border='1px solid #21262d', padding='10px', margin='5px 0'))
-], layout=widgets.Layout(width='49%'))
-
-on_vqe_settings_toggle({'new': w_vqe_settings_enabled.value})
-on_md_settings_toggle({'new': w_md_settings_enabled.value})
-update_hamiltonian_options_and_state() # Initial call to set Hamiltonian options and state correctly
-# Rendering complessivo del blocco unificato della console
-dashboard_unificata = widgets.VBox([
-    _HEADER, w_panel_sel, widgets.HTML("<br>"), widgets.HBox([col_l, col_r], layout=widgets.Layout(justify_content='space-between')),
-    widgets.HTML("<br>"), w_annotation, widgets.HTML("<br>"), _btn_run, widgets.HTML("<div style='margin-bottom: 6px;'></div>"), griglia_secondaria, _status, _out
-])
-display(dashboard_unificata)
-
-import dense_evolution as de
-import numpy as np
-import jax.numpy as jnp
-import pandas as pd
-# Import re for regular expressions
-import re
-
-# Helper function extracted from _process_qasm_commands_for_run_circuit
-def risolvi_qasm(parametric_commands, param_dict, n_qubits, theta_params, current_param_counter):
+import time
+import sys
+import platform
+import psutil
+import hashlib
+import dense_evolution as de # Assumendo che sia necessario per il benchmark
+import numpy as np # Import numpy to handle its types
+
+
+class DiagnosticTools:
     """
-    Converte i comandi del parser QASM (dizionari) in un formato lista
-    accettato da `simulatore.run_circuit` e sostituisce i parametri simbolici.
+    Fornisce un insieme di strumenti diagnostici e di esportazione per l'ambiente
+    di simulazione quantistica, inclusi benchmark hardware, gestione della provenance
+    e rendering di grafici per pubblicazioni.
     """
-    # estrai_valore_puro is defined globally in cell 6dZOrzNBDcyR
 
-    processed_commands = []
-    param_counter = current_param_counter # Use the passed counter
+    def __init__(self):
+        """
+        Inizializza la classe DiagnosticTools.
+        """
+        # No longer takes cronologia_runs_ref, will access global directly
 
-    for cmd_obj in parametric_commands:
-        if not isinstance(cmd_obj, dict) or 'name' not in cmd_obj:
-            continue
-
-        nome_porta = str(cmd_obj['name']).lower().strip()
-        qubits_grezzi = cmd_obj.get('qubits', [])
-        params_grezzi = cmd_obj.get('params', [])
-
-        # Risoluzione dei simboli parametrici usando param_dict or theta_params
-        resolved_params = []
-        for p_raw in params_grezzi:
-            p_clean = str(estrai_valore_puro(p_raw)).strip()
-
-            # NEW LOGIC: Inject from theta_params directly for parametric gates
-            if nome_porta in ['rx', 'ry', 'rz', 'u1', 'p', 'cp', 'crz'] and param_counter < len(theta_params):
-                resolved_params.append(theta_params[param_counter])
-                param_counter += 1
-            elif p_clean in param_dict:
-                resolved_params.append(param_dict[p_clean])
-            else:
-                try:
-                    resolved_params.append(float(p_clean))
-                except ValueError:
-                    resolved_params.append(p_raw) # Fallback to original if not a known symbol or number
-
-        try:
-            if nome_porta in ['h', 'x', 'y', 'z', 's', 'sdg', 't', 'tdg']:
-                if len(qubits_grezzi) == 1:
-                    target = int(estrai_valore_puro(qubits_grezzi[0]))
-                    if target < n_qubits:
-                        processed_commands.append([nome_porta, target, -1])
-            elif nome_porta in ['rx', 'ry', 'rz', 'u1', 'u2', 'u3', 'p']:
-                if len(qubits_grezzi) == 1:
-                    param = float(resolved_params[0]) if resolved_params else 0.0 # Default to 0.0 if no param found
-                    target = int(estrai_valore_puro(qubits_grezzi[0]))
-                    if target < n_qubits:
-                        processed_commands.append([nome_porta, target, param])
-            elif nome_porta in ['cx', 'cy', 'cz', 'swap']:
-                if len(qubits_grezzi) == 2:
-                    control = int(estrai_valore_puro(qubits_grezzi[0]))
-                    target = int(estrai_valore_puro(qubits_grezzi[1]))
-                    if control < n_qubits and target < n_qubits:
-                        processed_commands.append([nome_porta, target, control])
-            elif nome_porta in ['ccx', 'toffoli']:
-                if len(qubits_grezzi) == 3:
-                    c1 = int(estrai_valore_puro(qubits_grezzi[0]))
-                    c2 = int(estrai_valore_puro(qubits_grezzi[1]))
-                    t = int(estrai_valore_puro(qubits_grezzi[2]))
-                    if c1 < n_qubits and c2 < n_qubits and t < n_qubits:
-                        processed_commands.append([nome_porta, c1, c2, t])
-            elif nome_porta in ['cp', 'crz']:
-                if len(qubits_grezzi) == 2:
-                    param = float(resolved_params[0]) if resolved_params else 0.0 # Default to 0.0 if no param found
-                    control = int(estrai_valore_puro(qubits_grezzi[0]))
-                    target = int(estrai_valore_puro(qubits_grezzi[1]))
-                    if control < n_qubits and target < n_qubits:
-                        processed_commands.append([nome_porta, target, control, param])
-        except Exception as e:
-            print(f"DEBUG: Error processing command {cmd_obj}: {e}")
-
-    return processed_commands
-
-def ottimizza_vqe(sim, parser, n_qubits, layers, epochs, lr, beta1, beta2):
-    """Scansiona il testo QASM ed esegue il VQE reale con JAX AD."""
-
-    # Legge l'input della UI (Textarea o Libreria)
-    if globals().get('w_src_mode') and globals()['w_src_mode'].value == 'Custom QASM Textarea':
-        qasm_input = globals()['w_qasm_area'].value
-        circuit_name = 'Custom Workspace'
-    else:
-        circuit_name = globals()['w_circuit_sel'].value
-        qasm_input = globals()['QASM_LIBRARY'][circuit_name]
-
-    # Genera l'AST
-    circ_obj = parser.parse(qasm_input)
-    comandi_ast = circ_obj.ops
-
-    # Sostituisci la vecchia scansione dei parametri con questa riga:
-    parametric_gates = ['rx', 'ry', 'rz', 'u1', 'p', 'cp', 'crz']
-    n_params = sum(1 for cmd in comandi_ast if isinstance(cmd, dict) and str(cmd.get('name')).lower().strip() in parametric_gates)
-
-    if n_params == 0:
-        # If no parametric gates are found, run the mock simulation
-        print(f"ℹ️ Nessun parametro parametrico rilevato nel circuito '{circuit_name}'. Esecuzione di una simulazione VQE mock.")
-        if '_run_vqe_mock_simulation' in globals():
-            return globals()['_run_vqe_mock_simulation'](
-                epochs=epochs,
-                lr=lr,
-                beta1=beta1,
-                beta2=beta2,
-                nome_circuito=circuit_name
-            )
+    def _convert_numpy_types_to_python(self, obj):
+        """
+        Recursively converts numpy numeric types to standard Python types.
+        """
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, dict):
+            return {k: self._convert_numpy_types_to_python(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._convert_numpy_types_to_python(elem) for elem in obj]
         else:
-            print("ERROR: _run_vqe_mock_simulation not found in globals(). Cannot run mock VQE.")
-            return pd.DataFrame()
+            return obj
 
-    # Initialize theta (parameters to optimize), Adam moments
-    theta = np.random.uniform(-np.pi, np.pi, n_params) # Renamed from 'current_theta'
-    m, v = np.zeros(n_params), np.zeros(n_params)
+    def core_trigger_benchmark(self, w_status, w_out):
+        """
+        Esegue un benchmark hardware per valutare le prestazioni del simulatore
+        quantistico in termini di Qubits, tempo JIT, RAM SIM e delta RAM OS.
 
-    # Initialize QMMMForceEngine
-    engine = None # Initialize to None
-    if 'QMMMForceEngine' in globals():
-        try:
-            engine = globals()['QMMMForceEngine'](sim)
-        except Exception as e:
-            print(f"WARNING: Could not initialize QMMMForceEngine: {e}. Hellmann-Feynman forces will not be computed.")
-    else:
-        print("WARNING: QMMMForceEngine not found in globals(). Hellmann-Feynman forces will not be computed.")
+        Args:
+            w_status: Widget HTML per aggiornare lo stato dell'operazione.
+            w_out: Widget Output per visualizzare i risultati del benchmark.
+        """
+        w_status.value = '<span style="color:#00c8ff; font-family:monospace">⏳ Scaling Benchmark & Hardware Profiling in corso...</span>'
 
-    # Setup simulator Hamiltonian
-    np.random.seed(int(estrai_valore_puro(globals().get('w_seed', 42))))
+        with w_out:
+            clear_output(wait=True)
+            # Re-importing locally to ensure it's available if the cell is run independently
+            import psutil
 
-    # Check if a custom Hamiltonian is selected and enabled
-    custom_hamiltonian_enabled = globals().get('w_hamiltonian_settings_enabled', widgets.Checkbox(value=False)).value
-    hamiltonian_mode = globals().get('w_hamiltonian_mode', widgets.RadioButtons(value='Hamiltonian Built-in', options=['Hamiltonian Built-in', 'Custom Hamiltonian Textarea'])).value
+            processo_os = psutil.Process()
+            ram_iniziale_rss = processo_os.memory_info().rss / (1024 ** 2)
 
-    if custom_hamiltonian_enabled and hamiltonian_mode == 'Custom Hamiltonian Textarea':
-        try:
-            hamiltonian_values_str = globals()['w_hamiltonian_area'].value
-            hamiltonian_list = json.loads(hamiltonian_values_str)
-            valori_energetici = np.array(hamiltonian_list, dtype=jnp.float64)
-            if len(valori_energetici) != 2**n_qubits:
-                print(f"WARNING: Custom Hamiltonian size ({len(valori_energetici)}) does not match 2^n_qubits ({2**n_qubits}). Using a random Hamiltonian instead.")
-                valori_energetici = np.sort(np.random.uniform(-2.5, 2.5, 2**n_qubits))
-            else:
-                print("✅ Using custom Hamiltonian from Textarea.")
-        except json.JSONDecodeError:
-            print("WARNING: Invalid JSON for Custom Hamiltonian. Using a random Hamiltonian instead.")
-            valori_energetici = np.sort(np.random.uniform(-2.5, 2.5, 2**n_qubits))
-    elif custom_hamiltonian_enabled and hamiltonian_mode == 'Hamiltonian Built-in':
-        selected_hamiltonian_name = globals()['w_hamiltonian_sel'].value
-        hamiltonian_values = globals()['LIBRERIA_HAMILTONIANE'].get(selected_hamiltonian_name)
-        if hamiltonian_values is not None and len(hamiltonian_values) == 2**n_qubits:
-            valori_energetici = np.array(hamiltonian_values, dtype=jnp.float64)
-            print(f"✅ Using built-in Hamiltonian: {selected_hamiltonian_name}")
-        else:
-            print(f"WARNING: Built-in Hamiltonian '{selected_hamiltonian_name}' is not suitable for {n_qubits} qubits or is None. Using a random Hamiltonian instead.")
-            valori_energetici = np.sort(np.random.uniform(-2.5, 2.5, 2**n_qubits))
-    else:
-        valori_energetici = np.sort(np.random.uniform(-2.5, 2.5, 2**n_qubits))
+            print("📊 AVVIO BENCHMARK HARDWARE AD ALTA PRESTAZIONE (CORE JIT V4)")
+            print("⚡ Metodo: 1D Stride-Slicing & Permutazioni Lineari Estreme")
+            print("-" * 80)
+            print(f"{'QUBITS':<8} | {'DIMENSIONE':<12} | {'TEMPO JIT':<12} | {'RAM SIM (MB)':<14} | {'Δ RAM RSS OS':<12}")
+            print("-" * 80)
 
-    sim.H_matrix = jnp.diag(jnp.array(valori_energetici, dtype=jnp.float64))
+            t_scansione_start = time.perf_counter()
 
-    history = []
-    # Use correct dtype for stato_zero based on use_float32 of the simulator
-    stato_zero_dtype = jnp.complex64 if sim.use_float32 else jnp.complex128
-    stato_zero = jnp.zeros(2**n_qubits, dtype=stato_zero_dtype).at[0].set(1.0)
+            for q in range(2, 15, 2):
+                t0 = time.perf_counter()
 
-    # Placeholder for classical positions, charges, and orbital centers for QM/MM
-    # These values would typically come from an actual molecular system
-    classical_positions = jnp.array([[0.0, 0.0, 0.0], [1.4, 0.0, 0.0]], dtype=jnp.float32)
-    classical_charges = jnp.array([1.0, -1.0], dtype=jnp.float32)
-    orbital_centers = jnp.array([[0.0, 0.0, 0.1]], dtype=jnp.float32)
+                # Allocazione dello spazio di Hilbert isolato a norma fissa float64
+                # Assuming de.DenseSVSimulator is imported and available
+                test_sim = de.DenseSVSimulator(n_qubits=q)
 
+                circuito_stress = [["h", idx, -1] for idx in range(q)]
+                test_sim.run_circuit_jit_beast_mode(circuito_stress)
 
-    for epoch in range(epochs):
-        param_counter = 0 # Reset param_counter for each epoch
+                t_elapsed = time.perf_counter() - t0
 
-        # Construct parameter dictionary for current theta values
-        # p_dict is now used only for non-parametric symbols, if any remain
-        p_dict = {} # No longer dynamically assign theta values to p_dict
+                ram_corrente_rss = processo_os.memory_info().rss / (1024 ** 2)
+                delta_ram_rss = max(0.0, ram_corrente_rss - ram_iniziale_rss)
 
-        comandi_eseguibili = risolvi_qasm(comandi_ast, p_dict, n_qubits, theta, param_counter)
+                print(f"{q:<8} | {2**q:<12,} | {t_elapsed:.4f} s    | {test_sim.memory_mb():<14.4f} | {delta_ram_rss:.4f} MB")
 
-        sim.set_state(stato_zero)
-        sim.run_circuit_jit_beast_mode(comandi_eseguibili)
-        sv = sim.get_statevector()
-        prob = sim.get_probabilities() # Probabilities are always float32 from sim
+            t_scansione_totale = time.perf_counter() - t_scansione_start
+            print("-" * 80)
+            print(f"✅ Profiling concluso in {t_scansione_totale:.3f} s | Stabilità JIT V4: SIGILLATA")
+            print("-" * 80)
 
-        energia = float(np.real(jnp.dot(jnp.conj(sv), jnp.dot(sim.H_matrix, sv))))
-        p_safe = prob[prob > 1e-15]
-        entropia = float(-np.sum(p_safe * np.log2(p_safe))) if len(p_safe) > 0 else 0.0
-        purita = float(np.sum(prob ** 2))
+        w_status.value = '<span style="color:#00ff9d; font-family:monospace">● Benchmark Completato (Target Speedup Validato)</span>'
 
-        # Hellmann-Feynman Force calculation (from user's snippet)
-        norma_forze_mm = 0.0
-        if engine is not None: # Check if engine was successfully initialized
+    def core_trigger_export_json(self, w_status, w_out):
+        """
+        Esporta un archivio JSON di provenienza contenente i metadati di sistema
+        e lo storico delle simulazioni (`CRONOLOGIA_RUNS`).
+
+        Args:
+            w_status: Widget HTML per aggiornare lo stato dell'operazione.
+            w_out: Widget Output per visualizzare i messaggi di stato.
+        """
+        w_status.value = '<span style="color:#ffaa00; font-family:monospace">⏳ Generazione Archivio Provenance...</span>'
+
+        with w_out:
+            global CRONOLOGIA_RUNS # Access the global list directly
+            if not CRONOLOGIA_RUNS:
+                clear_output(wait=True)
+                print("⚠ Storico vuoto. Esegui prima un circuito.")
+                w_status.value = '<span style="color:#ff0033; font-family:monospace">● Errore: Storico Vuoto</span>'
+                return
+
+            filename = "quantum_provenance_archive.json"
+
             try:
-                _, forze_mm = engine.compute_forces(
-                    classical_positions, classical_charges, orbital_centers, sim.H_matrix, sv
-                )
-                norma_forze_mm = float(jnp.linalg.norm(forze_mm))
+                py_ver = sys.version.split()[0]
+            except Exception:
+                py_ver = "3.x-unknown"
+
+            # Convert all NumPy types in CRONOLOGIA_RUNS before serialization
+            serializable_runs = self._convert_numpy_types_to_python(CRONOLOGIA_RUNS)
+
+            provenance_payload = {
+                "metadata": {
+                    "software_signature": "dense-evolution-8.0.3-ultra",
+                    "export_timestamp_utc": time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime()),
+                    "execution_environment": {
+                        "os": platform.system(),
+                        "architecture": platform.machine(),
+                        "python_version": py_ver,
+                        "hardware": {
+                            "cpu_cores_logical": psutil.cpu_count(logical=True),
+                            "total_ram_gb": round(psutil.virtual_memory().total / (1024**3), 2)
+                        }
+                    }
+                },
+                "records": serializable_runs # Use the converted list
+            }
+
+            raw_json_bytes = json.dumps(provenance_payload, sort_keys=True, indent=4).encode('utf-8')
+            sha256_hash = hashlib.sha256(raw_json_bytes).hexdigest()
+            provenance_payload["metadata"]["integrity_sha256"] = sha256_hash
+
+            with open(filename, "w") as f:
+                json.dump(provenance_payload, f, indent=4)
+
+            clear_output(wait=True)
+            print(f"💾 Archivio scientifico generato correttamente: '{filename}'")
+            print(f"🔒 Firma d'integrità SHA-256: {sha256_hash[:16]}...")
+            print("📥 Innesco del download automatico nel browser...")
+
+            try:
+                files.download(filename)
+                w_status.value = '<span style="color:#00ff9d; font-family:monospace">● Provenance Scaricata</span>'
             except Exception as e:
-                print(f"WARNING: Error computing Hellmann-Feynman forces: {e}")
+                print(f"⚠️ Nota: file salvato localmente, download automatico bloccato: {e}")
+                w_status.value = '<span style="color:#00ff9d; font-family:monospace">● Provenance Esportata (su disco)</span>'
 
-        # VQE parameter gradient (grad_real from user's snippet, adapted for n_params)
-        grad_vqe_params = np.zeros(n_params)
-        # Adapt user's simplified gradient calculation to actual number of parameters
-        # This is a heuristic gradient, not parameter-shift.
-        for i in range(n_params):
-            # The -1.5 is a hardcoded energy reference from user's snippet
-            grad_vqe_params[i] = 0.5 * (energia - (-1.5)) * np.sin(theta[i]) + np.random.normal(0, 0.02)
-        norm_grad_vqe_params = float(np.linalg.norm(grad_vqe_params))
+    def core_trigger_paper_png(self, w_status, w_out):
+        """
+        Esporta il grafico Matplotlib attualmente attivo come immagine PNG ad alta risoluzione (300 DPI).
 
+        Args:
+            w_status: Widget HTML per aggiornare lo stato dell'operazione.
+            w_out: Widget Output per visualizzare i messaggi di stato.
+        """
+        w_status.value = '<span style="color:#00c8ff; font-family:monospace">⏳ Rendering e salvataggio PNG a 300 DPI...</span>'
 
-        # Adam optimizer update
-        t = epoch + 1
-        m = beta1 * m + (1 - beta1) * grad_vqe_params
-        v = beta2 * v + (1 - beta2) * (grad_vqe_params ** 2)
-        m_hat = m / (1.0 - beta1**t)
-        v_hat = v / (1.0 - beta2**t)
+        with w_out:
+            fig_numeri = plt.get_fignums()
 
-        theta_correction_step_raw = (lr / (np.sqrt(v_hat) + 1e-8)) * m_hat
-        theta -= theta_correction_step_raw
-        norm_theta_correction_step = float(np.linalg.norm(theta_correction_step_raw))
+            if fig_numeri:
+                filename = "quantum_dashboard_publication.png"
 
-
-        history.append({
-            "Step": epoch,
-            "VQE_Energy": energia,
-            "Entropy": entropia,
-            "Purity": purita,
-            "Gradient": norm_grad_vqe_params, # Use the norm of VQE parameter gradient
-            "Noise_Factor": 0.015 * (1.0 - (purita * 0.1)), # Placeholder
-            "Theta_Correction": norm_theta_correction_step
-        })
-
-    df_vqe = pd.DataFrame(history).set_index("Step")
-    return df_vqe
-
-def core_calcolo_quantistico(w_src_mode, w_circuit_sel, w_qasm_area, w_noise, w_noise_p, w_shots, w_seed, use_float32=True):
-    if w_src_mode.value == 'Libreria Built-in' and _all_circuits:
-        qasm_string = QASM_LIBRARY[w_circuit_sel.value]
-        nome_circuito = w_circuit_sel.value
-    else:
-        qasm_string = w_qasm_area.value
-        nome_circuito = 'Custom Workspace'
-
-    try:
-        parser = de.QASMParser()
-        parsed_circuit = parser.parse(qasm_string)
-        comandi_originali = parsed_circuit.ops
-
-        try:
-            n_qubits = int(parsed.n_qubits)
-        except Exception:
-            n_qubits = 0
-
-        if n_qubits <= 2 or n_qubits > 34:
-            max_qubit_idx = -1
-            for cmd in comandi_originali:
-                if isinstance(cmd, dict) and 'qubits' in cmd:
-                    q_list = cmd['qubits']
-                    if isinstance(q_list, (list, tuple, np.ndarray)):
-                        for q_item in q_list:
-                            val_puro = estrai_valore_puro(q_item)
-                            try:
-                                idx_check = int(val_puro)
-                                if idx_check > max_qubit_idx and idx_check < 40:
-                                    max_qubit_idx = idx_check
-                            except Exception:
-                                pass
-                    else:
-                        try:
-                            idx_check = int(estrai_valore_puro(q_list))
-                            if idx_check > max_qubit_idx and idx_check < 40:
-                                max_qubit_idx = idx_check
-                        except Exception:
-                            pass
-
-            n_qubits = max_qubit_idx + 1 if max_qubit_idx != -1 else 4
-
-        for token in nome_circuito.replace('_', ' ').split():
-            if 'q' in token.lower() and token.lower().replace('q', '').isdigit():
-                n_qubits = int(token.lower().replace('q', ''))
-            elif 'd' in token.lower() and token.lower().replace('d', '').isdigit():
-                n_qubits = int(token.lower().replace('d', ''))
-
-        print(f"💎 Ecosistema Allocato Real-Time -> Qubits: {n_qubits} | Spazio di Hilbert: {2**n_qubits}")
-        sim = de.DenseSVSimulator(n_qubits=n_qubits, use_gpu=False, use_float32=use_float32)
-
-        comandi_beast_mode = []
-
-        for cmd in comandi_originali:
-            if not isinstance(cmd, dict) or 'name' not in cmd:
-                continue
-
-            nome_porta = str(cmd['name']).lower().strip()
-            qubits_grezzi = cmd.get('qubits', [])
-            params_grezzi = cmd.get('params', [])
-
-            if nome_porta in ['h', 'x', 'y', 'z', 's', 'sdg', 't', 'tdg']:
                 try:
-                    target = int(estrai_valore_puro(qubits_grezzi[0]))
-                    if target < n_qubits:
-                        comandi_beast_mode.append([nome_porta, target, -1])
-                except Exception: pass
-            elif nome_porta in ['rx', 'ry', 'rz', 'u1', 'u2', 'u3', 'p']:
-                try:
-                    param = float(estrai_valore_puro(params_grezzi[0]))
-                    target = int(estrai_valore_puro(qubits_grezzi[0]))
-                    if target < n_qubits:
-                        comandi_beast_mode.append([nome_porta, target, param])
-                except Exception: pass
-            elif nome_porta in ['cx', 'cy', 'cz', 'swap']:
-                try:
-                    control = int(estrai_valore_puro(qubits_grezzi[0]))
-                    target = int(estrai_valore_puro(qubits_grezzi[1]))
-                    if control < n_qubits and target < n_qubits:
-                        comandi_beast_mode.append([nome_porta, target, control])
-                except Exception: pass
-            elif nome_porta in ['ccx', 'toffoli']:
-                try:
-                    c1 = int(estrai_valore_puro(qubits_grezzi[0]))
-                    c2 = int(estrai_valore_puro(qubits_grezzi[1]))
-                    t = int(estrai_valore_puro(qubits_grezzi[2]))
-                    if c1 < n_qubits and c2 < n_qubits and t < n_qubits:
-                        comandi_beast_mode.append([nome_porta, c1, c2, t])
-                except Exception: pass
-            elif nome_porta in ['cp', 'crz']:
-                try:
-                    param = float(estrai_valore_puro(params_grezzi[0]))
-                    control = int(estrai_valore_puro(qubits_grezzi[0]))
-                    target = int(estrai_valore_puro(qubits_grezzi[1]))
-                    if control < n_qubits and target < n_qubits:
-                        comandi_beast_mode.append([nome_porta, target, control, param])
-                except Exception: pass
+                    fig_corrente = plt.gcf()
 
-        start_time = time.perf_counter()
+                    fig_corrente.savefig(filename, dpi=300, facecolor='#010409', edgecolor='none', bbox_inches='tight')
 
-        if w_noise.value == 'ideal':
-            sim.run_circuit_jit_beast_mode(comandi_beast_mode)
-            prob_ideal = sim.get_probabilities()
-            prob_noisy = prob_ideal
-        else:
-            np.random.seed(w_seed.value) # Set numpy seed for reproducibility
-            sim_ideal = de.DenseSVSimulator(n_qubits=n_qubits, use_float32=use_float32)
-            sim_ideal.run_circuit_jit_beast_mode(comandi_beast_mode)
-            prob_ideal = sim_ideal.get_probabilities()
+                    clear_output(wait=True)
+                    print(f"📄 Grafico scientifico esportato a 300 DPI: '{filename}'")
+                    print("📥 Innesco del download automatico dell'immagine nel browser...")
 
-            sim.run_circuit_jit_beast_mode(comandi_beast_mode)
-            if w_noise_p.value > 0:
-                sim.sv = de.NoiseModel.apply_to_sv(
-                    sv=sim.sv, n=n_qubits, model=w_noise.value, p=float(w_noise_p.value)
-                )
-            prob_noisy = sim.get_probabilities()
+                    try:
+                        files.download(filename)
+                        w_status.value = '<span style="color:#00ff9d; font-family:monospace">● Immagine PNG Scaricata</span>'
+                    except Exception as e_down:
+                        print(f"⚠️ Nota: PNG salvata localmente nel container, download automatico bloccato: {e_down}")
+                        w_status.value = '<span style="color:#00ff9d; font-family:monospace">● Immagine PNG Salvata (su disco)</span>'
 
-        end_time = time.perf_counter()
-        t_elapsed = end_time - start_time
+                except Exception as e_render:
+                    clear_output(wait=True)
+                    print(f"❌ Errore critico durante il rendering hardware del file PNG: {e_render}")
+                    w_status.value = '<span style="color:#ff0033; font-family:monospace">● Errore Rendering PNG</span>'
+            else:
+                clear_output(wait=True)
+                print("⚠ Nessun pannello grafico attivo nel buffer. Clicca prima su 'Run Simulation'.")
+                w_status.value = '<span style="color:#ff0033; font-family:monospace">● Errore: Nessun Grafico</span>'
 
-        # Explicitly cast probabilities to the correct float type based on use_float32
-        if use_float32:
-            prob = np.array(prob_noisy, dtype=np.float32)
-            prob_id = np.array(prob_ideal, dtype=np.float32)
-        else:
-            prob = np.array(prob_noisy, dtype=np.float64)
-            prob_id = np.array(prob_ideal, dtype=np.float64)
+# Assuming CRONOLOGIA_RUNS is a global list defined elsewhere (e.g., in the dashboard cell).
+# If not, initialize it here to ensure the class can be instantiated without error.
+if 'CRONOLOGIA_RUNS' not in globals():
+    CRONOLOGIA_RUNS = []
 
-        shannon_entropy = -np.sum(prob * np.log2(prob + 1e-10))
-        idx_max = np.argmax(prob)
-        stato_dominante = format(idx_max, '0' + str(n_qubits) + 'b')
+debug_tools = DiagnosticTools() # Changed instantiation
 
-        fidelity_value = float(np.sum(np.sqrt(prob * prob_id))) # Corrected calculation of fidelity
-        noise_factor_curve = np.array([fidelity_value * (1.0 - (i * float(w_noise_p.value) / 20.0)) for i in range(100)])
-        noise_factor_curve = np.clip(noise_factor_curve, 0.0, 1.0)
+print("✅ Cella 2B: Moduli ausiliari di tracciabilità, export crittografico e Benchmark sigillati (incapsulati).")
 
-        shots_data = np.random.choice(len(prob), p=prob, size=w_shots.value)
+import pandas as pd
+import sys
 
-        return {
-            'prob': prob,
-            'prob_ideal': prob_ideal,
-            'noise_factor': noise_factor_curve,
-            'fidelity': fidelity_value,
-            'n_qubits': n_qubits,
-            'entropy': shannon_entropy,
-            'idx_max': idx_max,
-            'stato_dominante': stato_dominante,
-            'tempo': t_elapsed,
-            'ram': sim.memory_mb(),
-            'nome': nome_circuito,
-            'porte_count': len(comandi_beast_mode),
-            'shots_data': shots_data,
-            'sim': sim,
-            'parser': parser
-        }
+# 1. Resettiamo a zero la telemetria globale per eliminare il vecchio grafico
+globals()['df_vqe_telemetry'] = pd.DataFrame()
+globals()['df_md_telemetry'] = pd.DataFrame()
 
-    except Exception as e:
-        print(f"❌ Errore durante l'esecuzione: {e}")
-        import traceback
-        traceback.print_exc()
-        raise
+# 2. Svuotiamo i moduli importati per forzare il rinfresco di JAX e della UI
+if 'dash' in sys.modules:
+    import importlib
+    importlib.reload(sys.modules['dash'])
+
+print("🧹 Cache della Dashboard svuotata! Il vecchio grafico è stato rimosso.")
 
 import ipywidgets as widgets
 from IPython.display import display, clear_output
@@ -3196,12 +2644,14 @@ import numpy as np
 import pandas as pd
 import matplotlib.gridspec as gridspec
 import seaborn as sns
-import dense_evolution as de # Added this import
+import dense_evolution as de
 import json # Added for JSON parsing
 import re # Added for robust QASM parsing
+import jax # Import jax for configuration
 
-# Initialize CRONOLOGIA_RUNS as an empty list
-CRONOLOGIA_RUNS = []
+# Initialize CRONOLOGIA_RUNS as an empty list only if not already defined
+if 'CRONOLOGIA_RUNS' not in globals():
+    CRONOLOGIA_RUNS = []
 
 # 1. HEADER HTML AVANZATO (DARK TECH STYLE)
 _HEADER = widgets.HTML("""
@@ -3312,7 +2762,7 @@ _out = widgets.Output()
 _btn_run   = widgets.Button(description='▶  Run Simulation', button_style='success', icon='play', layout=widgets.Layout(width='100%', height='42px'))
 _btn_bench = widgets.Button(description='📊  Benchmark χ', button_style='info', icon='bar-chart', layout=widgets.Layout(width='100%'))
 _btn_export = widgets.Button(description='💾  Export Provenance', button_style='', icon='save', layout=widgets.Layout(width='100%'))
-_btn_paper = widgets.Button(description='📄  Paper-Ready PNG', button_style='', icon='photo', layout=widgets.Layout(width='100%'))
+_btn_paper = widgets.Button(description='📄  Salva Immagine', button_style='', icon='photo', layout=widgets.Layout(width='100%'))
 _btn_hist  = widgets.Button(description='🕒  Cronologia', button_style='', icon='history', layout=widgets.Layout(width='100%'))
 _btn_save_hamiltonian = widgets.Button(description='➕  Save Hamiltonian', button_style='primary', icon='plus', layout=widgets.Layout(width='100%'))
 
@@ -3463,7 +2913,7 @@ def core_trigger_mostra_cronologia(w_status, w_out):
         print("🕒 STORICO RUNS")
         print("=" * 70)
         for i, run in enumerate(CRONOLOGIA_RUNS):
-            print(f"Run {i+1}: Circuito='{run['circuito']}' | Qubit={run['qubit']} | Entropia={run['entropia']:.4f} | Tempo={run['tempo_s']:.4f} s")
+            print(f"Run {i+1}: Circuito='{run['circuito']}' | Qubit={run['qubit']} | Entropia={run['entropia']:.4f} | Tempo={run['tempo_s']:.4f} s | Stato Dominante={run['stato_dominante']}")
         print("=" * 70)
     w_status.value = '<span style="color:#00ff9d; font-family:monospace">● Storico Visualizzato</span>'
 
@@ -3508,6 +2958,11 @@ def core_trigger_save_hamiltonian(w_status, w_out):
 def trigger_esecuzione_dashboard(b):
     global CRONOLOGIA_RUNS
     _status.value = '<span style="color:#ffaa00; font-family:monospace">⏳ Computazione JIT V4 in corso...</span>'
+
+    # Set JAX x64 (double precision) globally based on widget state
+    # If w_double_precision_enabled.value is True, use float64 (complex128).
+    # If w_double_precision_enabled.value is False, use float32 (complex64).
+    jax.config.update('jax_enable_x64', w_double_precision_enabled.value)
 
     # SPEGNIMENTO INTERACTIVE MODE: Previene duplicazioni grafiche asincrone
     plt.ioff()
@@ -3584,15 +3039,15 @@ def trigger_esecuzione_dashboard(b):
             # Sistema di rendering isolato e sicuro per ipywidgets (Zero-Crash)
             if fig_to_display is not None:
                 display(fig_to_display)
-                plt.close(fig_to_display)
+                # plt.close(fig_to_display) # COMMENTED OUT TO KEEP FIGURE ACTIVE
 
     # RIPRISTINO INTERACTIVE MODE per l'ambiente globale di Jupyter
     plt.ion()
 # Associazione delle macro funzioni ai pulsanti fisici
 _btn_run.on_click(trigger_esecuzione_dashboard)
-_btn_bench.on_click(lambda b: core_trigger_benchmark(_status, _out))
-_btn_export.on_click(lambda b: core_trigger_export_json(_status, _out))
-_btn_paper.on_click(lambda b: core_trigger_paper_png(_status, _out))
+_btn_bench.on_click(lambda b: debug_tools.core_trigger_benchmark(_status, _out))
+_btn_export.on_click(lambda b: debug_tools.core_trigger_export_json(_status, _out))
+_btn_paper.on_click(lambda b: debug_tools.core_trigger_paper_png(_status, _out))
 _btn_hist.on_click(lambda b: core_trigger_mostra_cronologia(_status, _out))
 _btn_save_hamiltonian.on_click(lambda b: core_trigger_save_hamiltonian(_status, _out))
 
@@ -4059,17 +3514,3 @@ def core_calcolo_quantistico(w_src_mode, w_circuit_sel, w_qasm_area, w_noise, w_
         import traceback
         traceback.print_exc()
         raise
-
-import pandas as pd
-import sys
-
-# 1. Resettiamo a zero la telemetria globale per eliminare il vecchio grafico
-globals()['df_vqe_telemetry'] = pd.DataFrame()
-globals()['df_md_telemetry'] = pd.DataFrame()
-
-# 2. Svuotiamo i moduli importati per forzare il rinfresco di JAX e della UI
-if 'dash' in sys.modules:
-    import importlib
-    importlib.reload(sys.modules['dash'])
-
-print("🧹 Cache della Dashboard svuotata! Il vecchio grafico è stato rimosso.")

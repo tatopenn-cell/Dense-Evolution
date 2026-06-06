@@ -11,3 +11,5 @@ __pycache__/
 # Ignora file di sistema invisibili di Windows
 Thumbs.db
 desktop.ini
+dist/
+*.egg-info/

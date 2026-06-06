@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dense-evolution"
-version = "8.1.0"
+version = "8.1.2"
 description = "Micro-optimized High-Performance NISQ Statevector Quantum Circuit Simulator (Hardware-Adaptive Integration of Native NumPy, CUDA-Accelerated CuPy, and Linear Kernel Fusion via JAX JIT/XLA Compilation)"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -13,15 +13,15 @@ authors = [
     { name = "Salvatore Pennacchio", email = "jtatopenn@libero.it" }
 ]
 keywords = [
-    "quantum-computing", 
-    "quantum-simulation", 
-    "statevector", 
-    "jax", 
-    "cupy", 
-    "cuda-acceleration", 
-    "openqasm", 
-    "nisq-noise", 
-    "hpc", 
+    "quantum-computing",
+    "quantum-simulation",
+    "statevector",
+    "jax",
+    "cupy",
+    "cuda-acceleration",
+    "openqasm",
+    "nisq-noise",
+    "hpc",
     "linear-kernel-fusion",
     "dashboard",
     "visualization"
@@ -39,8 +39,6 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Physics",
     "Topic :: Software Development :: Libraries :: Python Modules"
 ]
-
-# Dipendenze core necessarie per il funzionamento base e i moduli di telemetria/grafica
 dependencies = [
     "numpy>=1.22.0",
     "matplotlib>=3.5.0",
@@ -49,7 +47,7 @@ dependencies = [
 
 [project.optional-dependencies]
 jax = [
-    "jax>=0.4.0", 
+    "jax>=0.4.0",
     "jaxlib>=0.4.0"
 ]
 gpu = [
@@ -60,8 +58,8 @@ dashboard = [
     "plotly>=5.0.0"
 ]
 full = [
-    "jax>=0.4.0", 
-    "jaxlib>=0.4.0", 
+    "jax>=0.4.0",
+    "jaxlib>=0.4.0",
     "cupy-cuda12x>=12.0.0",
     "dash>=2.0.0",
     "plotly>=5.0.0"
@@ -69,18 +67,16 @@ full = [
 
 [project.urls]
 Homepage = "https://github.com/tatopenn-cell/Dense-Evolution"
-Documentation = "https://github.com/tatopenn-cell/Dense-Evolution/blob/main/LICENSE"
+Documentation = "https://github.com/tatopenn-cell/Dense-Evolution/blob/main/README.md"
 Repository = "https://github.com/tatopenn-cell/Dense-Evolution"
-"Bug Tracker" = "https://github.com/tatopenn-cell/Dense-Evolution/blob/main/dense_evolution.py"
-
-
+"Bug Tracker" = "https://github.com/tatopenn-cell/Dense-Evolution/issues"
 
 [tool.setuptools]
 packages = ["dense_evolution"]
 py-modules = ["dash"]
 
 [tool.setuptools.package-data]
-"dense_evolution" = ["compiler.py", "gates.py", "parser.py", "registry.py","chunk.py","healing.py","simulator.py", "__init__.py"]
+"dense_evolution" = ["*.py"]
 
 [tool.black]
 line-length = 100
