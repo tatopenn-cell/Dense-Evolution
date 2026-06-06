@@ -2,9 +2,6 @@ import numpy as np
 from .registry import HAS_JAX
 
 
-=======
-
-
 if HAS_JAX:
     import jax.numpy as jnp
     xp = jnp
@@ -38,9 +35,6 @@ GATE_IDS = {
     'id': 0, 'h': 1, 'x': 2, 'y': 3, 'z': 4, 's': 5, 'sdg': 6, 't': 7, 'tdg': 8,
     'rx': 9, 'ry': 10, 'rz': 11, 'cx': 20, 'cz': 21
 }
-
-
-=======
 
 
 PARAMETRIC_GATES = {
