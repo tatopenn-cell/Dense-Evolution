@@ -69,25 +69,6 @@ git clone https://github.com/tatopenn-cell/Dense-Evolution.git
 cd Dense-Evolution && pip install -e .[full]
 ```
 
-**Google Colab (3 lines):**
-```python
-!git clone https://github.com/tatopenn-cell/Dense-Evolution.git
-%cd Dense-Evolution
-=======
-
-\# full stack: JAX · GPU · dashboard
-
-pip install dense-evolution\[full]
-
-
-
-\# development
-
-git clone https://github.com/tatopenn-cell/Dense-Evolution.git
-
-cd Dense-Evolution \&\& pip install -e .\[full]
-
-```
 
 
 
