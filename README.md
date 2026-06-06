@@ -110,60 +110,7 @@ sim.run_circuit_jit_beast_mode(circuit.ops)
 =======
 
 
-\---
 
-
-
-\## ▍ Quick Start
-
-
-
-```python
-
-from dense\_evolution import DenseSVSimulator, QASMParser
-
-
-
-\# parse any OpenQASM 2.0 string
-
-qasm = """
-
-OPENQASM 2.0;
-
-include "qelib1.inc";
-
-qreg q\[3];
-
-h q\[0];
-
-cx q\[0], q\[1];
-
-cx q\[1], q\[2];
-
-"""
-
-
-
-parser = QASMParser()
-
-circuit = parser.parse(qasm)
-
-
-
-sim = DenseSVSimulator(n\_qubits=3)
-
-sim.run\_circuit\_jit\_beast\_mode(circuit.ops)
-
-
-
-print(sim.get\_probabilities())   # \[0.5, 0, 0, 0, 0, 0, 0, 0.5]  — GHZ state
-
-print(sim.memory\_mb())           # 0.000128 MB
-
-
-print(sim.get_probabilities())   # [0.5, 0, 0, 0, 0, 0, 0, 0.5]  — GHZ state
-print(sim.memory_mb())           # 0.000128 MB
-```
 
 
 **Dashboard (Colab / Jupyter):**
