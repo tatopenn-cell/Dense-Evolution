@@ -54,8 +54,6 @@ The integrated `dash.py` dashboard provides live ipywidgets telemetry across 6 q
 ## ▍ Install
 
 ```bash
-# core engine
-=======
 
 
 \## ▍ Install
@@ -64,7 +62,7 @@ The integrated `dash.py` dashboard provides live ipywidgets telemetry across 6 q
 
 ```bash
 
-\# core engine
+
 
 
 pip install dense-evolution
@@ -516,7 +514,7 @@ dense\_evolution/
 
 |---|---|
 
-| Numerical drift (80-layer Ansatz, 1360 gates) | `Δ = 1.11 × 10⁻¹⁶` |
+| Numerical drift (30-layer Ansatz, 1360 gates) | `Δ = 1.11 × 10⁻¹⁶` |
 
 | Memory footprint @ 20q | `32 MB` (float64) · `16 MB` (float32) |
 
@@ -863,13 +861,11 @@ Performance: RAM hard-locked at ≤ `chunk\_size\_bits` qubits per allocation bl
 
 \- `chunk.py` — `MemoryChunker` attributes (`num\_chunks`, `chunk\_size\_bits`, `dtype`) forwarded as `@property` on `Chunk` for benchmark compatibility
 
-\- Fixed `globals()\["QuantumTranspiler"]` anti-pattern → direct relative import
-
-\- Fixed `\_\_version\_\_` mismatch between `\_\_init\_\_.py` and PyPI release
 
 
 
-\### v8.1.1
+
+\### v8.1.4
 
 \- Modular package structure (`dense\_evolution/` directory)
 
@@ -879,13 +875,7 @@ Performance: RAM hard-locked at ≤ `chunk\_size\_bits` qubits per allocation bl
 
 
 
-\### v8.0.0
 
-\- Initial public release
-
-
-
-\---
 
 
 
