@@ -297,13 +297,13 @@ sim.run_chunk(circuit_ops, 500)
 
 ## ▍ Changelog
 
-### v8.1.3
+### v8.1.5
 - `chunk.py` — `SafeMemoryGuard` class: hard block at configurable free-RAM threshold (default 15%), soft warning at 2× threshold, `gc.collect()` before every check
 - `chunk.py` — `Chunk` no longer subclasses `DenseSVSimulator`; inner simulator allocated at `safe_qubits` only — eliminates `RESOURCE_EXHAUSTED` on 28q–34q circuits
 - `chunk.py` — `CircuitChunker.split_circuit` RAM-checks every gate-slice before dispatch
 - `chunk.py` — `MemoryChunker` attributes (`num_chunks`, `chunk_size_bits`, `dtype`) forwarded as `@property` on `Chunk` for benchmark compatibility
 
-### v8.1.4
+### v8.1.6
 - Modular package structure (`dense_evolution/` directory)
 ## ▍ License
 
