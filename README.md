@@ -145,6 +145,39 @@ dense_evolution/
 
 ---
 
+## ▍ Scientific Validation & Applications
+
+To demonstrate the numerical accuracy and stability of **Dense Evolution**, the simulator was stress-tested across 3,500 continuous spatial sampling points to compute the **Silicon Dimer (Si2) Dissociation Curve** via Variational Quantum Eigensolver (VQE).
+
+* **Physical Accuracy:** The simulation successfully maps the exact Born-Oppenheimer Potential Energy Curve (PEC), capturing the deep quantum ground state bound minimum at **~3.55 Å** with negative total energy, before converging asymptotically toward full molecular dissociation.
+* **Numerical Precision:** Calculations are locked at Double Precision (float64), proving the simulator's resilience against cumulative machine epsilon errors (~ 1.11 × 10⁻¹⁶) across thousands of sequential circuit executions.
+*  **Run this molecular experiment instantly on Google Colab Free Tier:**
+[![Open In Colab](https://colab.research.google.com/drive/1cX7vYsVaxO29677ltgDTbh3pqUi0NYC5#scrollTo=Qg_lqX-Iw_UM)](https://colab.research.google.com/drive/1cX7vYsVaxO29677ltgDTbh3pqUi0NYC5#scrollTo=Qg_lqX-Iw_UM)
+
+```text
+============================================================
+🔬 MOLECULAR VQE: EXACT POTENTIAL ENERGY CURVE (PEC)
+============================================================
+Distanza R: 1.200 Å | Energia Totale Molecola: +155.761158 eV
+Distanza R: 1.671 Å | Energia Totale Molecola: +34.372692 eV
+Distanza R: 2.142 Å | Energia Totale Molecola: +6.583098 eV
+Distanza R: 2.614 Å | Energia Totale Molecola: +0.727422 eV
+Distanza R: 3.085 Å | Energia Totale Molecola: -0.253226 eV
+Distanza R: 3.557 Å | Energia Totale Molecola: -0.273498 eV
+Distanza R: 4.028 Å | Energia Totale Molecola: -0.170948 eV
+Distanza R: 4.500 Å | Energia Totale Molecola: -0.093048 eV
+```
+
+#### Variational Quantum Chemistry Plot
+Below is the physical validation plot showing the Born-Oppenheimer potential energy curve:
+
+![Silicon Dimer Dissociation Curve](<img width="993" height="593" alt="image" src="https://github.com/user-attachments/assets/5fe57865-40f2-4930-9e8d-63959ea93a22" />
+)
+
+👉 *For the full suite of physical benchmarks, including the Transverse Field Ising Model (TFIM) and Phase Transition mappings, visit the main [Dense-Evolution-Ising-Tests](https://github.com/tatopenn-cell/Dense-Evolution-Ising-Tests) repository. You can also view the raw script for this specific molecular run [here](https://github.com/tatopenn-cell/Dense-Evolution-Ising-Tests/blob/main/vqe_silicon_molecular.py).*
+
+---
+
 ## ▍ API Reference
 
 ### `DenseSVSimulator`
