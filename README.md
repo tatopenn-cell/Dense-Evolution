@@ -22,7 +22,6 @@
 [![License](https://img.shields.io/badge/License-BSL_1.1-orange?style=flat-square)](LICENSE.md)
 [![Build](https://img.shields.io/badge/Build-Passing-00ff9d?style=flat-square)](https://github.com/tatopenn-cell/Dense-Evolution/actions)
 [![Cross-Validation CI](https://github.com/tatopenn-cell/Dense-Evolution-Ising-Tests/actions/workflows/ci.yml/badge.svg)](https://github.com/tatopenn-cell/Dense-Evolution-Ising-Tests/actions/workflows/ci.yml)
-[![Open In Colab](https://colab.research.google.com/drive/1cX7vYsVaxO29677ltgDTbh3pqUi0NYC5#scrollTo=Qg_lqX-Iw_UM)](https://colab.research.google.com/drive/1cX7vYsVaxO29677ltgDTbh3pqUi0NYC5#scrollTo=Qg_lqX-Iw_UM)
 
 ---
 
@@ -153,7 +152,7 @@ To demonstrate the numerical accuracy and stability of **Dense Evolution**, the 
 * **Physical Accuracy:** The simulation successfully maps the exact Born-Oppenheimer Potential Energy Curve (PEC), capturing the deep quantum ground state bound minimum at **~3.55 Å** with negative total energy, before converging asymptotically toward full molecular dissociation.
 * **Numerical Precision:** Calculations are locked at Double Precision (float64), proving the simulator's resilience against cumulative machine epsilon errors (~ 1.11 × 10⁻¹⁶) across thousands of sequential circuit executions.
 *  **Run this molecular experiment instantly on Google Colab Free Tier:**
-[![Open In Colab](https://google.com)](https://colab.research.google.com/drive/1cX7vYsVaxO29677ltgDTbh3pqUi0NYC5#scrollTo=Qg_lqX-Iw_UM)
+[![Open In Colab](https://colab.research.google.com/drive/1cX7vYsVaxO29677ltgDTbh3pqUi0NYC5#scrollTo=Qg_lqX-Iw_UM)]
 
 ```text
 ============================================================
