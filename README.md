@@ -152,7 +152,7 @@ To demonstrate the numerical accuracy and stability of **Dense Evolution**, the 
 * **Physical Accuracy:** The simulation successfully maps the exact Born-Oppenheimer Potential Energy Curve (PEC), capturing the deep quantum ground state bound minimum at **~3.55 Å** with negative total energy, before converging asymptotically toward full molecular dissociation.
 * **Numerical Precision:** Calculations are locked at Double Precision (float64), proving the simulator's resilience against cumulative machine epsilon errors (~ 1.11 × 10⁻¹⁶) across thousands of sequential circuit executions.
 *  **Run this molecular experiment instantly on Google Colab Free Tier:**
-[![Open In Colab](https://colab.research.google.com/drive/1cX7vYsVaxO29677ltgDTbh3pqUi0NYC5#scrollTo=Qg_lqX-Iw_UM)]
+[![Colab(https://colab.research.google.com/drive/1cX7vYsVaxO29677ltgDTbh3pqUi0NYC5#scrollTo=Qg_lqX-Iw_UM)]
 
 ```text
 ============================================================
@@ -171,8 +171,8 @@ Distanza R: 4.500 Å | Energia Totale Molecola: -0.093048 eV
 #### Variational Quantum Chemistry Plot
 Below is the physical validation plot showing the Born-Oppenheimer potential energy curve:
 
-![Silicon Dimer Dissociation Curve](<img width="993" height="593" alt="image" src="https://github.com/user-attachments/assets/5fe57865-40f2-4930-9e8d-63959ea93a22" />
-)
+<img width="993" height="593" alt="image" src="https://github.com/user-attachments/assets/5fe57865-40f2-4930-9e8d-63959ea93a22" />
+
 
 👉 *For the full suite of physical benchmarks, including the Transverse Field Ising Model (TFIM) and Phase Transition mappings, visit the main [Dense-Evolution-Ising-Tests](https://github.com/tatopenn-cell/Dense-Evolution-Ising-Tests) repository. You can also view the raw script for this specific molecular run [here](https://github.com/tatopenn-cell/Dense-Evolution-Ising-Tests/blob/main/vqe_silicon_molecular.py).*
 
