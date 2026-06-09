@@ -149,10 +149,12 @@ dense_evolution/
 
 To demonstrate the numerical accuracy and stability of **Dense Evolution**, the simulator was stress-tested across 3,500 continuous spatial sampling points to compute the **Silicon Dimer (Si2) Dissociation Curve** via Variational Quantum Eigensolver (VQE).
 
-* **Physical Accuracy:** The simulation successfully maps the exact Born-Oppenheimer Potential Energy Curve (PEC), capturing the deep quantum ground state bound minimum at **~3.55 Å** with negative total energy, before converging asymptotically toward full molecular dissociation.
-* **Numerical Precision:** Calculations are locked at Double Precision (float64), proving the simulator's resilience against cumulative machine epsilon errors (~ 1.11 × 10⁻¹⁶) across thousands of sequential circuit executions.
-*  **Run this molecular experiment instantly on Google Colab Free Tier:**
-[![Colab(https://colab.research.google.com/drive/1cX7vYsVaxO29677ltgDTbh3pqUi0NYC5#scrollTo=Qg_lqX-Iw_UM)]
+* Physical Accuracy: The simulation successfully maps the exact Born-Oppenheimer Potential Energy Curve (PEC), capturing the deep quantum ground state bound minimum at ~3.55 Å with negative total energy, before converging asymptotically toward full molecular dissociation.
+* Numerical Precision: Calculations are locked at Double Precision (float64), proving the simulator's resilience against cumulative machine epsilon errors (~ 1.11 × 10⁻¹⁶) across thousands of sequential circuit executions.
+* Run this molecular experiment instantly on Google Colab Free Tier:
+[](https://colab.research.google.com/drive/1cX7vYsVaxO29677ltgDTbh3pqUi0NYC5#scrollTo=Qg_lqX-Iw_UM)
+
+---
 
 ```text
 ============================================================
