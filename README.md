@@ -423,6 +423,12 @@ All circuits stored as OpenQASM 2.0 strings in `QASM_LIBRARY`.
 
 ## ▍ Changelog
 
+### v8.1.7
+- `ia_utils/` — new package: `median_healing`, `enhanced_dense_healing_hybrid` for vector sequence healing (NaN/Inf-safe)
+- `jax` import in `ia_utils.vector_healing` made lazy — importable without the `[jax]` extra
+- Fixed `reconstruction_error` telemetry returning `NaN` when input contained `NaN`/`Inf`
+- Added `scipy` to core dependencies (was used but undeclared)
+
 ### v8.1.6
 - Modular package structure (`dense_evolution/` directory)
 - Split `registry.py`, `gates.py`, `healing.py`, `chunk.py` into dedicated modules

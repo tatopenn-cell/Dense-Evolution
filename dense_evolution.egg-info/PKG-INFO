@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: dense-evolution
-Version: 8.1.3
+Version: 8.1.7
 Summary: Micro-optimized High-Performance NISQ Statevector Quantum Circuit Simulator (Hardware-Adaptive Integration of Native NumPy, CUDA-Accelerated CuPy, and Linear Kernel Fusion via JAX JIT/XLA Compilation)
 Author-email: Salvatore Pennacchio <jtatopenn@libero.it>
 License: Business Source License 1.1
@@ -26,6 +26,7 @@ License-File: license.md
 Requires-Dist: numpy>=1.22.0
 Requires-Dist: matplotlib>=3.5.0
 Requires-Dist: psutil>=5.9.0
+Requires-Dist: scipy>=1.9.0
 Provides-Extra: jax
 Requires-Dist: jax>=0.4.0; extra == "jax"
 Requires-Dist: jaxlib>=0.4.0; extra == "jax"
@@ -42,7 +43,6 @@ Requires-Dist: dash>=2.0.0; extra == "full"
 Requires-Dist: plotly>=5.0.0; extra == "full"
 Dynamic: license-file
 
-<<<<<<< HEAD
 ```
 ██████╗ ███████╗███╗   ██╗███████╗███████╗
 ██╔══██╗██╔════╝████╗  ██║██╔════╝██╔════╝
@@ -50,13 +50,14 @@ Dynamic: license-file
 ██║  ██║██╔══╝  ██║╚██╗██║╚════██║██╔══╝  
 ██████╔╝███████╗██║ ╚████║███████║███████╗
 ╚═════╝ ╚══════╝╚═╝  ╚═══╝╚══════╝╚══════╝
-███████╗██╗   ██╗ ██████╗ ██╗     
-██╔════╝██║   ██║██╔═══██╗██║     
-█████╗  ██║   ██║██║   ██║██║     
-██╔══╝  ╚██╗ ██╔╝██║   ██║██║     
-███████╗ ╚████╔╝ ╚██████╔╝███████╗
-╚══════╝  ╚═══╝   ╚═════╝ ╚══════╝
+███████╗██╗   ██╗ ██████╗ ██╗     ██╗   ██╗████████╗██╗ ██████╗ ███╗   ██╗
+██╔════╝██║   ██║██╔═══██╗██║     ██║   ██║╚══██╔══╝██║██╔═══██╗████╗  ██║
+█████╗  ██║   ██║██║   ██║██║     ██║   ██║   ██║   ██║██║   ██║██╔██╗ ██║
+██╔══╝  ╚██╗ ██╔╝██║   ██║██║     ██║   ██║   ██║   ██║██║   ██║██║╚██╗██║
+███████╗ ╚████╔╝ ╚██████╔╝███████╗╚██████╔╝   ██║   ██║╚██████╔╝██║ ╚████║
+╚══════╝  ╚═══╝   ╚═════╝ ╚══════╝ ╚═════╝    ╚═╝   ╚═╝ ╚═════╝ ╚═╝  ╚═══╝
 ```
+
 
 **Dense Statevector Quantum Simulator · JAX XLA · NISQ · VQE · QML**
 
@@ -65,146 +66,39 @@ Dynamic: license-file
 [![Python](https://img.shields.io/badge/Python-3.9+-blue?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-BSL_1.1-orange?style=flat-square)](LICENSE.md)
 [![Build](https://img.shields.io/badge/Build-Passing-00ff9d?style=flat-square)](https://github.com/tatopenn-cell/Dense-Evolution/actions)
-=======
-```
+[![Cross-Validation CI](https://github.com/tatopenn-cell/Dense-Evolution-Ising-Tests/actions/workflows/ci.yml/badge.svg)](https://github.com/tatopenn-cell/Dense-Evolution-Ising-Tests/actions/workflows/ci.yml)
 
-██████╗ ███████╗███╗   ██╗███████╗███████╗
-
-██╔══██╗██╔════╝████╗  ██║██╔════╝██╔════╝
-
-██║  ██║█████╗  ██╔██╗ ██║███████╗█████╗  
-
-██║  ██║██╔══╝  ██║╚██╗██║╚════██║██╔══╝  
-
-██████╔╝███████╗██║ ╚████║███████║███████╗
-
-╚═════╝ ╚══════╝╚═╝  ╚═══╝╚══════╝╚══════╝
-
-███████╗██╗   ██╗ ██████╗ ██╗     
-
-██╔════╝██║   ██║██╔═══██╗██║     
-
-█████╗  ██║   ██║██║   ██║██║     
-
-██╔══╝  ╚██╗ ██╔╝██║   ██║██║     
-
-███████╗ ╚████╔╝ ╚██████╔╝███████╗
-
-╚══════╝  ╚═══╝   ╚═════╝ ╚══════╝
-
-```
-
-
-
-\*\*Dense Statevector Quantum Simulator · JAX XLA · NISQ · VQE · QML\*\*
-
-
-
-\[!\[CI](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml/badge.svg)](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml)
-
-\[!\[PyPI](https://img.shields.io/pypi/v/dense-evolution?style=flat-square\&color=00e5ff)](https://pypi.org/project/dense-evolution/)
-
-\[!\[Python](https://img.shields.io/badge/Python-3.9+-blue?style=flat-square\&logo=python\&logoColor=white)](https://www.python.org/)
-
-\[!\[License](https://img.shields.io/badge/License-BSL\_1.1-orange?style=flat-square)](LICENSE.md)
-
-\[!\[Build](https://img.shields.io/badge/Build-Passing-00ff9d?style=flat-square)](https://github.com/tatopenn-cell/Dense-Evolution/actions)
-
-
->>>>>>> 10dd0b7 (v8.1.2 - SafeMemoryGuard Anti-OOM, chunk.py rewrite, README update)
-
-</div>
-
-<<<<<<< HEAD
 ---
 
 ## ▍ What It Is
 
 **Dense Evolution** is a high-performance statevector simulator engineered for deep NISQ circuits, VQE pipelines, and QML workloads. It eliminates Kronecker product overhead entirely via stride-sliced linear kernel fusion compiled through JAX XLA — keeping memory at the theoretical minimum of `2ⁿ × 16 bytes`.
-=======
 
+The integrated `dash.py` dashboard provides live ipywidgets telemetry across 8 panels per simulation run, directly inside Google Colab or Jupyter.
 
-\## ▍ What It Is
-
-
-
-\*\*Dense Evolution\*\* is a high-performance statevector simulator engineered for deep NISQ circuits, VQE pipelines, and QML workloads. It eliminates Kronecker product overhead entirely via stride-sliced linear kernel fusion compiled through JAX XLA — keeping memory at the theoretical minimum of `2ⁿ × 16 bytes`.
-
-
-
-The integrated `dash.py` dashboard provides live ipywidgets telemetry across 6 quantum observables per simulation run, directly inside Google Colab or Jupyter.
-
-
->>>>>>> 10dd0b7 (v8.1.2 - SafeMemoryGuard Anti-OOM, chunk.py rewrite, README update)
-
-The integrated `dash.py` dashboard provides live ipywidgets telemetry across 6 quantum observables per simulation run, directly inside Google Colab or Jupyter.
-
-<<<<<<< HEAD
 ---
 
 ## ▍ Install
 
 ```bash
-# core engine
-=======
-
-
-\## ▍ Install
-
-
-
-```bash
-
-\# core engine
-
->>>>>>> 10dd0b7 (v8.1.2 - SafeMemoryGuard Anti-OOM, chunk.py rewrite, README update)
 pip install dense-evolution
 
 # full stack: JAX · GPU · dashboard
 pip install dense-evolution[full]
 
-<<<<<<< HEAD
 # development
 git clone https://github.com/tatopenn-cell/Dense-Evolution.git
 cd Dense-Evolution && pip install -e .[full]
 ```
 
 **Google Colab (3 lines):**
+
 ```python
 !git clone https://github.com/tatopenn-cell/Dense-Evolution.git
 %cd Dense-Evolution
-=======
-
-\# full stack: JAX · GPU · dashboard
-
-pip install dense-evolution\[full]
-
-
-
-\# development
-
-git clone https://github.com/tatopenn-cell/Dense-Evolution.git
-
-cd Dense-Evolution \&\& pip install -e .\[full]
-
-```
-
-
-
-\*\*Google Colab (3 lines):\*\*
-
-```python
-
-!git clone https://github.com/tatopenn-cell/Dense-Evolution.git
-
-%cd Dense-Evolution
-
->>>>>>> 10dd0b7 (v8.1.2 - SafeMemoryGuard Anti-OOM, chunk.py rewrite, README update)
 !pip install -e .
-
 ```
 
-<<<<<<< HEAD
 ---
 
 ## ▍ Quick Start
@@ -212,7 +106,7 @@ cd Dense-Evolution \&\& pip install -e .\[full]
 ```python
 from dense_evolution import DenseSVSimulator, QASMParser
 
-# parse any OpenQASM 2.0 string
+# parse any OpenQASM 2.0 / 3.0 string
 qasm = """
 OPENQASM 2.0;
 include "qelib1.inc";
@@ -227,66 +121,13 @@ circuit = parser.parse(qasm)
 
 sim = DenseSVSimulator(n_qubits=3)
 sim.run_circuit_jit_beast_mode(circuit.ops)
-=======
 
-
-\---
-
-
-
-\## ▍ Quick Start
-
-
-
-```python
-
-from dense\_evolution import DenseSVSimulator, QASMParser
-
-
-
-\# parse any OpenQASM 2.0 string
-
-qasm = """
-
-OPENQASM 2.0;
-
-include "qelib1.inc";
-
-qreg q\[3];
-
-h q\[0];
-
-cx q\[0], q\[1];
-
-cx q\[1], q\[2];
-
-"""
-
-
-
-parser = QASMParser()
-
-circuit = parser.parse(qasm)
-
-
-
-sim = DenseSVSimulator(n\_qubits=3)
-
-sim.run\_circuit\_jit\_beast\_mode(circuit.ops)
-
-
-
-print(sim.get\_probabilities())   # \[0.5, 0, 0, 0, 0, 0, 0, 0.5]  — GHZ state
-
-print(sim.memory\_mb())           # 0.000128 MB
->>>>>>> 10dd0b7 (v8.1.2 - SafeMemoryGuard Anti-OOM, chunk.py rewrite, README update)
-
-print(sim.get_probabilities())   # [0.5, 0, 0, 0, 0, 0, 0, 0.5]  — GHZ state
-print(sim.memory_mb())           # 0.000128 MB
+probs = sim.get_probabilities()
+sv    = sim.get_statevector()
 ```
 
-<<<<<<< HEAD
 **Dashboard (Colab / Jupyter):**
+
 ```python
 import dash
 from IPython.display import display, clear_output
@@ -295,28 +136,40 @@ clear_output()
 display(dash.dashboard_unificata)
 ```
 
+**Anti-OOM for large circuits:**
+
+```python
+from dense_evolution import Chunk
+
+sim = Chunk(27)                                    # logical 27 qubits
+circuit_ops = [['h', i] for i in range(27)]
+sim.run_chunk(circuit_ops, chunk_size_gates=500)   # SafeMemoryGuard active
+```
+
 ---
 
 ## ▍ Architecture
 
 ```
 dense_evolution/
-├── registry.py       hardware detection · JAX / CuPy / NumPy capability flags
-├── gates.py          GATES{} · PARAMETRIC_GATES{} · GATE_IDS{}
-├── noise_model.py    Kraus channels · stochastic trajectory engine
-├── parser.py         QASMParser · QASMCircuit · OpenQASM 2.0 / 3.0
-├── compiler.py       _apply_gate_fast_step (jit) · _compile_and_run_circuit_jit
-├── simulator.py      DenseSVSimulator · vmap batch VQE · chunked execution
-└── dash.py           ipywidgets dashboard · VQE engine · MD simulation
+├── registry.py     hardware detection · JAX/CuPy/NumPy flags · NoiseModel (Kraus channels)
+├── gates.py        GATES{} · PARAMETRIC_GATES{} · GATE_IDS{}
+├── healing.py      predictive state engine · Phi_AB · vettore dinamico · MemoryReflectionEngine
+├── parser.py       QASMParser · QASMCircuit · OpenQASM 2.0 / 3.0
+├── compiler.py     QuantumTranspiler · _apply_gate_fast_step (jit) · gate decomposition
+├── chunk.py        SafeMemoryGuard · MemoryChunker · CircuitChunker · Chunk (Anti-OOM)
+├── simulator.py    DenseSVSimulator · run_parametric_batch_jit · vmap batch VQE
+└── dash.py         ipywidgets dashboard · VQE engine · QM/MM · MD simulation · 3D wavefunction
 ```
 
 **Data flow per run:**
+
 ```
 ▶ Run
- └─ core_calcolo_quantistico()          parse → JIT execute → apply noise
-     ├─ ottimizza_vqe()                 Hellmann-Feynman AD → ADAM → df_vqe_telemetry
-     ├─ run_md_simulation_dummy()       QM/MM dynamics → df_md_telemetry + Pearson matrix
-     └─ build_panel_*(res)              matplotlib figure → display()
+└─ core_calcolo_quantistico()        parse → JIT execute → apply noise
+    ├─ ottimizza_vqe()               Hellmann-Feynman AD → ADAM → df_vqe_telemetry
+    ├─ run_md_simulation_dummy()     QM/MM dynamics → df_md_telemetry + Pearson matrix
+    └─ build_panel_*(res)            matplotlib figure → display()
 ```
 
 ---
@@ -326,12 +179,211 @@ dense_evolution/
 | Feature | Detail |
 |---|---|
 | **Linear Kernel Fusion** | Stride-sliced tensor ops via JAX XLA — zero Kronecker matrices |
+| **Parametric Batch JIT** | `run_parametric_batch_jit()` evaluates full parameter grids in one `jax.vmap` + `jax.jit` call |
 | **Circuit Chunking** | Fixed-size JIT blocks eliminate tracer overhead on 1000+ gate circuits |
 | **Kraus Noise Channels** | `depolarizing` `amplitude_damping` `phase_damping` `bitflip` `combined` — stochastic, O(2ⁿ) cost |
-| **VQE + ADAM** | Hellmann-Feynman gradient via JAX AD · positional parameter injection into any QASM 2.0 |
-| **vmap Batch Sweep** | `run_parametric_batch_jit()` evaluates full parameter grids in one JIT call |
+| **VQE + ADAM** | Hellmann-Feynman gradient · positional parameter injection into any OpenQASM 2.0 circuit |
+| **Anti-OOM Engine** | `SafeMemoryGuard` blocks execution before JAX raises `RESOURCE_EXHAUSTED` |
+| **Predictive Healing** | `healing.py` — Φ_AB alignment, dynamic vector, Σ-sync, `MemoryReflectionEngine` |
 | **Backend Agnostic** | NumPy CPU · JAX XLA CPU/TPU · CuPy CUDA — runtime selection, zero code changes |
 | **Live Dashboard** | 8-panel ipywidgets telemetry: probability, VQE energy, entropy, purity, gradient, noise, θ-correction, Pearson heatmap |
+
+---
+
+## ▍ Scientific Validation & Applications
+
+To demonstrate the numerical accuracy and stability of **Dense Evolution**, the simulator was stress-tested across 3,500 continuous spatial sampling points to compute the **Silicon Dimer (Si2) Dissociation Curve** via Variational Quantum Eigensolver (VQE).
+
+* Physical Accuracy: The simulation successfully maps the exact Born-Oppenheimer Potential Energy Curve (PEC), capturing the deep quantum ground state bound minimum at ~3.55 Å with negative total energy, before converging asymptotically toward full molecular dissociation.
+* Numerical Precision: Calculations are locked at Double Precision (float64), proving the simulator's resilience against cumulative machine epsilon errors (~ 1.11 × 10⁻¹⁶) across thousands of sequential circuit executions.
+* Run this molecular experiment instantly on Google Colab Free Tier:
+  [Open Notebook on Google Colab](https://colab.research.google.com/drive/1cX7vYsVaxO29677ltgDTbh3pqUi0NYC5#scrollTo=Qg_lqX-Iw_UM)
+
+---
+
+```text
+============================================================
+🔬 MOLECULAR VQE: EXACT POTENTIAL ENERGY CURVE (PEC)
+============================================================
+Distanza R: 1.200 Å | Energia Totale Molecola: +155.761158 eV
+Distanza R: 1.671 Å | Energia Totale Molecola: +34.372692 eV
+Distanza R: 2.142 Å | Energia Totale Molecola: +6.583098 eV
+Distanza R: 2.614 Å | Energia Totale Molecola: +0.727422 eV
+Distanza R: 3.085 Å | Energia Totale Molecola: -0.253226 eV
+Distanza R: 3.557 Å | Energia Totale Molecola: -0.273498 eV
+Distanza R: 4.028 Å | Energia Totale Molecola: -0.170948 eV
+Distanza R: 4.500 Å | Energia Totale Molecola: -0.093048 eV
+```
+
+#### Variational Quantum Chemistry Plot
+Below is the physical validation plot showing the Born-Oppenheimer potential energy curve:
+
+<img width="993" height="593" alt="image" src="https://github.com/user-attachments/assets/5fe57865-40f2-4930-9e8d-63959ea93a22" />
+
+
+👉 *For the full suite of physical benchmarks, including the Transverse Field Ising Model (TFIM) and Phase Transition mappings, visit the main [Dense-Evolution-Ising-Tests](https://github.com/tatopenn-cell/Dense-Evolution-Ising-Tests) repository. You can also view the raw script for this specific molecular run [here](https://github.com/tatopenn-cell/Dense-Evolution-Ising-Tests/blob/main/vqe_silicon_molecular.py).*
+
+---
+
+## ▍ API Reference
+
+### `DenseSVSimulator`
+
+```python
+sim = DenseSVSimulator(
+    n_qubits   : int,
+    use_gpu    : bool = False,
+    use_float32: bool = False,
+)
+```
+
+| Method | Description |
+|---|---|
+| `set_initial_state(state=None)` | Reset to `\|0⟩ⁿ` or inject custom statevector |
+| `run_circuit_jit_beast_mode(circuit)` | JIT-compiled gate execution — primary execution path |
+| `run_circuit_with_chunking(circuit, chunk_size=500)` | Chunked execution for long circuits |
+| `run_parametric_batch_jit(base_circuit, parameter_batch)` | `vmap` over parameter grid — returns full batch of statevectors |
+| `get_probabilities()` → `np.ndarray` | `\|ψ_i\|²` for all basis states |
+| `get_statevector()` → `np.ndarray` | Full complex statevector |
+| `measure(qubit_idx)` → `int` | Projective measurement with state collapse |
+| `memory_mb()` → `float` | Current RAM usage in MB |
+| `apply_gate_1q(gate, qubit)` | Apply arbitrary 2×2 unitary |
+| `apply_gate_2q(gate, q1, q2)` | Apply arbitrary 4×4 unitary |
+
+### `QASMParser`
+
+```python
+parser  = QASMParser()
+circuit = parser.parse(qasm_str)   # → QASMCircuit
+valid, msg = parser.validate(circuit)
+```
+
+`QASMCircuit` fields: `n_qubits`, `n_cbits`, `ops` (list of gate tuples).
+
+### `NoiseModel`
+
+```python
+noise = NoiseModel()
+noise.apply(sv, model='depolarizing', p=0.01, n_qubits=4, rng=rng)
+desc  = NoiseModel.kraus_description('amplitude_damping')
+```
+
+### `Chunk` (Anti-OOM)
+
+```python
+sim = Chunk(
+    n_qubits         : int,
+    chunk_size_gates : int   = 500,
+    memory_threshold : float = 0.15,   # block below 15% free RAM
+    use_gpu          : bool  = False,
+    use_float32      : bool  = False,
+)
+sim.run_chunk(circuit, chunk_size_gates=500)
+```
+
+Backward-compatibility aliases: `chunk1 = MemoryChunker`, `chunk2 = Chunk`, `Chunk2Incrociato = Chunk`.
+
+---
+
+## ▍ Gate Library
+
+**Fixed gates** (no parameters):
+
+| Gate | Symbol | Gate | Symbol |
+|---|---|---|---|
+| `h` | Hadamard | `x` | Pauli-X |
+| `y` | Pauli-Y | `z` | Pauli-Z |
+| `s` | S gate | `sdg` | S† gate |
+| `t` | T gate | `tdg` | T† gate |
+| `sx` | √X gate | `id` | Identity |
+| `cx` | CNOT | `cz` | CZ |
+| `cy` | CY | `swap` | SWAP |
+| `iswap` | iSWAP | `ecr` | ECR |
+| `ccx` | Toffoli | | |
+
+**Parametric gates**:
+
+| Gate | Parameters | Description |
+|---|---|---|
+| `rx(θ)` | θ | X-rotation |
+| `ry(θ)` | θ | Y-rotation |
+| `rz(θ)` | θ | Z-rotation |
+| `p(λ)` | λ | Phase gate |
+| `u1(λ)` | λ | U1 (≡ p) |
+| `u2(φ, λ)` | φ, λ | U2 rotation |
+| `u3(θ, φ, λ)` | θ, φ, λ | Generic single-qubit |
+| `cp(λ, ctrl, tgt)` | λ | Controlled-Phase |
+| `crz(λ, ctrl, tgt)` | λ | Controlled-RZ |
+
+---
+
+## ▍ Noise Models
+
+All channels applied as post-circuit stochastic Kraus operations on the full statevector.
+
+| Model | Kraus operators | Physical process |
+|---|---|---|
+| `ideal` | `I` | Noiseless |
+| `depolarizing` | `{√(1−p)I, √(p/3)X, √(p/3)Y, √(p/3)Z}` | Isotropic Pauli error |
+| `amplitude_damping` | `{K₀=diag(1,√(1−γ)), K₁=[[0,√γ],[0,0]]}` | T₁ energy relaxation |
+| `phase_damping` | `{K₀, K₁}` | T₂ dephasing |
+| `bitflip` | `{√(1−p)I, √p·X}` | Bit flip σₓ |
+| `combined` | depolarizing(p/2) ∘ amplitude_damping(p/3) | Worst-case NISQ |
+
+Fidelity metrics computed on every noisy run: Bhattacharyya `F = Σᵢ √(pᵢqᵢ)` and TVD `= ½Σᵢ|pᵢ−qᵢ|`.
+
+---
+
+## ▍ Mitigation & Predictive Healing
+
+Active error tracking and stabilization integrated natively into the simulation runtime via `healing.py`.
+
+| Model | Operators | Description |
+|---|---|---|
+| `dephasing_tracking` | `Δ_pre_emp ∘ Σ` | Predictive deviation vs ideal eigenstate |
+| `phi_ab_alignment` | `Φ_AB(state_A, state_B, ipg)` | Semantic + coherence alignment between two quantum states |
+| `vettore_dinamico` | `V_din = K · log(E_B/E_A) · Φ_AB` | Log-differential energetic evolution vector |
+| `kappa_stabilization` | `κ-strength routine` | Proactive statevector profile shielding |
+| `richardson_integration` | `{λ₁=1.0, λ₂=2.0}` | Dual-point zero-noise trajectory approximation |
+
+All core functions compiled via `@jax.jit`. Event history managed by `MemoryReflectionEngine` with JAX Zero-Drift spectral aggregation.
+
+---
+
+## ▍ Anti-OOM Chunk Engine
+
+All operations parcellized dynamically using a 4-layer architectural shield.
+
+| Layer | Class | Role |
+|---|---|---|
+| 1 | `SafeMemoryGuard` | Pre-allocation RAM check — blocks before JAX raises `RESOURCE_EXHAUSTED` |
+| 2 | `MemoryChunker` | Geometry calculator — computes `num_chunks`, `chunk_dim`, `chunk_size_bits` from available RAM without any JAX allocation |
+| 3 | `CircuitChunker` | Per-slice execution — `SafeMemoryGuard` fires before every gate-slice dispatch |
+| 4 | `Chunk` | Top-level wrapper — logical n_qubits decoupled from physical allocation at `safe_qubits` |
+
+### Benchmark vs PennyLane — Windows CPU (8 GB RAM)
+
+> Dense Evolution maintains constant ~2 GB RAM at any qubit count via dynamic chunking.
+> PennyLane allocates the full statevector — OOM beyond 26q.
+
+| Qubits | Hilbert Space | PennyLane | PennyLane RAM | Dense Evolution | Dense RAM | Chunk Geometry |
+|:------:|:-------------:|:---------:|:-------------:|:---------------:|:---------:|:--------------:|
+| 24 | 16,777,216 | ✅ | 307 MB | ✅ | 516 MB | 1× (2²⁷) |
+| 26 | 67,108,864 | ✅ | 1,074 MB | ✅ | 2,050 MB | 1× (2²⁷) |
+| 28 | 268,435,456 | ❌ OOM | — | ✅ | 2,050 MB | 2× (2²⁷) |
+| 30 | 1,073,741,824 | ❌ OOM | — | ✅ | 2,048 MB | 8× (2²⁷) |
+| 32 | 4,294,967,296 | ❌ OOM | — | ✅ | 2,048 MB | 32× (2²⁷) |
+
+```python
+from dense_evolution import Chunk
+
+sim = Chunk(27)
+sim.run_chunk([['h', i] for i in range(27)], chunk_size_gates=500)
+
+print(sim)
+# Chunk(n_qubits=27, safe_qubits=27, num_chunks=1,
+#       chunk_size_bits=27, mem_per_chunk=2048.0 MB, ram_free=42.3%, has_jax=True)
+```
 
 ---
 
@@ -341,11 +393,12 @@ dense_evolution/
 
 | Metric | Value |
 |---|---|
-| Numerical drift (80-layer Ansatz, 1360 gates) | `Δ = 1.11 × 10⁻¹⁶` |
+| Numerical drift (30-layer Ansatz, 1360 gates) | `Δ = 1.11 × 10⁻¹⁶` |
 | Memory footprint @ 20q | `32 MB` (float64) · `16 MB` (float32) |
 | JIT compile overhead (first run) | `< 400 ms` |
 | Gate throughput after warm-up | `> 10⁶ gates/s` (CPU) |
 | Maximum tested qubits (Colab Free) | `24q` stable · `33q` high-RAM runtime |
+| Anti-OOM latency reduction (static JIT cache) | `−86.47%` |
 
 ---
 
@@ -353,53 +406,27 @@ dense_evolution/
 
 | Panel | Contents |
 |---|---|
-| **Overview** | R0 header · R1 P(\|n⟩) histogram + Top-12 states · R2 wavefunction helix 3D + metrics table · R3 noise analysis + shot histogram · R4–R6 VQE telemetry × 6 · R7 Pearson heatmap |
+| **Overview** | R0 header · R1 P(\|n⟩) histogram + Top-12 states · R2 wavefunction helix 3D + metrics table · R3 noise analysis + shot histogram · R4–R6 VQE telemetry ×3 · R7 Pearson heatmap |
 | **Fisica Stato** | Bloch projection · Schmidt rank · coherence vector |
-| **Mosaico 1008q** | 2D probability density map up to 1008 qubits |
-| **VQE Results** | 6-subplot telemetry: energy convergence, entropy, purity, ‖∇L‖, noise factor, θ-correction |
+| **Mosaico** | 2D probability density map up to 1008 qubits |
+| **VQE Results** | 6-subplot: energy convergence, entropy, purity, ‖∇L‖, noise factor, θ-correction |
 | **MD Results** | 6-subplot MD telemetry + masked Pearson correlation heatmap |
 | **Performance** | Gate throughput · JIT compile time · RAM usage |
-
----
-
-## ▍ Circuit Library (80+ presets)
-## ▍ Circuit Library (30+ presets)
-
-All circuits are stored as OpenQASM 2.0 strings in `QASM_LIBRARY`.
-
-**Standard** — Bell Φ⁺, QFT 4q/8q, Toffoli, Adder 2-bit, Deutsch-Jozsa, Bernstein-Vazirani  
-**Algorithms** — Grover 3q/4q, Simon 4q, Shor 15, HHL, QAOA Max-Cut 4q, QPE 5q, Quantum Walk, Teleportation, BB84  
-**Topological** — Anyonic Braiding 6q, Charge Pump 8q, DiamondPhi 12q, Omega Phase Lock 8q, Arecibo DeepField 16q, ARECIBO v11.3 SINGULARITY  
-**Peptide / Biological** — Furin RRAR 8q, Hemoglobin MVLSPADK 8q, Spike 8q/16q, p53 Guardian 24q, WormholeTriplePeptide 24q  
-**Stress Tests** — Hardware Stress, Quantum Supremacy, Interference Stress, BGQ 32q, Twin Shield Full Resonance 32q, Nuovo Circuito 33q
-
-**Proprietary phase constants used in topological circuits:**
-
-| Constant | Value (rad) | Physical origin |
-|---|:---:|---|
-| φ (Golden Ratio) | 1.6180 | Tatopenn φ-resonance |
-| sp³ diamond angle | 1.9106 | Carbon tetrahedral bond |
-| Topological lock | 3.0718 | Near-π translocation phase |
-| Omega / Fe₂S₂ | 6.1574 | Iron-sulfur cluster phase lock |
-| BGQ wormhole kick | 0.7000 | BGQ wormhole kickback amplitude |
-**Topological** — Anyonic Braiding 6q, Charge Pump 8q   
-**Stress Tests** — Hardware Stress, Quantum Supremacy, Interference Stress
-
 
 ---
 
 ## ▍ VQE Engine
 
 **Positional parameter injection** — `QASMParser` tokenizes all literals to `0.0` for JIT speed. VQE recovers parameters by:
-1. counting parametric gates (`rx ry rz p u1 cp crz`) → `n_params`
-2. initializing `θ ∈ ℝⁿ` uniform in `[−π, π]`
-3. injecting `θ[i]` sequentially by gate order in the AST via `risolvi_qasm()`
+1. Counting parametric gates (`rx ry rz p u1 cp crz`) → `n_params`
+2. Initializing `θ ∈ ℝⁿ` uniform in `[−π, π]`
+3. Injecting `θ[i]` sequentially by gate order in the AST via `risolvi_qasm()`
 
 Compatible with any custom OpenQASM 2.0 string without pre-labelling.
 
 **Gradient & update rule:**
 
-$$\frac{\partial E}{\partial \theta_i} = \langle\psi(\theta)|\,\frac{\partial H}{\partial \theta_i}\,|\psi(\theta)\rangle \qquad \theta \leftarrow \theta - \frac{\alpha\,\hat{m}_t}{\sqrt{\hat{v}_t}+\varepsilon}$$
+$$\frac{\partial E}{\partial \theta_i} = \left\langle\psi(\theta)\left|\frac{\partial H}{\partial \theta_i}\right|\psi(\theta)\right\rangle \qquad \theta \leftarrow \theta - \frac{\alpha\,\hat{m}_t}{\sqrt{\hat{v}_t}+\varepsilon}$$
 
 **Telemetry columns** (→ `df_vqe_telemetry`):
 
@@ -409,7 +436,7 @@ $$\frac{\partial E}{\partial \theta_i} = \langle\psi(\theta)|\,\frac{\partial H}
 | `Entropy` | bit | −Tr(ρ log₂ ρ) |
 | `Purity` | — | Tr(ρ²) ∈ [1/d, 1] |
 | `Gradient` | — | ‖∇L‖ — barren plateau detection |
-| `Noise_Factor` | — | fidelity-derived noise proxy |
+| `Noise_Factor` | — | Fidelity-derived noise proxy |
 | `Theta_Correction` | rad | ADAM step norm |
 
 ---
@@ -429,71 +456,44 @@ Custom: JSON array of diagonal eigenvalues, length `2^n_qubits`.
 
 ---
 
-## ▍ Noise Models
+## ▍ Circuit Library (30+ presets)
 
-All channels applied as post-circuit Kraus operations on the full statevector.
+All circuits stored as OpenQASM 2.0 strings in `QASM_LIBRARY`.
 
-| Model | Kraus operators | Physical process |
-|---|---|---|
-| `ideal` | I | noiseless |
-| `depolarizing` | {√(1−p)I, √(p/3)X,Y,Z} | isotropic Pauli error |
-| `amplitude_damping` | {K₀, K₁} | T₁ energy relaxation |
-| `phase_damping` | {K₀, K₁} | T₂ dephasing |
-| `bitflip` | {√(1−p)I, √p·X} | bit flip σₓ |
-| `combined` | depolarizing(p/2) ∘ amp_damp(p/3) | worst-case NISQ |
+**Standard** — Bell Φ⁺, QFT 4q/8q, Toffoli, Adder 2-bit, Deutsch-Jozsa, Bernstein-Vazirani
 
-Fidelity: Bhattacharyya `F = Σᵢ √(pᵢqᵢ)` and TVD `= ½Σᵢ|pᵢ−qᵢ|` computed on every noisy run.
+**Algorithms** — Grover 3q/4q, Simon 4q, Shor 15, HHL, QAOA Max-Cut 4q, QPE 5q, Quantum Walk, Teleportation, BB84
 
 ---
 
-## ▍ Troubleshooting
+## ▍ Changelog
 
-| Error | Cause | Fix |
-|---|---|---|
-| `TypeError: cond branches must have equal output types` | JAX dtype mismatch between 1q/2q branches | `de.patch_dense_parametric(de.DenseSVSimulator)` — runs automatically on import |
-| VQE telemetry empty | VQE disabled or no parametric gates | Enable **VQE Settings** checkbox; use circuits with `rx/ry/rz` gates |
-| Hamiltonian shape mismatch | JSON array length ≠ 2^n_qubits | Supply exactly `2^n` values (e.g. 16 for 4q) |
-| Barren plateau span not visible | < 3 consecutive epochs with ‖g‖ < 0.01·max‖g‖ | Increase epochs or reduce learning rate |
-| Dashboard blank in JupyterLab | Extension missing | `jupyter labextension install @jupyter-widgets/jupyterlab-manager` |
-| Memory error on high-qubit circuits | 2ⁿ × 16 bytes: 24q = 268 MB, 30q = 16 GB | Use `use_float32=True` to halve; cap at 24q on standard runtimes |
+### v8.1.7
+- `ia_utils/` — new package: `median_healing`, `enhanced_dense_healing_hybrid` for vector sequence healing (NaN/Inf-safe)
+- `jax` import in `ia_utils.vector_healing` made lazy — importable without the `[jax]` extra
+- Fixed `reconstruction_error` telemetry returning `NaN` when input contained `NaN`/`Inf`
+- Added `scipy` to core dependencies (was used but undeclared)
 
----
-▍ Mitigation & Predictive Healing Models
-Active error tracking and stabilization parameters integrated natively into the simulation runtime.
-Model	Variables / Operators	Physical process
-`dephasing_tracking`	Δ_pre_emp ∘ Σ	predictive deviation vs ideal eigenstate
-`kappa_stabilization`	κ-strength routine	proactive statevector profile shielding
-`richardson_integration`	{λ₁ = 1.0, λ₂ = 2.0}	dual-point zero-noise trajectory approximation
-Compilation: Full **XLA Kernel Fusion** via `@jax.jit` for mass-parallelized trajectory sweeps (< 1.0s).
+### v8.1.6
+- Modular package structure (`dense_evolution/` directory)
+- Split `registry.py`, `gates.py`, `healing.py`, `chunk.py` into dedicated modules
 
----
-▍ Chunk Engines (Anti-OOM)
-All operations parcellized dynamically using dual-stage longitudinal and transverse architectural shields.
-Model	Execution parameters	Physical process
-`chunk1`	`circuit_slice = target[i : i + chunk_size]`	instruction loop-unroll kill
-`chunk2`	`alloc_dim = 2 ** chunk_size_bits`	transverse Hilbert slicing
-`Chunk`	`sim = Chunk(n_qubits)`	hardware-adaptive anti-OOM
-Performance: Hard-locked at `15%` max RAM available with **-86.47% Latency Collapse** via global static JIT cache injection.
+### v8.1.5
+- `chunk.py` — `SafeMemoryGuard`: hard block at configurable free-RAM threshold (default 15%), soft warning at 2× threshold, `gc.collect()` before every check
+- `chunk.py` — `Chunk` no longer subclasses `DenseSVSimulator`; inner simulator allocated at `safe_qubits` only — eliminates `RESOURCE_EXHAUSTED` on 28q–34q circuits
+- `chunk.py` — `CircuitChunker.split_circuit` RAM-checks every gate-slice before dispatch
+- `chunk.py` — `MemoryChunker` attributes (`num_chunks`, `chunk_size_bits`, `dtype`) forwarded as `@property` on `Chunk` for benchmark compatibility
 
----
-🪐 [SHIELD::OOM] // Chunk Engine
+### v8.1.0
+- `healing.py` — Predictive State Engine: `calculate_phi_ab`, `calculate_vettore_dinamico`, `calculate_delta_preemp`, `evaluate_phi_trigger`, `calculate_jax_reflection` — all `@jax.jit`
+- `MemoryReflectionEngine` — event logging + JAX Zero-Drift spectral aggregation
 
-```python
-from dense_evolution import Chunk
+### v8.0.x
+- `run_parametric_batch_jit()` — `jax.vmap` over full parameter grids in single XLA call
+- `run_circuit_jit_beast_mode()` — static JIT compilation with QuantumTranspiler
+- OpenQASM 2.0/3.0 dual-mode parser with paren-depth-aware expression splitting
+- `NoiseModel` Kraus channels in `registry.py`
 
-sim = Chunk(27)
-circuit_ops = [['h', i] for i in range(27)]
-sim.run_chunk(circuit_ops, 500)
-```
-
-🧬 [SYS::ARCH]
-* `chunk1` -> Slices gate arrays into windows to kill JAX compilation stalls.
-* `chunk2` -> Slices raw Hilbert statevectors into isolated RAM allocations.
-
-⚡ [BENCH::VERDICT]
-* **Qubits**: 27 Qubits // 134M States.
-* **Memory**: Hard-locked at 15% RAM threshold.
-* **Speed** : **-86.47% Latency Collapse** via Static JIT.
 ---
 
 ## ▍ License
@@ -501,549 +501,13 @@ sim.run_chunk(circuit_ops, 500)
 **Business Source License 1.1** — converts automatically to **Apache 2.0** on **1 June 2029**.
 
 - Non-commercial use: unrestricted
-- Commercial use: ≤ 24 allocated qubits · ≤ 1000 circuits/day · ≤ 10,000 shots/circuit
-- Attribution required on all copies: `© 2026 Salvatore Pennacchio <jtatopenn@libero.it> — Dense Evolution`
+- Commercial use: ≤ 24 allocated qubits · ≤ 1,000 circuits/day · ≤ 10,000 shots/circuit
+- Attribution required: `© 2026 Salvatore Pennacchio <jtatopenn@libero.it> — Dense Evolution`
 
 Full text: [LICENSE.md](LICENSE.md)
 
 ---
-=======
-
-
-\*\*Dashboard (Colab / Jupyter):\*\*
-
-```python
-
-import dash
-
-from IPython.display import display, clear\_output
-
-
-
-clear\_output()
-
-display(dash.dashboard\_unificata)
-
-```
-
-
-
-\---
-
-
-
-\## ▍ Architecture
-
-
-
-```
-
-dense\_evolution/
-
-├── registry.py       hardware detection · JAX / CuPy / NumPy capability flags
-
-├── gates.py          GATES{} · PARAMETRIC\_GATES{} · GATE\_IDS{}
-
-├── noise\_model.py    Kraus channels · stochastic trajectory engine
-
-├── parser.py         QASMParser · QASMCircuit · OpenQASM 2.0 / 3.0
-
-├── compiler.py       \_apply\_gate\_fast\_step (jit) · \_compile\_and\_run\_circuit\_jit
-
-├── simulator.py      DenseSVSimulator · vmap batch VQE · chunked execution
-
-├── chunk.py          SafeMemoryGuard · CircuitChunker · MemoryChunker · Chunk
-
-└── dash.py           ipywidgets dashboard · VQE engine · MD simulation
-
-```
-
-
-
-\*\*Data flow per run:\*\*
-
-```
-
-▶ Run
-
-&#x20;└─ core\_calcolo\_quantistico()          parse → JIT execute → apply noise
-
-&#x20;    ├─ ottimizza\_vqe()                 Hellmann-Feynman AD → ADAM → df\_vqe\_telemetry
-
-&#x20;    ├─ run\_md\_simulation\_dummy()       QM/MM dynamics → df\_md\_telemetry + Pearson matrix
-
-&#x20;    └─ build\_panel\_\*(res)              matplotlib figure → display()
-
-```
-
-
-
-\---
-
-
-
-\## ▍ Core Features
-
-
-
-| Feature | Detail |
-
-|---|---|
-
-| \*\*Linear Kernel Fusion\*\* | Stride-sliced tensor ops via JAX XLA — zero Kronecker matrices |
-
-| \*\*Circuit Chunking\*\* | Fixed-size JIT blocks eliminate tracer overhead on 1000+ gate circuits |
-
-| \*\*Anti-OOM SafeMemoryGuard\*\* | Hard block at 15% free RAM — raises `MemoryPressureError` before JAX crashes |
-
-| \*\*Kraus Noise Channels\*\* | `depolarizing` `amplitude\_damping` `phase\_damping` `bitflip` `combined` — stochastic, O(2ⁿ) cost |
-
-| \*\*VQE + ADAM\*\* | Hellmann-Feynman gradient via JAX AD · positional parameter injection into any QASM 2.0 |
-
-| \*\*vmap Batch Sweep\*\* | `run\_parametric\_batch\_jit()` evaluates full parameter grids in one JIT call |
-
-| \*\*Backend Agnostic\*\* | NumPy CPU · JAX XLA CPU/TPU · CuPy CUDA — runtime selection, zero code changes |
-
-| \*\*Live Dashboard\*\* | 8-panel ipywidgets telemetry: probability, VQE energy, entropy, purity, gradient, noise, θ-correction, Pearson heatmap |
-
-
-
-\---
-
-
-
-\## ▍ Benchmarks
-
-
-
-> Measured on Google Colab Free Tier (CPU runtime)
-
-
-
-| Metric | Value |
-
-|---|---|
-
-| Numerical drift (80-layer Ansatz, 1360 gates) | `Δ = 1.11 × 10⁻¹⁶` |
-
-| Memory footprint @ 20q | `32 MB` (float64) · `16 MB` (float32) |
-
-| JIT compile overhead (first run) | `< 400 ms` |
-
-| Gate throughput after warm-up | `> 10⁶ gates/s` (CPU) |
-
-| Maximum tested qubits (Colab Free) | `24q` stable · `33q` high-RAM runtime |
-
-
-
-\### Anti-OOM Chunk Engine vs PennyLane — Windows CPU (8 GB RAM)
-
-
-
-> Dense Evolution maintains constant \~2 GB RAM at any qubit count via dynamic chunking.  
-
-> PennyLane allocates the full statevector — OOM beyond 26q.
-
-
-
-| Qubits | Hilbert Space | PennyLane | PennyLane RAM | Dense Evolution | Dense RAM | Chunk Geometry |
-
-|:------:|:-------------:|:---------:|:-------------:|:---------------:|:---------:|:--------------:|
-
-| 24 | 16,777,216 | ✅ SUCCESS | 307 MB | ✅ SUCCESS | 516 MB | 1× (2²⁷) |
-
-| 26 | 67,108,864 | ✅ SUCCESS | 1,074 MB | ✅ SUCCESS | 2,050 MB | 1× (2²⁷) |
-
-| 28 | 268,435,456 | ❌ OOM | — | ✅ SUCCESS | 2,050 MB | 2× (2²⁷) |
-
-| 30 | 1,073,741,824 | ❌ OOM | — | ✅ SUCCESS | 2,048 MB | 8× (2²⁷) |
-
-| 32 | 4,294,967,296 | ❌ OOM | — | ✅ SUCCESS | 2,048 MB | 32× (2²⁷) |
-
-
-
-\---
-
-
-
-\## ▍ Dashboard Panels
-
-
-
-| Panel | Contents |
-
-|---|---|
-
-| \*\*Overview\*\* | R0 header · R1 P(\\|n⟩) histogram + Top-12 states · R2 wavefunction helix 3D + metrics table · R3 noise analysis + shot histogram · R4–R6 VQE telemetry × 6 · R7 Pearson heatmap |
-
-| \*\*Fisica Stato\*\* | Bloch projection · Schmidt rank · coherence vector |
-
-| \*\*Mosaico 1008q\*\* | 2D probability density map up to 1008 qubits |
-
-| \*\*VQE Results\*\* | 6-subplot telemetry: energy convergence, entropy, purity, ‖∇L‖, noise factor, θ-correction |
-
-| \*\*MD Results\*\* | 6-subplot MD telemetry + masked Pearson correlation heatmap |
-
-| \*\*Performance\*\* | Gate throughput · JIT compile time · RAM usage |
-
-
-
-\---
-
-
-
-\## ▍ Circuit Library (80+ presets)
-
-
-
-All circuits are stored as OpenQASM 2.0 strings in `QASM\_LIBRARY`.
-
-
-
-\*\*Standard\*\* — Bell Φ⁺, QFT 4q/8q, Toffoli, Adder 2-bit, Deutsch-Jozsa, Bernstein-Vazirani  
-
-\*\*Algorithms\*\* — Grover 3q/4q, Simon 4q, Shor 15, HHL, QAOA Max-Cut 4q, QPE 5q, Quantum Walk, Teleportation, BB84  
-
-\*\*Topological\*\* — Anyonic Braiding 6q, Charge Pump 8q, DiamondPhi 12q, Omega Phase Lock 8q, Arecibo DeepField 16q, ARECIBO v11.3 SINGULARITY  
-
-\*\*Peptide / Biological\*\* — Furin RRAR 8q, Hemoglobin MVLSPADK 8q, Spike 8q/16q, p53 Guardian 24q, WormholeTriplePeptide 24q  
-
-\*\*Stress Tests\*\* — Hardware Stress, Quantum Supremacy, Interference Stress, BGQ 32q, Twin Shield Full Resonance 32q, Nuovo Circuito 33q
-
-
-
-\*\*Proprietary phase constants used in topological circuits:\*\*
-
-
-
-| Constant | Value (rad) | Physical origin |
-
-|---|:---:|---|
-
-| φ (Golden Ratio) | 1.6180 | Tatopenn φ-resonance |
-
-| sp³ diamond angle | 1.9106 | Carbon tetrahedral bond |
-
-| Topological lock | 3.0718 | Near-π translocation phase |
-
-| Omega / Fe₂S₂ | 6.1574 | Iron-sulfur cluster phase lock |
-
-| BGQ wormhole kick | 0.7000 | BGQ wormhole kickback amplitude |
-
-
-
-\---
-
-
-
-\## ▍ VQE Engine
-
-
-
-\*\*Positional parameter injection\*\* — `QASMParser` tokenizes all literals to `0.0` for JIT speed. VQE recovers parameters by:
-
-1\. counting parametric gates (`rx ry rz p u1 cp crz`) → `n\_params`
-
-2\. initializing `θ ∈ ℝⁿ` uniform in `\[−π, π]`
-
-3\. injecting `θ\[i]` sequentially by gate order in the AST via `risolvi\_qasm()`
-
-
-
-Compatible with any custom OpenQASM 2.0 string without pre-labelling.
-
-
-
-\*\*Gradient \& update rule:\*\*
-
-
-
-$$\\frac{\\partial E}{\\partial \\theta\_i} = \\langle\\psi(\\theta)|\\,\\frac{\\partial H}{\\partial \\theta\_i}\\,|\\psi(\\theta)\\rangle \\qquad \\theta \\leftarrow \\theta - \\frac{\\alpha\\,\\hat{m}\_t}{\\sqrt{\\hat{v}\_t}+\\varepsilon}$$
-
-
-
-\*\*Telemetry columns\*\* (→ `df\_vqe\_telemetry`):
-
-
-
-| Column | Unit | Description |
-
-|---|---|---|
-
-| `VQE\_Energy` | Ha | ⟨ψ\\|H\\|ψ⟩ |
-
-| `Entropy` | bit | −Tr(ρ log₂ ρ) |
-
-| `Purity` | — | Tr(ρ²) ∈ \[1/d, 1] |
-
-| `Gradient` | — | ‖∇L‖ — barren plateau detection |
-
-| `Noise\_Factor` | — | fidelity-derived noise proxy |
-
-| `Theta\_Correction` | rad | ADAM step norm |
-
-
-
-\---
-
-
-
-\## ▍ Hamiltonian Library
-
-
-
-Auto-filtered by qubit count to prevent shape mismatch.
-
-
-
-| Molecule | Qubits | Bond length | E₀ (Ha) |
-
-|---|:---:|:---:|:---:|
-
-| H₂ | 2 | 0.74 Å | −1.13 |
-
-| H₃⁺ | 3 | 0.85 Å | −1.28 |
-
-| LiH | 4 | 1.40 Å | −2.31 |
-
-| H₂O | 5 | 0.96 Å | −4.12 |
-
-
-
-Custom: JSON array of diagonal eigenvalues, length `2^n\_qubits`.
-
-
-
-\---
-
-
-
-\## ▍ Noise Models
-
-
-
-All channels applied as post-circuit Kraus operations on the full statevector.
-
-
-
-| Model | Kraus operators | Physical process |
-
-|---|---|---|
-
-| `ideal` | I | noiseless |
-
-| `depolarizing` | {√(1−p)I, √(p/3)X,Y,Z} | isotropic Pauli error |
-
-| `amplitude\_damping` | {K₀, K₁} | T₁ energy relaxation |
-
-| `phase\_damping` | {K₀, K₁} | T₂ dephasing |
-
-| `bitflip` | {√(1−p)I, √p·X} | bit flip σₓ |
-
-| `combined` | depolarizing(p/2) ∘ amp\_damp(p/3) | worst-case NISQ |
-
-
-
-Fidelity: Bhattacharyya `F = Σᵢ √(pᵢqᵢ)` and TVD `= ½Σᵢ|pᵢ−qᵢ|` computed on every noisy run.
-
-
-
-\---
-
-
-
-\## ▍ Mitigation \& Predictive Healing Models
-
-
-
-Active error tracking and stabilization parameters integrated natively into the simulation runtime.
-
-
-
-| Model | Variables / Operators | Physical process |
-
-|---|---|---|
-
-| `dephasing\_tracking` | Δ\_pre\_emp ∘ Σ | predictive deviation vs ideal eigenstate |
-
-| `kappa\_stabilization` | κ-strength routine | proactive statevector profile shielding |
-
-| `richardson\_integration` | {λ₁ = 1.0, λ₂ = 2.0} | dual-point zero-noise trajectory approximation |
-
-
-
-Compilation: Full \*\*XLA Kernel Fusion\*\* via `@jax.jit` for mass-parallelized trajectory sweeps (< 1.0s).
-
-
-
-\---
-
-
-
-\## ▍ Chunk Engines (Anti-OOM)
-
-
-
-All operations parcellized dynamically using dual-stage longitudinal and transverse architectural shields.
-
-
-
-```python
-
-from dense\_evolution.chunk import Chunk, SafeMemoryGuard
-
-
-
-\# Hard block at 15% free RAM — raises MemoryPressureError before JAX crashes
-
-sim = Chunk(n\_qubits=30, memory\_threshold=0.15)
-
-sim.run\_chunk(circuit)
-
-
-
-\# Inspect geometry
-
-print(sim.num\_chunks)       # 8
-
-print(sim.chunk\_size\_bits)  # 27
-
-print(sim.memory\_mb())      # \~2048 MB per chunk
-
-```
-
-
-
-| Class | Role | Protection |
-
-|---|---|---|
-
-| `SafeMemoryGuard` | RAM monitor | Hard block < 15% free · soft warn < 30% free |
-
-| `CircuitChunker` (`chunk1`) | Circuit regista | RAM check before every gate-slice |
-
-| `MemoryChunker` | Geometry calculator | Reports `num\_chunks`, `chunk\_dim`, `chunk\_size\_bits` |
-
-| `Chunk` (`chunk2`) | Anti-OOM simulator wrapper | Allocates inner sim at `safe\_qubits` only |
-
-
-
-\*\*SafeMemoryGuard behaviour:\*\*
-
-
-
-| Condition | Action |
-
-|---|---|
-
-| free RAM < `threshold` (default 15%) | `MemoryPressureError` — execution halted cleanly |
-
-| free RAM < `threshold × 2` (default 30%) | Warning printed to stdout |
-
-| Before every gate-slice | `gc.collect()` + RAM check |
-
-| Before inner simulator allocation | Pre-allocation check in `Chunk.\_\_init\_\_` |
-
-
-
-Performance: RAM hard-locked at ≤ `chunk\_size\_bits` qubits per allocation block regardless of logical circuit size.
-
-
-
-\---
-
-
-
-\## ▍ Troubleshooting
-
-
-
-| Error | Cause | Fix |
-
-|---|---|---|
-
-| `TypeError: cond branches must have equal output types` | JAX dtype mismatch between 1q/2q branches | `de.patch\_dense\_parametric(de.DenseSVSimulator)` — runs automatically on import |
-
-| `MemoryPressureError` | Free RAM below 15% threshold | Free system RAM · reduce `n\_qubits` · lower `memory\_threshold` |
-
-| `XlaRuntimeError: RESOURCE\_EXHAUSTED` | Using `DenseSVSimulator` directly on > 27q | Use `Chunk(n\_qubits=N)` instead |
-
-| VQE telemetry empty | VQE disabled or no parametric gates | Enable \*\*VQE Settings\*\* checkbox; use circuits with `rx/ry/rz` gates |
-
-| Hamiltonian shape mismatch | JSON array length ≠ 2^n\_qubits | Supply exactly `2^n` values (e.g. 16 for 4q) |
-
-| Barren plateau span not visible | < 3 consecutive epochs with ‖g‖ < 0.01·max‖g‖ | Increase epochs or reduce learning rate |
-
-| Dashboard blank in JupyterLab | Extension missing | `jupyter labextension install @jupyter-widgets/jupyterlab-manager` |
-
-
-
-\---
-
-
-
-\## ▍ Changelog
-
-
-
-\### v8.1.2
-
-\- `chunk.py` — `SafeMemoryGuard` class: hard block at configurable free-RAM threshold (default 15%), soft warning at 2× threshold, `gc.collect()` before every check
-
-\- `chunk.py` — `Chunk` no longer subclasses `DenseSVSimulator`; inner simulator allocated at `safe\_qubits` only — eliminates `RESOURCE\_EXHAUSTED` on 28q–34q circuits
-
-\- `chunk.py` — `CircuitChunker.split\_circuit` RAM-checks every gate-slice before dispatch
-
-\- `chunk.py` — `MemoryChunker` attributes (`num\_chunks`, `chunk\_size\_bits`, `dtype`) forwarded as `@property` on `Chunk` for benchmark compatibility
-
-\- Fixed `globals()\["QuantumTranspiler"]` anti-pattern → direct relative import
-
-\- Fixed `\_\_version\_\_` mismatch between `\_\_init\_\_.py` and PyPI release
-
-
-
-\### v8.1.1
-
-\- Modular package structure (`dense\_evolution/` directory)
-
-\- `stress\_test\_quantum.py` deduplicated
-
-\- `test\_library.py` updated with correct imports
-
-
-
-\### v8.0.0
-
-\- Initial public release
-
-
-
-\---
-
-
-
-\## ▍ License
-
-
-
-\*\*Business Source License 1.1\*\* — free for research, academic, and non-commercial use.  
-
-Commercial use requires written permission from the author.  
-
-Contact: \[jtatopenn@libero.it](mailto:jtatopenn@libero.it)
-
-
-
-\---
-
-
 
 <div align="center">
-
-<sub>Dense Evolution · Salvatore Pennacchio · 2026</sub>
-
+  <sub>© 2026 Salvatore Pennacchio — Dense Evolution</sub>
 </div>
->>>>>>> 10dd0b7 (v8.1.2 - SafeMemoryGuard Anti-OOM, chunk.py rewrite, README update)
-
-<div align="center">
-<sub>© 2026 Salvatore Pennacchio — Dense Evolution v8</sub>

@@ -17,3 +17,5 @@ dense_evolution.egg-info/SOURCES.txt
 dense_evolution.egg-info/dependency_links.txt
 dense_evolution.egg-info/requires.txt
 dense_evolution.egg-info/top_level.txt
+ia_utils/__init__.py
+ia_utils/vector_healing.py
