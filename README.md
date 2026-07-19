@@ -18,10 +18,16 @@
 
 [![CI](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml/badge.svg)](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/dense-evolution?style=flat-square&color=00e5ff)](https://pypi.org/project/dense-evolution/)
+[![PyPI Downloads](https://img.shields.io/pypi/dm/dense-evolution?style=flat-square&color=00e5ff)](https://pypi.org/project/dense-evolution/)
 [![Python](https://img.shields.io/badge/Python-3.9+-blue?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-BSL_1.1-orange?style=flat-square)](LICENSE.md)
 [![Build](https://img.shields.io/badge/Build-Passing-00ff9d?style=flat-square)](https://github.com/tatopenn-cell/Dense-Evolution/actions)
 [![Cross-Validation CI](https://github.com/tatopenn-cell/Dense-Evolution-Ising-Tests/actions/workflows/ci.yml/badge.svg)](https://github.com/tatopenn-cell/Dense-Evolution-Ising-Tests/actions/workflows/ci.yml)
+[![Latest Release](https://img.shields.io/github/v/release/tatopenn-cell/Dense-Evolution?style=flat-square&color=blueviolet)](https://github.com/tatopenn-cell/Dense-Evolution/releases)
+[![Last Commit](https://img.shields.io/github/last-commit/tatopenn-cell/Dense-Evolution?style=flat-square)](https://github.com/tatopenn-cell/Dense-Evolution/commits/main)
+[![Issues](https://img.shields.io/github/issues/tatopenn-cell/Dense-Evolution?style=flat-square)](https://github.com/tatopenn-cell/Dense-Evolution/issues)
+[![Stars](https://img.shields.io/github/stars/tatopenn-cell/Dense-Evolution?style=flat-square&color=yellow)](https://github.com/tatopenn-cell/Dense-Evolution/stargazers)
+[![JAX](https://img.shields.io/badge/Backend-JAX_XLA-f9ab00?style=flat-square&logo=google&logoColor=white)](https://github.com/google/jax)
 
 ---
 
@@ -115,6 +121,9 @@ dense_evolution/
 ├── chunk.py        SafeMemoryGuard · MemoryChunker · CircuitChunker · Chunk (Anti-OOM)
 ├── simulator.py    DenseSVSimulator · run_parametric_batch_jit · vmap batch VQE
 └── dash.py         ipywidgets dashboard · VQE engine · QM/MM · MD simulation · 3D wavefunction
+
+ia_utils/
+└── vector_healing.py   median_healing · enhanced_dense_healing_hybrid (NaN/Inf-safe, lazy JAX import)
 ```
 
 **Data flow per run:**
@@ -140,6 +149,7 @@ dense_evolution/
 | **VQE + ADAM** | Hellmann-Feynman gradient · positional parameter injection into any OpenQASM 2.0 circuit |
 | **Anti-OOM Engine** | `SafeMemoryGuard` blocks execution before JAX raises `RESOURCE_EXHAUSTED` |
 | **Predictive Healing** | `healing.py` — Φ_AB alignment, dynamic vector, Σ-sync, `MemoryReflectionEngine` |
+| **Vector Sequence Healing** | `ia_utils/` — `median_healing`, `enhanced_dense_healing_hybrid` — NaN/Inf-safe, lazy JAX import |
 | **Backend Agnostic** | NumPy CPU · JAX XLA CPU/TPU · CuPy CUDA — runtime selection, zero code changes |
 | **Live Dashboard** | 8-panel ipywidgets telemetry: probability, VQE energy, entropy, purity, gradient, noise, θ-correction, Pearson heatmap |
 
@@ -238,6 +248,17 @@ sim.run_chunk(circuit, chunk_size_gates=500)
 
 Backward-compatibility aliases: `chunk1 = MemoryChunker`, `chunk2 = Chunk`, `Chunk2Incrociato = Chunk`.
 
+### `ia_utils.vector_healing`
+
+```python
+from ia_utils.vector_healing import median_healing, enhanced_dense_healing_hybrid
+
+healed, radius   = median_healing(vettori, radius_baseline=None)
+healed, metadata = enhanced_dense_healing_hybrid(vettori, radius_baseline=None, median_fallback_threshold=0.1)
+```
+
+See **IA Utils — Vector Sequence Healing** above for details.
+
 ---
 
 ## ▍ Gate Library
@@ -302,6 +323,42 @@ Active error tracking and stabilization integrated natively into the simulation 
 | `richardson_integration` | `{λ₁=1.0, λ₂=2.0}` | Dual-point zero-noise trajectory approximation |
 
 All core functions compiled via `@jax.jit`. Event history managed by `MemoryReflectionEngine` with JAX Zero-Drift spectral aggregation.
+
+---
+
+## ▍ IA Utils — Vector Sequence Healing
+
+`ia_utils/vector_healing.py` — standalone module for cleaning sequences of vectors (e.g. hidden states / embeddings) that may contain `NaN` or `Inf` entries. Both functions preprocess the input (Inf → NaN → column-mean imputation) before healing, so corrupted values never propagate into the output.
+
+| Function | Approach | Returns |
+|---|---|---|
+| `median_healing(vettori, radius_baseline=None)` | `scipy.ndimage.median_filter`, dynamic radius `min(20, max(3, n // 3))` | `(healed: np.ndarray, radius: int)` |
+| `enhanced_dense_healing_hybrid(vettori, radius_baseline=None, median_fallback_threshold=0.1)` | Blends the `dense_evolution.healing` Φ-trigger logic with a median fallback, decided per-step | `(healed: np.ndarray, metadata: dict)` |
+
+`enhanced_dense_healing_hybrid` metadata:
+
+| Key | Type | Description |
+|---|---|---|
+| `fallback_triggered` | `bool` | `True` if the median fallback or dense blending fired at least once |
+| `adaptive_radius_used` | `int` | Baseline radius actually applied |
+| `reconstruction_error` | `float` | Mean norm of the correction applied vs. the sanitized input |
+
+```python
+import numpy as np
+from ia_utils.vector_healing import median_healing, enhanced_dense_healing_hybrid
+
+vettori = np.random.default_rng(0).normal(size=(50, 128))
+vettori[10, 3] = np.nan          # simulate a corrupted hidden state
+vettori[30, 7] = np.inf
+
+healed, radius = median_healing(vettori)
+
+healed_hybrid, meta = enhanced_dense_healing_hybrid(vettori)
+print(meta)
+# {'fallback_triggered': True, 'adaptive_radius_used': 16, 'reconstruction_error': 11.48}
+```
+
+`jax` is imported lazily inside `enhanced_dense_healing_hybrid` — `median_healing` and the module import itself work without the `[jax]` extra installed; only calling `enhanced_dense_healing_hybrid` requires it.
 
 ---
 
