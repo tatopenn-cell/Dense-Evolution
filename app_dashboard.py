@@ -23,7 +23,7 @@ st.set_page_config(
 )
 
 pg = st.navigation([
-    st.Page(quantum_simulator.render, title="Quantum Simulator", icon="⚛️", default=True),
-    st.Page(vector_healing.render, title="Vector Healing", icon="🧬"),
+    st.Page(quantum_simulator.render, title="Quantum Simulator", icon="⚛️", url_path="quantum-simulator", default=True),
+    st.Page(vector_healing.render, title="Vector Healing", icon="🧬", url_path="vector-healing"),
 ])
 pg.run()
