@@ -34,8 +34,8 @@ jobs:
 
       - name: Run test suite
         run: |
-          pytest test_dense_evolution.py -v --tb=short
-          pytest test_dense_evolution.py -v --tb=short --junitxml=pytest-results.xml
+          pytest test_dense_evolution.py test_ia_healing.py -v --tb=short
+          pytest test_dense_evolution.py test_ia_healing.py -v --tb=short --junitxml=pytest-results.xml
 
       - name: Upload test results on failure
         if: failure()
