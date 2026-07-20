@@ -209,6 +209,45 @@ class TestQubitRangeValidationBypassesJIT:
         with pytest.raises(ValueError):
             sim4.run_parametric_batch_jit([['rx', 5]], np.zeros((1, 1)))
 
+
+class TestBeastModeFloat32:
+    """use_float32=True used to crash unconditionally in run_circuit_jit_beast_mode
+    (the JIT fast path) — not just for circuits with 2-qubit gates, even a
+    circuit with only 1-qubit gates hit it, because jax.lax.cond traces
+    every branch of _apply_gate_fast_step's dispatch (do_1q AND do_2q)
+    regardless of which gates are actually present. Root cause: inside
+    do_2q, apply_cp built its exp_pos constant hardcoded to complex128,
+    while the identity branch of that same lax.cond (`lambda s: s`)
+    preserved sv's real dtype (complex64 under use_float32=True) —
+    'cond branches must have equal output types but they differ'. Fixed by
+    deriving every constant in _apply_gate_fast_step from sv.dtype instead
+    of a hardcoded complex128."""
+
+    def test_1q_only_circuit_runs_under_float32(self):
+        sim = DenseSVSimulator(n_qubits=3, use_float32=True)
+        sim.run_circuit_jit_beast_mode([['h', 0, -1], ['x', 1, -1]])
+        assert sim.sv.dtype == np.complex64
+        assert abs(float(np.sum(np.abs(np.asarray(sim.sv)) ** 2)) - 1.0) < 1e-6
+
+    def test_2q_gates_run_under_float32(self):
+        sim = DenseSVSimulator(n_qubits=4, use_float32=True)
+        sim.run_circuit_jit_beast_mode(
+            [['h', 0, -1], ['cx', 0, 1, 0], ['cz', 1, 2, 0], ['cp', 2, 3, 0.7]]
+        )
+        assert sim.sv.dtype == np.complex64
+        assert abs(float(np.sum(np.abs(np.asarray(sim.sv)) ** 2)) - 1.0) < 1e-6
+
+    def test_float32_matches_float64_within_precision(self):
+        circuit = [
+            ['h', 0, -1], ['h', 1, -1], ['rx', 2, 0.5], ['ry', 3, 1.1],
+            ['cx', 0, 1, 0], ['cz', 1, 2, 0], ['cp', 2, 3, 0.7], ['crz', 0, 3, 1.3],
+        ]
+        sim32 = DenseSVSimulator(n_qubits=4, use_float32=True)
+        sim32.run_circuit_jit_beast_mode(circuit)
+        sim64 = DenseSVSimulator(n_qubits=4, use_float32=False)
+        sim64.run_circuit_jit_beast_mode(circuit)
+        np.testing.assert_allclose(probs(sim32), probs(sim64), atol=1e-6)
+
 # ─────────────────────────────────────────────────────────────
 # 3. TWO-QUBIT GATES
 # ─────────────────────────────────────────────────────────────

@@ -61,14 +61,25 @@ if HAS_JAX:
         param = operation[3]
         dim   = sv.shape[0]
 
-        inv2    = jnp.float64(1.0 / jnp.sqrt(2.0))
+        # Every constant below must match sv's own dtype (complex64 if
+        # use_float32=True, complex128 otherwise), not a dtype hardcoded to
+        # complex128 — a fixed dtype here made this function only traceable
+        # for complex128 input: apply_cp (inside do_2q) multiplied by an
+        # exp_pos hardcoded to complex128, while lax.cond's other branch
+        # (identity, `lambda s: s`) preserved sv's real dtype, so any
+        # complex64 circuit hit "cond branches must have equal output
+        # types" immediately at trace time — even for circuits with only
+        # 1-qubit gates, since do_2q's body (and this cond) is traced
+        # unconditionally as part of the is_1q/is_2q dispatch below.
+        sv_dtype = sv.dtype
+        inv2    = jnp.asarray(1.0 / jnp.sqrt(2.0), dtype=sv_dtype)
         half_p  = param * jnp.float64(0.5)
-        cos_p   = jnp.cos(half_p).astype(jnp.complex128)
-        sin_p   = jnp.sin(half_p).astype(jnp.complex128)
-        exp_pos = jnp.exp( 1j * param).astype(jnp.complex128)
-        exp_neg = jnp.exp(-1j * param).astype(jnp.complex128)
-        exp_ph4 = jnp.exp( 1j * jnp.pi / 4.0).astype(jnp.complex128)
-        exp_mh4 = jnp.exp(-1j * jnp.pi / 4.0).astype(jnp.complex128)
+        cos_p   = jnp.cos(half_p).astype(sv_dtype)
+        sin_p   = jnp.sin(half_p).astype(sv_dtype)
+        exp_pos = jnp.exp( 1j * param).astype(sv_dtype)
+        exp_neg = jnp.exp(-1j * param).astype(sv_dtype)
+        exp_ph4 = jnp.exp( 1j * jnp.pi / 4.0).astype(sv_dtype)
+        exp_mh4 = jnp.exp(-1j * jnp.pi / 4.0).astype(sv_dtype)
 
         # ── 1-qubit gate matrix selection via lax.switch ──────────────
         # Index must be in [0, 12]; anything outside is clamped to 0 (I).
@@ -78,56 +89,56 @@ if HAS_JAX:
             safe_gid,
             [
                 # 0  I
-                lambda _: jnp.eye(2, dtype=jnp.complex128),
+                lambda _: jnp.eye(2, dtype=sv_dtype),
                 # 1  H
                 lambda _: jnp.array(
                     [[inv2,  inv2],
-                     [inv2, -inv2]], dtype=jnp.complex128),
+                     [inv2, -inv2]], dtype=sv_dtype),
                 # 2  X
                 lambda _: jnp.array(
                     [[0.0+0j, 1.0+0j],
-                     [1.0+0j, 0.0+0j]], dtype=jnp.complex128),
+                     [1.0+0j, 0.0+0j]], dtype=sv_dtype),
                 # 3  Y
                 lambda _: jnp.array(
                     [[0.0+0j, -1j],
-                     [1j,      0.0+0j]], dtype=jnp.complex128),
+                     [1j,      0.0+0j]], dtype=sv_dtype),
                 # 4  Z
                 lambda _: jnp.array(
                     [[1.0+0j,  0.0+0j],
-                     [0.0+0j, -1.0+0j]], dtype=jnp.complex128),
+                     [0.0+0j, -1.0+0j]], dtype=sv_dtype),
                 # 5  S
                 lambda _: jnp.array(
                     [[1.0+0j, 0.0+0j],
-                     [0.0+0j, 1j    ]], dtype=jnp.complex128),
+                     [0.0+0j, 1j    ]], dtype=sv_dtype),
                 # 6  Sdg
                 lambda _: jnp.array(
                     [[1.0+0j, 0.0+0j],
-                     [0.0+0j, -1j   ]], dtype=jnp.complex128),
+                     [0.0+0j, -1j   ]], dtype=sv_dtype),
                 # 7  T
                 lambda _: jnp.array(
                     [[1.0+0j, 0.0+0j],
-                     [0.0+0j, exp_ph4]], dtype=jnp.complex128),
+                     [0.0+0j, exp_ph4]], dtype=sv_dtype),
                 # 8  Tdg
                 lambda _: jnp.array(
                     [[1.0+0j, 0.0+0j],
-                     [0.0+0j, exp_mh4]], dtype=jnp.complex128),
+                     [0.0+0j, exp_mh4]], dtype=sv_dtype),
                 # 9  Rx(θ)  = [[cos θ/2, -i sin θ/2], [-i sin θ/2, cos θ/2]]
                 lambda _: jnp.array(
                     [[cos_p,      -1j * sin_p],
-                     [-1j * sin_p, cos_p     ]], dtype=jnp.complex128),
+                     [-1j * sin_p, cos_p     ]], dtype=sv_dtype),
                 # 10  Ry(θ) = [[cos θ/2, -sin θ/2], [sin θ/2, cos θ/2]]
                 lambda _: jnp.array(
                     [[cos_p,  -sin_p],
-                     [sin_p,   cos_p]], dtype=jnp.complex128),
+                     [sin_p,   cos_p]], dtype=sv_dtype),
                 # 11  Rz(θ) = [[e^{-iθ/2}, 0], [0, e^{iθ/2}]]
                 lambda _: jnp.array(
                     [[jnp.exp(-1j * half_p), 0.0+0j            ],
                      [0.0+0j,                jnp.exp(1j * half_p)]],
-                    dtype=jnp.complex128),
+                    dtype=sv_dtype),
                 # 12  Phase / P(θ) / U1(θ) = [[1, 0], [0, e^{iθ}]]
                 lambda _: jnp.array(
                     [[1.0+0j, 0.0+0j],
-                     [0.0+0j, exp_pos]], dtype=jnp.complex128),
+                     [0.0+0j, exp_pos]], dtype=sv_dtype),
             ],
             operand=None,
         )
@@ -218,13 +229,17 @@ if HAS_JAX:
 
         # ── branch on 1-qubit vs 2-qubit ─────────────────────────────
         # g_id <= 12 → 1-qubit;  g_id >= 20 → 2-qubit.
-        # Both branches must have identical output dtypes — enforced here
-        # by casting both outputs to complex128.
+        # Both branches must have identical output dtypes — enforced here by
+        # casting both outputs to sv_dtype (sv's own dtype, complex64 or
+        # complex128 depending on use_float32), not a dtype hardcoded to
+        # complex128 (see note above: forcing complex128 here regardless of
+        # input dtype would also break jax.lax.scan's carry-type check on
+        # the very next iteration when sv started out as complex64).
         is_1q = g_id <= 12
         new_sv = jax.lax.cond(
             is_1q,
-            lambda s: do_1q(s).astype(jnp.complex128),
-            lambda s: do_2q(s).astype(jnp.complex128),
+            lambda s: do_1q(s).astype(sv_dtype),
+            lambda s: do_2q(s).astype(sv_dtype),
             sv,
         )
         return new_sv, None
