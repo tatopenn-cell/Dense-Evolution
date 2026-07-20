@@ -670,6 +670,81 @@ class TestQASMRangeSyntax:
         assert len(circ.ops) == 1
         assert circ.ops[0]['qubits'] == [0, 1]
 
+
+class TestQASMForLoop:
+    """QASM 3.0 `for`-loops are brace-delimited, not ';'-terminated — the
+    parser used to split statements on ';' alone, so a `for ... { ... }`
+    block both lost its own body (never extracted) AND corrupted whatever
+    real statement followed it on the same line (the stray closing '}'
+    merged with the next statement's text into one garbage op). Verified
+    directly: `for int i in [0:2] { h q[i]; } cx q[0],q[1];` used to produce
+    a single ghost op named '}' and silently drop both the loop body and
+    the real cx — the executed circuit stayed |000> at 100% probability
+    with no error. _process_block_constructs now unrolls resolvable `for`
+    loops and cleanly strips `if`/`while`/`def` blocks before the ';'-split
+    ever runs, needed for VQE ansätze written with a loop over qubits."""
+
+    def test_for_loop_body_extracted_and_following_gate_preserved(self):
+        qasm = '''
+        qreg q[3];
+        for int i in [0:2] { h q[i]; }
+        cx q[0], q[1];
+        '''
+        circ = QASMParser().parse(qasm)
+        assert len(circ.ops) == 4
+        assert [op['name'] for op in circ.ops] == ['h', 'h', 'h', 'cx']
+        assert [op['qubits'] for op in circ.ops] == [[0], [1], [2], [0, 1]]
+
+    def test_for_loop_executes_to_real_ghz_not_ghost_op(self, sim3):
+        qasm = '''
+        qreg q[3];
+        for int i in [0:2] { h q[i]; }
+        cx q[0], q[1];
+        '''
+        circ = QASMParser().parse(qasm)
+        sim3.run_circuit(circ.to_tuples())
+        p = probs(sim3)
+        # not the pre-fix bug (|000> at 100%): real superposition present
+        assert p[0] < 0.99
+
+    def test_for_loop_bound_resolved_from_declared_int_variable(self):
+        qasm = '''
+        int n = 3;
+        qreg q[3];
+        for int i in [0:n-1] { rx(0.5) q[i]; }
+        '''
+        circ = QASMParser().parse(qasm)
+        assert len(circ.ops) == 3
+        assert all(op['name'] == 'rx' and op['params'] == [0.5] for op in circ.ops)
+        assert [op['qubits'] for op in circ.ops] == [[0], [1], [2]]
+
+    def test_for_range_is_inclusive_of_end_bound(self):
+        # QASM3 for-range [0:2] must cover indices 0,1,2 (three iterations) —
+        # unlike this parser's own EXCLUSIVE q[a:b] qubit-range syntax.
+        qasm = 'qreg q[3]; for i in [0:2] { x q[i]; }'
+        circ = QASMParser().parse(qasm)
+        assert [op['qubits'][0] for op in circ.ops] == [0, 1, 2]
+
+    def test_for_loop_body_with_multiple_statements_expands_all(self):
+        qasm = 'qreg q[2]; for i in [0:1] { h q[i]; x q[i]; }'
+        circ = QASMParser().parse(qasm)
+        assert [op['name'] for op in circ.ops] == ['h', 'x', 'h', 'x']
+        assert [op['qubits'][0] for op in circ.ops] == [0, 0, 1, 1]
+
+    def test_if_block_does_not_corrupt_following_statement(self):
+        qasm = 'qreg q[2]; if (c==1) { x q[0]; } h q[1];'
+        circ = QASMParser().parse(qasm)
+        assert len(circ.ops) == 1
+        assert circ.ops[0] == {'type': 'gate', 'name': 'h', 'qubits': [1], 'params': []}
+
+    def test_no_block_constructs_is_a_no_op(self):
+        # plain circuits with no for/if/while/def must be completely
+        # unaffected by _process_block_constructs
+        qasm = 'qreg q[2]; h q[0]; cx q[0], q[1];'
+        circ = QASMParser().parse(qasm)
+        assert [op['name'] for op in circ.ops] == ['h', 'cx']
+
+
 # ─────────────────────────────────────────────────────────────
 # 10. CIRCUIT CHUNKING (Stress test da README)
 # ─────────────────────────────────────────────────────────────

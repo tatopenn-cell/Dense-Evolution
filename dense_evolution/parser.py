@@ -79,6 +79,15 @@ class QASMParser:
     _RE_CREG3      = re.compile(r'^bit(?:\s*\[(\d+)\])?\s+([a-zA-Z_]\w*)')
     _RE_GATE_HEAD  = re.compile(r'^([a-zA-Z_]\w*)(?:\((.*)\))?$')
 
+    # QASM 3.0 `for <type> <var> in [start:end] {` — range is INCLUSIVE
+    # of `end` per the OpenQASM 3 spec (unlike this parser's own q[a:b]
+    # qubit-range syntax, which is exclusive — a separate feature).
+    _RE_FOR_HEAD   = re.compile(
+        r'for\s+(?:\w+\s+)?(\w+)\s+in\s*\[\s*([^\]]+?)\s*:\s*([^\]]+?)\s*\]\s*\{')
+    _RE_BLOCK_HEAD = re.compile(r'\b(for|if|while|def)\b[^{]*\{')
+    _RE_INT_DECL   = re.compile(
+        r'(?:const\s+)?int(?:\s*\[\d+\])?\s+(\w+)\s*=\s*(-?\d+)\s*;')
+
     # ── gate name aliases ────────────────────────────────────────────
     _ALIAS: Dict[str, str] = {
         'cu1':     'cp',
@@ -134,6 +143,94 @@ class QASMParser:
     # Public interface
     # ────────────────────────────────────────────────────────────────
 
+    def _find_matching_brace(self, s: str, open_idx: int) -> Optional[int]:
+        """Return the index of the '}' matching s[open_idx] == '{', or None
+        if unbalanced. Counter-based — no regex, handles nesting correctly."""
+        depth = 0
+        for i in range(open_idx, len(s)):
+            if s[i] == '{':
+                depth += 1
+            elif s[i] == '}':
+                depth -= 1
+                if depth == 0:
+                    return i
+        return None
+
+    def _collect_int_declarations(self, s: str) -> Dict[str, int]:
+        """Map QASM3 `int n = 3;` / `const int n = 3;` declarations to their
+        literal value, so `for` bounds like `n-1` can be resolved."""
+        return {name: int(val) for name, val in self._RE_INT_DECL.findall(s)}
+
+    def _resolve_int_expr(self, expr: str, decls: Dict[str, int]) -> Optional[int]:
+        """Resolve a `for`-bound expression (literal int, or a declared int
+        variable combined with +/-/*// arithmetic) to a concrete int.
+        Returns None if the expression isn't a safe, resolvable integer
+        expression — callers then treat the loop as unrollable-unresolved."""
+        expr = expr.strip()
+        for name, val in decls.items():
+            expr = re.sub(r'\b' + re.escape(name) + r'\b', str(val), expr)
+        if re.fullmatch(r'[\d\s+\-*/()]+', expr):
+            try:
+                return int(eval(expr, {'__builtins__': {}}, {}))  # noqa: S307
+            except Exception:
+                return None
+        return None
+
+    def _process_block_constructs(self, s: str) -> str:
+        """
+        Pre-process `for` / `if` / `while` / `def` blocks BEFORE the
+        statement-level `split(';')` in parse() ever sees them.
+
+        These are brace-delimited, not `;`-terminated, so leaving them for
+        the naive splitter corrupts whatever statement follows the block on
+        the same line (the closing '}' merges into the next real statement).
+
+        - `for <type> <var> in [start:end] { body }` with resolvable
+          integer bounds (literals, or `int`/`const int` variables declared
+          earlier in the source) is unrolled: `var` is substituted into
+          `body` for each value in range(start, end+1) — QASM3 `for`-ranges
+          are INCLUSIVE of the end bound (unlike this parser's own
+          exclusive `q[a:b]` qubit-range syntax).
+        - `for` loops with unresolvable bounds, and all `if`/`while`/`def`
+          blocks (no static execution — would need runtime classical bit
+          state), are simply removed, leaving the rest of the source intact.
+
+        Runs as a search/replace loop rather than recursion: after an outer
+        block is unrolled, any inner (nested) blocks are duplicated as raw
+        text into the result and get picked up on a later iteration of the
+        same loop, so nesting is handled without extra bookkeeping.
+        """
+        decls = self._collect_int_declarations(s)
+        while True:
+            m = self._RE_BLOCK_HEAD.search(s)
+            if not m:
+                break
+            keyword = m.group(1).lower()
+            open_brace = m.end() - 1
+            close_brace = self._find_matching_brace(s, open_brace)
+            if close_brace is None:
+                # Unbalanced braces — bail out rather than loop forever;
+                # leftover text falls through to the existing _SKIP path.
+                break
+            header = s[m.start():open_brace]
+            body = s[open_brace + 1:close_brace]
+            replacement = ''
+            if keyword == 'for':
+                fm = self._RE_FOR_HEAD.search(header + '{')
+                if fm:
+                    var, start_e, end_e = fm.group(1), fm.group(2), fm.group(3)
+                    start_v = self._resolve_int_expr(start_e, decls)
+                    end_v = self._resolve_int_expr(end_e, decls)
+                    if start_v is not None and end_v is not None:
+                        var_re = re.compile(r'\b' + re.escape(var) + r'\b')
+                        parts = [var_re.sub(str(i), body)
+                                 for i in range(start_v, end_v + 1)]
+                        replacement = ' '.join(parts)
+            # unresolved `for`, and all `if`/`while`/`def` blocks, collapse
+            # to '' (replacement stays empty) — stripped, not corrupting.
+            s = s[:m.start()] + replacement + s[close_brace + 1:]
+        return s
+
     def parse(self, qasm_str: str) -> QASMCircuit:
         """
         Parse an OpenQASM 2.0 or 3.0 string into a QASMCircuit.
@@ -163,6 +260,12 @@ class QASMParser:
         # ── strip comments ───────────────────────────────────────────
         cleaned = self._RE_BLOCK_CMT.sub(' ', qasm_str)
         cleaned = self._RE_LINE_CMT.sub(' ', cleaned)
+
+        # ── unroll for-loops / strip if-while-def blocks ────────────────
+        # Must run before the ';'-split below: brace-delimited blocks are
+        # not single ';'-terminated statements, and left alone they corrupt
+        # whatever real statement follows them on the same line.
+        cleaned = self._process_block_constructs(cleaned)
 
         # ── split into statements ─────────────────────────────────────
         statements = [s.strip() for s in cleaned.split(';') if s.strip()]
