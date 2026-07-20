@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: dense-evolution
-Version: 8.1.8
+Version: 8.1.9
 Summary: Micro-optimized High-Performance NISQ Statevector Quantum Circuit Simulator (Hardware-Adaptive Integration of Native NumPy, CUDA-Accelerated CuPy, and Linear Kernel Fusion via JAX JIT/XLA Compilation)
 Author-email: Salvatore Pennacchio <jtatopenn@libero.it>
 License: Business Source License 1.1
@@ -250,6 +250,7 @@ sim = DenseSVSimulator(
 | Method | Description |
 |---|---|
 | `set_initial_state(state=None)` | Reset to `\|0⟩ⁿ` or inject custom statevector |
+| `run_circuit(circuit, transpile=True)` | Plain (non-JIT) gate execution — takes the tuple format below |
 | `run_circuit_jit_beast_mode(circuit)` | JIT-compiled gate execution — primary execution path |
 | `run_circuit_with_chunking(circuit, chunk_size=500)` | Chunked execution for long circuits |
 | `run_parametric_batch_jit(base_circuit, parameter_batch)` | `vmap` over parameter grid — returns full batch of statevectors |
@@ -268,14 +269,32 @@ circuit = parser.parse(qasm_str)   # → QASMCircuit
 valid, msg = parser.validate(circuit)
 ```
 
-`QASMCircuit` fields: `n_qubits`, `n_cbits`, `ops` (list of gate tuples).
+`QASMCircuit` fields: `n_qubits`, `n_cbits`, `ops` (list of gate dicts, e.g.
+`{'name': 'h', 'qubits': [0], 'params': []}`). Use `circuit.to_tuples()` to
+convert `ops` to the `(name, qubit0[, qubit1, ...][, param0, ...])` tuple
+format that `run_circuit` / `run_circuit_jit_beast_mode` expect — don't
+build that format by hand.
 
 ### `NoiseModel`
 
 ```python
 noise = NoiseModel()
-noise.apply(sv, model='depolarizing', p=0.01, n_qubits=4, rng=rng)
+noise.apply_to_sv(sv, n=4, model='depolarizing', p=0.01, rng=rng)
 desc  = NoiseModel.kraus_description('amplitude_damping')
+```
+
+### End-to-end: parse → run → apply noise
+
+```python
+parser  = QASMParser()
+circuit = parser.parse(qasm_str)                  # → QASMCircuit
+sim     = DenseSVSimulator(n_qubits=circuit.n_qubits)
+sim.run_circuit(circuit.to_tuples())               # dicts -> tuples, then execute
+
+sv_noisy = NoiseModel().apply_to_sv(
+    sim.get_statevector(), n=circuit.n_qubits, model='depolarizing', p=0.01,
+    rng=np.random.default_rng(42),
+)
 ```
 
 ### `Chunk` (Anti-OOM)
@@ -524,6 +543,11 @@ All circuits stored as OpenQASM 2.0 strings in `QASM_LIBRARY`.
 ---
 
 ## ▍ Changelog
+
+### v8.1.9
+- **Fixed**: `ia_utils/vector_healing.py` — `enhanced_dense_healing_hybrid` had an unreachable third branch (a dense/blend fallback): the underlying `trigger` signal from `evaluate_phi_trigger` is strictly binary (0.0/1.0), so the branch could never execute. Collapsed to the genuine 2-state logic (pass-through vs. median fallback); runtime output is unchanged since the branch never ran.
+- **Fixed**: `dashboard_core.py` — `run_simulation` / `run_vqe_telemetry` mutated the process-wide JAX `jax_enable_x64` flag without ever restoring it, so running one float32 simulation silently downgraded numerical precision for unrelated code later in the same process (e.g. the Vector Healing page, which sets no precision of its own). Both now save/restore the flag around their own execution.
+- **Docs**: README's `NoiseModel` example called a nonexistent `.apply()` method with a wrong parameter name (`n_qubits` instead of `n`) — corrected to `apply_to_sv(sv, n=..., ...)`. Documented `QASMCircuit.to_tuples()` and `DenseSVSimulator.run_circuit`, which already existed and work correctly but were never mentioned in the README.
 
 ### v8.1.8
 - **Fixed**: `parser.py` — controlled two-qubit gates (`cx`/`cy`/`cz`/`cp`/`crz`) parsed from QASM in the dashboard layer had control and target swapped relative to `compiler.py`'s documented `(gate, control, target)` contract, breaking entanglement for circuits run through the dashboard. The core `QASMCircuit.to_tuples()` path was already correct.

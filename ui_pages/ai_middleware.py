@@ -14,7 +14,7 @@ import pandas as pd
 from ia_utils.vector_healing import enhanced_dense_healing_hybrid
 
 
-def heal_telemetry(df: pd.DataFrame, median_fallback_threshold: float = 0.1):
+def heal_telemetry(df: pd.DataFrame):
     """Runs `df` through enhanced_dense_healing_hybrid and returns
     (healed_df, metadata). Empty/None input passes through with a neutral
     metadata dict (no NaN-safety claim to make about zero rows)."""
@@ -25,8 +25,6 @@ def heal_telemetry(df: pd.DataFrame, median_fallback_threshold: float = 0.1):
             'reconstruction_error': 0.0,
         }
 
-    healed_values, metadata = enhanced_dense_healing_hybrid(
-        df.to_numpy(dtype=float), median_fallback_threshold=median_fallback_threshold,
-    )
+    healed_values, metadata = enhanced_dense_healing_hybrid(df.to_numpy(dtype=float))
     healed_df = pd.DataFrame(healed_values, columns=df.columns, index=df.index)
     return healed_df, metadata

@@ -54,7 +54,6 @@ def median_healing(vettori: np.ndarray, radius_baseline: int = None) -> (np.ndar
 def enhanced_dense_healing_hybrid(
     vettori: np.ndarray,
     radius_baseline: int = None,
-    median_fallback_threshold: float = 0.1
 ) -> (np.ndarray, dict):
     """
     Applica una strategia di healing ibrida combinando la logica di dense_evolution
@@ -69,13 +68,6 @@ def enhanced_dense_healing_hybrid(
                                          Se `None`, il raggio viene calcolato dinamicamente
                                          come `min(20, max(3, n_tokens // 3))`.
                                          Defaults to None.
-        median_fallback_threshold (float): Non più utilizzato dalla logica interna — `trigger`
-                                           (da `evaluate_phi_trigger`) è strettamente binario
-                                           (0.0 o 1.0 per design: ciclo aperto/dinamico → incluso,
-                                           ciclo chiuso/statico → escluso), quindi non esiste un
-                                           valore intermedio su cui questa soglia possa agire.
-                                           Mantenuto nella firma per compatibilità con i chiamanti
-                                           esistenti. Defaults to 0.1.
 
     Returns:
         tuple: Contiene:
