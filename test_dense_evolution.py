@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from dense_evolution import DenseSVSimulator, GATES, PARAMETRIC_GATES, NoiseModel, QuantumTranspiler
+from dense_evolution import DenseSVSimulator, GATES, PARAMETRIC_GATES, NoiseModel, QuantumTranspiler, QASMParser, Chunk
 
 import inspect
 import jax.numpy as jnp # Ensure jnp is available for jax backend
@@ -429,6 +429,41 @@ class TestTranspiler:
         p = probs(sim3)
         assert p[4] > 0.99  # |100⟩
 
+
+class TestQASMRangeSyntax:
+    """Regression guard for audit finding #2: `gate q[a:b]` on an inherently
+    single-qubit gate used to attach all resolved qubits to ONE op, so only
+    the first qubit was ever actually gated — the rest were silently dropped
+    with no error, and probabilities still summed to 1. The parser's own
+    docstring already promised "range syntax expanded to individual qubits";
+    parse() now honors that by emitting one op per qubit instead of one op
+    carrying the whole list."""
+
+    def test_range_syntax_expands_to_separate_ops(self):
+        qasm = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[4]; h q[0:3];'
+        circ = QASMParser().parse(qasm)
+        assert len(circ.ops) == 3
+        assert [op['qubits'] for op in circ.ops] == [[0], [1], [2]]
+        assert all(op['name'] == 'h' for op in circ.ops)
+
+    def test_range_syntax_produces_correct_superposition(self, sim4):
+        qasm = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[4]; h q[0:3];'
+        circ = QASMParser().parse(qasm)
+        sim4.run_circuit_jit_beast_mode([[op['name'], op['qubits'][0], -1] for op in circ.ops])
+        p = probs(sim4)
+        # q0,q1,q2 uniform superposition, q3 untouched -> 8 equally likely states
+        nonzero = np.where(p > 1e-9)[0]
+        assert len(nonzero) == 8
+        assert np.allclose(p[nonzero], 1.0 / 8, atol=1e-9)
+
+    def test_two_qubit_gate_qubit_list_is_not_expanded(self):
+        # sanity check the fix is scoped to single-qubit gate names only —
+        # a genuine 2-qubit gate must keep both its qubits on one op
+        qasm = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[2]; cx q[0],q[1];'
+        circ = QASMParser().parse(qasm)
+        assert len(circ.ops) == 1
+        assert circ.ops[0]['qubits'] == [0, 1]
+
 # ─────────────────────────────────────────────────────────────
 # 10. CIRCUIT CHUNKING (Stress test da README)
 # ─────────────────────────────────────────────────────────────
@@ -448,6 +483,34 @@ class TestCircuitChunking:
         sim = DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
         assert hasattr(sim, 'run_circuit_with_chunking') or hasattr(sim, 'run_circuit')
 
+
+class TestChunkPublicAPI:
+    """Regression guard for audit finding #3: the README's own Anti-OOM
+    quick-start (`from dense_evolution import Chunk`) raised ImportError —
+    Chunk was never re-exported from the package root, only reachable via
+    `dense_evolution.chunk`. Chunk also lacked get_probabilities()/
+    get_statevector(), unlike DenseSVSimulator, so even the right import
+    path needed an undocumented `np.abs(sim.sv)**2` workaround."""
+
+    def test_chunk_importable_from_package_root(self):
+        # this is the regression itself: it would have raised ImportError
+        from dense_evolution import Chunk as ChunkFromRoot
+        assert ChunkFromRoot is Chunk
+
+    def test_chunk_get_probabilities_matches_manual_computation(self):
+        sim = Chunk(6)
+        sim.run_chunk([['h', i] for i in range(6)], 500)
+        probs = np.asarray(sim.get_probabilities())
+        manual = np.abs(np.asarray(sim.sv)) ** 2
+        np.testing.assert_allclose(probs, manual, atol=1e-12)
+        assert abs(probs.sum() - 1.0) < 1e-9
+        assert np.allclose(probs, 1.0 / 64, atol=1e-9)  # uniform after H on all 6 qubits
+
+    def test_chunk_get_statevector_matches_sv(self):
+        sim = Chunk(4)
+        sim.run_chunk([['h', 0]], 500)
+        np.testing.assert_array_equal(np.asarray(sim.get_statevector()), np.asarray(sim.sv))
+
 # ─────────────────────────────────────────────────────────────
 # 11. MEMORY
 # ─────────────────────────────────────────────────────────────
@@ -465,3 +528,60 @@ class TestMemory:
         mb = sim.memory_mb()
         expected = (2**12 * 8) / 1e6
         assert abs(mb - expected) < 0.01
+
+# ─────────────────────────────────────────────────────────────
+# 12. END-TO-END INTEGRATION
+# ─────────────────────────────────────────────────────────────
+
+class TestFullPipelineIntegration:
+    """Converted from dense_evolution/test2.py and dense_evolution/stress_test.py
+    (audit finding #5): two byte-identical, assertion-free print-and-eyeball
+    debug scripts that shipped inside every `pip install dense-evolution`
+    (via the package-data "*.py" glob), were 0% covered, and never ran in CI.
+    The one real signal they checked — parser -> transpiler -> simulator ->
+    noise model wired together end to end, and Kraus noise application being
+    genuinely stochastic across independent runs — is preserved here as a
+    real, CI-enforced test; both original scripts have been deleted."""
+
+    def test_parse_transpile_simulate_and_apply_noise(self):
+        qasm_bench = """
+        OPENQASM 2.0;
+        include "qelib1.inc";
+        qreg q[6];
+        h q[0];
+        cx q[0], q[1];
+        cx q[1], q[2];
+        cx q[2], q[3];
+        cx q[3], q[4];
+        cx q[4], q[5];
+        rx(1.570796) q[0];
+        ry(0.785398) q[1];
+        rz(0.392699) q[2];
+        """
+        parser = QASMParser()
+        circ = parser.parse(qasm_bench)
+        tuples = QuantumTranspiler.transpile(circ.to_tuples())
+        n_qubits = circ.n_qubits
+        assert n_qubits == 6
+        assert len(tuples) == 9  # 1 h + 5 cx + 3 rotations
+
+        sim_ideale = DenseSVSimulator(n_qubits)
+        sim_ideale.run_circuit_jit_beast_mode(tuples)
+        prob_ideale = sim_ideale.get_probabilities()
+        assert abs(float(np.sum(prob_ideale)) - 1.0) < 1e-9
+
+        sim_noisy1 = DenseSVSimulator(n_qubits)
+        sim_noisy1.run_circuit_jit_beast_mode(tuples)
+        sim_noisy1.sv = NoiseModel.apply_to_sv(sim_noisy1.sv, n_qubits, model='amplitude_damping', p=0.15)
+        prob_noisy1 = sim_noisy1.get_probabilities()
+
+        sim_noisy2 = DenseSVSimulator(n_qubits)
+        sim_noisy2.run_circuit_jit_beast_mode(tuples)
+        sim_noisy2.sv = NoiseModel.apply_to_sv(sim_noisy2.sv, n_qubits, model='amplitude_damping', p=0.15)
+        prob_noisy2 = sim_noisy2.get_probabilities()
+
+        # Kraus noise must be genuinely stochastic: two independent
+        # applications of the same channel to the same clean state must
+        # not produce identical output.
+        stochastic_spread = float(np.linalg.norm(prob_noisy1 - prob_noisy2))
+        assert stochastic_spread > 1e-12

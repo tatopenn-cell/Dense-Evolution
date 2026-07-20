@@ -475,7 +475,9 @@ def run_simulation(source_mode, circuit_name, qasm_text, noise_model, noise_p, s
                 control = int(estrai_valore_puro(qubits_grezzi[0]))
                 target = int(estrai_valore_puro(qubits_grezzi[1]))
                 if control < n_qubits and target < n_qubits:
-                    comandi_beast_mode.append([nome_porta, target, control])
+                    # compiler.py's documented tuple contract is (gate, control, target)
+                    # for 2-qubit gates — this used to be reversed (see audit finding #1).
+                    comandi_beast_mode.append([nome_porta, control, target])
             except Exception: pass
         elif nome_porta in ['ccx', 'toffoli']:
             try:
@@ -491,7 +493,7 @@ def run_simulation(source_mode, circuit_name, qasm_text, noise_model, noise_p, s
                 control = int(estrai_valore_puro(qubits_grezzi[0]))
                 target = int(estrai_valore_puro(qubits_grezzi[1]))
                 if control < n_qubits and target < n_qubits:
-                    comandi_beast_mode.append([nome_porta, target, control, param])
+                    comandi_beast_mode.append([nome_porta, control, target, param])
             except Exception: pass
 
     start_time = time.perf_counter()
@@ -701,7 +703,9 @@ def risolvi_qasm(parametric_commands, param_dict, n_qubits, theta_params, curren
                     control = int(estrai_valore_puro(qubits_grezzi[0]))
                     target = int(estrai_valore_puro(qubits_grezzi[1]))
                     if control < n_qubits and target < n_qubits:
-                        processed_commands.append([nome_porta, target, control])
+                        # compiler.py's documented tuple contract is (gate, control, target)
+                        # for 2-qubit gates — this used to be reversed (see audit finding #1).
+                        processed_commands.append([nome_porta, control, target])
             elif nome_porta in ['ccx', 'toffoli']:
                 if len(qubits_grezzi) == 3:
                     c1 = int(estrai_valore_puro(qubits_grezzi[0]))
@@ -715,7 +719,7 @@ def risolvi_qasm(parametric_commands, param_dict, n_qubits, theta_params, curren
                     control = int(estrai_valore_puro(qubits_grezzi[0]))
                     target = int(estrai_valore_puro(qubits_grezzi[1]))
                     if control < n_qubits and target < n_qubits:
-                        processed_commands.append([nome_porta, target, control, param])
+                        processed_commands.append([nome_porta, control, target, param])
         except Exception:
             pass
 

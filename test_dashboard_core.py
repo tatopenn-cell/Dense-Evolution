@@ -77,6 +77,23 @@ def test_run_simulation_heavy_circuit_15q():
     assert res["n_qubits"] == 15
 
 
+def test_bell_circuit_via_qasm_produces_real_entanglement(bell_res):
+    # Regression guard for a control/target swap bug found by audit: the QASM
+    # translation used to build (gate, target, control) instead of compiler.py's
+    # documented (gate, control, target) contract, so H+CX through the QASM
+    # path silently produced two separable qubits instead of a Bell state.
+    # Exercises the actual production path (parse -> run_circuit_jit_beast_mode),
+    # not the direct apply_cx API the rest of the test suite relies on.
+    # Reuses the module-scoped bell_res fixture rather than a fresh
+    # run_simulation call, so it doesn't flip the global jax_enable_x64 config
+    # away from what other tests in this module expect.
+    prob = bell_res["prob"]
+    assert np.isclose(prob[0], 0.5, atol=1e-8)
+    assert np.isclose(prob[3], 0.5, atol=1e-8)
+    assert prob[1] < 1e-8
+    assert prob[2] < 1e-8
+
+
 # ── run_vqe_telemetry ───────────────────────────────────────────────────
 
 def test_vqe_telemetry_mock_path(df_vqe_mock):

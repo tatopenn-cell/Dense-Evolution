@@ -93,6 +93,18 @@ class QASMParser:
         'ccx':     'ccx',
     }
 
+    # ── gate names that only ever take one qubit ─────────────────────
+    # Used to expand range syntax (q[0:3]) into one op per qubit instead
+    # of a single op with multiple qubits attached — see BUG FIX 3 note
+    # on parse(): the original fix resolved q[0:3] to the qubit list
+    # [0,1,2], but nothing expanded that list into separate applications
+    # for gates that are only ever single-qubit, so e.g. `h q[0:3]` ended
+    # up applying H to qubit 0 only, silently dropping qubits 1 and 2.
+    _SINGLE_QUBIT_GATES = frozenset((
+        'h', 'x', 'y', 'z', 's', 'sdg', 't', 'tdg', 'sx', 'id',
+        'rx', 'ry', 'rz', 'p', 'u1', 'u2', 'u3',
+    ))
+
     # ── statements to skip entirely ──────────────────────────────────
     # BUG FIX (original): 'gate ' had a trailing space making it miss
     # 'gate foo(...)' where the token is 'gate' followed by space.
@@ -211,11 +223,21 @@ class QASMParser:
             # ── gate application ─────────────────────────────────────
             op = self._parse_gate(instr, qubit_map)
             if op is not None:
-                ops.append(op)
-                # update n_qubits from seen qubit indices
-                # (handles circuits without explicit qreg declarations)
-                if op['qubits']:
-                    n_qubits = max(n_qubits, max(op['qubits']) + 1)
+                if op['name'] in self._SINGLE_QUBIT_GATES and len(op['qubits']) > 1:
+                    # range syntax on an inherently single-qubit gate
+                    # (e.g. `h q[0:3]`) — expand into one op per qubit.
+                    for q in op['qubits']:
+                        ops.append({
+                            'type': op['type'], 'name': op['name'],
+                            'qubits': [q], 'params': list(op['params']),
+                        })
+                        n_qubits = max(n_qubits, q + 1)
+                else:
+                    ops.append(op)
+                    # update n_qubits from seen qubit indices
+                    # (handles circuits without explicit qreg declarations)
+                    if op['qubits']:
+                        n_qubits = max(n_qubits, max(op['qubits']) + 1)
 
         return QASMCircuit(n_qubits, n_cbits, ops)
 

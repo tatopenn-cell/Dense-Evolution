@@ -334,6 +334,16 @@ class Chunk:
         """RAM used by the physical statevector in MB."""
         return self._inner_sim.memory_mb()
 
+    def get_probabilities(self):
+        """|amplitude|^2 for every basis state — forwards to the inner
+        DenseSVSimulator for parity with its own get_probabilities()."""
+        return self._inner_sim.get_probabilities()
+
+    def get_statevector(self):
+        """Full complex statevector — forwards to the inner DenseSVSimulator
+        for parity with its own get_statevector()."""
+        return self._inner_sim.get_statevector()
+
     # ── Public API ───────────────────────────────────────────────────────────
 
     def run_chunk(
