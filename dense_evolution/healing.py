@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Tuple, List, Any
 
 
@@ -104,7 +104,7 @@ class MemoryReflectionEngine:
 
     def record_event(self, event_type: str, value: float, description: str = ""):
         event = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "type": event_type,
             "value": float(value),
             "description": description

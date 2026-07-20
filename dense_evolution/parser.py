@@ -382,7 +382,7 @@ class QASMParser:
     def _resolve_qubits(self,
                          s:    str,
                          qmap: Dict[str, int]) -> List[int]:
-        """
+        r"""
         Resolve a comma-separated qubit argument string to absolute indices.
 
         Handles
