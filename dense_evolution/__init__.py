@@ -9,4 +9,4 @@ from .registry import NoiseModel, QuantumHardwareRegistry
 from .gates import GATES, PARAMETRIC_GATES, GATE_IDS
 from .chunk import Chunk
 
-__version__ = "8.1.10"
+__version__ = "8.1.11"
