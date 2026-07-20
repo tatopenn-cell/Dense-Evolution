@@ -499,6 +499,11 @@ All circuits stored as OpenQASM 2.0 strings in `QASM_LIBRARY`.
 
 ## ▍ Changelog
 
+### v8.1.9
+- **Fixed**: `ia_utils/vector_healing.py` — `enhanced_dense_healing_hybrid` had an unreachable third branch (a dense/blend fallback): the underlying `trigger` signal from `evaluate_phi_trigger` is strictly binary (0.0/1.0), so the branch could never execute. Collapsed to the genuine 2-state logic (pass-through vs. median fallback); runtime output is unchanged since the branch never ran.
+- **Fixed**: `dashboard_core.py` — `run_simulation` / `run_vqe_telemetry` mutated the process-wide JAX `jax_enable_x64` flag without ever restoring it, so running one float32 simulation silently downgraded numerical precision for unrelated code later in the same process (e.g. the Vector Healing page, which sets no precision of its own). Both now save/restore the flag around their own execution.
+- **Docs**: README's `NoiseModel` example called a nonexistent `.apply()` method with a wrong parameter name (`n_qubits` instead of `n`) — corrected to `apply_to_sv(sv, n=..., ...)`. Documented `QASMCircuit.to_tuples()` and `DenseSVSimulator.run_circuit`, which already existed and work correctly but were never mentioned in the README.
+
 ### v8.1.8
 - **Fixed**: `parser.py` — controlled two-qubit gates (`cx`/`cy`/`cz`/`cp`/`crz`) parsed from QASM in the dashboard layer had control and target swapped relative to `compiler.py`'s documented `(gate, control, target)` contract, breaking entanglement for circuits run through the dashboard. The core `QASMCircuit.to_tuples()` path was already correct.
 - **Fixed**: `parser.py` — range syntax (`q[0:3]`) on single-qubit gates only applied to the first qubit in the range, silently dropping the rest. Now expands into one gate application per qubit, matching the parser's own documented contract.
