@@ -30,12 +30,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install pytest numpy scipy pandas matplotlib psutil ipython seaborn plotly
           pip install setuptools pytest numpy scipy pandas matplotlib psutil ipython jax jaxlib seaborn plotly
+          pip install qiskit pennylane
           pip install . --no-deps # Installa il pacchetto locale
 
       - name: Run test suite
         run: |
-          pytest test_dense_evolution.py test_ia_healing.py test_dashboard_core.py test_ai_middleware.py -v --tb=short
-          pytest test_dense_evolution.py test_ia_healing.py test_dashboard_core.py test_ai_middleware.py -v --tb=short --junitxml=pytest-results.xml
+          pytest test_dense_evolution.py test_ia_healing.py test_dashboard_core.py test_ai_middleware.py test_interop.py -v --tb=short
+          pytest test_dense_evolution.py test_ia_healing.py test_dashboard_core.py test_ai_middleware.py test_interop.py -v --tb=short --junitxml=pytest-results.xml
 
       - name: Upload test results on failure
         if: failure()

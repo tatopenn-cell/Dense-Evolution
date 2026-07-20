@@ -44,8 +44,12 @@ A Streamlit dashboard (`app_dashboard.py`) provides live telemetry across 8 pane
 ```bash
 pip install dense-evolution
 
-# full stack: JAX · GPU · dashboard
+# full stack: JAX · GPU · dashboard · Qiskit/PennyLane interop
 pip install dense-evolution[full]
+
+# just the interop bridge
+pip install dense-evolution[qiskit]
+pip install dense-evolution[pennylane]
 
 # development
 git clone https://github.com/tatopenn-cell/Dense-Evolution.git
@@ -308,6 +312,47 @@ See **IA Utils — Vector Sequence Healing** above for details.
 | `u3(θ, φ, λ)` | θ, φ, λ | Generic single-qubit |
 | `cp(λ, ctrl, tgt)` | λ | Controlled-Phase |
 | `crz(λ, ctrl, tgt)` | λ | Controlled-RZ |
+
+---
+
+## ▍ Interop — Qiskit / PennyLane
+
+Run a circuit you already wrote in Qiskit or PennyLane on Dense-Evolution's simulator, no manual gate-by-gate rewrite. Both bridges go through OpenQASM 2.0 (`qiskit.qasm2.dumps` / `qml.to_openqasm`) and the existing `QASMParser` — not a bespoke translator, so gate coverage matches whatever the parser/simulator already support (see Gate Library above).
+
+```python
+from qiskit import QuantumCircuit
+from dense_evolution import run_qiskit_circuit
+
+qc = QuantumCircuit(2)
+qc.h(0)
+qc.cx(0, 1)
+
+sim, probs = run_qiskit_circuit(qc)   # probs already in Qiskit's own bit order
+```
+
+```python
+import pennylane as qml
+from dense_evolution import run_pennylane_circuit
+
+dev = qml.device("default.qubit", wires=2)
+
+@qml.qnode(dev)
+def circuit():
+    qml.Hadamard(wires=0)
+    qml.CNOT(wires=[0, 1])
+    return qml.probs(wires=[0, 1])
+
+sim, probs = run_pennylane_circuit(circuit)   # no reordering needed, see below
+```
+
+`from_qiskit(circuit)` / `from_pennylane(circuit)` return a `QASMCircuit` (structural conversion only) for anyone who wants to manage their own `DenseSVSimulator`/`Chunk` instead of the convenience runners above.
+
+**Bit-order — read this before comparing arrays across frameworks.** Qiskit indexes probability/statevector arrays little-endian (qubit 0 = least-significant bit); Dense-Evolution indexes MSB-first everywhere (`phys = n_qubits - 1 - qubit`, the same convention `apply_gate_1q`/`apply_gate_2q`/`measure`/beast-mode use). `run_qiskit_circuit` reorders its output into Qiskit's own convention so it's directly comparable to `Statevector(circuit).probabilities()`. PennyLane's own wire convention already matches Dense-Evolution's MSB-first indexing natively — `run_pennylane_circuit` does **not** reorder, on purpose; verified directly on an asymmetric circuit that the two frameworks genuinely need different treatment here, not just "symmetric for simplicity."
+
+**Known limits** (inherited from the QASM2 bridge, not something this layer works around):
+- No classical control flow — `if`/`while` and mid-circuit-measurement-conditioned gates are parsed out, not executed (same limitation as native QASM3 circuits, see Changelog v8.1.13).
+- No expansion of composite/custom gates. A Qiskit call like `mcx` with 3+ controls gets exported as a named `gate mcx { ... }` definition; the definition is parsed cleanly (no longer corrupts what follows it) but the gate itself isn't a primitive Dense-Evolution knows how to execute, so a call to it is a silent no-op — same as referencing any unrecognized gate name elsewhere in this simulator. Stick to the gates in the Gate Library table above for results you can trust.
+- Only a plugin/backend-free bridge — no `qiskit.providers.BackendV2` or PennyLane `Device` registration, so you still call `run_qiskit_circuit`/`run_pennylane_circuit` explicitly rather than pointing existing framework code at a new backend/device string.
 
 ---
 

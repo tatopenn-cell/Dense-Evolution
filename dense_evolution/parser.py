@@ -84,7 +84,7 @@ class QASMParser:
     # qubit-range syntax, which is exclusive — a separate feature).
     _RE_FOR_HEAD   = re.compile(
         r'for\s+(?:\w+\s+)?(\w+)\s+in\s*\[\s*([^\]]+?)\s*:\s*([^\]]+?)\s*\]\s*\{')
-    _RE_BLOCK_HEAD = re.compile(r'\b(for|if|while|def)\b[^{]*\{')
+    _RE_BLOCK_HEAD = re.compile(r'\b(for|if|while|def|gate)\b[^{]*\{')
     _RE_INT_DECL   = re.compile(
         r'(?:const\s+)?int(?:\s*\[\d+\])?\s+(\w+)\s*=\s*(-?\d+)\s*;')
 
@@ -178,12 +178,16 @@ class QASMParser:
 
     def _process_block_constructs(self, s: str) -> str:
         """
-        Pre-process `for` / `if` / `while` / `def` blocks BEFORE the
+        Pre-process `for` / `if` / `while` / `def` / `gate` blocks BEFORE the
         statement-level `split(';')` in parse() ever sees them.
 
         These are brace-delimited, not `;`-terminated, so leaving them for
         the naive splitter corrupts whatever statement follows the block on
         the same line (the closing '}' merges into the next real statement).
+        `gate` matters beyond QASM3: OpenQASM 2.0 exporters (e.g. Qiskit's
+        `qiskit.qasm2.dumps` for composite gates like `mcx`) emit a `gate
+        NAME params { ... }` definition on a single line, so this hits real
+        QASM2 circuits too, not just QASM3 control-flow syntax.
 
         - `for <type> <var> in [start:end] { body }` with resolvable
           integer bounds (literals, or `int`/`const int` variables declared
@@ -194,6 +198,12 @@ class QASMParser:
         - `for` loops with unresolvable bounds, and all `if`/`while`/`def`
           blocks (no static execution — would need runtime classical bit
           state), are simply removed, leaving the rest of the source intact.
+        - `gate` definitions are removed too — their body uses the gate's
+          own formal parameter names, not real qubit indices, so it can't
+          be executed directly; a later call site referencing that gate
+          name still falls through as an unrecognized gate (silent no-op,
+          same as any other unknown gate name elsewhere in this codebase),
+          but no longer corrupts the qubit/statement that follows it.
 
         Runs as a search/replace loop rather than recursion: after an outer
         block is unrolled, any inner (nested) blocks are duplicated as raw

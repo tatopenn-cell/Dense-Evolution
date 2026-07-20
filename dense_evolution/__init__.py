@@ -8,5 +8,6 @@ from .compiler import QuantumTranspiler
 from .registry import NoiseModel, QuantumHardwareRegistry
 from .gates import GATES, PARAMETRIC_GATES, GATE_IDS
 from .chunk import Chunk
+from .interop import from_qiskit, from_pennylane, run_qiskit_circuit, run_pennylane_circuit
 
 __version__ = "8.1.13"
