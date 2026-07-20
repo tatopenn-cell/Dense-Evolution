@@ -205,6 +205,7 @@ sim = DenseSVSimulator(
 | Method | Description |
 |---|---|
 | `set_initial_state(state=None)` | Reset to `\|0⟩ⁿ` or inject custom statevector |
+| `run_circuit(circuit, transpile=True)` | Plain (non-JIT) gate execution — takes the tuple format below |
 | `run_circuit_jit_beast_mode(circuit)` | JIT-compiled gate execution — primary execution path |
 | `run_circuit_with_chunking(circuit, chunk_size=500)` | Chunked execution for long circuits |
 | `run_parametric_batch_jit(base_circuit, parameter_batch)` | `vmap` over parameter grid — returns full batch of statevectors |
@@ -224,9 +225,10 @@ valid, msg = parser.validate(circuit)
 ```
 
 `QASMCircuit` fields: `n_qubits`, `n_cbits`, `ops` (list of gate dicts, e.g.
-`{'name': 'h', 'qubits': [0], 'params': []}` — not the tuple format that
-`DenseSVSimulator.run_circuit` / `QuantumTranspiler.transpile` expect;
-converting between the two is currently up to the caller).
+`{'name': 'h', 'qubits': [0], 'params': []}`). Use `circuit.to_tuples()` to
+convert `ops` to the `(name, qubit0[, qubit1, ...][, param0, ...])` tuple
+format that `run_circuit` / `run_circuit_jit_beast_mode` expect — don't
+build that format by hand.
 
 ### `NoiseModel`
 
@@ -234,6 +236,20 @@ converting between the two is currently up to the caller).
 noise = NoiseModel()
 noise.apply_to_sv(sv, n=4, model='depolarizing', p=0.01, rng=rng)
 desc  = NoiseModel.kraus_description('amplitude_damping')
+```
+
+### End-to-end: parse → run → apply noise
+
+```python
+parser  = QASMParser()
+circuit = parser.parse(qasm_str)                  # → QASMCircuit
+sim     = DenseSVSimulator(n_qubits=circuit.n_qubits)
+sim.run_circuit(circuit.to_tuples())               # dicts -> tuples, then execute
+
+sv_noisy = NoiseModel().apply_to_sv(
+    sim.get_statevector(), n=circuit.n_qubits, model='depolarizing', p=0.01,
+    rng=np.random.default_rng(42),
+)
 ```
 
 ### `Chunk` (Anti-OOM)
