@@ -139,6 +139,22 @@ class DenseSVSimulator:
             else:
                 self.sv /= norm
 
+    def _check_qubit_range(self, qubit: float, context: str) -> None:
+        """Validate a qubit index before it reaches the JIT-compiled fast
+        paths (run_circuit_jit_beast_mode / run_parametric_batch_jit).
+
+        Those paths encode qubit indices as bit-shift amounts inside
+        jax.lax.scan/switch and never call apply_gate_1q/apply_gate_2q
+        (which already validate) — an out-of-range index there doesn't
+        raise, it silently corrupts the entire statevector to zero
+        (verified: a single gate on an out-of-range qubit on an otherwise
+        normalized state left get_probabilities().sum() == 0.0, no error).
+        """
+        qi = int(qubit)
+        if not 0 <= qi < self.n:
+            raise ValueError(
+                f"Qubit index {qi} out of range [0, {self.n}) in {context}")
+
     # ── 1-qubit gate ──────────────────────────────────────────────────
 
     def apply_gate_1q(self, gate: np.ndarray, qubit: int):
@@ -352,6 +368,7 @@ class DenseSVSimulator:
             # 1-qubit parametric: (name, qubit, param)
             if name in ('rx', 'ry', 'rz', 'p', 'u1', 'phase'):
                 q1 = float(args[0])
+                self._check_qubit_range(q1, f"gate '{name}'")
                 p  = float(args[1]) if len(args) > 1 else 0.0
                 compiled_ops.append([g_id, q1, 0.0, p])
 
@@ -359,6 +376,8 @@ class DenseSVSimulator:
             elif name in ('cp', 'crz', 'cphase'):
                 ctrl = float(args[0])
                 tgt  = float(args[1]) if len(args) > 1 else 0.0
+                self._check_qubit_range(ctrl, f"gate '{name}' (control)")
+                self._check_qubit_range(tgt, f"gate '{name}' (target)")
                 p    = float(args[2]) if len(args) > 2 else 0.0
                 compiled_ops.append([g_id, ctrl, tgt, p])
 
@@ -366,11 +385,14 @@ class DenseSVSimulator:
             elif name in ('cx', 'cz', 'swap', 'cy'):
                 ctrl = float(args[0])
                 tgt  = float(args[1]) if len(args) > 1 else 0.0
+                self._check_qubit_range(ctrl, f"gate '{name}' (control)")
+                self._check_qubit_range(tgt, f"gate '{name}' (target)")
                 compiled_ops.append([g_id, ctrl, tgt, 0.0])
 
             # 1-qubit non-parametric: (name, qubit)
             else:
                 q1 = float(args[0]) if args else 0.0
+                self._check_qubit_range(q1, f"gate '{name}'")
                 compiled_ops.append([g_id, q1, 0.0, 0.0])
 
         if compiled_ops:
@@ -406,13 +428,25 @@ class DenseSVSimulator:
             g_id = float(GATE_IDS[name])
             args = cmd[1:]
             if name in ('rx', 'ry', 'rz', 'p', 'u1', 'phase'):
-                compiled_ops.append([g_id, float(args[0]), 0.0, -1.0])   # -1.0 = param slot
+                q1 = float(args[0])
+                self._check_qubit_range(q1, f"gate '{name}'")
+                compiled_ops.append([g_id, q1, 0.0, -1.0])   # -1.0 = param slot
             elif name in ('cp', 'crz', 'cphase'):
-                compiled_ops.append([g_id, float(args[0]), float(args[1]) if len(args) > 1 else 0.0, -1.0])
+                ctrl = float(args[0])
+                tgt  = float(args[1]) if len(args) > 1 else 0.0
+                self._check_qubit_range(ctrl, f"gate '{name}' (control)")
+                self._check_qubit_range(tgt, f"gate '{name}' (target)")
+                compiled_ops.append([g_id, ctrl, tgt, -1.0])
             elif name in ('cx', 'cz', 'swap', 'cy'):
-                compiled_ops.append([g_id, float(args[0]), float(args[1]) if len(args) > 1 else 0.0, 0.0])
+                ctrl = float(args[0])
+                tgt  = float(args[1]) if len(args) > 1 else 0.0
+                self._check_qubit_range(ctrl, f"gate '{name}' (control)")
+                self._check_qubit_range(tgt, f"gate '{name}' (target)")
+                compiled_ops.append([g_id, ctrl, tgt, 0.0])
             else:
-                compiled_ops.append([g_id, float(args[0]) if args else 0.0, 0.0, 0.0])
+                q1 = float(args[0]) if args else 0.0
+                self._check_qubit_range(q1, f"gate '{name}'")
+                compiled_ops.append([g_id, q1, 0.0, 0.0])
 
         template    = jnp.array(compiled_ops, dtype=jnp.float64)
         init_sv     = jnp.zeros(self.dim, dtype=jnp.complex128).at[0].set(1.0)

@@ -180,6 +180,35 @@ class TestSingleQubitGates:
         with pytest.raises((ValueError, IndexError)):
             sim2.apply_gate_1q(GATES['x'], 5)
 
+
+class TestQubitRangeValidationBypassesJIT:
+    """run_circuit_jit_beast_mode / run_parametric_batch_jit build their own
+    compiled_ops and never call apply_gate_1q/apply_gate_2q (which already
+    validate) — an out-of-range qubit index there used to silently corrupt
+    the entire statevector to zero instead of raising, because the fast
+    JAX path encodes qubit indices as bit-shift amounts inside
+    jax.lax.scan/switch with no bounds check. Verified before the fix:
+    a single gate on an out-of-range qubit on an otherwise normalized
+    state left get_probabilities().sum() == 0.0, no exception."""
+
+    def test_beast_mode_1q_gate_out_of_range_raises(self, sim4):
+        with pytest.raises(ValueError):
+            sim4.run_circuit_jit_beast_mode([['x', 5, -1]])
+
+    def test_beast_mode_2q_gate_out_of_range_raises(self, sim4):
+        with pytest.raises(ValueError):
+            sim4.run_circuit_jit_beast_mode([['cx', 0, 5]])
+
+    def test_beast_mode_valid_circuit_unaffected(self, sim4):
+        # the validation must not reject in-range circuits
+        sim4.run_circuit_jit_beast_mode([['h', 0, -1], ['cx', 0, 1]])
+        p = probs(sim4)
+        assert abs(p.sum() - 1.0) < 1e-9
+
+    def test_parametric_batch_qubit_out_of_range_raises(self, sim4):
+        with pytest.raises(ValueError):
+            sim4.run_parametric_batch_jit([['rx', 5]], np.zeros((1, 1)))
+
 # ─────────────────────────────────────────────────────────────
 # 3. TWO-QUBIT GATES
 # ─────────────────────────────────────────────────────────────
