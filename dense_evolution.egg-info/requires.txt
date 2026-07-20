@@ -4,15 +4,19 @@ psutil>=5.9.0
 scipy>=1.9.0
 
 [dashboard]
-dash>=2.0.0
+streamlit>=1.30.0
 plotly>=5.0.0
+pandas>=1.5.0
+seaborn>=0.12.0
 
 [full]
 jax>=0.4.0
 jaxlib>=0.4.0
 cupy-cuda12x>=12.0.0
-dash>=2.0.0
+streamlit>=1.30.0
 plotly>=5.0.0
+pandas>=1.5.0
+seaborn>=0.12.0
 
 [gpu]
 cupy-cuda12x>=12.0.0

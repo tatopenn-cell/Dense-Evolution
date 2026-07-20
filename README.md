@@ -35,7 +35,7 @@
 
 **Dense Evolution** is a high-performance statevector simulator engineered for deep NISQ circuits, VQE pipelines, and QML workloads. It eliminates Kronecker product overhead entirely via stride-sliced linear kernel fusion compiled through JAX XLA — keeping memory at the theoretical minimum of `2ⁿ × 16 bytes`.
 
-The integrated `dash.py` dashboard provides live ipywidgets telemetry across 8 panels per simulation run, directly inside Google Colab or Jupyter.
+A Streamlit dashboard (`app_dashboard.py`) provides live telemetry across 8 panels per simulation run — Quantum Simulator and Vector Healing tabs, run locally with `streamlit run app_dashboard.py`. `legacy/dash.py` is the original Google Colab notebook this was ported from, kept for reference only (not installable — see the file header).
 
 ---
 
@@ -87,14 +87,11 @@ probs = sim.get_probabilities()
 sv    = sim.get_statevector()
 ```
 
-**Dashboard (Colab / Jupyter):**
+**Dashboard (local, Streamlit):**
 
-```python
-import dash
-from IPython.display import display, clear_output
-
-clear_output()
-display(dash.dashboard_unificata)
+```bash
+pip install "dense-evolution[jax,dashboard]"
+streamlit run app_dashboard.py
 ```
 
 **Anti-OOM for large circuits:**
@@ -119,11 +116,13 @@ dense_evolution/
 ├── parser.py       QASMParser · QASMCircuit · OpenQASM 2.0 / 3.0
 ├── compiler.py     QuantumTranspiler · _apply_gate_fast_step (jit) · gate decomposition
 ├── chunk.py        SafeMemoryGuard · MemoryChunker · CircuitChunker · Chunk (Anti-OOM)
-├── simulator.py    DenseSVSimulator · run_parametric_batch_jit · vmap batch VQE
-└── dash.py         ipywidgets dashboard · VQE engine · QM/MM · MD simulation · 3D wavefunction
+└── simulator.py    DenseSVSimulator · run_parametric_batch_jit · vmap batch VQE
 
 ia_utils/
 └── vector_healing.py   median_healing · enhanced_dense_healing_hybrid (NaN/Inf-safe, lazy JAX import)
+
+app_dashboard.py + dashboard_core.py + ui_pages/   Streamlit dashboard — VQE engine · QM/MM · MD simulation · 3D wavefunction
+legacy/dash.py                                     original Colab notebook, reference only (not installed as a module)
 ```
 
 **Data flow per run:**

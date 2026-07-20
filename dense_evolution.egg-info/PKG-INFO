@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: dense-evolution
-Version: 8.1.9
+Version: 8.1.10
 Summary: Micro-optimized High-Performance NISQ Statevector Quantum Circuit Simulator (Hardware-Adaptive Integration of Native NumPy, CUDA-Accelerated CuPy, and Linear Kernel Fusion via JAX JIT/XLA Compilation)
 Author-email: Salvatore Pennacchio <jtatopenn@libero.it>
 License: Business Source License 1.1
@@ -33,14 +33,18 @@ Requires-Dist: jaxlib>=0.4.0; extra == "jax"
 Provides-Extra: gpu
 Requires-Dist: cupy-cuda12x>=12.0.0; extra == "gpu"
 Provides-Extra: dashboard
-Requires-Dist: dash>=2.0.0; extra == "dashboard"
+Requires-Dist: streamlit>=1.30.0; extra == "dashboard"
 Requires-Dist: plotly>=5.0.0; extra == "dashboard"
+Requires-Dist: pandas>=1.5.0; extra == "dashboard"
+Requires-Dist: seaborn>=0.12.0; extra == "dashboard"
 Provides-Extra: full
 Requires-Dist: jax>=0.4.0; extra == "full"
 Requires-Dist: jaxlib>=0.4.0; extra == "full"
 Requires-Dist: cupy-cuda12x>=12.0.0; extra == "full"
-Requires-Dist: dash>=2.0.0; extra == "full"
+Requires-Dist: streamlit>=1.30.0; extra == "full"
 Requires-Dist: plotly>=5.0.0; extra == "full"
+Requires-Dist: pandas>=1.5.0; extra == "full"
+Requires-Dist: seaborn>=0.12.0; extra == "full"
 Dynamic: license-file
 
 ```
@@ -80,7 +84,7 @@ Dynamic: license-file
 
 **Dense Evolution** is a high-performance statevector simulator engineered for deep NISQ circuits, VQE pipelines, and QML workloads. It eliminates Kronecker product overhead entirely via stride-sliced linear kernel fusion compiled through JAX XLA — keeping memory at the theoretical minimum of `2ⁿ × 16 bytes`.
 
-The integrated `dash.py` dashboard provides live ipywidgets telemetry across 8 panels per simulation run, directly inside Google Colab or Jupyter.
+A Streamlit dashboard (`app_dashboard.py`) provides live telemetry across 8 panels per simulation run — Quantum Simulator and Vector Healing tabs, run locally with `streamlit run app_dashboard.py`. `legacy/dash.py` is the original Google Colab notebook this was ported from, kept for reference only (not installable — see the file header).
 
 ---
 
@@ -126,20 +130,17 @@ parser = QASMParser()
 circuit = parser.parse(qasm)
 
 sim = DenseSVSimulator(n_qubits=3)
-sim.run_circuit_jit_beast_mode(circuit.ops)
+sim.run_circuit_jit_beast_mode(circuit.to_tuples())
 
 probs = sim.get_probabilities()
 sv    = sim.get_statevector()
 ```
 
-**Dashboard (Colab / Jupyter):**
+**Dashboard (local, Streamlit):**
 
-```python
-import dash
-from IPython.display import display, clear_output
-
-clear_output()
-display(dash.dashboard_unificata)
+```bash
+pip install "dense-evolution[jax,dashboard]"
+streamlit run app_dashboard.py
 ```
 
 **Anti-OOM for large circuits:**
@@ -164,11 +165,13 @@ dense_evolution/
 ├── parser.py       QASMParser · QASMCircuit · OpenQASM 2.0 / 3.0
 ├── compiler.py     QuantumTranspiler · _apply_gate_fast_step (jit) · gate decomposition
 ├── chunk.py        SafeMemoryGuard · MemoryChunker · CircuitChunker · Chunk (Anti-OOM)
-├── simulator.py    DenseSVSimulator · run_parametric_batch_jit · vmap batch VQE
-└── dash.py         ipywidgets dashboard · VQE engine · QM/MM · MD simulation · 3D wavefunction
+└── simulator.py    DenseSVSimulator · run_parametric_batch_jit · vmap batch VQE
 
 ia_utils/
 └── vector_healing.py   median_healing · enhanced_dense_healing_hybrid (NaN/Inf-safe, lazy JAX import)
+
+app_dashboard.py + dashboard_core.py + ui_pages/   Streamlit dashboard — VQE engine · QM/MM · MD simulation · 3D wavefunction
+legacy/dash.py                                     original Colab notebook, reference only (not installed as a module)
 ```
 
 **Data flow per run:**
@@ -543,6 +546,10 @@ All circuits stored as OpenQASM 2.0 strings in `QASM_LIBRARY`.
 ---
 
 ## ▍ Changelog
+
+### v8.1.10
+- **Fixed**: `run_circuit_jit_beast_mode` / `run_parametric_batch_jit` — a gate referencing a qubit index out of range silently corrupted the entire statevector to zero instead of raising (verified: `get_probabilities().sum()` went from 1.0 to 0.0, no exception). `apply_gate_1q`/`apply_gate_2q` already validated qubit indices, but these two JIT fast paths build their own compiled ops and never called them. Both now validate before dispatch, matching the existing behavior of the non-JIT path.
+- **Fixed**: `Chunk` — for `n_qubits` beyond the RAM-safe budget (`chunk_size_bits`), it silently ran the circuit on a smaller inner simulator (`min(n_qubits, chunk_size_bits)`) instead of genuinely chunking: `num_chunks`/`chunk_dim` were computed but never used to combine multiple pieces. Found testing `Chunk(n_qubits=28)`: `get_probabilities()` returned `2**27` elements, not `2**28`. Now implements real multi-chunk simulation (RAM-only, no disk paging — covers moderate overflow beyond the safe budget, not arbitrarily large qubit counts): `num_chunks` independent chunk-sized simulators held in memory, with gate dispatch across chunk boundaries for all six local/chunk-select combinations. Verified against a plain `DenseSVSimulator` running the identical circuit (exact match, not just "looks right"). A sized RAM check now raises `MemoryPressureError` up front if the chunks wouldn't fit, instead of attempting and OOMing.
 
 ### v8.1.9
 - **Fixed**: `ia_utils/vector_healing.py` — `enhanced_dense_healing_hybrid` had an unreachable third branch (a dense/blend fallback): the underlying `trigger` signal from `evaluate_phi_trigger` is strictly binary (0.0/1.0), so the branch could never execute. Collapsed to the genuine 2-state logic (pass-through vs. median fallback); runtime output is unchanged since the branch never ran.

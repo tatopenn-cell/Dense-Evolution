@@ -1,4 +1,12 @@
 # ============================================================
+# LEGACY — original Google Colab notebook export, kept for reference only.
+# Not part of the installable dense-evolution package (not in py-modules).
+# Meant to be pasted/run as a Colab cell, not imported as a Python module —
+# it has unconditional top-level `from google.colab import files` and
+# `import ipywidgets`, so `import dash` fails outside Colab. The maintained,
+# importable dashboard is dashboard_core.py + app_dashboard.py (Streamlit)
+# at the repo root, which ported the same 8 panels from this file.
+# ============================================================
 # PARTE 1: MOTORE COMPUTAZIONALE JIT CORE (DEEP UNPACKING)
 # ============================================================
 #  Copyright (c) 2026 Salvatore Pennacchio <jtatopenn@libero.it>
