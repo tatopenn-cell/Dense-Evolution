@@ -81,7 +81,7 @@ parser = QASMParser()
 circuit = parser.parse(qasm)
 
 sim = DenseSVSimulator(n_qubits=3)
-sim.run_circuit_jit_beast_mode(circuit.ops)
+sim.run_circuit_jit_beast_mode(circuit.to_tuples())
 
 probs = sim.get_probabilities()
 sv    = sim.get_statevector()
