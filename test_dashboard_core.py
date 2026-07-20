@@ -113,6 +113,60 @@ def test_vqe_telemetry_heavy_qubit_guard_is_caller_responsibility():
     assert dc.QM_MM_HEAVY_QUBIT_THRESHOLD == 12
 
 
+def test_vqe_gradient_matches_finite_difference():
+    # The real gradient (jax.grad through _vqe_energy_fn) replaced a fake
+    # formula (0.5*(E-target)*sin(theta)+noise, no actual derivative
+    # anywhere). This is the correctness bar: compare against a
+    # finite-difference gradient computed by re-evaluating the energy
+    # function directly, on the dashboard's own QASM_LIBRARY circuit.
+    import jax
+    import jax.numpy as jnp
+
+    parser = __import__("dense_evolution").QASMParser()
+    circ = parser.parse(dc.QASM_LIBRARY[VQE_CIRCUIT])
+    template = dc._build_vqe_template(circ.ops, circ.n_qubits)
+    n_params = int((np.asarray(template)[:, 3] == -1.0).sum())
+    assert n_params > 0
+
+    stato_zero = jnp.zeros(2 ** circ.n_qubits, dtype=jnp.complex128).at[0].set(1.0)
+    rng = np.random.default_rng(7)
+    h_matrix = jnp.diag(jnp.array(np.sort(rng.uniform(-2.5, 2.5, 2 ** circ.n_qubits))))
+    theta0 = rng.uniform(-np.pi, np.pi, n_params)
+
+    energy_and_grad = jax.jit(jax.value_and_grad(dc._vqe_energy_fn, argnums=0, has_aux=True))
+    (_, _), grad = energy_and_grad(jnp.asarray(theta0), template, stato_zero, h_matrix)
+
+    eps = 1e-6
+    fd_grad = np.zeros(n_params)
+    for i in range(n_params):
+        tp, tm = theta0.copy(), theta0.copy()
+        tp[i] += eps
+        tm[i] -= eps
+        (ep, _), _ = energy_and_grad(jnp.asarray(tp), template, stato_zero, h_matrix)
+        (em, _), _ = energy_and_grad(jnp.asarray(tm), template, stato_zero, h_matrix)
+        fd_grad[i] = float((ep - em) / (2 * eps))
+
+    np.testing.assert_allclose(np.asarray(grad), fd_grad, atol=1e-6)
+
+
+def test_vqe_energy_trends_downward_over_epochs():
+    # The old fake gradient (formula + injected Gaussian noise) had no
+    # principled reason to actually minimize the energy. A real gradient
+    # run through enough Adam steps on a fixed circuit/Hamiltonian should
+    # show real descent — this is what distinguishes "looks like VQE
+    # telemetry" from "is actually optimizing something".
+    sim = __import__("dense_evolution").DenseSVSimulator(n_qubits=2, use_float32=True)
+    parser = __import__("dense_evolution").QASMParser()
+    np.random.seed(123)
+    df = dc.run_vqe_telemetry(
+        sim, parser, dc.QASM_LIBRARY[VQE_CIRCUIT], VQE_CIRCUIT, 2, True,
+        epochs=40, lr=0.1, beta1=0.9, beta2=0.999, seed=123,
+    )
+    primi = df["VQE_Energy"].iloc[:5].mean()
+    ultimi = df["VQE_Energy"].iloc[-5:].mean()
+    assert ultimi < primi
+
+
 # ── run_md_telemetry ────────────────────────────────────────────────────
 
 def test_md_telemetry_shape(md_telemetry):

@@ -26,6 +26,11 @@ import seaborn as sns
 import plotly.graph_objects as go
 
 import dense_evolution as de
+# Private but same ecosystem: DenseSVSimulator.run_parametric_batch_jit already
+# calls this internally for the exact "inject a parameter without severing the
+# JAX trace" pattern the real VQE gradient below reuses (see _vqe_energy_fn) —
+# there's no public wrapper that takes a pre-built ops array directly.
+from dense_evolution.compiler import _compile_and_run_circuit_jit
 
 
 QASM_LIBRARY = {
@@ -668,72 +673,83 @@ def _run_vqe_mock_simulation(epochs: int, lr: float, beta1: float, beta2: float,
     return df_vqe
 
 
-def risolvi_qasm(parametric_commands, param_dict, n_qubits, theta_params, current_param_counter):
-    """Adapted from dash.py:3122 — resolves parametric QASM commands into the flat
-    gate-list format accepted by DenseSVSimulator.run_circuit_jit_beast_mode."""
-    processed_commands = []
-    param_counter = current_param_counter
+#: gates that receive a value from VQE's theta vector (must match the
+#: n_params counting in _run_vqe_telemetry_body exactly, or theta's
+#: allocation order desyncs from the template's injection order).
+_VQE_PARAMETRIC_GATES = ('rx', 'ry', 'rz', 'u1', 'p', 'cp', 'crz')
+_VQE_TWO_QUBIT_GATES = ('cx', 'cy', 'cz', 'cp', 'crz', 'swap')
 
-    for cmd_obj in parametric_commands:
-        if not isinstance(cmd_obj, dict) or 'name' not in cmd_obj:
+
+def _build_vqe_template(comandi_ast, n_qubits) -> "jnp.ndarray":
+    """Builds the (n_ops, 4) float64 [g_id, q1, q2, sentinel] template that
+    _vqe_energy_fn injects theta into — the same sentinel pattern
+    DenseSVSimulator.run_parametric_batch_jit already uses internally
+    (-1.0 in the param slot for gates whose value comes from theta, patched
+    in via jnp.where inside a jax.lax.scan, never a Python float()).
+
+    Replaces the old risolvi_qasm, which called float(resolved_params[0])
+    on the theta value before building each command — fine for running a
+    circuit once, but it severs the JAX trace, so no gradient could ever
+    flow back through it to theta.
+
+    Structural pass only: build (name, *qubits) tuples (no param values —
+    QuantumTranspiler.transpile only inspects gate name/qubit-count, for
+    ccx/swap decomposition), transpile once, then look up g_id per gate and
+    mark parametric slots with the sentinel. ccx/toffoli decomposes into
+    non-parametric gates only, so this never desyncs theta's order.
+    """
+    tuples = []
+    for cmd in comandi_ast:
+        if not isinstance(cmd, dict) or 'name' not in cmd:
             continue
-
-        nome_porta = str(cmd_obj['name']).lower().strip()
-        qubits_grezzi = cmd_obj.get('qubits', [])
-        params_grezzi = cmd_obj.get('params', [])
-
-        resolved_params = []
-        for p_raw in params_grezzi:
-            p_clean = str(estrai_valore_puro(p_raw)).strip()
-            if nome_porta in ['rx', 'ry', 'rz', 'u1', 'p', 'cp', 'crz'] and param_counter < len(theta_params):
-                resolved_params.append(theta_params[param_counter])
-                param_counter += 1
-            elif p_clean in param_dict:
-                resolved_params.append(param_dict[p_clean])
-            else:
-                try:
-                    resolved_params.append(float(p_clean))
-                except ValueError:
-                    resolved_params.append(p_raw)
-
+        name = str(cmd['name']).lower().strip()
         try:
-            if nome_porta in ['h', 'x', 'y', 'z', 's', 'sdg', 't', 'tdg']:
-                if len(qubits_grezzi) == 1:
-                    target = int(estrai_valore_puro(qubits_grezzi[0]))
-                    if target < n_qubits:
-                        processed_commands.append([nome_porta, target, -1])
-            elif nome_porta in ['rx', 'ry', 'rz', 'u1', 'u2', 'u3', 'p']:
-                if len(qubits_grezzi) == 1:
-                    param = float(resolved_params[0]) if resolved_params else 0.0
-                    target = int(estrai_valore_puro(qubits_grezzi[0]))
-                    if target < n_qubits:
-                        processed_commands.append([nome_porta, target, param])
-            elif nome_porta in ['cx', 'cy', 'cz', 'swap']:
-                if len(qubits_grezzi) == 2:
-                    control = int(estrai_valore_puro(qubits_grezzi[0]))
-                    target = int(estrai_valore_puro(qubits_grezzi[1]))
-                    if control < n_qubits and target < n_qubits:
-                        # compiler.py's documented tuple contract is (gate, control, target)
-                        # for 2-qubit gates — this used to be reversed (see audit finding #1).
-                        processed_commands.append([nome_porta, control, target])
-            elif nome_porta in ['ccx', 'toffoli']:
-                if len(qubits_grezzi) == 3:
-                    c1 = int(estrai_valore_puro(qubits_grezzi[0]))
-                    c2 = int(estrai_valore_puro(qubits_grezzi[1]))
-                    t = int(estrai_valore_puro(qubits_grezzi[2]))
-                    if c1 < n_qubits and c2 < n_qubits and t < n_qubits:
-                        processed_commands.append([nome_porta, c1, c2, t])
-            elif nome_porta in ['cp', 'crz']:
-                if len(qubits_grezzi) == 2:
-                    param = float(resolved_params[0]) if resolved_params else 0.0
-                    control = int(estrai_valore_puro(qubits_grezzi[0]))
-                    target = int(estrai_valore_puro(qubits_grezzi[1]))
-                    if control < n_qubits and target < n_qubits:
-                        processed_commands.append([nome_porta, control, target, param])
-        except Exception:
-            pass
+            qubits = [int(estrai_valore_puro(q)) for q in cmd.get('qubits', [])]
+        except (TypeError, ValueError):
+            continue
+        if not qubits or any(q >= n_qubits for q in qubits):
+            continue
+        tuples.append((name, *qubits))
 
-    return processed_commands
+    target = de.QuantumTranspiler.transpile(tuples)
+
+    rows = []
+    for cmd in target:
+        name = cmd[0].lower()
+        if name not in de.GATE_IDS:
+            continue
+        g_id = float(de.GATE_IDS[name])
+        qubits = cmd[1:]
+        sentinel = -1.0 if name in _VQE_PARAMETRIC_GATES else 0.0
+        if name in _VQE_TWO_QUBIT_GATES and len(qubits) >= 2:
+            rows.append([g_id, float(qubits[0]), float(qubits[1]), sentinel])
+        elif qubits:
+            rows.append([g_id, float(qubits[0]), 0.0, sentinel])
+
+    if not rows:
+        return jnp.empty((0, 4), dtype=jnp.float64)
+    return jnp.array(rows, dtype=jnp.float64)
+
+
+def _vqe_energy_fn(theta: "jnp.ndarray", template: "jnp.ndarray",
+                    stato_zero: "jnp.ndarray", h_matrix: "jnp.ndarray"):
+    """Pure function theta -> (energy, statevector), differentiable end to
+    end via jax.grad — verified against a finite-difference gradient
+    (~1e-13 agreement on a standalone reproduction before this was wired
+    in here). Returned as (energy, sv) so jax.value_and_grad(..., has_aux=True)
+    hands back the same statevector used for the energy, reused for
+    entropy/purity/QM-MM forces instead of a second forward pass."""
+    def patch_and_apply(carry, op):
+        idx = carry
+        is_param = op[3] == -1.0
+        final_p = jnp.where(is_param, theta[idx], op[3])
+        next_idx = jnp.where(is_param, idx + jnp.int32(1), idx)
+        return next_idx, jnp.array([op[0], op[1], op[2], final_p], dtype=jnp.float64)
+
+    _, patched_ops = jax.lax.scan(patch_and_apply, jnp.int32(0), template)
+    sv = _compile_and_run_circuit_jit(stato_zero, patched_ops)
+    energy = jnp.real(jnp.vdot(sv, h_matrix @ sv))
+    return energy, sv
 
 
 def run_vqe_telemetry(sim, parser, qasm_text, circuit_name, n_qubits, use_float32,
@@ -806,15 +822,22 @@ def _run_vqe_telemetry_body(sim, parser, qasm_text, circuit_name, n_qubits, use_
     classical_charges = jnp.array([1.0, -1.0], dtype=classical_dtype)
     orbital_centers = jnp.array([[0.0, 0.0, 0.1]], dtype=classical_dtype)
 
+    # Built once, reused every epoch — only theta changes, so this traces/
+    # JIT-compiles a single time instead of rebuilding the circuit (and
+    # calling the trace-severing risolvi_qasm) from scratch each epoch.
+    template = _build_vqe_template(comandi_ast, n_qubits)
+    energy_and_grad = jax.jit(jax.value_and_grad(_vqe_energy_fn, argnums=0, has_aux=True))
+
     for epoch in range(epochs):
-        comandi_eseguibili = risolvi_qasm(comandi_ast, {}, n_qubits, theta, 0)
+        (energia_jax, sv), grad_jax = energy_and_grad(
+            jnp.asarray(theta, dtype=jnp.float64), template, stato_zero, sim.H_matrix
+        )
+        energia = float(energia_jax)
 
-        sim.set_state(stato_zero)
-        sim.run_circuit_jit_beast_mode(comandi_eseguibili)
-        sv = sim.get_statevector()
-        prob = sim.get_probabilities()
-
-        energia = float(np.real(jnp.dot(jnp.conj(sv), jnp.dot(sim.H_matrix, sv))))
+        prob = np.clip(np.abs(np.asarray(sv)) ** 2, 0.0, 1.0)
+        prob_total = prob.sum()
+        if prob_total > 1e-12:
+            prob = prob / prob_total
         p_safe = prob[prob > 1e-15]
         entropia = float(-np.sum(p_safe * np.log2(p_safe))) if len(p_safe) > 0 else 0.0
         purita = float(np.sum(prob ** 2))
@@ -829,9 +852,9 @@ def _run_vqe_telemetry_body(sim, parser, qasm_text, circuit_name, n_qubits, use_
             except Exception:
                 pass
 
-        grad_vqe_params = np.zeros(n_params)
-        for i in range(n_params):
-            grad_vqe_params[i] = 0.5 * (energia - (-1.5)) * np.sin(theta[i]) + np.random.normal(0, 0.02)
+        # Real gradient (jax.grad through _vqe_energy_fn), not a formula —
+        # see CHANGELOG for what used to be here.
+        grad_vqe_params = np.asarray(grad_jax)
         norm_grad_vqe_params = float(np.linalg.norm(grad_vqe_params))
 
         t = epoch + 1
