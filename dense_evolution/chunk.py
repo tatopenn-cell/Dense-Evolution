@@ -15,10 +15,12 @@ except ImportError:
 try:
     from simulator import DenseSVSimulator
     from compiler import QuantumTranspiler
+    from gates import GATES, PARAMETRIC_GATES
 except ModuleNotFoundError:
     try:
         from dense_evolution.simulator import DenseSVSimulator
         from dense_evolution.compiler import QuantumTranspiler
+        from dense_evolution.gates import GATES, PARAMETRIC_GATES
     except ModuleNotFoundError:
         class DenseSVSimulator:  # type: ignore[no-redef]
             def __init__(self, n_qubits, **kwargs):
@@ -34,6 +36,9 @@ except ModuleNotFoundError:
         class QuantumTranspiler:  # type: ignore[no-redef]
             @staticmethod
             def transpile(circuit): return circuit
+
+        GATES: dict = {}
+        PARAMETRIC_GATES: dict = {}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -124,6 +129,34 @@ class SafeMemoryGuard:
                 f"  [WARN] {tag}RAM bassa: {s['available_mb']:.0f} MB liberi "
                 f"({s['free_pct']:.1f}%) — soglia critica al "
                 f"{self.threshold_pct * 100:.0f}%."
+            )
+
+    def check_allocation(self, required_mb: float, context: str = "") -> None:
+        """Like check(), but sized: verifies that *required_mb* can be
+        allocated while still leaving threshold_pct free afterwards —
+        check() alone only looks at RAM free *right now*, independent of
+        what's about to be allocated (needed for Chunk's multi-chunk path,
+        where several chunk-sized simulators are held in RAM at once)."""
+        if self.gc_before_check:
+            gc.collect()
+
+        s   = self.status()
+        tag = f"[{context}] " if context else ""
+        available_after_mb = s["available_mb"] - required_mb
+        free_frac_after = available_after_mb / self._total_mb if self._total_mb > 0 else 0.0
+
+        if available_after_mb < 0 or free_frac_after < self.threshold_pct:
+            raise MemoryPressureError(
+                f"\n{'─'*60}\n"
+                f"  {tag}MEMORIA INSUFFICIENTE per l'allocazione richiesta\n"
+                f"  Richiesti    : {required_mb:.0f} MB\n"
+                f"  Disponibile  : {s['available_mb']:.0f} MB ({s['free_pct']:.1f}% libera)\n"
+                f"  Dopo alloc.  : {available_after_mb:.0f} MB ({free_frac_after * 100:.1f}% libera)\n"
+                f"  Soglia       : {self.threshold_pct * 100:.0f}% libera dopo l'allocazione\n"
+                f"  Azione       : ridurre n_qubits o liberare RAM. Il chunking su\n"
+                f"                 disco per overflow oltre la RAM disponibile non\n"
+                f"                 e' implementato — vedi CHANGELOG.\n"
+                f"{'─'*60}"
             )
 
     def __repr__(self) -> str:
@@ -249,14 +282,20 @@ class Chunk:
     Does NOT subclass DenseSVSimulator directly — the parent __init__ allocates
     2**n_qubits elements immediately (17 GB for 30 qubits).
 
-    Instead, an inner simulator is allocated on ``safe_qubits``
-    (= chunk_size_bits) and the logical qubit count is stored separately.
-    Benchmark attributes (num_chunks, chunk_size_bits, dtype) are forwarded
-    transparently from the embedded MemoryChunker.
+    For n_qubits <= chunk_size_bits (the RAM-safe budget): a single inner
+    simulator is allocated and the logical qubit count is stored separately.
 
-    A SafeMemoryGuard fires before the inner simulator is instantiated
+    For n_qubits > chunk_size_bits: num_chunks separate chunk_size_bits-qubit
+    simulators are held in RAM simultaneously (see _dispatch_multi) — no
+    disk/memmap paging, so this only covers a *moderate* overflow beyond the
+    safe budget (as many chunks as actually fit in RAM at once, checked
+    up front via SafeMemoryGuard.check_allocation before anything is
+    allocated). Benchmark attributes (num_chunks, chunk_size_bits, dtype)
+    are forwarded transparently from the embedded MemoryChunker.
+
+    A SafeMemoryGuard fires before any simulator is instantiated
     (pre-allocation check) and is also embedded in CircuitChunker for
-    per-slice protection during execution.
+    per-slice protection during execution (n_qubits <= chunk_size_bits path).
 
     Parameters
     ----------
@@ -283,23 +322,53 @@ class Chunk:
         # 2. Logical qubit count (for circuit parsing)
         self.n                = n_qubits
         self.chunk_size_gates = chunk_size_gates
+        self._m                = n_qubits - self._mem_chunker.chunk_size_bits  # chunk-select qubit count (0 if num_chunks==1)
 
-        # 3. Pre-allocation RAM check — block here rather than inside JAX
-        safe_q = min(n_qubits, self._mem_chunker.chunk_size_bits)
-        self._guard.check(f"Chunk.__init__ — allocating {safe_q}-qubit simulator")
+        if self._mem_chunker.num_chunks == 1:
+            # 3a. Pre-allocation RAM check — block here rather than inside JAX
+            safe_q = min(n_qubits, self._mem_chunker.chunk_size_bits)
+            self._guard.check(f"Chunk.__init__ — allocating {safe_q}-qubit simulator")
 
-        # 4. Physical simulator sized to what RAM can actually hold
-        self._inner_sim = DenseSVSimulator(
-            safe_q,
-            use_gpu=use_gpu,
-            use_float32=use_float32,
-        )
+            # 4a. Physical simulator sized to what RAM can actually hold
+            self._inner_sim = DenseSVSimulator(
+                safe_q,
+                use_gpu=use_gpu,
+                use_float32=use_float32,
+            )
+            self._chunk_sims = None
 
-        # 5. Circuit chunker wired to the physical simulator, with same threshold
-        self._circuit_chunker = CircuitChunker(
-            simulator_instance=self._inner_sim,
-            memory_threshold=memory_threshold,
-        )
+            # 5a. Circuit chunker wired to the physical simulator, with same threshold
+            self._circuit_chunker = CircuitChunker(
+                simulator_instance=self._inner_sim,
+                memory_threshold=memory_threshold,
+            )
+        else:
+            # 3b. Sized pre-allocation check: num_chunks chunk-sized simulators
+            # held in RAM at once, plus ~2 chunks of headroom for the temporary
+            # arrays the cross-chunk gate-mixing math allocates at its peak.
+            num_chunks   = self._mem_chunker.num_chunks
+            per_chunk_mb = self._mem_chunker.memory_mb()
+            required_mb  = (num_chunks + 2) * per_chunk_mb
+            self._guard.check_allocation(
+                required_mb,
+                f"Chunk.__init__ — allocating {num_chunks} chunks of "
+                f"{self._mem_chunker.chunk_size_bits} qubits each",
+            )
+
+            # 4b. num_chunks independent chunk-sized simulators. Each one's own
+            # __init__ resets it to |0...0>: only chunk 0 should carry the
+            # amplitude-1 seed for the LOGICAL |0...0>, the rest must start
+            # at all-zero (direct .sv assignment — set_state/set_initial_state
+            # reject zero-norm vectors by design).
+            self._chunk_sims = [
+                DenseSVSimulator(self._mem_chunker.chunk_size_bits, use_gpu=use_gpu, use_float32=use_float32)
+                for _ in range(num_chunks)
+            ]
+            for sim in self._chunk_sims[1:]:
+                sim.sv = sim.xp.zeros(self._mem_chunker.chunk_dim, dtype=sim.dtype)
+
+            self._inner_sim        = None
+            self._circuit_chunker  = None
 
     # ── Benchmark-facing attribute forwarding ────────────────────────────────
 
@@ -327,22 +396,201 @@ class Chunk:
 
     @property
     def sv(self):
-        """Current statevector of the physical (chunk-sized) simulator."""
-        return self._inner_sim.sv
+        """Current statevector. For num_chunks==1, the physical (chunk-sized)
+        simulator's own array. For num_chunks>1, the chunks concatenated in
+        ascending order — valid because of the MSB-first correspondence
+        between chunk index and the top `_m` logical qubits (see
+        _dispatch_multi's docstring)."""
+        if self._chunk_sims is None:
+            return self._inner_sim.sv
+        xp = self._chunk_sims[0].xp
+        return xp.concatenate([sim.sv for sim in self._chunk_sims])
 
     def memory_mb(self) -> float:
-        """RAM used by the physical statevector in MB."""
-        return self._inner_sim.memory_mb()
+        """RAM used by the physical statevector(s) in MB."""
+        if self._chunk_sims is None:
+            return self._inner_sim.memory_mb()
+        return sum(sim.memory_mb() for sim in self._chunk_sims)
 
     def get_probabilities(self):
-        """|amplitude|^2 for every basis state — forwards to the inner
-        DenseSVSimulator for parity with its own get_probabilities()."""
-        return self._inner_sim.get_probabilities()
+        """|amplitude|^2 for every basis state.
+
+        num_chunks==1: forwards to the inner DenseSVSimulator for parity
+        with its own get_probabilities().
+
+        num_chunks>1: concatenates the RAW statevectors first and normalizes
+        ONCE over the full array — NOT each chunk's own get_probabilities()
+        (that would independently renormalize each chunk's partial mass to
+        1, summing to num_chunks overall and destroying the relative
+        weighting between chunks)."""
+        if self._chunk_sims is None:
+            return self._inner_sim.get_probabilities()
+        full_sv = np.concatenate([np.array(sim.sv) for sim in self._chunk_sims])
+        probs = np.abs(full_sv) ** 2
+        probs = np.clip(probs, 0.0, 1.0)
+        total = probs.sum()
+        if total > 1e-12:
+            probs /= total
+        return probs
 
     def get_statevector(self):
-        """Full complex statevector — forwards to the inner DenseSVSimulator
-        for parity with its own get_statevector()."""
-        return self._inner_sim.get_statevector()
+        """Full complex statevector, num_qubits logical qubits long
+        (2**n elements). num_chunks==1: forwards to the inner
+        DenseSVSimulator. num_chunks>1: raw chunks concatenated in order
+        (see `sv` property)."""
+        if self._chunk_sims is None:
+            return self._inner_sim.get_statevector()
+        return np.concatenate([np.array(sim.sv, dtype=sim.dtype) for sim in self._chunk_sims])
+
+    # ── Multi-chunk gate dispatch (num_chunks > 1) ───────────────────────────
+
+    def _resolve_gate(self, cmd) -> Tuple[bool, "np.ndarray", int, Optional[int]]:
+        """Mirrors DenseSVSimulator.run_circuit's own name -> matrix dispatch
+        (GATES / PARAMETRIC_GATES), deliberately NOT run_circuit_jit_beast_mode's
+        GATE_IDS table — that table is missing cy/cp/crz (and others) and
+        would silently drop them. Returns (is_2q, matrix, q1, q2_or_None).
+
+        Only the controlled-U 2-qubit gates {cx, cz, cy, cp, crz} are
+        supported here — the only 2-qubit gates that can reach execution
+        after QuantumTranspiler.transpile (ccx -> 15 native gates, swap ->
+        3xCX). Anything else raises rather than silently mishandling a gate
+        that isn't actually controlled-U structured (e.g. swap, iswap, ecr)."""
+        name = cmd[0].lower() if isinstance(cmd[0], str) else str(cmd[0]).lower()
+        args = cmd[1:]
+        xp    = self._chunk_sims[0].xp
+        dtype = self._chunk_sims[0].dtype
+        controlled_u_2q = ('cx', 'cz', 'cy')
+        controlled_u_2q_param = ('cp', 'crz')
+
+        if name in GATES:
+            mat = xp.array(GATES[name], dtype=dtype)
+            if mat.shape == (2, 2):
+                return False, mat, int(args[0]), None
+            if name in controlled_u_2q:
+                return True, mat, int(args[0]), int(args[1])
+            raise NotImplementedError(
+                f"Chunk multi-chunk dispatch only supports the controlled-U "
+                f"2-qubit gates {controlled_u_2q + controlled_u_2q_param} "
+                f"(everything else is decomposed by QuantumTranspiler before "
+                f"reaching here) — got '{name}'."
+            )
+
+        if name in PARAMETRIC_GATES:
+            if len(args) == 2:
+                mat = xp.array(PARAMETRIC_GATES[name](args[1]), dtype=dtype)
+                return False, mat, int(args[0]), None
+            if len(args) == 3:
+                if name not in controlled_u_2q_param:
+                    raise NotImplementedError(
+                        f"Chunk multi-chunk dispatch only supports the "
+                        f"controlled-U 2-qubit parametric gates "
+                        f"{controlled_u_2q_param} — got '{name}'."
+                    )
+                mat = xp.array(PARAMETRIC_GATES[name](args[2]), dtype=dtype)
+                return True, mat, int(args[0]), int(args[1])
+            if len(args) == 4:
+                mat = xp.array(PARAMETRIC_GATES[name](args[1], args[2], args[3]), dtype=dtype)
+                return False, mat, int(args[0]), None
+
+        raise ValueError(f"Unknown or unparseable gate command in multi-chunk circuit: {cmd!r}")
+
+    def _apply_gate_multi(self, is_2q: bool, mat, q1: int, q2: Optional[int]) -> None:
+        """Applies one gate across self._chunk_sims. See CHANGELOG / plan for
+        the full derivation. `m` = self._m = number of chunk-select qubits
+        (the top m logical qubits, indices [0, m)); qubits [m, n) are local
+        to a chunk, re-indexed as (q - m) within that chunk's own simulator.
+        """
+        m = self._m
+        for q in ((q1,) if not is_2q else (q1, q2)):
+            if not 0 <= q < self.n:
+                raise ValueError(f"Qubit index {q} out of range [0, {self.n})")
+
+        chunks = self._chunk_sims
+        xp     = chunks[0].xp
+
+        if not is_2q:
+            if q1 >= m:
+                for sim in chunks:
+                    sim.apply_gate_1q(mat, q1 - m)
+                return
+            # chunk-select 1-qubit gate: mix whole chunk arrays pairwise
+            stride = 1 << (m - 1 - q1)
+            g00, g01, g10, g11 = mat[0, 0], mat[0, 1], mat[1, 0], mat[1, 1]
+            for c0 in range(self.num_chunks):
+                if c0 & stride:
+                    continue
+                c1 = c0 | stride
+                sv0, sv1 = chunks[c0].sv, chunks[c1].sv
+                chunks[c0].sv = g00 * sv0 + g01 * sv1
+                chunks[c1].sv = g10 * sv0 + g11 * sv1
+            return
+
+        # 2-qubit controlled-U: control=q1, target=q2, U = mat[2:, 2:]
+        U = mat[2:, 2:]
+        u00, u01, u10, u11 = U[0, 0], U[0, 1], U[1, 0], U[1, 1]
+        ctrl_local = q1 >= m
+        tgt_local  = q2 >= m
+
+        if ctrl_local and tgt_local:
+            for sim in chunks:
+                sim.apply_gate_2q(mat, q1 - m, q2 - m)
+
+        elif (not ctrl_local) and tgt_local:
+            ctrl_stride = 1 << (m - 1 - q1)
+            for c in range(self.num_chunks):
+                if c & ctrl_stride:
+                    chunks[c].apply_gate_1q(U, q2 - m)
+                # else: control bit 0 -> identity branch, no change
+
+        elif ctrl_local and (not tgt_local):
+            k = self._mem_chunker.chunk_size_bits
+            local_ctrl_stride = 1 << (k - 1 - (q1 - m))
+            tgt_stride = 1 << (m - 1 - q2)
+            idx  = xp.arange(self._mem_chunker.chunk_dim)
+            mask = (idx & local_ctrl_stride) != 0
+            for c0 in range(self.num_chunks):
+                if c0 & tgt_stride:
+                    continue
+                c1 = c0 | tgt_stride
+                sv0, sv1 = chunks[c0].sv, chunks[c1].sv  # snapshot before writing
+                mix0 = u00 * sv0 + u01 * sv1
+                mix1 = u10 * sv0 + u11 * sv1
+                chunks[c0].sv = xp.where(mask, mix0, sv0)
+                chunks[c1].sv = xp.where(mask, mix1, sv1)
+
+        else:  # both chunk-select
+            ctrl_stride = 1 << (m - 1 - q1)
+            tgt_stride  = 1 << (m - 1 - q2)
+            for c0 in range(self.num_chunks):
+                if c0 & tgt_stride:
+                    continue
+                c1 = c0 | tgt_stride
+                if not (c0 & ctrl_stride):
+                    continue  # control bit 0 (same on c0/c1) -> identity
+                sv0, sv1 = chunks[c0].sv, chunks[c1].sv
+                chunks[c0].sv = u00 * sv0 + u01 * sv1
+                chunks[c1].sv = u10 * sv0 + u11 * sv1
+
+    def _dispatch_multi(self, circuit: List) -> None:
+        """Executes *circuit* against the num_chunks>1 chunk representation.
+
+        Convention: chunk index `c` (m = self._m bits, MSB-first, same
+        n-1-qubit convention as DenseSVSimulator) equals the value of the
+        top m logical qubits (indices [0, m)); chunk_sims[c].sv holds the
+        chunk_dim amplitudes for the remaining (local) qubits [m, n). This
+        makes full_sv.reshape(num_chunks, chunk_dim)[c] == chunk_sims[c].sv
+        exactly, since NumPy's row-major reshape splits a (2,)*n tensor on
+        the leading axes first — i.e. the most-significant qubits, matching
+        this simulator's MSB-first indexing throughout.
+
+        No chunk_size_gates batching here (unlike the num_chunks==1 path via
+        CircuitChunker): each per-gate call into a chunk_size_bits-qubit
+        DenseSVSimulator is already a single bounded JIT op, so there's no
+        JIT-recompilation-on-varying-trace-shape problem to solve."""
+        target = QuantumTranspiler.transpile(circuit)
+        for cmd in target:
+            is_2q, mat, q1, q2 = self._resolve_gate(cmd)
+            self._apply_gate_multi(is_2q, mat, q1, q2)
 
     # ── Public API ───────────────────────────────────────────────────────────
 
@@ -352,14 +600,18 @@ class Chunk:
         chunk_size_gates: Optional[int] = None,
     ) -> None:
 
+        if self._chunk_sims is not None:
+            self._dispatch_multi(circuit)
+            return
         size = chunk_size_gates if chunk_size_gates is not None else self.chunk_size_gates
         self._circuit_chunker.split_circuit(circuit, chunk_size=size)
 
     def __repr__(self) -> str:
         s = self._guard.status()
+        safe_qubits = self._inner_sim.n if self._inner_sim is not None else self._mem_chunker.chunk_size_bits
         return (
             f"Chunk(n_qubits={self.n}, "
-            f"safe_qubits={self._inner_sim.n}, "
+            f"safe_qubits={safe_qubits}, "
             f"num_chunks={self.num_chunks}, "
             f"chunk_size_bits={self.chunk_size_bits}, "
             f"dtype={self.dtype}, "

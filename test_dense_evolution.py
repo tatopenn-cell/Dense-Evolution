@@ -536,6 +536,151 @@ class TestChunkPublicAPI:
         assert abs(probs.sum() - 1.0) < 1e-9
         assert np.allclose(probs, 1.0 / 64, atol=1e-9)  # uniform after H on all 6 qubits
 
+
+class TestChunkMultiPiece:
+    """Chunk(n_qubits) beyond the RAM-safe budget used to silently simulate
+    FEWER qubits than requested (inner simulator sized to
+    min(n_qubits, chunk_size_bits)) instead of real multi-chunk splitting —
+    num_chunks/chunk_dim were computed but never acted on. Found testing
+    Chunk(n_qubits=28) directly: get_probabilities() returned 2**27 elements,
+    not 2**28.
+
+    These tests force a small chunk_size_bits via monkeypatching
+    get_dynamic_chunk (so num_chunks>1 is cheap to test) and cross-check the
+    multi-chunk dispatch against a plain DenseSVSimulator(n_qubits) running
+    the identical circuit — the only real correctness bar here, since this
+    is bit-manipulation-heavy code where a plausible-looking-but-wrong
+    formula is easy to miss by inspection alone."""
+
+    @pytest.fixture
+    def force_chunk_bits(self, monkeypatch):
+        """Returns a function to force MemoryChunker's safe budget to a
+        fixed small value, so num_chunks>1 can be tested without needing
+        real multi-GB allocations."""
+        import dense_evolution.chunk as chunk_mod
+
+        def _force(bits):
+            monkeypatch.setattr(chunk_mod, "get_dynamic_chunk", lambda dtype_target: bits)
+
+        return _force
+
+    def _compare_to_reference(self, n_qubits, circuit):
+        c = Chunk(n_qubits)
+        c.run_chunk(circuit)
+        sv_chunk = np.asarray(c.get_statevector())
+
+        ref = DenseSVSimulator(n_qubits)
+        ref.run_circuit(circuit, transpile=True)
+        sv_ref = np.asarray(ref.get_statevector())
+
+        return sv_chunk, sv_ref
+
+    def test_empty_circuit_canary(self, force_chunk_bits):
+        # cheapest way to catch "every chunk seeded its own |0...0>" in
+        # isolation, before it's buried in a larger circuit's diff
+        force_chunk_bits(4)
+        c = Chunk(6)  # chunk_size_bits=4 -> num_chunks=4
+        assert c.num_chunks == 4
+        probs = np.asarray(c.get_probabilities())
+        assert probs.shape == (64,)
+        assert abs(probs.sum() - 1.0) < 1e-9
+        assert abs(probs[0] - 1.0) < 1e-9
+
+        ref = DenseSVSimulator(6)
+        np.testing.assert_allclose(np.asarray(c.get_statevector()), ref.get_statevector(), atol=1e-12)
+
+    @pytest.mark.parametrize("qubit", [3])  # local qubit (m=2 for n=6,bits=4)
+    def test_1q_local(self, force_chunk_bits, qubit):
+        force_chunk_bits(4)
+        sv_chunk, sv_ref = self._compare_to_reference(6, [('h', qubit)])
+        np.testing.assert_allclose(sv_chunk, sv_ref, atol=1e-9)
+
+    @pytest.mark.parametrize("qubit", [0, 1])  # chunk-select: MSB (0) and non-MSB (1)
+    def test_1q_chunk_select(self, force_chunk_bits, qubit):
+        force_chunk_bits(4)
+        sv_chunk, sv_ref = self._compare_to_reference(6, [('h', qubit)])
+        np.testing.assert_allclose(sv_chunk, sv_ref, atol=1e-9)
+
+    def test_2q_local_local(self, force_chunk_bits):
+        force_chunk_bits(4)
+        sv_chunk, sv_ref = self._compare_to_reference(6, [('h', 3), ('cx', 3, 4)])
+        np.testing.assert_allclose(sv_chunk, sv_ref, atol=1e-9)
+
+    @pytest.mark.parametrize("gate", ["cx", "cz", "cy"])
+    def test_2q_control_chunk_select_target_local(self, force_chunk_bits, gate):
+        force_chunk_bits(4)
+        sv_chunk, sv_ref = self._compare_to_reference(6, [('h', 0), (gate, 0, 3)])
+        np.testing.assert_allclose(sv_chunk, sv_ref, atol=1e-9)
+
+    @pytest.mark.parametrize("gate", ["cx", "cz", "cy"])
+    def test_2q_control_local_target_chunk_select(self, force_chunk_bits, gate):
+        force_chunk_bits(4)
+        sv_chunk, sv_ref = self._compare_to_reference(6, [('h', 3), (gate, 3, 0)])
+        np.testing.assert_allclose(sv_chunk, sv_ref, atol=1e-9)
+
+    @pytest.mark.parametrize("gate", ["cx", "cz", "cy"])
+    def test_2q_control_chunk_select_target_chunk_select(self, force_chunk_bits, gate):
+        force_chunk_bits(4)
+        sv_chunk, sv_ref = self._compare_to_reference(6, [('h', 0), ('h', 1), (gate, 0, 1)])
+        np.testing.assert_allclose(sv_chunk, sv_ref, atol=1e-9)
+
+    def test_parametric_2q_gates_all_four_locations(self, force_chunk_bits):
+        # cp/crz aren't in GATE_IDS (run_circuit_jit_beast_mode's table) —
+        # canary for silently dropping them via the wrong dispatch table
+        force_chunk_bits(4)
+        cases = [
+            [('h', 0), ('cp', 0, 3, 0.7)],                  # ctrl chunk-select, tgt local
+            [('h', 3), ('crz', 3, 0, 1.1)],                 # ctrl local, tgt chunk-select
+            [('h', 0), ('h', 1), ('cp', 0, 1, 0.9)],         # both chunk-select
+            [('h', 3), ('h', 4), ('crz', 3, 4, 0.4)],        # both local
+        ]
+        for circuit in cases:
+            sv_chunk, sv_ref = self._compare_to_reference(6, circuit)
+            np.testing.assert_allclose(sv_chunk, sv_ref, atol=1e-9)
+
+    def test_random_mixed_circuits_num_chunks_8(self, force_chunk_bits):
+        # num_chunks=8 (m=3) specifically exercises the middle chunk-select
+        # bit (index 1 of 3), not just the most-significant selector bit —
+        # catches formulas that hardcode the full-register bit position
+        # instead of the chunk-index-local one.
+        force_chunk_bits(4)
+        n = 7
+        rng = np.random.default_rng(1234)
+        gates_1q = ['h', 'x', 'y', 'z', 's', 'sdg', 't', 'tdg']
+        gates_1q_param = ['rx', 'ry', 'rz', 'p']
+        gates_2q = ['cx', 'cz', 'cy']
+        gates_2q_param = ['cp', 'crz']
+
+        for _trial in range(8):
+            circuit = []
+            for _ in range(20):
+                kind = rng.integers(0, 4)
+                if kind == 0:
+                    circuit.append((rng.choice(gates_1q), int(rng.integers(0, n))))
+                elif kind == 1:
+                    circuit.append((rng.choice(gates_1q_param), int(rng.integers(0, n)),
+                                     float(rng.uniform(-3.14, 3.14))))
+                elif kind == 2:
+                    q1, q2 = rng.choice(n, size=2, replace=False)
+                    circuit.append((rng.choice(gates_2q), int(q1), int(q2)))
+                else:
+                    q1, q2 = rng.choice(n, size=2, replace=False)
+                    circuit.append((rng.choice(gates_2q_param), int(q1), int(q2),
+                                     float(rng.uniform(-3.14, 3.14))))
+            sv_chunk, sv_ref = self._compare_to_reference(n, circuit)
+            np.testing.assert_allclose(sv_chunk, sv_ref, atol=1e-8,
+                                        err_msg=f"circuit={circuit}")
+
+    def test_num_chunks_1_path_untouched(self, force_chunk_bits):
+        # sanity: with a budget that covers n_qubits, behaviour must be
+        # identical to before this feature existed (single inner sim)
+        force_chunk_bits(16)
+        c = Chunk(6)
+        assert c.num_chunks == 1
+        c.run_chunk([('h', i) for i in range(6)])
+        probs = np.asarray(c.get_probabilities())
+        assert np.allclose(probs, 1.0 / 64, atol=1e-9)
+
     def test_chunk_get_statevector_matches_sv(self):
         sim = Chunk(4)
         sim.run_chunk([['h', 0]], 500)
