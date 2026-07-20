@@ -480,6 +480,12 @@ All circuits stored as OpenQASM 2.0 strings in `QASM_LIBRARY`.
 
 ## ▍ Changelog
 
+### v8.1.8
+- **Fixed**: `parser.py` — controlled two-qubit gates (`cx`/`cy`/`cz`/`cp`/`crz`) parsed from QASM in the dashboard layer had control and target swapped relative to `compiler.py`'s documented `(gate, control, target)` contract, breaking entanglement for circuits run through the dashboard. The core `QASMCircuit.to_tuples()` path was already correct.
+- **Fixed**: `parser.py` — range syntax (`q[0:3]`) on single-qubit gates only applied to the first qubit in the range, silently dropping the rest. Now expands into one gate application per qubit, matching the parser's own documented contract.
+- **Fixed**: `from dense_evolution import Chunk` raised `ImportError` — `Chunk` is now re-exported from the package root. Added `get_probabilities()`/`get_statevector()` to `Chunk` for parity with `DenseSVSimulator`.
+- **Removed**: `dense_evolution/test2.py` and `stress_test.py` — byte-identical, assertion-free debug scripts that shipped inside every install with 0% test coverage. Their one real check (Kraus noise is genuinely stochastic across independent runs) is now a real regression test.
+
 ### v8.1.7
 - `ia_utils/` — new package: `median_healing`, `enhanced_dense_healing_hybrid` for vector sequence healing (NaN/Inf-safe)
 - `jax` import in `ia_utils.vector_healing` made lazy — importable without the `[jax]` extra

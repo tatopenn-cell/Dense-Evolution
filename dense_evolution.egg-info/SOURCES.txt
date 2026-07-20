@@ -10,8 +10,6 @@ dense_evolution/healing.py
 dense_evolution/parser.py
 dense_evolution/registry.py
 dense_evolution/simulator.py
-dense_evolution/stress_test.py
-dense_evolution/test2.py
 dense_evolution.egg-info/PKG-INFO
 dense_evolution.egg-info/SOURCES.txt
 dense_evolution.egg-info/dependency_links.txt
