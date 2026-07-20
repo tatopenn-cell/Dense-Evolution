@@ -103,7 +103,15 @@ def run_pennylane_circuit(
     MSB-first convention. Do not "symmetrize" this with the Qiskit version;
     that would silently misorder circuits that are asymmetric under qubit
     reversal (verified directly: no permutation needed here, one is
-    required for Qiskit — the two frameworks are genuinely different)."""
+    required for Qiskit — the two frameworks are genuinely different).
+
+    NOT DIFFERENTIABLE: from_pennylane() bakes every gate parameter into a
+    plain Python float inside the QASM text, so it leaves the JAX trace.
+    jax.grad through this function does not raise — it silently returns
+    0.0 (verified), which reads as "converged" rather than "not wired up".
+    For a real gradient through a Dense-Evolution circuit, use the
+    dashboard_core._vqe_energy_fn pattern instead (jax.value_and_grad over
+    a jax.lax.scan template with sentinel-injected parameters)."""
     circ = from_pennylane(circuit, *args, **kwargs)
     if sim is None:
         sim = DenseSVSimulator(n_qubits=circ.n_qubits, use_float32=use_float32)
