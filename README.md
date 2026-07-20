@@ -223,13 +223,16 @@ circuit = parser.parse(qasm_str)   # → QASMCircuit
 valid, msg = parser.validate(circuit)
 ```
 
-`QASMCircuit` fields: `n_qubits`, `n_cbits`, `ops` (list of gate tuples).
+`QASMCircuit` fields: `n_qubits`, `n_cbits`, `ops` (list of gate dicts, e.g.
+`{'name': 'h', 'qubits': [0], 'params': []}` — not the tuple format that
+`DenseSVSimulator.run_circuit` / `QuantumTranspiler.transpile` expect;
+converting between the two is currently up to the caller).
 
 ### `NoiseModel`
 
 ```python
 noise = NoiseModel()
-noise.apply(sv, model='depolarizing', p=0.01, n_qubits=4, rng=rng)
+noise.apply_to_sv(sv, n=4, model='depolarizing', p=0.01, rng=rng)
 desc  = NoiseModel.kraus_description('amplitude_damping')
 ```
 
