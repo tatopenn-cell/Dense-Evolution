@@ -69,15 +69,20 @@ def enhanced_dense_healing_hybrid(
                                          Se `None`, il raggio viene calcolato dinamicamente
                                          come `min(20, max(3, n_tokens // 3))`.
                                          Defaults to None.
-        median_fallback_threshold (float): Soglia del trigger sotto la quale scatta il fallback
-                                           mediano. Defaults to 0.1.
+        median_fallback_threshold (float): Non più utilizzato dalla logica interna — `trigger`
+                                           (da `evaluate_phi_trigger`) è strettamente binario
+                                           (0.0 o 1.0 per design: ciclo aperto/dinamico → incluso,
+                                           ciclo chiuso/statico → escluso), quindi non esiste un
+                                           valore intermedio su cui questa soglia possa agire.
+                                           Mantenuto nella firma per compatibilità con i chiamanti
+                                           esistenti. Defaults to 0.1.
 
     Returns:
         tuple: Contiene:
             - np.ndarray: Vettori curati, della stessa shape dell'input.
             - dict: Metadati di telemetria contenenti:
-                    - 'fallback_triggered' (bool): `True` se il fallback mediano o il blending denso
-                                                   è stato applicato almeno una volta durante il healing.
+                    - 'fallback_triggered' (bool): `True` se il fallback mediano è stato applicato
+                                                   almeno una volta durante il healing.
                     - 'adaptive_radius_used' (int): Il raggio effettivamente calcolato e applicato.
                     - 'reconstruction_error' (float): La norma media di variazione (errore di ricostruzione)
                                                       introdotta rispetto ai vettori originali (potenzialmente corrotti).
@@ -86,7 +91,6 @@ def enhanced_dense_healing_hybrid(
     from dense_evolution.healing import (
         calculate_phi_ab,
         calculate_vettore_dinamico,
-        calculate_delta_preemp,
         evaluate_phi_trigger,
         GLOBAL_CONSTANTS,
     )
@@ -137,24 +141,14 @@ def enhanced_dense_healing_hybrid(
         E_B = jnp.linalg.norm(state_B)
 
         v_dinamic = calculate_vettore_dinamico(E_A, E_B, phi_ab)
-        delta_preemp = calculate_delta_preemp(E_A, E_B)
-        trigger, lambda_step, epsilon_dissip = evaluate_phi_trigger(v_dinamic)
-
-        healed_vector = processed_vettori[i]
+        trigger, _, _ = evaluate_phi_trigger(v_dinamic)
 
         if float(trigger) > GLOBAL_CONSTANTS['NON_STATIC_THRESHOLD_A']:
+            # trigger == 1.0: ciclo aperto/dinamico -> cambio genuino, si tiene il valore
             healed_vector = processed_vettori[i]
-        elif float(trigger) < median_fallback_threshold:
-            baseline_median = np.median(processed_vettori[lo:i], axis=0)
-            healed_vector = baseline_median
-            fallback_triggered_at_all = True
         else:
-            blend_factor = float(lambda_step)
-            if delta_preemp > GLOBAL_CONSTANTS['THRESHOLD_DELTA_PREEMP']:
-                blend_factor = min(1.0, blend_factor + GLOBAL_CONSTANTS['DAMPING_BOOST_ON_STASIS'])
-            else:
-                blend_factor = max(0.0, blend_factor - GLOBAL_CONSTANTS['DAMPING_BOOST_ON_STASIS'])
-            healed_vector = (1 - blend_factor) * processed_vettori[i] + blend_factor * baseline_mean
+            # trigger == 0.0: ciclo chiuso/statico -> rumore, si sostituisce con la mediana locale
+            healed_vector = np.median(processed_vettori[lo:i], axis=0)
             fallback_triggered_at_all = True
 
         out[i] = healed_vector
