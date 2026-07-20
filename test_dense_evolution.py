@@ -210,6 +210,108 @@ class TestQubitRangeValidationBypassesJIT:
             sim4.run_parametric_batch_jit([['rx', 5]], np.zeros((1, 1)))
 
 
+def _relabel_qubits_msb(circuit, n):
+    """run_circuit() uses documented MSB-first ordering (qubit 0 = most
+    significant bit); run_circuit_jit_beast_mode() uses LSB-first
+    internally (qubit 0 = least significant bit) — a separate, pre-existing
+    convention mismatch between the two paths, found while fixing this gate
+    dispatch, not fixed here (tracked separately). Relabeling qubit i as
+    (n-1-i) before running through run_circuit() gives a correct reference
+    for what beast_mode *should* produce under its own (LSB-first)
+    convention, so this helper isolates "is the new gate math right" from
+    "are the two paths using the same qubit order"."""
+    out = []
+    for cmd in circuit:
+        name, args = cmd[0], list(cmd[1:])
+        if name in ('cp', 'crz', 'cx', 'cz', 'cy', 'swap'):
+            args[0], args[1] = n - 1 - args[0], n - 1 - args[1]
+        else:
+            args[0] = n - 1 - args[0]
+        out.append((name, *args))
+    return out
+
+
+class TestBeastModeGateDispatchGaps:
+    """run_circuit_jit_beast_mode used to silently DROP cy/cp/crz/u1/p/sx —
+    they weren't in GATE_IDS, so `if name not in GATE_IDS: continue` skipped
+    them with no error (verified: h(0);h(1);crz(0,1,1.2) produced the exact
+    same output as h(0);h(1) alone — the crz vanished). Fixed by adding the
+    missing GATE_IDS entries and (for cy/crz/sx, which had no kernel at all)
+    new branches in _apply_gate_fast_step. crz specifically needed its own
+    kernel, not reuse of cp's: CP phases |11> only, CRZ phases the target
+    conditioned on its own bit value — mathematically different gates."""
+
+    def test_previously_dropped_gates_are_not_no_ops(self):
+        # each of these used to leave the statevector identical to the
+        # circuit with the gate simply removed
+        cases = [
+            ("cy",  [('h', 0), ('cy', 0, 1)]),
+            ("cp",  [('h', 0), ('h', 1), ('cp', 0, 1, 0.7)]),
+            ("crz", [('h', 0), ('h', 1), ('crz', 0, 1, 1.2)]),
+            ("u1",  [('h', 0), ('u1', 0, 0.9)]),
+            ("p",   [('h', 0), ('p', 0, 0.5)]),
+            ("sx",  [('sx', 0)]),
+        ]
+        for name, circuit in cases:
+            sim_with = DenseSVSimulator(n_qubits=2)
+            sim_with.run_circuit_jit_beast_mode(circuit)
+            without = [c for c in circuit if c[0] != name]
+            sim_without = DenseSVSimulator(n_qubits=2)
+            sim_without.run_circuit_jit_beast_mode(without)
+            assert not np.allclose(
+                np.asarray(sim_with.get_statevector()),
+                np.asarray(sim_without.get_statevector()), atol=1e-9,
+            ), f"'{name}' still has no effect in beast mode"
+
+    @pytest.mark.parametrize("name,circuit", [
+        ("cy",  [('h', 0), ('cy', 0, 1)]),
+        ("cp",  [('h', 0), ('h', 1), ('cp', 0, 1, 0.7)]),
+        ("crz", [('h', 0), ('h', 1), ('crz', 0, 1, 1.2)]),
+        ("u1",  [('h', 0), ('u1', 0, 0.9)]),
+        ("p",   [('h', 0), ('p', 0, 0.5)]),
+        ("sx_q0", [('sx', 0)]),
+        ("sx_q1", [('sx', 1)]),
+        ("cp_and_crz_and_cy_and_rx", [('rx', 0, 0.3), ('cx', 0, 1), ('cy', 1, 0), ('crz', 0, 1, 0.8), ('p', 1, 0.4)]),
+    ])
+    def test_matches_run_circuit_under_beast_modes_own_convention(self, name, circuit):
+        n = 2
+        ref = DenseSVSimulator(n_qubits=n)
+        ref.run_circuit(_relabel_qubits_msb(circuit, n))
+        fast = DenseSVSimulator(n_qubits=n)
+        fast.run_circuit_jit_beast_mode(circuit)
+        np.testing.assert_allclose(
+            np.asarray(ref.get_statevector()), np.asarray(fast.get_statevector()), atol=1e-9,
+        )
+
+    def test_crz_is_not_cp(self):
+        # regression guard for the specific mistake of reusing apply_cp's
+        # kernel for crz: they must diverge on a case where CP is a no-op
+        # (control=1, target=0 — CP only phases |11>) but CRZ still isn't
+        # (CRZ phases based on the target's own bit, regardless of the
+        # other bit's value)
+        sim_cp = DenseSVSimulator(n_qubits=2)
+        sim_cp.run_circuit_jit_beast_mode([('x', 1), ('cp', 1, 0, 1.5)])  # ctrl=1(set), tgt=0(unset) -> CP no-op
+        sim_crz = DenseSVSimulator(n_qubits=2)
+        sim_crz.run_circuit_jit_beast_mode([('x', 1), ('crz', 1, 0, 1.5)])
+        assert not np.allclose(
+            np.asarray(sim_cp.get_statevector()), np.asarray(sim_crz.get_statevector()), atol=1e-9,
+        )
+
+    def test_sx_squared_is_x(self):
+        # convention-independent algebraic identity: SX*SX = X
+        sim = DenseSVSimulator(n_qubits=1)
+        sim.run_circuit_jit_beast_mode([('sx', 0), ('sx', 0)])
+        p = probs(sim)
+        assert p[1] > 0.999   # |0> -> |1>, same as a single X
+
+    def test_previously_working_gates_unaffected(self, sim2):
+        # h/cx/rz/s/sdg/t/tdg already worked before this fix -- confirm the
+        # is_1q boundary change (12 -> 13, needed for sx) didn't misroute them
+        sim2.run_circuit_jit_beast_mode([('h', 0), ('cx', 0, 1), ('rz', 1, 0.6)])
+        p = probs(sim2)
+        assert abs(p.sum() - 1.0) < 1e-9
+
+
 class TestBeastModeFloat32:
     """use_float32=True used to crash unconditionally in run_circuit_jit_beast_mode
     (the JIT fast path) — not just for circuits with 2-qubit gates, even a

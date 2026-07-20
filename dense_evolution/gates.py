@@ -33,7 +33,13 @@ GATES = {
 
 GATE_IDS = {
     'id': 0, 'h': 1, 'x': 2, 'y': 3, 'z': 4, 's': 5, 'sdg': 6, 't': 7, 'tdg': 8,
-    'rx': 9, 'ry': 10, 'rz': 11, 'cx': 20, 'cz': 21
+    'rx': 9, 'ry': 10, 'rz': 11,
+    'p': 12, 'u1': 12, 'phase': 12,   # already had a kernel entry (index 12), just no name reached it
+    'sx': 13,
+    'cx': 20, 'cz': 21, 'cp': 22, 'cphase': 22,
+    # 23 = swap, reserved (never dispatched here: QuantumTranspiler.transpile
+    # always decomposes 'swap' into 3xCX before a gate name reaches this table)
+    'cy': 24, 'crz': 25,
 }
 
 

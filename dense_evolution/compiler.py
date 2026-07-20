@@ -27,11 +27,17 @@ if HAS_JAX:
 #  3  Y                 10  Ry(θ)
 #  4  Z                 11  Rz(θ)
 #  5  S                 12  Phase / P(θ) / U1(θ)
-#  6  Sdg               ──  2-qubit gates ──
+#  6  Sdg               13  SX (√X)
+#                       ──  2-qubit gates ──
 #                       20  CX / CNOT
 #                       21  CZ
-#                       22  CP(θ) / CRZ(θ)
-#                       23  SWAP
+#                       22  CP(θ)              — phase on |11⟩ only
+#                       23  SWAP (never dispatched here — always decomposed
+#                           into 3xCX by QuantumTranspiler.transpile first)
+#                       24  CY
+#                       25  CRZ(θ)             — phase on target conditioned
+#                           on control, distinct from CP: NOT the same gate,
+#                           do not merge into 22 (see apply_crz below)
 # ─────────────────────────────────────────────────────────────────────────────
 
 if HAS_JAX:
@@ -80,10 +86,15 @@ if HAS_JAX:
         exp_neg = jnp.exp(-1j * param).astype(sv_dtype)
         exp_ph4 = jnp.exp( 1j * jnp.pi / 4.0).astype(sv_dtype)
         exp_mh4 = jnp.exp(-1j * jnp.pi / 4.0).astype(sv_dtype)
+        # half-angle phases for CRZ(θ) — same convention as the 1-qubit
+        # RZ(θ) switch entry below, named here since apply_crz (do_2q) needs
+        # them inside a conditional function rather than an inline literal.
+        exp_pos_half = jnp.exp( 1j * half_p).astype(sv_dtype)
+        exp_neg_half = jnp.exp(-1j * half_p).astype(sv_dtype)
 
         # ── 1-qubit gate matrix selection via lax.switch ──────────────
-        # Index must be in [0, 12]; anything outside is clamped to 0 (I).
-        safe_gid = jnp.clip(g_id, 0, 12)
+        # Index must be in [0, 13]; anything outside is clamped to 0 (I).
+        safe_gid = jnp.clip(g_id, 0, 13)
 
         g_1q = jax.lax.switch(
             safe_gid,
@@ -139,6 +150,10 @@ if HAS_JAX:
                 lambda _: jnp.array(
                     [[1.0+0j, 0.0+0j],
                      [0.0+0j, exp_pos]], dtype=sv_dtype),
+                # 13  SX (√X) = 0.5 * [[1+i, 1-i], [1-i, 1+i]]
+                lambda _: jnp.array(
+                    [[0.5+0.5j, 0.5-0.5j],
+                     [0.5-0.5j, 0.5+0.5j]], dtype=sv_dtype),
             ],
             operand=None,
         )
@@ -193,10 +208,34 @@ if HAS_JAX:
                 both_set = ctrl_bit_set & trgt_bit_set
                 return jnp.where(both_set, -__sv, __sv)
 
-            # CP(θ): phase kick e^{iθ} on |11⟩ component
+            # CP(θ): phase kick e^{iθ} on |11⟩ component only — NOT the same
+            # gate as CRZ below (see apply_crz docstring for the distinction).
             def apply_cp(__sv):
                 both_set = ctrl_bit_set & trgt_bit_set
                 return jnp.where(both_set, exp_pos * __sv, __sv)
+
+            # CY: apply Y to target when control is set. Same index-pair
+            # structure as apply_cx (swap target=0/target=1 partners), but
+            # with Y's phase factors instead of a plain swap: Y|0⟩=i|1⟩,
+            # Y|1⟩=-i|0⟩ — the new amplitude at each slot is ±i times its
+            # PARTNER's amplitude (matches do_1q's own Y row-formula, since
+            # Y's diagonal entries are both 0).
+            def apply_cy(__sv):
+                partner = idx_full ^ (jnp.int64(1) << trgt)
+                swapped = __sv[partner]
+                phase   = jnp.where(trgt_bit_set, 1j, -1j).astype(sv_dtype)
+                return jnp.where(ctrl_bit_set, phase * swapped, __sv)
+
+            # CRZ(θ): apply RZ(θ) to target when control is set — a DIAGONAL
+            # phase conditioned on the TARGET's own bit value (e^{-iθ/2} if
+            # target=0, e^{+iθ/2} if target=1), not on "both bits set" like
+            # CP above. Deliberately a separate function/id from apply_cp:
+            # CP and CRZ are mathematically different gates that used to be
+            # silently merged under one id before this fix (CRZ wasn't
+            # reachable at all — see CHANGELOG).
+            def apply_crz(__sv):
+                phase = jnp.where(trgt_bit_set, exp_pos_half, exp_neg_half)
+                return jnp.where(ctrl_bit_set, phase * __sv, __sv)
 
             # SWAP: exchange amplitudes of ctrl-bit and trgt-bit positions
             def apply_swap(__sv):
@@ -209,22 +248,30 @@ if HAS_JAX:
                 partner   = idx_full ^ (jnp.int64(1) << ctrl) ^ (jnp.int64(1) << trgt)
                 return jnp.where(swap_mask, __sv[partner], __sv)
 
-            # Dispatch on g_id: 20=CX, 21=CZ, 22=CP, 23=SWAP
+            # Dispatch on g_id: 20=CX, 21=CZ, 22=CP, 23=SWAP, 24=CY, 25=CRZ
             is_cx   = g_id == 20
             is_cz   = g_id == 21
             is_cp   = g_id == 22
-            # is_swap = g_id == 23 (default branch)
+            is_cy   = g_id == 24
+            is_crz  = g_id == 25
+            # is_swap = g_id == 23 (default branch — never actually reached,
+            # see comment at the top of this file: QuantumTranspiler always
+            # decomposes 'swap' into 3xCX before a gate name reaches here)
 
             after_cx   = jax.lax.cond(is_cx,   apply_cx,   lambda s: s, _sv)
             after_cz   = jax.lax.cond(is_cz,   apply_cz,   lambda s: s, _sv)
             after_cp   = jax.lax.cond(is_cp,   apply_cp,   lambda s: s, _sv)
+            after_cy   = jax.lax.cond(is_cy,   apply_cy,   lambda s: s, _sv)
+            after_crz  = jax.lax.cond(is_crz,  apply_crz,  lambda s: s, _sv)
             after_swap = apply_swap(_sv)
 
             # Pick the right result
             result = jnp.where(is_cx,  after_cx,
                      jnp.where(is_cz,  after_cz,
                      jnp.where(is_cp,  after_cp,
-                                       after_swap)))
+                     jnp.where(is_cy,  after_cy,
+                     jnp.where(is_crz, after_crz,
+                                       after_swap)))))
             return result
 
         # ── branch on 1-qubit vs 2-qubit ─────────────────────────────
@@ -235,7 +282,7 @@ if HAS_JAX:
         # complex128 (see note above: forcing complex128 here regardless of
         # input dtype would also break jax.lax.scan's carry-type check on
         # the very next iteration when sv started out as complex64).
-        is_1q = g_id <= 12
+        is_1q = g_id <= 13
         new_sv = jax.lax.cond(
             is_1q,
             lambda s: do_1q(s).astype(sv_dtype),
