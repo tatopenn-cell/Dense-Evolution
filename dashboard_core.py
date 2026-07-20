@@ -400,8 +400,18 @@ def estrai_valore_puro(elemento):
 
 def run_simulation(source_mode, circuit_name, qasm_text, noise_model, noise_p, shots, seed, use_float32=True):
     """Adapted from core_calcolo_quantistico (dash.py:3356, canonical/later definition)."""
+    previous_x64_state = jax.config.jax_enable_x64
     jax.config.update('jax_enable_x64', not use_float32)
+    try:
+        return _run_simulation_body(source_mode, circuit_name, qasm_text, noise_model, noise_p, shots, seed, use_float32)
+    finally:
+        # jax_enable_x64 is a process-wide flag: without restoring it here, a float32 run here
+        # silently downgrades precision for unrelated code (e.g. the Vector Healing page) that
+        # runs later in the same process and never sets its own precision.
+        jax.config.update('jax_enable_x64', previous_x64_state)
 
+
+def _run_simulation_body(source_mode, circuit_name, qasm_text, noise_model, noise_p, shots, seed, use_float32):
     if source_mode == 'Libreria Built-in' and QASM_LIBRARY:
         qasm_string = QASM_LIBRARY[circuit_name]
         nome_circuito = circuit_name
@@ -743,6 +753,23 @@ def run_vqe_telemetry(sim, parser, qasm_text, circuit_name, n_qubits, use_float3
     per-epoch state; this function otherwise runs its whole loop internally and would
     only return the final DataFrame.
     """
+    previous_x64_state = jax.config.jax_enable_x64
+    jax.config.update('jax_enable_x64', not use_float32)
+    try:
+        return _run_vqe_telemetry_body(
+            sim, parser, qasm_text, circuit_name, n_qubits, use_float32,
+            epochs, lr, beta1, beta2, seed, hamiltonian_values, on_epoch,
+        )
+    finally:
+        # `sim` was built under a precision fixed at its own creation (run_simulation);
+        # this call reuses that same sim, so jax_enable_x64 must match for its whole
+        # duration, not whatever was left behind by unrelated code in between.
+        jax.config.update('jax_enable_x64', previous_x64_state)
+
+
+def _run_vqe_telemetry_body(sim, parser, qasm_text, circuit_name, n_qubits, use_float32,
+                             epochs, lr, beta1, beta2, seed, hamiltonian_values=None,
+                             on_epoch=None) -> pd.DataFrame:
     circ_obj = parser.parse(qasm_text)
     comandi_ast = circ_obj.ops
 
