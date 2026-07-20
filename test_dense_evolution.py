@@ -210,27 +210,6 @@ class TestQubitRangeValidationBypassesJIT:
             sim4.run_parametric_batch_jit([['rx', 5]], np.zeros((1, 1)))
 
 
-def _relabel_qubits_msb(circuit, n):
-    """run_circuit() uses documented MSB-first ordering (qubit 0 = most
-    significant bit); run_circuit_jit_beast_mode() uses LSB-first
-    internally (qubit 0 = least significant bit) — a separate, pre-existing
-    convention mismatch between the two paths, found while fixing this gate
-    dispatch, not fixed here (tracked separately). Relabeling qubit i as
-    (n-1-i) before running through run_circuit() gives a correct reference
-    for what beast_mode *should* produce under its own (LSB-first)
-    convention, so this helper isolates "is the new gate math right" from
-    "are the two paths using the same qubit order"."""
-    out = []
-    for cmd in circuit:
-        name, args = cmd[0], list(cmd[1:])
-        if name in ('cp', 'crz', 'cx', 'cz', 'cy', 'swap'):
-            args[0], args[1] = n - 1 - args[0], n - 1 - args[1]
-        else:
-            args[0] = n - 1 - args[0]
-        out.append((name, *args))
-    return out
-
-
 class TestBeastModeGateDispatchGaps:
     """run_circuit_jit_beast_mode used to silently DROP cy/cp/crz/u1/p/sx —
     they weren't in GATE_IDS, so `if name not in GATE_IDS: continue` skipped
@@ -273,10 +252,14 @@ class TestBeastModeGateDispatchGaps:
         ("sx_q1", [('sx', 1)]),
         ("cp_and_crz_and_cy_and_rx", [('rx', 0, 0.3), ('cx', 0, 1), ('cy', 1, 0), ('crz', 0, 1, 0.8), ('p', 1, 0.4)]),
     ])
-    def test_matches_run_circuit_under_beast_modes_own_convention(self, name, circuit):
+    def test_matches_run_circuit(self, name, circuit):
+        # run_circuit_jit_beast_mode used to disagree with run_circuit() on
+        # qubit ordering (LSB-first vs the documented MSB-first) — now fixed
+        # (see TestBeastModeQubitOrdering below), so a direct comparison
+        # with no relabeling is the real correctness bar.
         n = 2
         ref = DenseSVSimulator(n_qubits=n)
-        ref.run_circuit(_relabel_qubits_msb(circuit, n))
+        ref.run_circuit(circuit)
         fast = DenseSVSimulator(n_qubits=n)
         fast.run_circuit_jit_beast_mode(circuit)
         np.testing.assert_allclose(
@@ -310,6 +293,58 @@ class TestBeastModeGateDispatchGaps:
         sim2.run_circuit_jit_beast_mode([('h', 0), ('cx', 0, 1), ('rz', 1, 0.6)])
         p = probs(sim2)
         assert abs(p.sum() - 1.0) < 1e-9
+
+
+class TestBeastModeQubitOrdering:
+    """run_circuit_jit_beast_mode used raw qubit index as bit position
+    (LSB-first: qubit 0 = least significant bit) inside _apply_gate_fast_step
+    (do_1q/do_2q), while the rest of the simulator — run_circuit(),
+    apply_gate_1q(), apply_gate_2q(), measure() — uses the documented
+    MSB-first convention (qubit 0 = most significant bit, phys = n-1-qubit,
+    see simulator.py's class docstring and _qubit_stride_pairs). Pre-existing,
+    not introduced by the cy/cp/crz/u1/p/sx dispatch fix above — found while
+    verifying that fix, masked until then because every circuit tested this
+    session against beast_mode happened to be symmetric under qubit reversal
+    (Bell states, GHZ states, uniform superpositions). Fixed by computing
+    physical bit positions (n_qubits-1-qubit) in do_1q/do_2q instead of using
+    the raw qubit index directly."""
+
+    def test_x_on_qubit_0_matches_msb_first_convention(self):
+        # the decisive reproduction: X on qubit 0 in a 3-qubit register must
+        # flip the MOST significant bit (|000> -> |100>, index 4), not the
+        # least significant one (index 1)
+        sim = DenseSVSimulator(n_qubits=3)
+        sim.run_circuit_jit_beast_mode([('x', 0)])
+        p = probs(sim)
+        assert p[4] > 0.999
+        assert p[1] < 1e-9
+
+    @pytest.mark.parametrize("circuit", [
+        [('x', 0), ('cx', 0, 2)],
+        [('x', 0), ('cy', 0, 2)],
+        [('x', 0), ('crz', 0, 2, 1.1)],
+        [('x', 1), ('cp', 1, 2, 0.8)],
+        [('rx', 0, 0.4), ('ry', 1, 0.9), ('rz', 2, 1.3), ('cx', 0, 2), ('cx', 1, 2)],
+        [('h', 0), ('rx', 1, 0.3), ('cx', 0, 1), ('cy', 1, 2), ('crz', 0, 2, 0.9),
+         ('t', 0), ('sdg', 1), ('sx', 2), ('cp', 2, 0, 0.5)],
+    ])
+    def test_asymmetric_circuits_match_run_circuit(self, circuit):
+        n = 3
+        ref = DenseSVSimulator(n_qubits=n)
+        ref.run_circuit(circuit)
+        fast = DenseSVSimulator(n_qubits=n)
+        fast.run_circuit_jit_beast_mode(circuit)
+        np.testing.assert_allclose(
+            np.asarray(ref.get_statevector()), np.asarray(fast.get_statevector()), atol=1e-9,
+        )
+
+    def test_run_parametric_batch_jit_matches_run_circuit(self):
+        # same _apply_gate_fast_step kernel, must inherit the fix
+        sim = DenseSVSimulator(n_qubits=3)
+        batch = sim.run_parametric_batch_jit([('rx', 0, None), ('cx', 0, 2)], np.array([[0.5]]))
+        ref = DenseSVSimulator(n_qubits=3)
+        ref.run_circuit([('rx', 0, 0.5), ('cx', 0, 2)])
+        np.testing.assert_allclose(np.asarray(batch[0]), ref.get_statevector(), atol=1e-9)
 
 
 class TestBeastModeFloat32:

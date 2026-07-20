@@ -65,7 +65,8 @@ if HAS_JAX:
         q1    = operation[1].astype(jnp.int32)
         q2    = operation[2].astype(jnp.int32)
         param = operation[3]
-        dim   = sv.shape[0]
+        dim   = sv.shape[0]                    # static (shape is concrete even under jit)
+        n_qubits = dim.bit_length() - 1        # static; dim == 2**n_qubits always
 
         # Every constant below must match sv's own dtype (complex64 if
         # use_float32=True, complex128 otherwise), not a dtype hardcoded to
@@ -160,7 +161,16 @@ if HAS_JAX:
 
         # ── 1-qubit application ────────────────────────────────────────
         def do_1q(_sv):
-            stride    = jnp.int64(1) << q1.astype(jnp.int64)
+            # MSB-first, matching the rest of the simulator (simulator.py's
+            # own docstring/_qubit_stride_pairs: qubit 0 = most significant
+            # bit, phys = n_qubits - 1 - qubit) — this used to be a raw
+            # `1 << q1` (LSB-first), silently disagreeing with run_circuit()/
+            # apply_gate_1q()/measure() on every multi-qubit circuit that
+            # isn't symmetric under qubit reversal (verified: X on qubit 0
+            # in a 3-qubit register gave index 1 here vs index 4 via
+            # run_circuit() before this fix — see CHANGELOG).
+            phys      = jnp.int64(n_qubits - 1) - q1.astype(jnp.int64)
+            stride    = jnp.int64(1) << phys
             idx_full  = jnp.arange(dim, dtype=jnp.int64)
             mask_0    = (idx_full & stride) == 0
 
@@ -190,8 +200,10 @@ if HAS_JAX:
 
         # ── 2-qubit application ───────────────────────────────────────
         def do_2q(_sv):
-            ctrl     = q1.astype(jnp.int64)
-            trgt     = q2.astype(jnp.int64)
+            # Same MSB-first fix as do_1q above — ctrl/trgt are physical bit
+            # positions (n_qubits-1-qubit), not raw qubit indices.
+            ctrl     = jnp.int64(n_qubits - 1) - q1.astype(jnp.int64)
+            trgt     = jnp.int64(n_qubits - 1) - q2.astype(jnp.int64)
             idx_full = jnp.arange(dim, dtype=jnp.int64)
 
             ctrl_bit_set = (idx_full & (jnp.int64(1) << ctrl)) != 0
