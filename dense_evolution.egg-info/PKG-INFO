@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: dense-evolution
-Version: 8.1.10
+Version: 8.1.11
 Summary: Micro-optimized High-Performance NISQ Statevector Quantum Circuit Simulator (Hardware-Adaptive Integration of Native NumPy, CUDA-Accelerated CuPy, and Linear Kernel Fusion via JAX JIT/XLA Compilation)
 Author-email: Salvatore Pennacchio <jtatopenn@libero.it>
 License: Business Source License 1.1
@@ -546,6 +546,10 @@ All circuits stored as OpenQASM 2.0 strings in `QASM_LIBRARY`.
 ---
 
 ## ▍ Changelog
+
+### v8.1.11
+- **Fixed**: `dash.py` (the original Colab notebook) was declared as an installable module (`py-modules = ["dash"]`) with the *same name* as the real Plotly `dash` package, itself listed as an optional dependency in the very same `pyproject.toml` — a genuine packaging collision, not just a local dev annoyance. It also had unconditional module-level `from google.colab import files` / `import ipywidgets`, so `import dash` crashed immediately outside Colab. Nothing in the maintained codebase (`dashboard_core.py`/`app_dashboard.py`, the real Streamlit port) imports it anymore. Moved to `legacy/dash.py` (reference only, not packaged), removed from `py-modules`. The `dashboard` extra now installs what the real dashboard actually needs (`streamlit`, `pandas`, `seaborn`, `plotly`) instead of the unused `dash` package.
+- **Docs**: README's Quick Start (the very first example in the file) passed `circuit.ops` — raw dicts — to `run_circuit_jit_beast_mode`, which expects the tuple format from `circuit.to_tuples()`; crashed with `KeyError: 0`. Fixed, and the "Dashboard" quick-start snippet now points at `streamlit run app_dashboard.py` instead of the retired Colab-only `import dash` pattern.
 
 ### v8.1.10
 - **Fixed**: `run_circuit_jit_beast_mode` / `run_parametric_batch_jit` — a gate referencing a qubit index out of range silently corrupted the entire statevector to zero instead of raising (verified: `get_probabilities().sum()` went from 1.0 to 0.0, no exception). `apply_gate_1q`/`apply_gate_2q` already validated qubit indices, but these two JIT fast paths build their own compiled ops and never called them. Both now validate before dispatch, matching the existing behavior of the non-JIT path.
