@@ -353,7 +353,28 @@ sim, probs = run_pennylane_circuit(circuit)   # no reordering needed, see below
 - No classical control flow — `if`/`while` and mid-circuit-measurement-conditioned gates are parsed out, not executed (same limitation as native QASM3 circuits, see Changelog v8.1.13).
 - No expansion of composite/custom gates. A Qiskit call like `mcx` with 3+ controls gets exported as a named `gate mcx { ... }` definition; the definition is parsed cleanly (no longer corrupts what follows it) but the gate itself isn't a primitive Dense-Evolution knows how to execute, so a call to it is a silent no-op — same as referencing any unrecognized gate name elsewhere in this simulator. Stick to the gates in the Gate Library table above for results you can trust.
 - Only a plugin/backend-free bridge — no `qiskit.providers.BackendV2` or PennyLane `Device` registration, so you still call `run_qiskit_circuit`/`run_pennylane_circuit` explicitly rather than pointing existing framework code at a new backend/device string.
-- **Not differentiable.** `from_pennylane`/`run_pennylane_circuit` materialize every gate parameter into a plain Python `float` inside the QASM text before parsing — the value leaves the JAX trace entirely. `jax.grad` through `run_pennylane_circuit` does **not** raise: it silently returns `0.0`, which looks like "already converged" rather than "not wired up." Verified directly, not just documented from a guess. If you need a real gradient through a Dense-Evolution circuit, use `dashboard_core._vqe_energy_fn`'s pattern (`jax.value_and_grad` through a `jax.lax.scan`-based template with sentinel-injected parameters) — this interop bridge does not provide that.
+- **`run_qiskit_circuit`/`run_pennylane_circuit` themselves are not differentiable.** `from_pennylane`/`from_qiskit` materialize every gate parameter into a plain Python `float` inside the QASM text before parsing — the value leaves the JAX trace entirely. `jax.grad` through `run_pennylane_circuit` does **not** raise: it silently returns `0.0`, which looks like "already converged" rather than "not wired up." Verified directly, not just documented from a guess. **For a real gradient, use `circuit_to_energy_fn` instead** (see next section) — pass it the `QASMCircuit` that `from_qiskit`/`from_pennylane` returns, before that float-baking happens, and `jax.grad` works correctly (also verified directly, on a PennyLane circuit imported this exact way).
+
+---
+
+## ▍ Differentiable Circuits — `circuit_to_energy_fn`
+
+The real VQE gradient engine (`jax.value_and_grad` through a `jax.lax.scan`-based circuit template, verified against finite differences to ~1e-11) used to live only inside `dashboard_core.py`, unreachable from outside the Streamlit app. It's now public, dependency-light (needs only `dense-evolution[jax]`, no dashboard/pandas/streamlit), and composes directly with the interop bridge above:
+
+```python
+import jax
+from dense_evolution import QASMParser, circuit_to_energy_fn
+
+circ = QASMParser().parse("OPENQASM 2.0; include \"qelib1.inc\"; qreg q[1]; rx(0.5) q[0];")
+energy_fn, n_params = circuit_to_energy_fn(circ, circ.n_qubits)
+
+h_matrix = ...  # your Hamiltonian, shape (2**n_qubits, 2**n_qubits)
+theta = jax.numpy.zeros(n_params)
+
+(energy, statevector), grad = jax.value_and_grad(energy_fn, argnums=0, has_aux=True)(theta, h_matrix)
+```
+
+`energy_fn(theta, h_matrix, stato_zero=None) -> (energy, statevector)` is a pure JAX function differentiable in `theta`; `stato_zero` defaults to `|0...0⟩`. `circuit` can come from `QASMParser.parse`, `from_qiskit`, or `from_pennylane` interchangeably — this is what closes the interop bridge's non-differentiability gap noted above.
 
 ---
 
@@ -493,10 +514,10 @@ print(sim)
 
 ## ▍ VQE Engine
 
-**Positional parameter injection** — `QASMParser` tokenizes all literals to `0.0` for JIT speed. VQE recovers parameters by:
+Built on `circuit_to_energy_fn` (see previous section) — no separate mechanism. Parameter injection:
 1. Counting parametric gates (`rx ry rz p u1 cp crz`) → `n_params`
 2. Initializing `θ ∈ ℝⁿ` uniform in `[−π, π]`
-3. Injecting `θ[i]` sequentially by gate order in the AST via `risolvi_qasm()`
+3. Injecting `θ[i]` sequentially by gate order, via a `-1.0` sentinel in the compiled op template patched in with `jnp.where` inside a `jax.lax.scan` — never a Python `float()` call, which would sever the JAX trace and make the gradient below fake.
 
 Compatible with any custom OpenQASM 2.0 string without pre-labelling.
 

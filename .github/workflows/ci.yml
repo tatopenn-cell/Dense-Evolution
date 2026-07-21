@@ -35,8 +35,8 @@ jobs:
 
       - name: Run test suite
         run: |
-          pytest test_dense_evolution.py test_ia_healing.py test_dashboard_core.py test_ai_middleware.py test_interop.py -v --tb=short
-          pytest test_dense_evolution.py test_ia_healing.py test_dashboard_core.py test_ai_middleware.py test_interop.py -v --tb=short --junitxml=pytest-results.xml
+          pytest test_dense_evolution.py test_ia_healing.py test_dashboard_core.py test_ai_middleware.py test_interop.py test_autodiff.py -v --tb=short
+          pytest test_dense_evolution.py test_ia_healing.py test_dashboard_core.py test_ai_middleware.py test_interop.py test_autodiff.py -v --tb=short --junitxml=pytest-results.xml
 
       - name: Upload test results on failure
         if: failure()

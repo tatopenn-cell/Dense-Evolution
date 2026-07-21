@@ -114,7 +114,8 @@ def test_vqe_telemetry_heavy_qubit_guard_is_caller_responsibility():
 
 
 def test_vqe_gradient_matches_finite_difference():
-    # The real gradient (jax.grad through _vqe_energy_fn) replaced a fake
+    # The real gradient (jax.grad through the engine dashboard_core now
+    # gets from dense_evolution.circuit_to_energy_fn) replaced a fake
     # formula (0.5*(E-target)*sin(theta)+noise, no actual derivative
     # anywhere). This is the correctness bar: compare against a
     # finite-difference gradient computed by re-evaluating the energy
@@ -122,10 +123,10 @@ def test_vqe_gradient_matches_finite_difference():
     import jax
     import jax.numpy as jnp
 
-    parser = __import__("dense_evolution").QASMParser()
+    de = __import__("dense_evolution")
+    parser = de.QASMParser()
     circ = parser.parse(dc.QASM_LIBRARY[VQE_CIRCUIT])
-    template = dc._build_vqe_template(circ.ops, circ.n_qubits)
-    n_params = int((np.asarray(template)[:, 3] == -1.0).sum())
+    energy_fn, n_params = de.circuit_to_energy_fn(circ, circ.n_qubits)
     assert n_params > 0
 
     stato_zero = jnp.zeros(2 ** circ.n_qubits, dtype=jnp.complex128).at[0].set(1.0)
@@ -133,8 +134,8 @@ def test_vqe_gradient_matches_finite_difference():
     h_matrix = jnp.diag(jnp.array(np.sort(rng.uniform(-2.5, 2.5, 2 ** circ.n_qubits))))
     theta0 = rng.uniform(-np.pi, np.pi, n_params)
 
-    energy_and_grad = jax.jit(jax.value_and_grad(dc._vqe_energy_fn, argnums=0, has_aux=True))
-    (_, _), grad = energy_and_grad(jnp.asarray(theta0), template, stato_zero, h_matrix)
+    energy_and_grad = jax.jit(jax.value_and_grad(energy_fn, argnums=0, has_aux=True))
+    (_, _), grad = energy_and_grad(jnp.asarray(theta0), h_matrix, stato_zero)
 
     eps = 1e-6
     fd_grad = np.zeros(n_params)
@@ -142,8 +143,8 @@ def test_vqe_gradient_matches_finite_difference():
         tp, tm = theta0.copy(), theta0.copy()
         tp[i] += eps
         tm[i] -= eps
-        (ep, _), _ = energy_and_grad(jnp.asarray(tp), template, stato_zero, h_matrix)
-        (em, _), _ = energy_and_grad(jnp.asarray(tm), template, stato_zero, h_matrix)
+        (ep, _), _ = energy_and_grad(jnp.asarray(tp), h_matrix, stato_zero)
+        (em, _), _ = energy_and_grad(jnp.asarray(tm), h_matrix, stato_zero)
         fd_grad[i] = float((ep - em) / (2 * eps))
 
     np.testing.assert_allclose(np.asarray(grad), fd_grad, atol=1e-6)

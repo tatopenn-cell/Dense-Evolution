@@ -26,11 +26,6 @@ import seaborn as sns
 import plotly.graph_objects as go
 
 import dense_evolution as de
-# Private but same ecosystem: DenseSVSimulator.run_parametric_batch_jit already
-# calls this internally for the exact "inject a parameter without severing the
-# JAX trace" pattern the real VQE gradient below reuses (see _vqe_energy_fn) —
-# there's no public wrapper that takes a pre-built ops array directly.
-from dense_evolution.compiler import _compile_and_run_circuit_jit
 
 
 QASM_LIBRARY = {
@@ -673,85 +668,6 @@ def _run_vqe_mock_simulation(epochs: int, lr: float, beta1: float, beta2: float,
     return df_vqe
 
 
-#: gates that receive a value from VQE's theta vector (must match the
-#: n_params counting in _run_vqe_telemetry_body exactly, or theta's
-#: allocation order desyncs from the template's injection order).
-_VQE_PARAMETRIC_GATES = ('rx', 'ry', 'rz', 'u1', 'p', 'cp', 'crz')
-_VQE_TWO_QUBIT_GATES = ('cx', 'cy', 'cz', 'cp', 'crz', 'swap')
-
-
-def _build_vqe_template(comandi_ast, n_qubits) -> "jnp.ndarray":
-    """Builds the (n_ops, 4) float64 [g_id, q1, q2, sentinel] template that
-    _vqe_energy_fn injects theta into — the same sentinel pattern
-    DenseSVSimulator.run_parametric_batch_jit already uses internally
-    (-1.0 in the param slot for gates whose value comes from theta, patched
-    in via jnp.where inside a jax.lax.scan, never a Python float()).
-
-    Replaces the old risolvi_qasm, which called float(resolved_params[0])
-    on the theta value before building each command — fine for running a
-    circuit once, but it severs the JAX trace, so no gradient could ever
-    flow back through it to theta.
-
-    Structural pass only: build (name, *qubits) tuples (no param values —
-    QuantumTranspiler.transpile only inspects gate name/qubit-count, for
-    ccx/swap decomposition), transpile once, then look up g_id per gate and
-    mark parametric slots with the sentinel. ccx/toffoli decomposes into
-    non-parametric gates only, so this never desyncs theta's order.
-    """
-    tuples = []
-    for cmd in comandi_ast:
-        if not isinstance(cmd, dict) or 'name' not in cmd:
-            continue
-        name = str(cmd['name']).lower().strip()
-        try:
-            qubits = [int(estrai_valore_puro(q)) for q in cmd.get('qubits', [])]
-        except (TypeError, ValueError):
-            continue
-        if not qubits or any(q >= n_qubits for q in qubits):
-            continue
-        tuples.append((name, *qubits))
-
-    target = de.QuantumTranspiler.transpile(tuples)
-
-    rows = []
-    for cmd in target:
-        name = cmd[0].lower()
-        if name not in de.GATE_IDS:
-            continue
-        g_id = float(de.GATE_IDS[name])
-        qubits = cmd[1:]
-        sentinel = -1.0 if name in _VQE_PARAMETRIC_GATES else 0.0
-        if name in _VQE_TWO_QUBIT_GATES and len(qubits) >= 2:
-            rows.append([g_id, float(qubits[0]), float(qubits[1]), sentinel])
-        elif qubits:
-            rows.append([g_id, float(qubits[0]), 0.0, sentinel])
-
-    if not rows:
-        return jnp.empty((0, 4), dtype=jnp.float64)
-    return jnp.array(rows, dtype=jnp.float64)
-
-
-def _vqe_energy_fn(theta: "jnp.ndarray", template: "jnp.ndarray",
-                    stato_zero: "jnp.ndarray", h_matrix: "jnp.ndarray"):
-    """Pure function theta -> (energy, statevector), differentiable end to
-    end via jax.grad — verified against a finite-difference gradient
-    (~1e-13 agreement on a standalone reproduction before this was wired
-    in here). Returned as (energy, sv) so jax.value_and_grad(..., has_aux=True)
-    hands back the same statevector used for the energy, reused for
-    entropy/purity/QM-MM forces instead of a second forward pass."""
-    def patch_and_apply(carry, op):
-        idx = carry
-        is_param = op[3] == -1.0
-        final_p = jnp.where(is_param, theta[idx], op[3])
-        next_idx = jnp.where(is_param, idx + jnp.int32(1), idx)
-        return next_idx, jnp.array([op[0], op[1], op[2], final_p], dtype=jnp.float64)
-
-    _, patched_ops = jax.lax.scan(patch_and_apply, jnp.int32(0), template)
-    sv = _compile_and_run_circuit_jit(stato_zero, patched_ops)
-    energy = jnp.real(jnp.vdot(sv, h_matrix @ sv))
-    return energy, sv
-
-
 def run_vqe_telemetry(sim, parser, qasm_text, circuit_name, n_qubits, use_float32,
                        epochs, lr, beta1, beta2, seed, hamiltonian_values=None,
                        on_epoch=None) -> pd.DataFrame:
@@ -787,10 +703,7 @@ def _run_vqe_telemetry_body(sim, parser, qasm_text, circuit_name, n_qubits, use_
                              epochs, lr, beta1, beta2, seed, hamiltonian_values=None,
                              on_epoch=None) -> pd.DataFrame:
     circ_obj = parser.parse(qasm_text)
-    comandi_ast = circ_obj.ops
-
-    parametric_gates = ['rx', 'ry', 'rz', 'u1', 'p', 'cp', 'crz']
-    n_params = sum(1 for cmd in comandi_ast if isinstance(cmd, dict) and str(cmd.get('name')).lower().strip() in parametric_gates)
+    energy_fn, n_params = de.circuit_to_energy_fn(circ_obj, n_qubits)
 
     if n_params == 0:
         return _run_vqe_mock_simulation(epochs=epochs, lr=lr, beta1=beta1, beta2=beta2,
@@ -825,12 +738,11 @@ def _run_vqe_telemetry_body(sim, parser, qasm_text, circuit_name, n_qubits, use_
     # Built once, reused every epoch — only theta changes, so this traces/
     # JIT-compiles a single time instead of rebuilding the circuit (and
     # calling the trace-severing risolvi_qasm) from scratch each epoch.
-    template = _build_vqe_template(comandi_ast, n_qubits)
-    energy_and_grad = jax.jit(jax.value_and_grad(_vqe_energy_fn, argnums=0, has_aux=True))
+    energy_and_grad = jax.jit(jax.value_and_grad(energy_fn, argnums=0, has_aux=True))
 
     for epoch in range(epochs):
         (energia_jax, sv), grad_jax = energy_and_grad(
-            jnp.asarray(theta, dtype=jnp.float64), template, stato_zero, sim.H_matrix
+            jnp.asarray(theta, dtype=jnp.float64), sim.H_matrix, stato_zero
         )
         energia = float(energia_jax)
 

@@ -1,0 +1,142 @@
+"""
+Tests for dense_evolution.autodiff.circuit_to_energy_fn — the differentiable
+VQE engine extracted from dashboard_core.py (_build_vqe_template /
+_vqe_energy_fn) so it's reachable as public API, independent of Streamlit/
+pandas/dashboard, and composable with the Qiskit/PennyLane interop bridge.
+"""
+import numpy as np
+import pytest
+
+import dense_evolution as de
+from dense_evolution import autodiff
+
+jax = pytest.importorskip("jax")
+import jax.numpy as jnp
+
+
+VQE_QASM = (
+    'OPENQASM 2.0; include "qelib1.inc"; qreg q[2]; creg c[2]; '
+    'ry(0.5) q[0]; rx(0.5) q[1]; cx q[0],q[1]; rz(0.2) q[1]; cx q[0],q[1]; '
+    'ry(0.5) q[0]; rx(0.5) q[1]; measure q -> c;'
+)
+
+
+def _random_hamiltonian(n_qubits, seed=7):
+    rng = np.random.default_rng(seed)
+    values = np.sort(rng.uniform(-2.5, 2.5, 2 ** n_qubits))
+    return jnp.diag(jnp.array(values, dtype=jnp.float64))
+
+
+class TestCircuitToEnergyFn:
+
+    def test_n_params_matches_parametric_gate_count(self):
+        circ = de.QASMParser().parse(VQE_QASM)
+        _, n_params = de.circuit_to_energy_fn(circ, circ.n_qubits)
+        # ry, rx, rz, ry, rx = 5 parametric gates in VQE_QASM
+        assert n_params == 5
+
+    def test_gradient_matches_finite_difference(self):
+        circ = de.QASMParser().parse(VQE_QASM)
+        energy_fn, n_params = de.circuit_to_energy_fn(circ, circ.n_qubits)
+        h_matrix = _random_hamiltonian(circ.n_qubits)
+
+        rng = np.random.default_rng(3)
+        theta0 = rng.uniform(-np.pi, np.pi, n_params)
+
+        energy_and_grad = jax.jit(jax.value_and_grad(energy_fn, argnums=0, has_aux=True))
+        (_, _), grad = energy_and_grad(jnp.asarray(theta0), h_matrix)
+
+        eps = 1e-6
+        fd_grad = np.zeros(n_params)
+        for i in range(n_params):
+            tp, tm = theta0.copy(), theta0.copy()
+            tp[i] += eps
+            tm[i] -= eps
+            (ep, _), _ = energy_and_grad(jnp.asarray(tp), h_matrix)
+            (em, _), _ = energy_and_grad(jnp.asarray(tm), h_matrix)
+            fd_grad[i] = float((ep - em) / (2 * eps))
+
+        np.testing.assert_allclose(np.asarray(grad), fd_grad, atol=1e-6)
+
+    def test_default_stato_zero_is_ground_state(self):
+        circ = de.QASMParser().parse('OPENQASM 2.0; include "qelib1.inc"; qreg q[2]; creg c[2]; measure q -> c;')
+        energy_fn, n_params = de.circuit_to_energy_fn(circ, circ.n_qubits)
+        assert n_params == 0
+        h_matrix = jnp.diag(jnp.array([1.0, 2.0, 3.0, 4.0], dtype=jnp.float64))
+        energy, sv = energy_fn(jnp.array([]), h_matrix)
+        # empty circuit -> stays |00>, energy = h_matrix[0,0]
+        assert abs(float(energy) - 1.0) < 1e-9
+        assert abs(abs(complex(sv[0])) - 1.0) < 1e-9
+
+    def test_optimization_loop_standalone_energy_descends(self):
+        # Same correctness bar as test_dashboard_core.py's
+        # test_vqe_energy_trends_downward_over_epochs, but built directly on
+        # circuit_to_energy_fn with a hand-rolled Adam loop — no
+        # run_vqe_telemetry/dashboard_core involved at all. Demonstrates the
+        # public API is self-sufficient for real VQE outside the dashboard.
+        circ = de.QASMParser().parse(VQE_QASM)
+        energy_fn, n_params = de.circuit_to_energy_fn(circ, circ.n_qubits)
+        h_matrix = _random_hamiltonian(circ.n_qubits, seed=11)
+
+        rng = np.random.default_rng(11)
+        theta = rng.uniform(-np.pi, np.pi, n_params)
+        m, v = np.zeros(n_params), np.zeros(n_params)
+        lr, beta1, beta2 = 0.1, 0.9, 0.999
+
+        energy_and_grad = jax.jit(jax.value_and_grad(energy_fn, argnums=0, has_aux=True))
+        energies = []
+        for epoch in range(1, 41):
+            (energy, _), grad = energy_and_grad(jnp.asarray(theta), h_matrix)
+            energies.append(float(energy))
+            grad = np.asarray(grad)
+            m = beta1 * m + (1 - beta1) * grad
+            v = beta2 * v + (1 - beta2) * (grad ** 2)
+            m_hat = m / (1 - beta1 ** epoch)
+            v_hat = v / (1 - beta2 ** epoch)
+            theta -= (lr / (np.sqrt(v_hat) + 1e-8)) * m_hat
+
+        assert np.mean(energies[-5:]) < np.mean(energies[:5])
+
+    def test_from_pennylane_circuit_is_now_differentiable(self):
+        # This is the gap found while auditing the interop bridge last
+        # turn: jax.grad through run_pennylane_circuit silently returns 0.0
+        # because from_pennylane bakes theta into a plain float. Composed
+        # through circuit_to_energy_fn instead (which works on the
+        # QASMCircuit from_pennylane returns, before that float baking
+        # matters), a real circuit must now show a non-zero gradient.
+        pennylane = pytest.importorskip("pennylane")
+        import pennylane as qml
+
+        dev = qml.device('default.qubit', wires=2)
+
+        @qml.qnode(dev)
+        def circuit(theta):
+            qml.RY(theta[0], wires=0)
+            qml.RX(theta[1], wires=1)
+            qml.CNOT(wires=[0, 1])
+            return qml.probs(wires=[0, 1])
+
+        theta0 = np.array([0.5, 0.5])
+        circ = de.from_pennylane(circuit, theta0)
+        energy_fn, n_params = de.circuit_to_energy_fn(circ, circ.n_qubits)
+        assert n_params == 2
+
+        h_matrix = _random_hamiltonian(circ.n_qubits, seed=5)
+
+        def energy(theta):
+            e, _ = energy_fn(theta, h_matrix)
+            return e
+
+        grad = jax.grad(energy)(jnp.asarray(theta0))
+        assert float(jnp.linalg.norm(grad)) > 1e-6
+
+
+class TestImportSafety:
+
+    def test_root_import_never_fails(self):
+        assert hasattr(de, 'circuit_to_energy_fn')
+
+    def test_missing_jax_raises_clear_importerror(self, monkeypatch):
+        monkeypatch.setattr(autodiff, 'HAS_JAX', False)
+        with pytest.raises(ImportError, match='JAX'):
+            autodiff.circuit_to_energy_fn(None, 1)
