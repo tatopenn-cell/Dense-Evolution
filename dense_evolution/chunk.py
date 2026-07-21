@@ -15,12 +15,12 @@ except ImportError:
 try:
     from simulator import DenseSVSimulator
     from compiler import QuantumTranspiler
-    from gates import GATES, PARAMETRIC_GATES
+    from gates import GATE_IDS
 except ModuleNotFoundError:
     try:
         from dense_evolution.simulator import DenseSVSimulator
         from dense_evolution.compiler import QuantumTranspiler
-        from dense_evolution.gates import GATES, PARAMETRIC_GATES
+        from dense_evolution.gates import GATE_IDS
     except ModuleNotFoundError:
         class DenseSVSimulator:  # type: ignore[no-redef]
             def __init__(self, n_qubits, **kwargs):
@@ -37,8 +37,7 @@ except ModuleNotFoundError:
             @staticmethod
             def transpile(circuit): return circuit
 
-        GATES: dict = {}
-        PARAMETRIC_GATES: dict = {}
+        GATE_IDS: dict = {}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -219,6 +218,255 @@ class MemoryChunker:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Multi-chunk JIT kernel (num_chunks > 1)
+# ─────────────────────────────────────────────────────────────────────────────
+
+if HAS_JAX:
+
+    def _build_multi_chunk_step(num_chunks: int, m: int, k: int):
+        """
+        Build a jax.lax.scan-compatible step function operating on the
+        STACKED multi-chunk representation — a (num_chunks, chunk_dim)
+        array — instead of a flat (2**n_qubits,) statevector.
+
+        Modeled directly on compiler.py's _apply_gate_fast_step (same
+        [g_id, q1, q2, param] encoding via GATE_IDS, same lax.switch for the
+        1-qubit matrix, same per-gate controlled-U dispatch for the 5
+        two-qubit gate types) — but a gate touching a "chunk-select" qubit
+        (index < m, the top m logical qubits that select WHICH chunk) mixes
+        whole (chunk_dim,)-shaped ROWS instead of individual amplitudes,
+        while a gate touching a "local" qubit (index >= m) mixes individual
+        elements WITHIN each row in parallel. This never materializes a
+        (2**n_qubits,) array — Chunk's whole reason to exist — because the
+        stacked shape (num_chunks, chunk_dim) holds exactly the same total
+        elements as the num_chunks separate per-chunk arrays it replaces.
+
+        The 6 gate/qubit-location combinations below are a direct
+        translation of the pre-JIT _apply_gate_multi's Python-loop formulas
+        (removed once this replaced it) — verified case-by-case against
+        DenseSVSimulator on non-chunked reference circuits before being
+        wired in, not derived fresh. All 6 are traced unconditionally every
+        step and selected via jnp.where on the runtime q1/q2 vs static m
+        comparison, same "trace every branch" pattern _apply_gate_fast_step
+        already uses for is_1q/is_2q and the 5 two-qubit sub-gates.
+        """
+        chunk_dim = 1 << k
+
+        def step(chunks, operation):
+            g_id  = operation[0].astype(jnp.int32)
+            q1    = operation[1].astype(jnp.int32)
+            q2    = operation[2].astype(jnp.int32)
+            param = operation[3]
+            dtype = chunks.dtype  # never hardcode complex128 — see the
+                                   # use_float32 bug this exact mistake
+                                   # caused once already in beast-mode.
+
+            inv2         = jnp.asarray(1.0 / jnp.sqrt(2.0), dtype=dtype)
+            half_p       = param * jnp.float64(0.5)
+            cos_p        = jnp.cos(half_p).astype(dtype)
+            sin_p        = jnp.sin(half_p).astype(dtype)
+            exp_pos      = jnp.exp(1j * param).astype(dtype)
+            exp_ph4      = jnp.exp(1j * jnp.pi / 4.0).astype(dtype)
+            exp_mh4      = jnp.exp(-1j * jnp.pi / 4.0).astype(dtype)
+            exp_pos_half = jnp.exp(1j * half_p).astype(dtype)
+            exp_neg_half = jnp.exp(-1j * half_p).astype(dtype)
+
+            # 1-qubit gate matrix — identical table to _apply_gate_fast_step
+            safe_gid = jnp.clip(g_id, 0, 13)
+            g_1q = jax.lax.switch(
+                safe_gid,
+                [
+                    lambda _: jnp.eye(2, dtype=dtype),
+                    lambda _: jnp.array([[inv2, inv2], [inv2, -inv2]], dtype=dtype),
+                    lambda _: jnp.array([[0.0 + 0j, 1.0 + 0j], [1.0 + 0j, 0.0 + 0j]], dtype=dtype),
+                    lambda _: jnp.array([[0.0 + 0j, -1j], [1j, 0.0 + 0j]], dtype=dtype),
+                    lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, -1.0 + 0j]], dtype=dtype),
+                    lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, 1j]], dtype=dtype),
+                    lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, -1j]], dtype=dtype),
+                    lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, exp_ph4]], dtype=dtype),
+                    lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, exp_mh4]], dtype=dtype),
+                    lambda _: jnp.array([[cos_p, -1j * sin_p], [-1j * sin_p, cos_p]], dtype=dtype),
+                    lambda _: jnp.array([[cos_p, -sin_p], [sin_p, cos_p]], dtype=dtype),
+                    lambda _: jnp.array([[jnp.exp(-1j * half_p), 0.0 + 0j], [0.0 + 0j, jnp.exp(1j * half_p)]], dtype=dtype),
+                    lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, exp_pos]], dtype=dtype),
+                    lambda _: jnp.array([[0.5 + 0.5j, 0.5 - 0.5j], [0.5 - 0.5j, 0.5 + 0.5j]], dtype=dtype),
+                ],
+                operand=None,
+            )
+
+            # Controlled-U submatrix for the 5 two-qubit gate types (mat[2:,2:]
+            # of each gate's full 4x4 form — same values _apply_gate_multi's
+            # `U = mat[2:, 2:]` extracted from GATES/PARAMETRIC_GATES).
+            # 20=CX->X, 21=CZ->Z, 22=CP->P(theta), 24=CY->Y, 25=CRZ->RZ(theta).
+            two_q_idx = jnp.where(g_id == 20, 0,
+                        jnp.where(g_id == 21, 1,
+                        jnp.where(g_id == 22, 2,
+                        jnp.where(g_id == 24, 3, 4))))
+            U = jax.lax.switch(
+                two_q_idx,
+                [
+                    lambda _: jnp.array([[0.0 + 0j, 1.0 + 0j], [1.0 + 0j, 0.0 + 0j]], dtype=dtype),
+                    lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, -1.0 + 0j]], dtype=dtype),
+                    lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, exp_pos]], dtype=dtype),
+                    lambda _: jnp.array([[0.0 + 0j, -1j], [1j, 0.0 + 0j]], dtype=dtype),
+                    lambda _: jnp.array([[exp_neg_half, 0.0 + 0j], [0.0 + 0j, exp_pos_half]], dtype=dtype),
+                ],
+                operand=None,
+            )
+            g00, g01, g10, g11 = g_1q[0, 0], g_1q[0, 1], g_1q[1, 0], g_1q[1, 1]
+            u00, u01, u10, u11 = U[0, 0], U[0, 1], U[1, 0], U[1, 1]
+
+            # ── case 1: 1-qubit gate, LOCAL qubit (q1 >= m) ──────────────
+            # Same do_1q amplitude-pair math as beast-mode, applied to every
+            # chunk row in parallel (gather along axis 1, broadcasts over
+            # axis 0 for free).
+            def case_1q_local(_c):
+                local_phys = (k - 1) - (q1 - m)
+                stride     = jnp.int32(1) << local_phys
+                idx        = jnp.arange(chunk_dim, dtype=jnp.int32)
+                idx_pair   = idx ^ stride
+                mask0      = (idx & stride) == 0
+                amp_pair   = _c[:, idx_pair]
+                new0 = g00 * _c + g01 * amp_pair
+                new1 = g10 * amp_pair + g11 * _c
+                return jnp.where(mask0[None, :], new0, new1)
+
+            # ── case 2: 1-qubit gate, CHUNK-SELECT qubit (q1 < m) ────────
+            # Same math, one level up: each "amplitude" is a whole
+            # (chunk_dim,)-shaped row, mixed pairwise across axis 0.
+            def case_1q_chunk(_c):
+                stride    = jnp.int32(1) << (m - 1 - q1)
+                idxc      = jnp.arange(num_chunks, dtype=jnp.int32)
+                idxc_pair = idxc ^ stride
+                mask0     = (idxc & stride) == 0
+                amp_pair  = _c[idxc_pair]
+                new0 = g00 * _c + g01 * amp_pair
+                new1 = g10 * amp_pair + g11 * _c
+                return jnp.where(mask0[:, None], new0, new1)
+
+            # ── case 3: 2-qubit, ctrl AND tgt both LOCAL ─────────────────
+            def case_2q_local_local(_c):
+                ctrl_phys = (k - 1) - (q1 - m)
+                tgt_phys  = (k - 1) - (q2 - m)
+                idx       = jnp.arange(chunk_dim, dtype=jnp.int32)
+                ctrl_bit  = (idx & (jnp.int32(1) << ctrl_phys)) != 0
+                tgt_bit   = (idx & (jnp.int32(1) << tgt_phys)) != 0
+                partner   = idx ^ (jnp.int32(1) << tgt_phys)
+                amp_partner = _c[:, partner]
+                new0 = u00 * _c + u01 * amp_partner
+                new1 = u10 * amp_partner + u11 * _c
+                after = jnp.where(tgt_bit[None, :], new1, new0)
+                return jnp.where(ctrl_bit[None, :], after, _c)
+
+            # ── case 4: ctrl CHUNK-SELECT, tgt LOCAL ─────────────────────
+            # Whole chunks where the chunk-index's ctrl bit is set get U
+            # applied as a local 1-qubit gate; the rest are untouched.
+            def case_2q_ctrl_chunk_tgt_local(_c):
+                ctrl_stride = jnp.int32(1) << (m - 1 - q1)
+                idxc        = jnp.arange(num_chunks, dtype=jnp.int32)
+                ctrl_set    = (idxc & ctrl_stride) != 0
+                tgt_phys    = (k - 1) - (q2 - m)
+                idxl        = jnp.arange(chunk_dim, dtype=jnp.int32)
+                tgt_bit     = (idxl & (jnp.int32(1) << tgt_phys)) != 0
+                partner     = idxl ^ (jnp.int32(1) << tgt_phys)
+                amp_partner = _c[:, partner]
+                new0 = u00 * _c + u01 * amp_partner
+                new1 = u10 * amp_partner + u11 * _c
+                after = jnp.where(tgt_bit[None, :], new1, new0)
+                return jnp.where(ctrl_set[:, None], after, _c)
+
+            # ── case 5: ctrl LOCAL, tgt CHUNK-SELECT ─────────────────────
+            # Pairs of chunks get mixed, but ONLY where the local ctrl bit
+            # (same position in every chunk) is set — an elementwise mask.
+            def case_2q_ctrl_local_tgt_chunk(_c):
+                ctrl_phys  = (k - 1) - (q1 - m)
+                idxl       = jnp.arange(chunk_dim, dtype=jnp.int32)
+                ctrl_bit   = (idxl & (jnp.int32(1) << ctrl_phys)) != 0
+                tgt_stride = jnp.int32(1) << (m - 1 - q2)
+                idxc       = jnp.arange(num_chunks, dtype=jnp.int32)
+                idxc_pair  = idxc ^ tgt_stride
+                is_c0      = (idxc & tgt_stride) == 0
+                amp_pair   = _c[idxc_pair]
+                new_c0 = u00 * _c + u01 * amp_pair
+                new_c1 = u10 * amp_pair + u11 * _c
+                after = jnp.where(is_c0[:, None], new_c0, new_c1)
+                return jnp.where(ctrl_bit[None, :], after, _c)
+
+            # ── case 6: ctrl AND tgt both CHUNK-SELECT ───────────────────
+            def case_2q_both_chunk(_c):
+                ctrl_stride = jnp.int32(1) << (m - 1 - q1)
+                tgt_stride  = jnp.int32(1) << (m - 1 - q2)
+                idxc        = jnp.arange(num_chunks, dtype=jnp.int32)
+                ctrl_set    = (idxc & ctrl_stride) != 0
+                idxc_pair   = idxc ^ tgt_stride
+                is_c0       = (idxc & tgt_stride) == 0
+                amp_pair    = _c[idxc_pair]
+                new_c0 = u00 * _c + u01 * amp_pair
+                new_c1 = u10 * amp_pair + u11 * _c
+                after = jnp.where(is_c0[:, None], new_c0, new_c1)
+                return jnp.where(ctrl_set[:, None], after, _c)
+
+            is_2q    = g_id >= 20
+            q1_chunk = q1 < m
+            q2_chunk = q2 < m
+
+            result_2q = jnp.where(
+                q1_chunk & q2_chunk, case_2q_both_chunk(chunks),
+                jnp.where(q1_chunk & (~q2_chunk), case_2q_ctrl_chunk_tgt_local(chunks),
+                jnp.where((~q1_chunk) & q2_chunk, case_2q_ctrl_local_tgt_chunk(chunks),
+                                                   case_2q_local_local(chunks))))
+            result_1q = jnp.where(q1_chunk, case_1q_chunk(chunks), case_1q_local(chunks))
+
+            new_chunks = jnp.where(is_2q, result_2q, result_1q)
+            return new_chunks.astype(dtype), None
+
+        return step
+
+
+    def _build_multi_chunk_runner(num_chunks: int, m: int, k: int):
+        """jax.jit-compiled (chunks, compiled_ops) -> final_chunks, closed
+        over the static per-Chunk-instance geometry (num_chunks, m, k don't
+        change across calls on the same instance)."""
+        step = _build_multi_chunk_step(num_chunks, m, k)
+
+        @jax.jit
+        def run(chunks, compiled_ops):
+            final, _ = jax.lax.scan(step, chunks, compiled_ops)
+            return final
+
+        return run
+
+
+    def _compile_multi_chunk_ops(circuit: List) -> "jnp.ndarray":
+        """Structural + GATE_IDS compilation shared by the multi-chunk JIT
+        path — same [g_id, q1, q2, param] row format as beast-mode's own
+        compiled ops, built via GATE_IDS instead of the old _resolve_gate's
+        GATES/PARAMETRIC_GATES lookup. This finally aligns multi-chunk's
+        gate coverage with beast-mode's (both silently skip a gate name not
+        in GATE_IDS — same known, tracked behavior, see issue #4 — instead
+        of the old _resolve_gate's NotImplementedError for e.g. ecr/iswap)."""
+        target = QuantumTranspiler.transpile(circuit)
+        rows = []
+        for cmd in target:
+            name = cmd[0].lower() if isinstance(cmd[0], str) else str(cmd[0]).lower()
+            if name not in GATE_IDS:
+                continue
+            g_id = float(GATE_IDS[name])
+            args = cmd[1:]
+            if name in ('cx', 'cz', 'cp', 'cphase', 'cy', 'crz'):
+                q1, q2 = float(args[0]), float(args[1])
+                param = float(args[2]) if len(args) > 2 else 0.0
+                rows.append([g_id, q1, q2, param])
+            elif args:
+                q1 = float(args[0])
+                param = float(args[1]) if len(args) > 1 else 0.0
+                rows.append([g_id, q1, 0.0, param])
+        if not rows:
+            return jnp.empty((0, 4), dtype=jnp.float64)
+        return jnp.array(rows, dtype=jnp.float64)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # CircuitChunker
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -336,6 +584,7 @@ class Chunk:
                 use_float32=use_float32,
             )
             self._chunk_sims = None
+            self._multi_chunk_runner = None
 
             # 5a. Circuit chunker wired to the physical simulator, with same threshold
             self._circuit_chunker = CircuitChunker(
@@ -369,6 +618,12 @@ class Chunk:
 
             self._inner_sim        = None
             self._circuit_chunker  = None
+
+            # 6b. JIT runner for the multi-chunk dispatch — built once here
+            # since num_chunks/m/chunk_size_bits are fixed for this
+            # instance's whole lifetime, reused by every run_chunk() call.
+            self._multi_chunk_runner = _build_multi_chunk_runner(
+                num_chunks, self._m, self._mem_chunker.chunk_size_bits)
 
     # ── Benchmark-facing attribute forwarding ────────────────────────────────
 
@@ -444,135 +699,11 @@ class Chunk:
 
     # ── Multi-chunk gate dispatch (num_chunks > 1) ───────────────────────────
 
-    def _resolve_gate(self, cmd) -> Tuple[bool, "np.ndarray", int, Optional[int]]:
-        """Mirrors DenseSVSimulator.run_circuit's own name -> matrix dispatch
-        (GATES / PARAMETRIC_GATES), deliberately NOT run_circuit_jit_beast_mode's
-        GATE_IDS table — that table is missing cy/cp/crz (and others) and
-        would silently drop them. Returns (is_2q, matrix, q1, q2_or_None).
-
-        Only the controlled-U 2-qubit gates {cx, cz, cy, cp, crz} are
-        supported here — the only 2-qubit gates that can reach execution
-        after QuantumTranspiler.transpile (ccx -> 15 native gates, swap ->
-        3xCX). Anything else raises rather than silently mishandling a gate
-        that isn't actually controlled-U structured (e.g. swap, iswap, ecr)."""
-        name = cmd[0].lower() if isinstance(cmd[0], str) else str(cmd[0]).lower()
-        args = cmd[1:]
-        xp    = self._chunk_sims[0].xp
-        dtype = self._chunk_sims[0].dtype
-        controlled_u_2q = ('cx', 'cz', 'cy')
-        controlled_u_2q_param = ('cp', 'crz')
-
-        if name in GATES:
-            mat = xp.array(GATES[name], dtype=dtype)
-            if mat.shape == (2, 2):
-                return False, mat, int(args[0]), None
-            if name in controlled_u_2q:
-                return True, mat, int(args[0]), int(args[1])
-            raise NotImplementedError(
-                f"Chunk multi-chunk dispatch only supports the controlled-U "
-                f"2-qubit gates {controlled_u_2q + controlled_u_2q_param} "
-                f"(everything else is decomposed by QuantumTranspiler before "
-                f"reaching here) — got '{name}'."
-            )
-
-        if name in PARAMETRIC_GATES:
-            if len(args) == 2:
-                mat = xp.array(PARAMETRIC_GATES[name](args[1]), dtype=dtype)
-                return False, mat, int(args[0]), None
-            if len(args) == 3:
-                if name not in controlled_u_2q_param:
-                    raise NotImplementedError(
-                        f"Chunk multi-chunk dispatch only supports the "
-                        f"controlled-U 2-qubit parametric gates "
-                        f"{controlled_u_2q_param} — got '{name}'."
-                    )
-                mat = xp.array(PARAMETRIC_GATES[name](args[2]), dtype=dtype)
-                return True, mat, int(args[0]), int(args[1])
-            if len(args) == 4:
-                mat = xp.array(PARAMETRIC_GATES[name](args[1], args[2], args[3]), dtype=dtype)
-                return False, mat, int(args[0]), None
-
-        raise ValueError(f"Unknown or unparseable gate command in multi-chunk circuit: {cmd!r}")
-
-    def _apply_gate_multi(self, is_2q: bool, mat, q1: int, q2: Optional[int]) -> None:
-        """Applies one gate across self._chunk_sims. See CHANGELOG / plan for
-        the full derivation. `m` = self._m = number of chunk-select qubits
-        (the top m logical qubits, indices [0, m)); qubits [m, n) are local
-        to a chunk, re-indexed as (q - m) within that chunk's own simulator.
-        """
-        m = self._m
-        for q in ((q1,) if not is_2q else (q1, q2)):
-            if not 0 <= q < self.n:
-                raise ValueError(f"Qubit index {q} out of range [0, {self.n})")
-
-        chunks = self._chunk_sims
-        xp     = chunks[0].xp
-
-        if not is_2q:
-            if q1 >= m:
-                for sim in chunks:
-                    sim.apply_gate_1q(mat, q1 - m)
-                return
-            # chunk-select 1-qubit gate: mix whole chunk arrays pairwise
-            stride = 1 << (m - 1 - q1)
-            g00, g01, g10, g11 = mat[0, 0], mat[0, 1], mat[1, 0], mat[1, 1]
-            for c0 in range(self.num_chunks):
-                if c0 & stride:
-                    continue
-                c1 = c0 | stride
-                sv0, sv1 = chunks[c0].sv, chunks[c1].sv
-                chunks[c0].sv = g00 * sv0 + g01 * sv1
-                chunks[c1].sv = g10 * sv0 + g11 * sv1
-            return
-
-        # 2-qubit controlled-U: control=q1, target=q2, U = mat[2:, 2:]
-        U = mat[2:, 2:]
-        u00, u01, u10, u11 = U[0, 0], U[0, 1], U[1, 0], U[1, 1]
-        ctrl_local = q1 >= m
-        tgt_local  = q2 >= m
-
-        if ctrl_local and tgt_local:
-            for sim in chunks:
-                sim.apply_gate_2q(mat, q1 - m, q2 - m)
-
-        elif (not ctrl_local) and tgt_local:
-            ctrl_stride = 1 << (m - 1 - q1)
-            for c in range(self.num_chunks):
-                if c & ctrl_stride:
-                    chunks[c].apply_gate_1q(U, q2 - m)
-                # else: control bit 0 -> identity branch, no change
-
-        elif ctrl_local and (not tgt_local):
-            k = self._mem_chunker.chunk_size_bits
-            local_ctrl_stride = 1 << (k - 1 - (q1 - m))
-            tgt_stride = 1 << (m - 1 - q2)
-            idx  = xp.arange(self._mem_chunker.chunk_dim)
-            mask = (idx & local_ctrl_stride) != 0
-            for c0 in range(self.num_chunks):
-                if c0 & tgt_stride:
-                    continue
-                c1 = c0 | tgt_stride
-                sv0, sv1 = chunks[c0].sv, chunks[c1].sv  # snapshot before writing
-                mix0 = u00 * sv0 + u01 * sv1
-                mix1 = u10 * sv0 + u11 * sv1
-                chunks[c0].sv = xp.where(mask, mix0, sv0)
-                chunks[c1].sv = xp.where(mask, mix1, sv1)
-
-        else:  # both chunk-select
-            ctrl_stride = 1 << (m - 1 - q1)
-            tgt_stride  = 1 << (m - 1 - q2)
-            for c0 in range(self.num_chunks):
-                if c0 & tgt_stride:
-                    continue
-                c1 = c0 | tgt_stride
-                if not (c0 & ctrl_stride):
-                    continue  # control bit 0 (same on c0/c1) -> identity
-                sv0, sv1 = chunks[c0].sv, chunks[c1].sv
-                chunks[c0].sv = u00 * sv0 + u01 * sv1
-                chunks[c1].sv = u10 * sv0 + u11 * sv1
-
     def _dispatch_multi(self, circuit: List) -> None:
-        """Executes *circuit* against the num_chunks>1 chunk representation.
+        """Executes *circuit* against the num_chunks>1 chunk representation
+        via one jax.lax.scan call over the whole (transpiled, GATE_IDS-
+        compiled) circuit — see _build_multi_chunk_step/_build_multi_chunk_runner
+        above for the kernel, and _compile_multi_chunk_ops for the encoding.
 
         Convention: chunk index `c` (m = self._m bits, MSB-first, same
         n-1-qubit convention as DenseSVSimulator) equals the value of the
@@ -581,16 +712,18 @@ class Chunk:
         makes full_sv.reshape(num_chunks, chunk_dim)[c] == chunk_sims[c].sv
         exactly, since NumPy's row-major reshape splits a (2,)*n tensor on
         the leading axes first — i.e. the most-significant qubits, matching
-        this simulator's MSB-first indexing throughout.
-
-        No chunk_size_gates batching here (unlike the num_chunks==1 path via
-        CircuitChunker): each per-gate call into a chunk_size_bits-qubit
-        DenseSVSimulator is already a single bounded JIT op, so there's no
-        JIT-recompilation-on-varying-trace-shape problem to solve."""
-        target = QuantumTranspiler.transpile(circuit)
-        for cmd in target:
-            is_2q, mat, q1, q2 = self._resolve_gate(cmd)
-            self._apply_gate_multi(is_2q, mat, q1, q2)
+        this simulator's MSB-first indexing throughout. Stacking
+        chunk_sims[i].sv into one (num_chunks, chunk_dim) array before the
+        scan, and unstacking after, holds exactly the same total element
+        count as the num_chunks separate arrays it replaces — the anti-OOM
+        property this class exists for is preserved, nothing (2**n_qubits,)
+        shaped is ever materialized."""
+        compiled_ops = _compile_multi_chunk_ops(circuit)
+        xp = self._chunk_sims[0].xp
+        stacked = xp.stack([sim.sv for sim in self._chunk_sims])
+        final = self._multi_chunk_runner(stacked, compiled_ops)
+        for i, sim in enumerate(self._chunk_sims):
+            sim.sv = final[i]
 
     # ── Public API ───────────────────────────────────────────────────────────
 

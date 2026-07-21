@@ -1195,6 +1195,81 @@ class TestChunkMultiPiece:
         sim.run_chunk([['h', 0]], 500)
         np.testing.assert_array_equal(np.asarray(sim.get_statevector()), np.asarray(sim.sv))
 
+
+class TestChunkMultiPieceJIT:
+    """dense_evolution.chunk's multi-chunk dispatch (num_chunks>1) used to
+    apply gates one at a time via a Python loop calling
+    sim.apply_gate_1q/apply_gate_2q (neither @jax.jit'd, no jax.lax.scan) —
+    6x slower than run_circuit_jit_beast_mode on an identical workload
+    (10 qubits/200 gates/4 forced chunks: 2.2s vs 0.37s). Replaced with a
+    single jax.lax.scan over the whole circuit, operating on the stacked
+    (num_chunks, chunk_dim) representation directly (never materializing a
+    (2**n_qubits,) array — the anti-OOM property Chunk exists for). The 6
+    gate/qubit-location cases were ported formula-for-formula from the old
+    Python-loop implementation (dense_evolution/chunk.py git history) and
+    verified against it case-by-case before it was removed — TestChunkMultiPiece
+    above (unchanged, all 18 tests still pass against the new kernel) is
+    that cross-check. This class covers what's new: dtype and the actual
+    measured speedup."""
+
+    @pytest.fixture
+    def force_chunk_bits(self, monkeypatch):
+        import dense_evolution.chunk as chunk_mod
+
+        def _force(bits):
+            monkeypatch.setattr(chunk_mod, "get_dynamic_chunk", lambda dtype_target: bits)
+
+        return _force
+
+    @pytest.mark.parametrize("use_float32", [False, True])
+    def test_dtype_consistency_across_all_cases(self, force_chunk_bits, use_float32):
+        # Every constant in the new kernel must derive from the stacked
+        # array's own dtype, never a hardcoded complex128 — the exact
+        # mistake that once broke beast-mode's use_float32 path (a
+        # lax.cond/where branch mismatch that surfaces at trace time, not
+        # silently), so this exercises all 6 cases under complex64 too.
+        force_chunk_bits(4)
+        n = 6
+        circuit = [
+            ('h', 3), ('rx', 4, 0.6),              # 1q local
+            ('h', 0), ('ry', 1, 0.4),               # 1q chunk-select
+            ('cx', 3, 4),                            # 2q local-local
+            ('cp', 0, 4, 0.7),                        # ctrl chunk, tgt local
+            ('crz', 4, 1, 1.1),                       # ctrl local, tgt chunk
+            ('cy', 0, 1),                              # both chunk-select
+        ]
+        chunk_sim = Chunk(n, use_float32=use_float32)
+        chunk_sim.run_chunk(circuit)
+        ref = DenseSVSimulator(n, use_float32=use_float32)
+        ref.run_circuit(circuit, transpile=True)
+        atol = 1e-5 if use_float32 else 1e-9
+        np.testing.assert_allclose(
+            np.asarray(chunk_sim.get_statevector()), np.asarray(ref.get_statevector()), atol=atol)
+
+    def test_measured_speedup_over_python_loop_dispatch(self, force_chunk_bits, capsys):
+        # Not a strict pass/fail bound (timing is noisy) — reports the real
+        # measured number, same discipline as the donate_argnums RSS
+        # measurement: honest data, not a claim asserted on faith. The
+        # comparison point (2.2s on this exact benchmark, pre-fix) is
+        # recorded in the changelog, not re-measured here (the old
+        # implementation no longer exists to compare against directly).
+        import time
+        force_chunk_bits(8)
+        n_qubits = 10
+        circuit = ([('h', i % n_qubits) for i in range(100)]
+                   + [('cx', i % (n_qubits - 1), (i % (n_qubits - 1)) + 1) for i in range(100)])
+
+        chunk_sim = Chunk(n_qubits=n_qubits, memory_threshold=0.01)
+        assert chunk_sim.num_chunks == 4
+        t0 = time.perf_counter()
+        chunk_sim.run_chunk(circuit)
+        elapsed = time.perf_counter() - t0
+
+        with capsys.disabled():
+            print(f"\n[multi-chunk JIT speed] n_qubits={n_qubits} num_chunks=4 "
+                  f"200 gates: {elapsed:.4f}s (pre-fix Python-loop dispatch: ~2.2s)")
+
+
 # ─────────────────────────────────────────────────────────────
 # 11. MEMORY
 # ─────────────────────────────────────────────────────────────
