@@ -304,9 +304,8 @@ if HAS_JAX:
         return new_sv, None
 
 
-    @jax.jit
-    def _compile_and_run_circuit_jit(state_vector: "jnp.ndarray",
-                                      compiled_ops:  "jnp.ndarray") -> "jnp.ndarray":
+    def _run_circuit_scan_core(state_vector: "jnp.ndarray",
+                                compiled_ops:  "jnp.ndarray") -> "jnp.ndarray":
         """
         Execute a pre-compiled gate sequence on *state_vector* via jax.lax.scan.
 
@@ -322,6 +321,27 @@ if HAS_JAX:
         """
         final_sv, _ = jax.lax.scan(_apply_gate_fast_step, state_vector, compiled_ops)
         return final_sv
+
+    #: Plain (non-donating) wrapper. Required by callers that reuse the
+    #: same state_vector buffer across multiple calls — run_parametric_batch_jit
+    #: (simulator.py), where it's a vmap-broadcast closure variable shared
+    #: across every batch lane, and circuit_to_energy_fn's energy_fn
+    #: (autodiff.py), where the caller's VQE loop passes the same stato_zero
+    #: to every epoch. Donating argument 0 there would make JAX raise on the
+    #: second use (the buffer is deleted after a donated call) — not a
+    #: silent bug, but a real break, verified by tracing every call site
+    #: before adding donation anywhere.
+    _compile_and_run_circuit_jit = jax.jit(_run_circuit_scan_core)
+
+    #: Donating wrapper — safe ONLY where the caller immediately rebinds its
+    #: reference to the input buffer and never reads the old one again.
+    #: Currently just DenseSVSimulator.run_circuit_jit_beast_mode's
+    #: `self.sv = ...` pattern (verified: no code path anywhere keeps a
+    #: stale reference to self.sv across that call, including chunked/
+    #: repeated invocations via run_circuit_with_chunking, and separate
+    #: DenseSVSimulator instances never share a buffer).
+    _compile_and_run_circuit_jit_donated = jax.jit(
+        _run_circuit_scan_core, donate_argnums=(0,))
 
 
 # ─────────────────────────────────────────────────────────────────────────────

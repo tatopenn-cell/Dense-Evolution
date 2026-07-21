@@ -385,6 +385,101 @@ class TestBeastModeFloat32:
         sim64.run_circuit_jit_beast_mode(circuit)
         np.testing.assert_allclose(probs(sim32), probs(sim64), atol=1e-6)
 
+
+class TestBeastModeDonateArgnums:
+    """run_circuit_jit_beast_mode's self.sv = ... call used to allocate a
+    fresh statevector buffer on every call instead of letting XLA reuse the
+    memory of the one it's replacing — zero donate_argnums anywhere in the
+    codebase, confirmed via audit. Only THIS call site is safe to donate:
+    self.sv is always rebound immediately after, and no code path anywhere
+    (including run_circuit_with_chunking's repeated calls, or separate
+    DenseSVSimulator instances) keeps a stale reference to the old buffer
+    across the call. run_parametric_batch_jit (vmap-broadcasts its init_sv
+    closure across the whole batch) and circuit_to_energy_fn's energy_fn
+    (the VQE loop reuses the same stato_zero every epoch) are NOT safe to
+    donate — verified by tracing every call site of the shared
+    _compile_and_run_circuit_jit before touching anything — so they keep
+    using the plain, non-donating wrapper, untouched by this change."""
+
+    def test_result_unchanged_by_donation(self):
+        circuit = [['h', 0, -1], ['cx', 0, 1, 0], ['rz', 1, 0.6]]
+        sim = DenseSVSimulator(n_qubits=3, use_float32=False)
+        sim.run_circuit_jit_beast_mode(circuit)
+        expected = probs(sim)
+
+        # independent instance, same circuit, confirms determinism/parity
+        sim2 = DenseSVSimulator(n_qubits=3, use_float32=False)
+        sim2.run_circuit_jit_beast_mode(circuit)
+        np.testing.assert_allclose(probs(sim2), expected, atol=1e-12)
+        assert abs(expected.sum() - 1.0) < 1e-9
+
+    def test_donation_actually_reuses_the_buffer(self):
+        # Proof, not assumption: the pre-call buffer must be invalidated by
+        # JAX after a donated call -- that's the observable signature of
+        # real buffer reuse. If this test ever stops raising, donation
+        # silently stopped happening (e.g. a future JAX version change) and
+        # that's worth knowing, not something to quietly tolerate.
+        import jax
+        sim = DenseSVSimulator(n_qubits=3, use_float32=False)
+        old_sv = sim.sv
+        sim.run_circuit_jit_beast_mode([['h', 0, -1]])
+        with pytest.raises(RuntimeError, match="deleted"):
+            jax.block_until_ready(old_sv)
+
+    def test_chunked_repeated_calls_stay_correct(self):
+        # run_circuit_with_chunking calls run_circuit_jit_beast_mode
+        # repeatedly in a loop -- each call donates and rebinds self.sv;
+        # confirms that repeated donation across many calls doesn't
+        # accumulate any corruption.
+        sim = DenseSVSimulator(n_qubits=4, use_float32=False)
+        circuit = [('h', i % 4) for i in range(50)] + [('cx', i % 3, (i % 3) + 1) for i in range(50)]
+        sim.run_circuit_with_chunking(circuit, chunk_size=7)
+        assert abs(float(np.sum(probs(sim))) - 1.0) < 1e-9
+
+    def test_memory_rss_donated_vs_non_donated(self, capsys):
+        # Not a strict pass/fail bound (RSS is noisy and platform/allocator
+        # dependent) -- reports the real measured numbers so the claim
+        # "donate_argnums helps" is backed by data on this machine instead
+        # of asserted on faith. Uses a circuit sized to stay within this
+        # dev machine's 8.5GB RAM budget.
+        import gc
+        import psutil
+        from dense_evolution.compiler import (
+            _compile_and_run_circuit_jit, _compile_and_run_circuit_jit_donated,
+        )
+
+        n_qubits = 22
+        n_gates = 300
+        sim_setup = DenseSVSimulator(n_qubits=n_qubits, use_float32=False)
+        # g_id=1 -> H gate (see compiler.py's gate-ID table), one row per gate
+        ops_jnp = jnp.array(
+            [[1.0, float(i % n_qubits), 0.0, 0.0] for i in range(n_gates)],
+            dtype=jnp.float64,
+        )
+
+        proc = psutil.Process()
+
+        def run(fn):
+            sv = sim_setup.sv
+            gc.collect()
+            before = proc.memory_info().rss
+            out = fn(sv, ops_jnp)
+            jnp.asarray(out).block_until_ready()
+            gc.collect()
+            after = proc.memory_info().rss
+            return (after - before) / 1e6  # MB
+
+        # re-init sv fresh for each variant since the donated call deletes it
+        sim_setup.sv = jnp.zeros(2 ** n_qubits, dtype=jnp.complex128).at[0].set(1.0)
+        delta_plain = run(_compile_and_run_circuit_jit)
+        sim_setup.sv = jnp.zeros(2 ** n_qubits, dtype=jnp.complex128).at[0].set(1.0)
+        delta_donated = run(_compile_and_run_circuit_jit_donated)
+
+        with capsys.disabled():
+            print(f"\n[donate_argnums RSS] n_qubits={n_qubits} "
+                  f"plain=+{delta_plain:.1f}MB donated=+{delta_donated:.1f}MB")
+
+
 # ─────────────────────────────────────────────────────────────
 # 3. TWO-QUBIT GATES
 # ─────────────────────────────────────────────────────────────

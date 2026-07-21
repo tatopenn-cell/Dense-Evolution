@@ -8,7 +8,7 @@ if HAS_JAX:
     import jax
     import jax.numpy as jnp
     jax.config.update("jax_enable_x64", True)
-    from .compiler import _compile_and_run_circuit_jit
+    from .compiler import _compile_and_run_circuit_jit, _compile_and_run_circuit_jit_donated
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -397,7 +397,11 @@ class DenseSVSimulator:
 
         if compiled_ops:
             ops_jnp = jnp.array(compiled_ops, dtype=jnp.float64)
-            self.sv  = _compile_and_run_circuit_jit(self.sv, ops_jnp)
+            # Safe to donate self.sv here: it's rebound immediately below and
+            # no code path anywhere keeps a stale reference to the old buffer
+            # across this call (verified across chunked/repeated calls too,
+            # see _compile_and_run_circuit_jit_donated's docstring).
+            self.sv  = _compile_and_run_circuit_jit_donated(self.sv, ops_jnp)
 
     def run_circuit_with_chunking(self, circuit: List, chunk_size: int = 500):
         """
