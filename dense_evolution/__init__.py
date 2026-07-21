@@ -11,4 +11,4 @@ from .chunk import Chunk
 from .interop import from_qiskit, from_pennylane, run_qiskit_circuit, run_pennylane_circuit
 from .autodiff import circuit_to_energy_fn
 
-__version__ = "8.1.18"
+__version__ = "8.1.19"
