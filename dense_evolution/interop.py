@@ -56,6 +56,17 @@ def from_qiskit(circuit) -> QASMCircuit:
     return QASMParser().parse(qasm_str)
 
 
+def _sorted_wires(wires):
+    """Best-effort ascending order for a wire sequence. Falls back to the
+    original order if the labels aren't mutually comparable (e.g. mixed
+    str/int wire names) — better to fall back to the old touch-order
+    behavior than to crash on an exotic device's wire labels."""
+    try:
+        return sorted(wires)
+    except TypeError:
+        return list(wires)
+
+
 def from_pennylane(circuit, *args, **kwargs) -> QASMCircuit:
     """Convert a PennyLane QNode or QuantumTape/QuantumScript into a
     QASMCircuit via OpenQASM 2.0, reusing the existing QASMParser.
@@ -77,12 +88,33 @@ def from_pennylane(circuit, *args, **kwargs) -> QASMCircuit:
     always uses the top-level function, which returns a wrapper that must
     be called with the QNode's own arguments — consistent across both
     versions, this path was never the one that broke.
+
+    WIRE ORDER: by default, both PennyLane APIs number the exported QASM
+    qubits in the order wires are FIRST TOUCHED in the circuit, not by
+    their actual wire index — e.g. `qml.PauliX(wires=2)` followed by
+    `qml.CNOT(wires=[2, 1])` becomes `x q[0]; cx q[0],q[1];` in the
+    default export, silently renumbering wire 2 -> q[0] and wire 1 -> q[1].
+    Verified directly: this produced a topologically different circuit
+    from the one PennyLane itself executes whenever wires aren't touched
+    in ascending order (a QASMParser-based bridge has no way to recover
+    the true mapping after the fact — the touch-order renumbering has
+    already happened by the time QASM text exists). Both APIs accept an
+    explicit `wires=` argument that forces the true wire order into the
+    export instead — used here for both the QNode path (the device's own
+    declared wire order) and the tape path (the tape's own wires, sorted
+    ascending, since a bare tape has no device to ask).
     """
     _require_pennylane()
-    if isinstance(circuit, qml.tape.QuantumScript) and hasattr(circuit, 'to_openqasm'):
-        qasm_str = circuit.to_openqasm()
+    if isinstance(circuit, qml.tape.QuantumScript):
+        wires = _sorted_wires(circuit.wires)
+        if hasattr(circuit, 'to_openqasm'):
+            qasm_str = circuit.to_openqasm(wires=wires, measure_all=False)
+        else:
+            qasm_str = qml.to_openqasm(circuit, wires=wires, measure_all=False)
     else:
-        result = qml.to_openqasm(circuit, measure_all=False)
+        device = getattr(circuit, 'device', None)
+        wires = device.wires if device is not None else None
+        result = qml.to_openqasm(circuit, wires=wires, measure_all=False)
         qasm_str = result if isinstance(result, str) else result(*args, **kwargs)
     return QASMParser().parse(qasm_str)
 

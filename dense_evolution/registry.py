@@ -192,16 +192,25 @@ class NoiseModel:
 
             # ── channel application ───────────────────────────────────
             if model == 'depolarizing':
-                # Three equiprobable Pauli errors, each with rate p/3
-                p3 = p / 3.0
+                # Three equiprobable Pauli errors GIVEN that the channel
+                # fired (fire = r < p already gates the overall p rate) —
+                # the choice AMONG X/Y/Z must be a uniform 1-in-3 pick,
+                # independent of p. ch is drawn uniform on [0,1), so the
+                # thresholds here are fixed at 1/3 and 2/3, not p/3 and
+                # 2p/3 (that was comparing a full-range [0,1) draw against
+                # thresholds scaled for a [0,p) draw, skewing the outcome
+                # heavily toward Z for any p < 1 — verified directly:
+                # p=0.3 gave P(X|fire)=P(Y|fire)=10%, P(Z|fire)=80% instead
+                # of the correct 33.3% each).
+                THIRD = 1.0 / 3.0
                 if is_jax:
                     key, subkey2 = jax.random.split(key)
                     ch = jax.random.uniform(subkey2, shape=(half,), minval=0.0, maxval=1.0)
                     v0, v1      = sv_out[idx_0], sv_out[idx_1]
                     fire        = r < p
-                    x_gate      = fire & (ch < p3)
-                    y_gate      = fire & (ch >= p3) & (ch < 2.0 * p3)
-                    z_gate      = fire & (ch >= 2.0 * p3)
+                    x_gate      = fire & (ch < THIRD)
+                    y_gate      = fire & (ch >= THIRD) & (ch < 2.0 * THIRD)
+                    z_gate      = fire & (ch >= 2.0 * THIRD)
                     new_v0 = jnp.where(x_gate,  v1,
                              jnp.where(y_gate, -1j * v1, v0))
                     new_v1 = jnp.where(x_gate,  v0,
@@ -213,9 +222,9 @@ class NoiseModel:
                     ch     = rng.random(half)
                     v0, v1 = sv_out[idx_0].copy(), sv_out[idx_1].copy()
                     fire   = r < p
-                    x_gate = fire & (ch < p3)
-                    y_gate = fire & (ch >= p3) & (ch < 2.0 * p3)
-                    z_gate = fire & (ch >= 2.0 * p3)
+                    x_gate = fire & (ch < THIRD)
+                    y_gate = fire & (ch >= THIRD) & (ch < 2.0 * THIRD)
+                    z_gate = fire & (ch >= 2.0 * THIRD)
                     sv_out[idx_0] = np.where(x_gate,  v1,
                                     np.where(y_gate, -1j * v1, v0))
                     sv_out[idx_1] = np.where(x_gate,  v0,
@@ -275,7 +284,8 @@ class NoiseModel:
                 # applied sequentially on the same qubit.
                 p_dep   = p * 0.5
                 p_damp  = p * 0.333333
-                p3      = p_dep / 3.0
+                THIRD   = 1.0 / 3.0  # see the 'depolarizing' branch above for why
+                                     # this must be fixed at 1/3, not p_dep/3
 
                 # — depolarizing sub-channel —
                 if is_jax:
@@ -284,9 +294,9 @@ class NoiseModel:
                     ch    = jax.random.uniform(sk2, shape=(half,), minval=0.0, maxval=1.0)
                     v0, v1 = sv_out[idx_0], sv_out[idx_1]
                     fire   = r_dep < p_dep
-                    x_gate = fire & (ch < p3)
-                    y_gate = fire & (ch >= p3) & (ch < 2.0 * p3)
-                    z_gate = fire & (ch >= 2.0 * p3)
+                    x_gate = fire & (ch < THIRD)
+                    y_gate = fire & (ch >= THIRD) & (ch < 2.0 * THIRD)
+                    z_gate = fire & (ch >= 2.0 * THIRD)
                     new_v0 = jnp.where(x_gate,  v1,
                              jnp.where(y_gate, -1j * v1, v0))
                     new_v1 = jnp.where(x_gate,  v0,
@@ -308,9 +318,9 @@ class NoiseModel:
                     ch     = rng.random(half)
                     v0, v1 = sv_out[idx_0].copy(), sv_out[idx_1].copy()
                     fire   = r_dep < p_dep
-                    x_gate = fire & (ch < p3)
-                    y_gate = fire & (ch >= p3) & (ch < 2.0 * p3)
-                    z_gate = fire & (ch >= 2.0 * p3)
+                    x_gate = fire & (ch < THIRD)
+                    y_gate = fire & (ch >= THIRD) & (ch < 2.0 * THIRD)
+                    z_gate = fire & (ch >= 2.0 * THIRD)
                     sv_out[idx_0] = np.where(x_gate,  v1,
                                     np.where(y_gate, -1j * v1, v0))
                     sv_out[idx_1] = np.where(x_gate,  v0,

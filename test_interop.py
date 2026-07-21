@@ -178,3 +178,70 @@ class TestPennyLaneInterop:
         _, probs = run_pennylane_circuit(circuit, use_float32=False)
         nonzero = np.where(probs > 1e-9)[0]
         assert list(nonzero) == [4]  # MSB-first: X on qubit 0 -> index 100b = 4
+
+    def test_non_monotonic_wire_order_does_not_get_renumbered(self):
+        # Found via independent fuzz testing: qml.to_openqasm (and the old
+        # tape.to_openqasm()) number exported QASM qubits by the order
+        # wires are FIRST TOUCHED in the circuit, not by wire index —
+        # PauliX(wires=2) then CNOT(wires=[2,1]) used to export as
+        # `x q[0]; cx q[0],q[1];`, silently renumbering wire 2->q[0] and
+        # wire 1->q[1]. Verified directly this produced a topologically
+        # different circuit whenever wires weren't touched in ascending
+        # order. Fixed by passing explicit wires= to force true wire order.
+        import pennylane as qml
+        dev = qml.device('default.qubit', wires=4)
+
+        @qml.qnode(dev)
+        def circuit():
+            qml.PauliX(wires=2)
+            qml.CNOT(wires=[2, 1])
+            return qml.probs(wires=range(4))
+
+        ref = np.asarray(circuit())
+        _, ours = run_pennylane_circuit(circuit, use_float32=False)
+        np.testing.assert_allclose(ours, ref, atol=1e-6)
+
+    def test_non_monotonic_wire_order_fuzz(self):
+        # Same style fuzz test that originally caught the bug (9/20 passed
+        # before the fix) — regression guard against it coming back.
+        import pennylane as qml
+        dev = qml.device('default.qubit', wires=4)
+        rng = np.random.default_rng(1)
+        for trial in range(20):
+            n_ops = rng.integers(5, 12)
+            piano = []
+            for _ in range(n_ops):
+                tipo = rng.integers(0, 4)
+                if tipo < 3:
+                    piano.append((int(tipo), int(rng.integers(4))))
+                else:
+                    a, b = rng.choice(4, 2, replace=False)
+                    piano.append((3, int(a), int(b)))
+
+            def circuit(piano=piano):
+                for op in piano:
+                    if op[0] == 0: qml.Hadamard(wires=op[1])
+                    elif op[0] == 1: qml.PauliX(wires=op[1])
+                    elif op[0] == 2: qml.RZ(0.7, wires=op[1])
+                    else: qml.CNOT(wires=[op[1], op[2]])
+                return qml.probs(wires=range(4))
+
+            qnode = qml.QNode(circuit, dev)
+            ref = np.asarray(qnode())
+            _, ours = run_pennylane_circuit(qnode, use_float32=False)
+            assert np.allclose(ref, ours, atol=1e-6), f"trial {trial} mismatch, piano={piano}"
+
+    def test_non_monotonic_wire_order_bare_tape(self):
+        # Same fix, tape (not QNode) input path.
+        import pennylane as qml
+        with qml.tape.QuantumTape() as tape:
+            qml.PauliX(wires=2)
+            qml.CNOT(wires=[2, 1])
+
+        circ = from_pennylane(tape)
+        # wire 2 touched first, wire 1 second, but sorted-order export
+        # means q[0]=wire1, q[1]=wire2 -> cx control is q[1], target is q[0]
+        assert circ.n_qubits == 2
+        assert [op['name'] for op in circ.ops] == ['x', 'cx']
+        assert circ.ops[0]['qubits'] == [1]        # x on wire 2 -> q[1]
+        assert circ.ops[1]['qubits'] == [1, 0]      # cx(wire2, wire1) -> q[1], q[0]
