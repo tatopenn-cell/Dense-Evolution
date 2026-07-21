@@ -565,6 +565,9 @@ All circuits stored as OpenQASM 2.0 strings in `QASM_LIBRARY`.
 
 ## ▍ Changelog
 
+### v8.1.16
+- **Note**: v8.1.15's published PyPI package does **not** contain the `from_pennylane` Python 3.10 fix described below, despite the changelog entry — the fix landed in the repo before the PyPI upload, but the actual `pip install`-able wheel/sdist for 8.1.15 was built and uploaded from an earlier commit. PyPI doesn't allow re-uploading files under an already-published version, so this release exists specifically to ship that fix as an installable package. If you're on 8.1.15, upgrade to 8.1.16 — don't rely on 8.1.15's changelog matching what you actually have installed.
+
 ### v8.1.15
 - **Added**: `dense_evolution.autodiff.circuit_to_energy_fn(circuit, n_qubits)` — the real VQE gradient engine (`jax.value_and_grad` through a `jax.lax.scan` circuit template, verified against finite differences to ~1e-11) is now public API, independent of `dashboard_core.py`/Streamlit. Takes a `QASMCircuit` — the same type `from_qiskit`/`from_pennylane` return — so it closes the non-differentiability gap documented in v8.1.14: `circuit_to_energy_fn(from_pennylane(qnode, ...), n_qubits)` now gives a real, non-zero `jax.grad`, verified directly, where `run_pennylane_circuit` alone silently returned `0.0`.
 - **Changed**: `dashboard_core.py`'s `_build_vqe_template`/`_vqe_energy_fn` removed — `_run_vqe_telemetry_body` now calls the same public `circuit_to_energy_fn`, one engine instead of two copies of the same math that could silently drift apart. Verified behaviorally identical: all existing dashboard VQE tests pass unchanged, same tolerances.
