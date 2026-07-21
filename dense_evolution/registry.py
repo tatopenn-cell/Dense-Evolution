@@ -4,13 +4,10 @@ import os
 import time
 import psutil
 import platform
-import warnings
 from typing import Optional, List, Dict, Any
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
-
-warnings.filterwarnings('ignore')
 
 try:
     import cupy as cp
