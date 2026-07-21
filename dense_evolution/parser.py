@@ -48,6 +48,18 @@ class QASMCircuit:
             out.append(row)
         return out
 
+    def __iter__(self):
+        """Duck-type as an iterable of the same tuples to_tuples() returns,
+        so a QASMCircuit works anywhere a plain circuit list is expected
+        (QuantumTranspiler.transpile, Chunk.run_chunk, ...) without the
+        caller having to remember to call .to_tuples() first. Verified this
+        was a real gap, not a hypothetical one: `for cmd in circuit` inside
+        QuantumTranspiler.transpile — reached via Chunk.run_chunk(circuit)
+        — raised `TypeError: 'QASMCircuit' object is not iterable` when
+        handed a QASMCircuit straight from QASMParser().parse(), instead of
+        circuit.to_tuples()."""
+        return iter(self.to_tuples())
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Parser

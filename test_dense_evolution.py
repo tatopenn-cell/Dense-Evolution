@@ -910,6 +910,34 @@ class TestQASMForLoop:
         assert [op['name'] for op in circ.ops] == ['h', 'cx']
 
 
+class TestQASMCircuitIterable:
+    """Found via a user's own Colab testing: Chunk.run_chunk(circuit) (and
+    QuantumTranspiler.transpile, which it calls internally) iterates
+    directly over its `circuit` argument — `for cmd in circuit`. Passing a
+    QASMCircuit straight from QASMParser().parse(...) (instead of calling
+    .to_tuples() first) used to raise `TypeError: 'QASMCircuit' object is
+    not iterable`, a real usability gap for a very natural usage pattern.
+    Fixed by adding __iter__, duck-typing QASMCircuit as an iterable of the
+    same tuples to_tuples() already returns — no existing call site inside
+    dense_evolution relied on QASMCircuit being non-iterable."""
+
+    def test_iterating_a_qasmcircuit_matches_to_tuples(self):
+        circ = QASMParser().parse('qreg q[2]; h q[0]; cx q[0],q[1]; rz(0.5) q[1];')
+        assert list(circ) == circ.to_tuples()
+
+    def test_chunk_run_chunk_accepts_a_bare_qasmcircuit(self):
+        circ = QASMParser().parse('qreg q[2]; h q[0]; cx q[0],q[1];')
+        ch = Chunk(2)
+        ch.run_chunk(circ)  # used to raise TypeError without __iter__
+        probs_ = np.asarray(ch.get_probabilities())
+        assert abs(probs_.sum() - 1.0) < 1e-9
+
+    def test_transpile_accepts_a_bare_qasmcircuit(self):
+        circ = QASMParser().parse('qreg q[3]; ccx q[0],q[1],q[2];')
+        expanded = QuantumTranspiler.transpile(circ)
+        assert len(expanded) == 15
+
+
 class TestParserEvalSecurity:
     """_eval_param (gate parameters) and _resolve_int_expr (for-loop bounds)
     used to call raw eval() with only `{'__builtins__': {}}` as protection —
