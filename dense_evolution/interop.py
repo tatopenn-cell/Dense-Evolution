@@ -58,17 +58,32 @@ def from_qiskit(circuit) -> QASMCircuit:
 
 def from_pennylane(circuit, *args, **kwargs) -> QASMCircuit:
     """Convert a PennyLane QNode or QuantumTape/QuantumScript into a
-    QASMCircuit via OpenQASM 2.0 (qml.to_openqasm), reusing the existing
-    QASMParser.
+    QASMCircuit via OpenQASM 2.0, reusing the existing QASMParser.
 
-    qml.to_openqasm returns the QASM string directly for an
-    already-built tape/QuantumScript, but returns a wrapper function that
-    must be called with the QNode's own arguments for a parametric QNode
-    — both cases are handled here.
+    PennyLane's own serialization API for a bare tape has changed across
+    versions in an incompatible way (verified directly against both):
+      - >=~0.43 (Python 3.11+ only): qml.to_openqasm(tape) returns the
+        QASM string directly; QuantumTape/QuantumScript no longer has a
+        to_openqasm() method at all.
+      - <=0.42.x (still installed on Python 3.10, where newer PennyLane
+        isn't available): qml.to_openqasm(tape) does NOT special-case a
+        bare tape — it returns a QNode-oriented wrapper that crashes with
+        AttributeError ('QuantumTape' object has no attribute 'func') if
+        called on one. The tape's own tape.to_openqasm() method is what
+        works there instead.
+    So: a bare tape/QuantumScript uses its own to_openqasm() method when
+    present (old API), otherwise falls through to the top-level
+    qml.to_openqasm() (new API). A QNode (not a QuantumScript instance)
+    always uses the top-level function, which returns a wrapper that must
+    be called with the QNode's own arguments — consistent across both
+    versions, this path was never the one that broke.
     """
     _require_pennylane()
-    result = qml.to_openqasm(circuit, measure_all=False)
-    qasm_str = result if isinstance(result, str) else result(*args, **kwargs)
+    if isinstance(circuit, qml.tape.QuantumScript) and hasattr(circuit, 'to_openqasm'):
+        qasm_str = circuit.to_openqasm()
+    else:
+        result = qml.to_openqasm(circuit, measure_all=False)
+        qasm_str = result if isinstance(result, str) else result(*args, **kwargs)
     return QASMParser().parse(qasm_str)
 
 
