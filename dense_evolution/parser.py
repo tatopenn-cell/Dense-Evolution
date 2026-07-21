@@ -1,3 +1,5 @@
+import ast
+import operator
 import re
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass, field
@@ -125,19 +127,29 @@ class QASMParser:
         'reset', 'gate', 'def', 'if', 'for', 'while',
     ))
 
-    # ── safe math environment for eval() ────────────────────────────
+    # ── safe math environment for the AST-based expression evaluator ────
+    # No '__builtins__' entry and no raw 'np' module reference (either one
+    # would still be reachable via attribute access in a naive eval() —
+    # see _eval_ast_node's docstring for why this environment alone was
+    # never actually what made the old eval() call safe).
     _MATH_ENV: Dict = {
-        '__builtins__': {},
         'pi':     np.pi,
         'tau':    2.0 * np.pi,
         'euler':  np.e,
-        'np':     np,
         'sin':    np.sin,   'cos':    np.cos,   'tan':    np.tan,
         'sqrt':   np.sqrt,  'exp':    np.exp,   'log':    np.log,
         'asin':   np.arcsin,'acos':   np.arccos,'atan':   np.arctan,
         'arcsin': np.arcsin,'arccos': np.arccos,'arctan': np.arctan,
         'abs':    abs,      'round':  round,
     }
+
+    # ── operators allowed in the AST expression evaluator ────────────
+    _BINOPS = {
+        ast.Add: operator.add, ast.Sub: operator.sub,
+        ast.Mult: operator.mul, ast.Div: operator.truediv,
+        ast.Pow: operator.pow, ast.Mod: operator.mod,
+    }
+    _UNARYOPS = {ast.UAdd: operator.pos, ast.USub: operator.neg}
 
     # ────────────────────────────────────────────────────────────────
     # Public interface
@@ -161,6 +173,45 @@ class QASMParser:
         literal value, so `for` bounds like `n-1` can be resolved."""
         return {name: int(val) for name, val in self._RE_INT_DECL.findall(s)}
 
+    def _eval_ast_node(self, node, env: Dict):
+        """
+        Evaluate a Python expression AST node against an explicit node-type
+        whitelist — never eval()/exec(). Only literals, +-*/%** arithmetic,
+        unary +/-, and Name/Call lookups restricted to `env` are handled;
+        anything else (Attribute, Subscript, comprehensions, lambda, ...)
+        falls through to the final `raise` and is rejected.
+
+        This exists because `eval(tok, {'__builtins__': {}})` — the
+        previous implementation — does NOT stop attribute/dunder traversal
+        of the live object graph: `().__class__.__bases__[0].__subclasses__()`
+        needs no builtin name at all, and from there any class loaded in
+        the process (including ones whose __globals__ reference `os`) is
+        reachable. Verified directly: that exact expression, passed as a
+        gate parameter through the public QASMParser.parse() entry point,
+        executed successfully and returned a real value before this fix.
+        An AST whitelist makes that structurally impossible — an
+        `ast.Attribute` node is never one of the cases handled below, so
+        `.` in an expression always ends in the rejection branch.
+        """
+        if isinstance(node, ast.Expression):
+            return self._eval_ast_node(node.body, env)
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return node.value
+        if isinstance(node, ast.BinOp) and type(node.op) in self._BINOPS:
+            return self._BINOPS[type(node.op)](
+                self._eval_ast_node(node.left, env),
+                self._eval_ast_node(node.right, env))
+        if isinstance(node, ast.UnaryOp) and type(node.op) in self._UNARYOPS:
+            return self._UNARYOPS[type(node.op)](self._eval_ast_node(node.operand, env))
+        if isinstance(node, ast.Name) and node.id in env and not callable(env[node.id]):
+            return env[node.id]
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id in env and callable(env[node.func.id])
+                and not node.keywords):
+            args = [self._eval_ast_node(a, env) for a in node.args]
+            return env[node.func.id](*args)
+        raise ValueError(f"disallowed expression node: {type(node).__name__}")
+
     def _resolve_int_expr(self, expr: str, decls: Dict[str, int]) -> Optional[int]:
         """Resolve a `for`-bound expression (literal int, or a declared int
         variable combined with +/-/*// arithmetic) to a concrete int.
@@ -169,12 +220,11 @@ class QASMParser:
         expr = expr.strip()
         for name, val in decls.items():
             expr = re.sub(r'\b' + re.escape(name) + r'\b', str(val), expr)
-        if re.fullmatch(r'[\d\s+\-*/()]+', expr):
-            try:
-                return int(eval(expr, {'__builtins__': {}}, {}))  # noqa: S307
-            except Exception:
-                return None
-        return None
+        try:
+            tree = ast.parse(expr, mode='eval')
+            return int(self._eval_ast_node(tree, {}))
+        except Exception:
+            return None
 
     def _process_block_constructs(self, s: str) -> str:
         """
@@ -457,13 +507,19 @@ class QASMParser:
 
     def _eval_param(self, tok: str) -> float:
         """
-        Evaluate a parameter token to float.
+        Evaluate a parameter token to float via the AST whitelist evaluator
+        (_eval_ast_node) — never eval()/exec(). See _eval_ast_node's
+        docstring for why a raw eval() here was a real code-execution
+        vulnerability (attribute/dunder traversal bypasses
+        `{'__builtins__': {}}` entirely), fixed in this version.
 
         Handles: numeric literals, pi, pi/2, sqrt(2), cos(0.3), etc.
-        Returns 0.0 on any evaluation error (silent fallback).
+        Returns 0.0 on any evaluation error (silent fallback) — same
+        contract as before, unrelated inputs behave identically.
         """
         try:
-            return float(eval(tok, self._MATH_ENV))   # noqa: S307
+            tree = ast.parse(tok, mode='eval')
+            return float(self._eval_ast_node(tree, self._MATH_ENV))
         except Exception:
             return 0.0
 

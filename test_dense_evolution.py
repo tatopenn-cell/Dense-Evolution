@@ -840,6 +840,71 @@ class TestQASMForLoop:
         assert [op['name'] for op in circ.ops] == ['h', 'cx']
 
 
+class TestParserEvalSecurity:
+    """_eval_param (gate parameters) and _resolve_int_expr (for-loop bounds)
+    used to call raw eval() with only `{'__builtins__': {}}` as protection —
+    that blocks bare builtin names (open, len, __import__...) but does
+    NOT block attribute/dunder traversal of the live object graph, which
+    needs no builtin name at all. Verified directly: a gate parameter of
+    `().__class__.__bases__[0].__subclasses__().__len__()`, passed through
+    the public QASMParser.parse() entry point, executed successfully and
+    returned a real value (2200.0, the live subclass count) before this
+    fix — a genuine code-execution vulnerability, not a hypothetical one.
+    Both now go through _eval_ast_node, an AST node-type whitelist with no
+    eval()/exec() anywhere — an attribute access is an ast.Attribute node,
+    which is never one of the handled cases, so '.' in an expression always
+    lands in the rejection branch structurally, not via a blocklist."""
+
+    _ESCAPE_PAYLOADS = [
+        '().__class__.__bases__[0].__subclasses__().__len__()',
+        '__import__("os").system("echo pwned")',
+        'getattr(1, "__class__")',
+        '[x for x in range(10)][0]',
+        '(lambda: 1)()',
+        'exec("1")',
+        'globals()',
+        '().__class__.__init__.__globals__',
+    ]
+
+    @pytest.mark.parametrize('payload', _ESCAPE_PAYLOADS)
+    def test_eval_param_blocks_sandbox_escapes(self, payload):
+        assert QASMParser()._eval_param(payload) == 0.0
+
+    @pytest.mark.parametrize('payload', _ESCAPE_PAYLOADS)
+    def test_resolve_int_expr_blocks_sandbox_escapes(self, payload):
+        assert QASMParser()._resolve_int_expr(payload, {}) is None
+
+    def test_original_exploit_through_full_parse_returns_silent_zero(self):
+        # end-to-end through the actual public entry point, not just the
+        # internal method directly
+        qasm = ('OPENQASM 3.0; qubit[1] q; '
+                'rx(().__class__.__bases__[0].__subclasses__().__len__()) q[0];')
+        circ = QASMParser().parse(qasm)
+        assert circ.ops[0]['params'] == [0.0]
+
+    def test_original_exploit_in_for_loop_bound_yields_no_ops(self):
+        qasm = ('OPENQASM 3.0; qubit[1] q; '
+                'for int i in [0:().__class__.__bases__[0].__subclasses__().__len__()] '
+                '{ x q[0]; }')
+        circ = QASMParser().parse(qasm)
+        assert circ.ops == []
+
+    @pytest.mark.parametrize('expr,expected', [
+        ('pi', np.pi), ('pi/2', np.pi / 2), ('-pi/4', -np.pi / 4),
+        ('pi/8', np.pi / 8), ('0.5', 0.5), ('-0.5', -0.5),
+        ('sqrt(2)', np.sqrt(2)), ('cos(0.3)', np.cos(0.3)),
+        ('sin(pi/4)*2', np.sin(np.pi / 4) * 2),
+        ('2*pi/3', 2 * np.pi / 3), ('1+2*3', 7.0),
+    ])
+    def test_legitimate_expressions_unchanged(self, expr, expected):
+        assert QASMParser()._eval_param(expr) == pytest.approx(expected)
+
+    def test_legitimate_for_loop_bounds_unchanged(self):
+        qasm = 'qreg q[3]; int n = 3; for int i in [0:n-1] { x q[i]; }'
+        circ = QASMParser().parse(qasm)
+        assert [op['qubits'][0] for op in circ.ops] == [0, 1, 2]
+
+
 # ─────────────────────────────────────────────────────────────
 # 10. CIRCUIT CHUNKING (Stress test da README)
 # ─────────────────────────────────────────────────────────────
