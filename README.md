@@ -565,6 +565,9 @@ All circuits stored as OpenQASM 2.0 strings in `QASM_LIBRARY`.
 
 ## ▍ Changelog
 
+### v8.1.18
+- **Fixed**: removed a global `warnings.filterwarnings('ignore')` from `registry.py`, run unconditionally on `import dense_evolution`. It silenced every Python warning process-wide for the importing user's whole session — not just this package's, but their own code's and every other library's too. Inherited unchanged from the original Colab notebook (added in v8.0.6, never reconsidered once this became a real pip package). Concretely masked real signal: the JAX float64→float32 truncation `UserWarning`s visible throughout this project's own test output (precision silently lost under `use_float32=True`) would have been invisible to anyone using the package normally.
+
 ### v8.1.17
 - **Added**: `donate_argnums=(0,)` on `run_circuit_jit_beast_mode`'s statevector buffer — the only one of `_compile_and_run_circuit_jit`'s four call sites where it's safe (`self.sv` is always rebound immediately after, verified across chunked/repeated calls and separate simulator instances). `run_parametric_batch_jit` (its `init_sv` is a `vmap`-broadcast closure shared across the whole batch) and `circuit_to_energy_fn`'s VQE loop (same `stato_zero` reused every epoch) are deliberately left un-donated — donating there would make JAX raise on the second use instead of helping. Verified with a real measurement, not just a claim: RSS growth on a 22-qubit/300-gate circuit drops from +89.4MB to +4.5MB.
 
