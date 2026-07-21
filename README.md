@@ -565,6 +565,9 @@ All circuits stored as OpenQASM 2.0 strings in `QASM_LIBRARY`.
 
 ## ▍ Changelog
 
+### v8.1.17
+- **Added**: `donate_argnums=(0,)` on `run_circuit_jit_beast_mode`'s statevector buffer — the only one of `_compile_and_run_circuit_jit`'s four call sites where it's safe (`self.sv` is always rebound immediately after, verified across chunked/repeated calls and separate simulator instances). `run_parametric_batch_jit` (its `init_sv` is a `vmap`-broadcast closure shared across the whole batch) and `circuit_to_energy_fn`'s VQE loop (same `stato_zero` reused every epoch) are deliberately left un-donated — donating there would make JAX raise on the second use instead of helping. Verified with a real measurement, not just a claim: RSS growth on a 22-qubit/300-gate circuit drops from +89.4MB to +4.5MB.
+
 ### v8.1.16
 - **Note**: v8.1.15's published PyPI package does **not** contain the `from_pennylane` Python 3.10 fix described below, despite the changelog entry — the fix landed in the repo before the PyPI upload, but the actual `pip install`-able wheel/sdist for 8.1.15 was built and uploaded from an earlier commit. PyPI doesn't allow re-uploading files under an already-published version, so this release exists specifically to ship that fix as an installable package. If you're on 8.1.15, upgrade to 8.1.16 — don't rely on 8.1.15's changelog matching what you actually have installed.
 
