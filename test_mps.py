@@ -1,0 +1,238 @@
+"""
+Unit tests for dense_evolution/mps.py -- the Matrix Product State
+simulator, ported from a private prototype after independently verifying
+that its plain SVD truncation (no Lloyd-Max quantization, which measured
+a real ~0.5% error against DenseSVSimulator for no bond-dimension benefit
+and was dropped in this port) reproduces DenseSVSimulator exactly.
+
+Cross-checks against the real DenseSVSimulator on entangling circuits are
+the primary correctness signal here, not just internal self-consistency.
+"""
+
+import numpy as np
+import pytest
+
+import dense_evolution as de
+from dense_evolution.mps import MPSSimulator, _jsd_vectors
+
+INV2 = 1.0 / np.sqrt(2.0)
+H_GATE = INV2 * np.array([[1, 1], [1, -1]], dtype=complex)
+
+
+def _entangling_circuit_probs_dense(n, seed=7, layers=4):
+    sim = de.DenseSVSimulator(n_qubits=n, use_gpu=False, use_float32=False)
+    ops = [["h", q, -1] for q in range(n)]
+    rng = np.random.default_rng(seed)
+    for _ in range(layers):
+        for q in range(0, n - 1, 2):
+            ops.append(["cx", q + 1, q])
+        for q in range(n):
+            ops.append(["rz", q, float(rng.uniform(0.1, 1.5))])
+        for q in range(1, n - 1, 2):
+            ops.append(["cx", q + 1, q])
+    sim.run_circuit_jit_beast_mode(ops)
+    return np.array(sim.get_probabilities())
+
+
+def _entangling_circuit_probs_mps(n, seed=7, layers=4, **mps_kwargs):
+    mps = MPSSimulator(n_qubits=n, **mps_kwargs)
+    for q in range(n):
+        mps.apply_gate_1q(H_GATE, q)
+    rng = np.random.default_rng(seed)
+    for _ in range(layers):
+        for q in range(0, n - 1, 2):
+            mps.apply_cx(q + 1, q)
+        for q in range(n):
+            theta = float(rng.uniform(0.1, 1.5))
+            rz = np.array([[np.exp(-1j * theta / 2), 0], [0, np.exp(1j * theta / 2)]], dtype=complex)
+            mps.apply_gate_1q(rz, q)
+        for q in range(1, n - 1, 2):
+            mps.apply_cx(q + 1, q)
+    sv = mps.contract_to_statevector()
+    return np.abs(sv) ** 2, mps
+
+
+# ── _jsd_vectors ─────────────────────────────────────────────────────────
+
+def test_jsd_identical_distributions_is_zero():
+    p = np.array([0.5, 0.3, 0.2])
+    assert _jsd_vectors(p, p) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_jsd_handles_zero_entries_without_warning():
+    p = np.array([1.0, 0.0, 0.0])
+    q = np.array([0.5, 0.5, 0.0])
+    with np.errstate(all="raise"):
+        val = _jsd_vectors(p, q)
+    assert np.isfinite(val)
+
+
+# ── basic gate mechanics ─────────────────────────────────────────────────
+
+def test_bell_state():
+    mps = MPSSimulator(n_qubits=2, max_bond=8)
+    mps.apply_gate_1q(H_GATE, 0)
+    mps.apply_cx(0, 1)
+    sv = mps.contract_to_statevector()
+    prob = np.abs(sv) ** 2
+    assert prob[0] == pytest.approx(0.5, abs=1e-9)
+    assert prob[3] == pytest.approx(0.5, abs=1e-9)
+    assert prob[1] == pytest.approx(0.0, abs=1e-9)
+    assert prob[2] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_ghz_chain_n_qubits():
+    n = 6
+    mps = MPSSimulator(n_qubits=n, max_bond=8)
+    mps.apply_gate_1q(H_GATE, 0)
+    for q in range(n - 1):
+        mps.apply_cx(q, q + 1)
+    sv = mps.contract_to_statevector()
+    prob = np.abs(sv) ** 2
+    assert prob[0] == pytest.approx(0.5, abs=1e-9)
+    assert prob[-1] == pytest.approx(0.5, abs=1e-9)
+    assert prob.sum() == pytest.approx(1.0, abs=1e-9)
+
+
+def test_statevector_stays_normalized_after_many_gates():
+    n = 5
+    mps = MPSSimulator(n_qubits=n, max_bond=16)
+    rng = np.random.default_rng(3)
+    for q in range(n):
+        mps.apply_gate_1q(H_GATE, q)
+    for _ in range(3):
+        for q in range(n - 1):
+            mps.apply_cx(q, q + 1)
+    sv = mps.contract_to_statevector()
+    assert np.linalg.norm(sv) == pytest.approx(1.0, abs=1e-9)
+
+
+def test_nonlocal_2q_gate_via_swap_chain():
+    n = 4
+    mps = MPSSimulator(n_qubits=n, max_bond=16)
+    mps.apply_gate_1q(H_GATE, 0)
+    mps.apply_cx(0, 3)  # non-adjacent
+    sv = mps.contract_to_statevector()
+    prob = np.abs(sv) ** 2
+    # H on q0 then CX(0,3): entangles q0/q3, q1/q2 stay |0>
+    assert prob[0b0000] == pytest.approx(0.5, abs=1e-9)
+    assert prob[0b1001] == pytest.approx(0.5, abs=1e-9)
+
+
+def test_toffoli_matches_classical_truth_table():
+    # |110> -controlled by q0,q1-> flips q2: expect |111>
+    mps = MPSSimulator(n_qubits=3, max_bond=8)
+    x = np.array([[0, 1], [1, 0]], dtype=complex)
+    mps.apply_gate_1q(x, 0)
+    mps.apply_gate_1q(x, 1)
+    mps.apply_ccx(0, 1, 2)
+    sv = mps.contract_to_statevector()
+    prob = np.abs(sv) ** 2
+    assert prob[0b111] == pytest.approx(1.0, abs=1e-6)
+
+
+# ── the actual regression check: cross-validation vs DenseSVSimulator ────
+
+def test_matches_dense_simulator_on_entangling_circuit():
+    n = 8
+    prob_dense = _entangling_circuit_probs_dense(n)
+    prob_mps, mps = _entangling_circuit_probs_mps(n, max_bond=64, jsd_budget=1e-5)
+    tvd = 0.5 * np.sum(np.abs(prob_dense - prob_mps))
+    assert tvd < 1e-9, f"TVD={tvd} -- MPS diverged from DenseSVSimulator"
+    assert mps.max_bond_used() > 1, "test circuit should produce real entanglement"
+
+
+def test_matches_dense_simulator_smaller_bond_still_exact_here():
+    # Same circuit, tighter max_bond: still fits (bond used well under 64
+    # in the unconstrained run), confirms the JSD-budget growth loop
+    # converges to the same exact answer, not just when given headroom.
+    n = 8
+    prob_dense = _entangling_circuit_probs_dense(n)
+    prob_mps, mps = _entangling_circuit_probs_mps(n, max_bond=32, jsd_budget=1e-5)
+    tvd = 0.5 * np.sum(np.abs(prob_dense - prob_mps))
+    assert tvd < 1e-9
+
+
+# ── large-n sampling path (no full statevector ever materialized) ────────
+
+def test_sampled_probabilities_low_entanglement_large_n():
+    # GHZ-chain at 40 qubits: bond dimension stays 2 throughout regardless
+    # of n, so this must run instantly and never touch a 2**40 array.
+    n = 40
+    mps = MPSSimulator(n_qubits=n, max_bond=8)
+    mps.apply_gate_1q(H_GATE, 0)
+    for q in range(n - 1):
+        mps.apply_cx(q, q + 1)
+    assert mps.max_bond_used() <= 2
+
+    dist = mps.get_probabilities_sampled(n_samples=500, seed=1)
+    zeros = "0" * n
+    ones = "1" * n
+    total = sum(dist.values())
+    assert total == pytest.approx(1.0, abs=1e-9)
+    # only these two bitstrings should ever appear for a GHZ chain
+    assert set(dist.keys()) <= {zeros, ones}
+    assert zeros in dist and ones in dist
+
+
+def test_contract_to_statevector_raises_above_24_qubits():
+    mps = MPSSimulator(n_qubits=25, max_bond=4)
+    with pytest.raises(MemoryError):
+        mps.contract_to_statevector()
+
+# ── dashboard integration: dc.run_simulation(..., engine='mps') ──────────
+
+def test_dashboard_run_simulation_mps_matches_dense_bell():
+    import dashboard_core as dc
+
+    qasm_bell = ('OPENQASM 2.0; include "qelib1.inc"; qreg q[2]; creg c[2]; '
+                 'h q[0]; cx q[0],q[1]; measure q -> c;')
+
+    res_dense = dc.run_simulation(
+        'Custom Workspace', 'Custom Workspace', qasm_bell,
+        'ideal', 0.0, 100, 42, use_float32=True, engine='dense',
+    )
+    res_mps = dc.run_simulation(
+        'Custom Workspace', 'Custom Workspace', qasm_bell,
+        'ideal', 0.0, 100, 42, use_float32=True, engine='mps',
+    )
+    assert np.allclose(res_dense['prob'], res_mps['prob'], atol=1e-9)
+    # res['sim'] must stay a DenseSVSimulator regardless of engine, so
+    # everything downstream (VQE's res['sim'] usage, memory_mb, etc.)
+    # keeps working unchanged.
+    assert type(res_mps['sim']).__name__ == 'DenseSVSimulator'
+
+
+def test_dashboard_run_simulation_mps_matches_dense_entangling():
+    import dashboard_core as dc
+
+    n = 8
+    gates = ["h q[{}];".format(i) for i in range(n)]
+    gates += ["cx q[{}],q[{}];".format(i, i + 1) for i in range(0, n - 1, 2)]
+    gates += ["rz(0.7) q[{}];".format(i) for i in range(n)]
+    gates += ["cx q[{}],q[{}];".format(i, i + 1) for i in range(1, n - 1, 2)]
+    qasm = (f'OPENQASM 2.0; include "qelib1.inc"; qreg q[{n}]; creg c[{n}]; '
+            + " ".join(gates) + " measure q -> c;")
+
+    res_dense = dc.run_simulation(
+        'Custom Workspace', 'Custom Workspace', qasm,
+        'ideal', 0.0, 100, 42, use_float32=False, engine='dense',
+    )
+    res_mps = dc.run_simulation(
+        'Custom Workspace', 'Custom Workspace', qasm,
+        'ideal', 0.0, 100, 42, use_float32=False, engine='mps',
+    )
+    tvd = 0.5 * np.sum(np.abs(res_dense['prob'] - res_mps['prob']))
+    assert tvd < 1e-9
+
+
+def test_dashboard_run_simulation_mps_rejects_over_24_qubits():
+    import dashboard_core as dc
+
+    qasm = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[30]; creg c[30]; h q[0]; measure q -> c;'
+    with pytest.raises(ValueError, match="24 qubit"):
+        dc.run_simulation(
+            'Custom Workspace', 'Custom Workspace', qasm,
+            'ideal', 0.0, 100, 42, use_float32=True, engine='mps',
+        )
+
