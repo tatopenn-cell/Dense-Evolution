@@ -3,13 +3,11 @@ import psutil
 import numpy as np
 from typing import List, Optional, Tuple
 
-try:
-    import jax
-    import jax.numpy as jnp
-    HAS_JAX = True
-except ImportError:
-    jnp = None
-    HAS_JAX = False
+# JAX is now a mandatory dependency (see registry.py) -- kept as an
+# import-time flag for the dual-path code below, which stays as-is.
+import jax
+import jax.numpy as jnp
+HAS_JAX = True
 
 # ── Flexible import with stub fallback ──────────────────────────────────────
 try:
