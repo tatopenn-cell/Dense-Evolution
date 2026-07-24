@@ -3,13 +3,11 @@ import psutil
 import numpy as np
 from typing import List, Optional, Tuple
 
-try:
-    import jax
-    import jax.numpy as jnp
-    HAS_JAX = True
-except ImportError:
-    jnp = None
-    HAS_JAX = False
+# JAX is now a mandatory dependency (see registry.py) -- kept as an
+# import-time flag for the dual-path code below, which stays as-is.
+import jax
+import jax.numpy as jnp
+HAS_JAX = True
 
 # ── Flexible import with stub fallback ──────────────────────────────────────
 try:
@@ -660,6 +658,22 @@ class Chunk:
             return self._inner_sim.sv
         xp = self._chunk_sims[0].xp
         return xp.concatenate([sim.sv for sim in self._chunk_sims])
+
+    @sv.setter
+    def sv(self, value):
+        """Accepts a full-length (2**n,) statevector (e.g. the output of
+        NoiseModel.apply_to_sv called on `.sv`) and writes it back through
+        to the physical storage -- the inner simulator directly for
+        num_chunks==1, or split back into per-chunk slices (same ascending
+        concatenation order as the getter) for num_chunks>1."""
+        if self._chunk_sims is None:
+            self._inner_sim.sv = value
+            return
+        chunk_dim = self._mem_chunker.chunk_dim
+        xp = self._chunk_sims[0].xp
+        value = xp.asarray(value)
+        for i, sim in enumerate(self._chunk_sims):
+            sim.sv = value[i * chunk_dim:(i + 1) * chunk_dim]
 
     def memory_mb(self) -> float:
         """RAM used by the physical statevector(s) in MB."""

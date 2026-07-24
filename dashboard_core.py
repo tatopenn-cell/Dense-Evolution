@@ -26,6 +26,51 @@ import seaborn as sns
 import plotly.graph_objects as go
 
 import dense_evolution as de
+import dense_evolution.gates as _mps_gates_module
+from dense_evolution.mps import MPSSimulator
+
+
+def _run_on_mps(comandi_beast_mode, n_qubits, max_bond=64, jsd_budget=1e-5):
+    """Executes comandi_beast_mode (the same [name, *args] list the dense
+    beast-mode path consumes) through MPSSimulator, gate by gate, via
+    dense_evolution.gates' GATES/PARAMETRIC_GATES tables (converted from
+    JAX to numpy -- MPSSimulator's einsum core is plain numpy).
+
+    u2/u3 are skipped with a warning: comandi_beast_mode only carries a
+    single parameter slot per gate (see the parsing loop in
+    _run_simulation_body), which can't represent u2's 2 or u3's 3
+    independent parameters -- the same pre-existing limitation the dense
+    beast-mode path already has for these two gates, not something new
+    introduced here."""
+    mps = MPSSimulator(n_qubits=n_qubits, max_bond=max_bond, jsd_budget=jsd_budget)
+    for cmd in comandi_beast_mode:
+        nome_porta = cmd[0]
+        if nome_porta in ('h', 'x', 'y', 'z', 's', 'sdg', 't', 'tdg'):
+            gate = np.array(_mps_gates_module.GATES[nome_porta])
+            mps.apply_gate_1q(gate, cmd[1])
+        elif nome_porta in ('rx', 'ry', 'rz', 'u1', 'p'):
+            gate = np.array(_mps_gates_module.PARAMETRIC_GATES[nome_porta](cmd[2]))
+            mps.apply_gate_1q(gate, cmd[1])
+        elif nome_porta in ('u2', 'u3'):
+            print(f"Warning: motore MPS salta la porta '{nome_porta}' (richiede piu' "
+                  "di un parametro, non rappresentabile nel formato beast-mode corrente).")
+        elif nome_porta == 'cx':
+            mps.apply_cx(cmd[1], cmd[2])
+        elif nome_porta == 'cz':
+            mps.apply_cz(cmd[1], cmd[2])
+        elif nome_porta == 'swap':
+            mps.apply_swap(cmd[1], cmd[2])
+        elif nome_porta == 'cy':
+            gate = np.array(_mps_gates_module.GATES['cy']).reshape(2, 2, 2, 2)
+            mps.apply_gate_2q(gate, cmd[1], cmd[2])
+        elif nome_porta in ('cp', 'crz'):
+            gate = np.array(_mps_gates_module.PARAMETRIC_GATES[nome_porta](cmd[3])).reshape(2, 2, 2, 2)
+            mps.apply_gate_2q(gate, cmd[1], cmd[2])
+        elif nome_porta in ('ccx', 'toffoli'):
+            mps.apply_ccx(cmd[1], cmd[2], cmd[3])
+        else:
+            print(f"Warning: motore MPS salta la porta non gestita: {nome_porta}")
+    return mps
 
 
 QASM_LIBRARY = {
@@ -236,6 +281,11 @@ measure q->c;''',
 
 QM_MM_HEAVY_QUBIT_THRESHOLD = 12
 
+# Above this many basis states, shots sampling draws from only the
+# top-K most probable states instead of the full 2**n_qubits distribution
+# (see run_simulation) -- same idea as build_panel_mosaico's dim_vis cap.
+SHOTS_SAMPLING_CAP = 4096
+
 
 LIBRERIA_HAMILTONIANE = {
     # ---------------------------------------------------------------------
@@ -398,12 +448,18 @@ def estrai_valore_puro(elemento):
     return elemento
 
 
-def run_simulation(source_mode, circuit_name, qasm_text, noise_model, noise_p, shots, seed, use_float32=True):
-    """Adapted from core_calcolo_quantistico (dash.py:3356, canonical/later definition)."""
+def run_simulation(source_mode, circuit_name, qasm_text, noise_model, noise_p, shots, seed, use_float32=True, engine='dense'):
+    """Adapted from core_calcolo_quantistico (dash.py:3356, canonical/later definition).
+
+    engine: 'dense' (default, DenseSVSimulator/Chunk) or 'mps' (MPSSimulator,
+    dense_evolution/mps.py -- bond-truncated, exact for low-entanglement
+    circuits, capped at 24 qubits in this dashboard path; see that module's
+    docstring for why the Lloyd-Max quantization from the original
+    prototype was dropped)."""
     previous_x64_state = jax.config.jax_enable_x64
     jax.config.update('jax_enable_x64', not use_float32)
     try:
-        return _run_simulation_body(source_mode, circuit_name, qasm_text, noise_model, noise_p, shots, seed, use_float32)
+        return _run_simulation_body(source_mode, circuit_name, qasm_text, noise_model, noise_p, shots, seed, use_float32, engine)
     finally:
         # jax_enable_x64 is a process-wide flag: without restoring it here, a float32 run here
         # silently downgrades precision for unrelated code (e.g. the Vector Healing page) that
@@ -411,7 +467,7 @@ def run_simulation(source_mode, circuit_name, qasm_text, noise_model, noise_p, s
         jax.config.update('jax_enable_x64', previous_x64_state)
 
 
-def _run_simulation_body(source_mode, circuit_name, qasm_text, noise_model, noise_p, shots, seed, use_float32):
+def _run_simulation_body(source_mode, circuit_name, qasm_text, noise_model, noise_p, shots, seed, use_float32, engine='dense'):
     if source_mode == 'Libreria Built-in' and QASM_LIBRARY:
         qasm_string = QASM_LIBRARY[circuit_name]
         nome_circuito = circuit_name
@@ -457,7 +513,41 @@ def _run_simulation_body(source_mode, circuit_name, qasm_text, noise_model, nois
         elif 'd' in token.lower() and token.lower().replace('d', '').isdigit():
             n_qubits = int(token.lower().replace('d', ''))
 
-    sim = de.DenseSVSimulator(n_qubits=n_qubits, use_gpu=False, use_float32=use_float32)
+    # Direct DenseSVSimulator allocates 2**n_qubits complex elements
+    # immediately (17 GB at 30 qubits) -- for circuits that don't fit
+    # safely in RAM, de.Chunk is used instead: it collapses to a single
+    # inner DenseSVSimulator when the circuit *does* fit (no behavior
+    # change, verified against the pre-existing test suite), and only
+    # actually splits into multiple chunks when the direct allocation
+    # would risk an OOM crash. Decided by de.Chunk's own dynamic,
+    # available-RAM-based sizing (dense_evolution.chunk.get_dynamic_chunk),
+    # not a hardcoded qubit-count constant, so it adapts to the machine
+    # it's running on rather than an arbitrary limit.
+    usa_mps = engine == 'mps'
+    if usa_mps and n_qubits > 24:
+        raise ValueError(
+            f"Motore MPS: {n_qubits} qubit superano il limite di 24 qubit per la "
+            "modalita' dashboard (oltre serve il campionamento sequenziale di "
+            "dense_evolution.mps.MPSSimulator.get_probabilities_sampled, non ancora "
+            "collegato ai pannelli esistenti -- questi si aspettano un array denso "
+            "di probabilita'). Usa il motore denso per circuiti piu' grandi, oppure "
+            "MPSSimulator direttamente via script per centinaia di qubit a bassa "
+            "entanglement."
+        )
+    usa_chunk = (not usa_mps) and de.chunk.MemoryChunker(n_qubits).num_chunks > 1
+    if usa_mps:
+        # Placeholder DenseSVSimulator: its .sv gets overwritten below with the
+        # MPS-computed statevector. Keeping everything downstream (noise
+        # injection, get_probabilities, memory_mb, VQE's res['sim'] usage) on
+        # the same DenseSVSimulator interface regardless of which engine
+        # produced the state -- MPS is a different way to COMPUTE the same
+        # statevector, not a different downstream data shape, at this <=24
+        # qubit scope.
+        sim = de.DenseSVSimulator(n_qubits=n_qubits, use_gpu=False, use_float32=use_float32)
+    elif usa_chunk:
+        sim = de.Chunk(n_qubits=n_qubits, use_gpu=False, use_float32=use_float32)
+    else:
+        sim = de.DenseSVSimulator(n_qubits=n_qubits, use_gpu=False, use_float32=use_float32)
 
     comandi_beast_mode = []
     for cmd in comandi_originali:
@@ -508,17 +598,48 @@ def _run_simulation_body(source_mode, circuit_name, qasm_text, noise_model, nois
 
     start_time = time.perf_counter()
 
+    def _run(s, ops):
+        # de.Chunk exposes run_chunk() instead of run_circuit_jit_beast_mode()
+        # -- everything else about the two classes is forwarded identically
+        # (get_probabilities, sv, memory_mb), so this is the only branch point.
+        if isinstance(s, de.Chunk):
+            s.run_chunk(ops)
+        else:
+            s.run_circuit_jit_beast_mode(ops)
+
+    def _mps_statevector(ops):
+        """Runs ops on a fresh MPSSimulator (dense_evolution/mps.py) and
+        returns the contracted statevector as a JAX array matching sim's
+        dtype -- a new MPSSimulator per call, so this is safe to call twice
+        (ideal + noisy comparison) without shared mutable state."""
+        mps_sim = _run_on_mps(ops, n_qubits)
+        sv = mps_sim.contract_to_statevector()
+        return jnp.asarray(sv, dtype=jnp.complex64 if use_float32 else jnp.complex128)
+
     if noise_model == 'ideal':
-        sim.run_circuit_jit_beast_mode(comandi_beast_mode)
+        if usa_mps:
+            sim.sv = _mps_statevector(comandi_beast_mode)
+        else:
+            _run(sim, comandi_beast_mode)
         prob_ideal = sim.get_probabilities()
         prob_noisy = prob_ideal
     else:
         np.random.seed(seed)
-        sim_ideal = de.DenseSVSimulator(n_qubits=n_qubits, use_float32=use_float32)
-        sim_ideal.run_circuit_jit_beast_mode(comandi_beast_mode)
+        if usa_mps:
+            sim_ideal = de.DenseSVSimulator(n_qubits=n_qubits, use_float32=use_float32)
+            sim_ideal.sv = _mps_statevector(comandi_beast_mode)
+        elif usa_chunk:
+            sim_ideal = de.Chunk(n_qubits=n_qubits, use_float32=use_float32)
+            _run(sim_ideal, comandi_beast_mode)
+        else:
+            sim_ideal = de.DenseSVSimulator(n_qubits=n_qubits, use_float32=use_float32)
+            _run(sim_ideal, comandi_beast_mode)
         prob_ideal = sim_ideal.get_probabilities()
 
-        sim.run_circuit_jit_beast_mode(comandi_beast_mode)
+        if usa_mps:
+            sim.sv = _mps_statevector(comandi_beast_mode)
+        else:
+            _run(sim, comandi_beast_mode)
         if noise_p > 0:
             sim.sv = de.NoiseModel.apply_to_sv(
                 sv=sim.sv, n=n_qubits, model=noise_model, p=float(noise_p)
@@ -542,7 +663,19 @@ def _run_simulation_body(source_mode, circuit_name, qasm_text, noise_model, nois
     noise_factor_curve = np.array([fidelity_value * (1.0 - (i * float(noise_p) / 20.0)) for i in range(100)])
     noise_factor_curve = np.clip(noise_factor_curve, 0.0, 1.0)
 
-    shots_data = np.random.choice(len(prob), p=prob, size=shots)
+    # np.random.choice(len(prob), p=prob, ...) builds an internal cumulative
+    # array over the full 2**n_qubits distribution -- another O(2**n) cost
+    # independent of the Chunk/DenseSVSimulator split above. For huge
+    # qubit counts, sample from only the top-K most probable states
+    # (same truncation idea already used by build_panel_mosaico's
+    # dim_vis = min(1024, ...)) instead of the full distribution.
+    if len(prob) > SHOTS_SAMPLING_CAP:
+        top_idx = np.argpartition(prob, -SHOTS_SAMPLING_CAP)[-SHOTS_SAMPLING_CAP:]
+        top_prob = prob[top_idx]
+        top_prob = top_prob / top_prob.sum()
+        shots_data = top_idx[np.random.choice(len(top_idx), p=top_prob, size=shots)]
+    else:
+        shots_data = np.random.choice(len(prob), p=prob, size=shots)
 
     return {
         'prob': prob,

@@ -15,14 +15,13 @@ try:
 except ImportError:
     HAS_CUPY = False
 
-try:
-    import jax
-    import jax.numpy as jnp
-    HAS_JAX = True
-    jax.config.update("jax_enable_x64", True)
-except ImportError:
-    HAS_JAX = False
-    jnp = None
+# JAX is now a mandatory dependency of dense_evolution (no numpy fallback
+# detection) -- the numpy code paths below are kept as-is for reference/
+# reuse, they are just never selected anymore.
+import jax
+import jax.numpy as jnp
+HAS_JAX = True
+jax.config.update("jax_enable_x64", True)
 
 
 class QuantumHardwareRegistry:

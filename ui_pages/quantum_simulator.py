@@ -40,6 +40,19 @@ def _render_sidebar() -> dict:
                 key="qs_qasm_text",
             )
 
+        st.header("🧮 Motore")
+        engine = st.selectbox(
+            "Motore di simulazione", options=["dense", "mps"],
+            format_func=lambda e: "Denso (DenseSVSimulator/Chunk)" if e == "dense" else "MPS (bond-troncato, ≤24 qubit)",
+            key="qs_engine",
+            help=(
+                "Denso: sempre esatto, adatta memoria automaticamente (Chunk) fino al "
+                "limite RAM della macchina. MPS: esatto per circuiti a bassa entanglement "
+                "(vedi dense_evolution/mps.py), limitato a 24 qubit in questa dashboard "
+                "-- oltre serve il campionamento sequenziale, non ancora collegato ai pannelli."
+            ),
+        )
+
         st.header("🌪️ Rumore")
         noise_model = st.selectbox("Modello", options=['ideal', 'depolarizing', 'bitflip', 'phaseflip', 'amplitude_damping', 'combined'], key="qs_noise")
         noise_p = st.slider("Probabilità p", 0.0, 0.5, 0.0, 0.01, key="qs_noise_p")
@@ -113,6 +126,7 @@ def _render_sidebar() -> dict:
 
     return dict(
         source_mode=source_mode, circuit_name=circuit_name, qasm_text=qasm_text,
+        engine=engine,
         noise_model=noise_model, noise_p=noise_p, shots=shots, seed=seed,
         double_precision=double_precision,
         vqe_enabled=vqe_enabled, vqe_epochs=vqe_epochs, vqe_lr=vqe_lr,
@@ -129,7 +143,7 @@ def _execute_run(p: dict) -> None:
             res = dc.run_simulation(
                 p["source_mode"], p["circuit_name"], p["qasm_text"],
                 p["noise_model"], p["noise_p"], p["shots"], int(p["seed"]),
-                use_float32=not p["double_precision"],
+                use_float32=not p["double_precision"], engine=p["engine"],
             )
         except Exception as e:
             st.error(f"Errore durante l'esecuzione del circuito: {e}")
