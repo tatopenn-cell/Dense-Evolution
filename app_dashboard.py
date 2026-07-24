@@ -14,7 +14,7 @@ Run with:
 
 import streamlit as st
 
-from ui_pages import quantum_simulator, vector_healing
+from ui_pages import quantum_simulator, vector_healing, quantum_scars
 
 st.set_page_config(
     page_title="Dense Evolution v8.1.7 - Dashboard",
@@ -25,5 +25,6 @@ st.set_page_config(
 pg = st.navigation([
     st.Page(quantum_simulator.render, title="Quantum Simulator", icon="⚛️", url_path="quantum-simulator", default=True),
     st.Page(vector_healing.render, title="Vector Healing", icon="🧬", url_path="vector-healing"),
+    st.Page(quantum_scars.render, title="Quantum Scars", icon="🌀", url_path="quantum-scars"),
 ])
 pg.run()

@@ -30,7 +30,7 @@ pip install -e .[full]
 ## Running tests
 
 ```bash
-pytest test_dense_evolution.py test_ia_healing.py test_dashboard_core.py test_ai_middleware.py test_interop.py test_autodiff.py -v
+pytest test_dense_evolution.py test_ia_healing.py test_dashboard_core.py test_ai_middleware.py test_interop.py test_autodiff.py test_quantum_scars.py -v
 ```
 
 `test_interop.py` needs `qiskit`/`pennylane` installed (skips cleanly via `pytest.importorskip` if they aren't). CI (`.github/workflows/ci.yml`) runs the full suite on Python 3.10/3.11/3.12 on every push/PR to `main` — check it's green before asking for a review.
