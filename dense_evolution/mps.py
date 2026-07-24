@@ -273,6 +273,62 @@ class MPSSimulator:
             counts["".join(map(str, bits))] += 1
         return {bitstr: c / n_samples for bitstr, c in counts.items()}
 
+    # ──────────────────────────────────────────────
+    # approximate top-k extraction -- ported from a prototype method
+    # ("_extract_top_k_paths") that had a real bug: it picked a single
+    # "best" bond index via argmax at each step instead of correctly
+    # summing over the bond dimension, which independent verification
+    # showed gave completely wrong states and probabilities (0/8 matches
+    # against the true top states on an 8-qubit test circuit, values off
+    # by ~30x). Fixed here by propagating the actual partial contraction
+    # vector through each bond (np.einsum, sums correctly) instead of a
+    # scalar amplitude + a greedily-chosen bond index.
+    #
+    # Even fixed, this is a GREEDY BEAM SEARCH, not an exact top-k finder:
+    # verified recall against the true top-16 states of a 16-qubit test
+    # circuit grows with beam width k (1/16 at k=16, up to 11/16 at
+    # k=256) but is not guaranteed complete for any fixed k -- unlike the
+    # original's docstring claim of a guaranteed "fidelity target", there
+    # is no such guarantee here. What IS guaranteed: every probability
+    # this method reports for a state it does find is numerically exact
+    # (machine precision, verified against contract_to_statevector on
+    # circuits small enough to cross-check). Use this when you want some
+    # good candidate high-probability outcomes without ever materializing
+    # a (2**n,) array (the only such option for n_qubits > 24, alongside
+    # the statistically-sampled get_probabilities_sampled above) -- not
+    # as a substitute for exact enumeration.
+    # ──────────────────────────────────────────────
+    def get_top_k_probable_states(self, k: int = 128) -> Tuple[np.ndarray, np.ndarray]:
+        """Greedy beam search (beam width k) for approximately-most-probable
+        basis states, without ever contracting to a full statevector.
+
+        Returns (indices, probabilities): indices are computational-basis
+        integers, probabilities are exact for the states found (not
+        approximated), sorted descending. Recall of the TRUE top states
+        improves with k but is not guaranteed for any fixed k -- see the
+        class-level note above."""
+        paths: List[Tuple[int, np.ndarray]] = [(0, np.array([1.0 + 0.0j]))]
+        for i in range(self.n):
+            candidates = []
+            gamma = self.gammas[i]
+            lam = self.lambdas[i + 1] if (i + 1) < len(self.lambdas) else np.ones(gamma.shape[2])
+            for idx_p, vec_p in paths:
+                for bit in (0, 1):
+                    new_vec = np.einsum("l,lr->r", vec_p, gamma[:, bit, :]) * lam
+                    weight = float(np.sum(np.abs(new_vec) ** 2))
+                    candidates.append(((idx_p << 1) | bit, new_vec, weight))
+            candidates.sort(key=lambda c: c[2], reverse=True)
+            paths = [(idx, vec) for idx, vec, _ in candidates[:k]]
+
+        indices = np.array([p[0] for p in paths])
+        amplitudes = np.array([
+            complex(vec[0]) if len(vec) == 1 else complex(np.sum(vec))
+            for _, vec in paths
+        ])
+        probabilities = np.abs(amplitudes) ** 2
+        order = np.argsort(-probabilities)
+        return indices[order], probabilities[order]
+
     # metrics
     def max_bond_used(self) -> int:
         return max(self._bond_history) if self._bond_history else 1

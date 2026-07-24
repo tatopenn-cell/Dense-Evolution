@@ -236,3 +236,83 @@ def test_dashboard_run_simulation_mps_rejects_over_24_qubits():
             'ideal', 0.0, 100, 42, use_float32=True, engine='mps',
         )
 
+# ── get_top_k_probable_states (corrected greedy beam search) ─────────────
+
+def test_top_k_probability_values_are_exact():
+    # Whichever states the beam search finds, their reported probability
+    # must match the exact contraction exactly (not approximately).
+    n = 8
+    prob_dense, _ = _entangling_circuit_probs_mps(n, max_bond=64, jsd_budget=1e-5)
+    mps = MPSSimulator(n_qubits=n, max_bond=64, jsd_budget=1e-5)
+    for q in range(n):
+        mps.apply_gate_1q(H_GATE, q)
+    rng = np.random.default_rng(7)
+    for _ in range(4):
+        for q in range(0, n - 1, 2):
+            mps.apply_cx(q + 1, q)
+        for q in range(n):
+            theta = float(rng.uniform(0.1, 1.5))
+            rz = np.array([[np.exp(-1j * theta / 2), 0], [0, np.exp(1j * theta / 2)]], dtype=complex)
+            mps.apply_gate_1q(rz, q)
+        for q in range(1, n - 1, 2):
+            mps.apply_cx(q + 1, q)
+
+    idx_k, prob_k = mps.get_top_k_probable_states(k=32)
+    for i, p in zip(idx_k, prob_k):
+        assert p == pytest.approx(prob_dense[i], abs=1e-9)
+
+
+def test_top_k_recall_improves_with_beam_width():
+    n = 10
+    mps_ref = MPSSimulator(n_qubits=n, max_bond=64, jsd_budget=1e-5)
+    rng = np.random.default_rng(3)
+    for q in range(n):
+        mps_ref.apply_gate_1q(H_GATE, q)
+    for _ in range(3):
+        for q in range(0, n - 1, 2):
+            mps_ref.apply_cx(q + 1, q)
+        for q in range(n):
+            theta = float(rng.uniform(0.1, 1.5))
+            rz = np.array([[np.exp(-1j * theta / 2), 0], [0, np.exp(1j * theta / 2)]], dtype=complex)
+            mps_ref.apply_gate_1q(rz, q)
+        for q in range(1, n - 1, 2):
+            mps_ref.apply_cx(q + 1, q)
+    sv_exact = mps_ref.contract_to_statevector()
+    prob_exact = np.abs(sv_exact) ** 2
+    true_top = set(np.argsort(-prob_exact)[:8].tolist())
+
+    def build():
+        m = MPSSimulator(n_qubits=n, max_bond=64, jsd_budget=1e-5)
+        rng2 = np.random.default_rng(3)
+        for q in range(n):
+            m.apply_gate_1q(H_GATE, q)
+        for _ in range(3):
+            for q in range(0, n - 1, 2):
+                m.apply_cx(q + 1, q)
+            for q in range(n):
+                theta = float(rng2.uniform(0.1, 1.5))
+                rz = np.array([[np.exp(-1j * theta / 2), 0], [0, np.exp(1j * theta / 2)]], dtype=complex)
+                m.apply_gate_1q(rz, q)
+            for q in range(1, n - 1, 2):
+                m.apply_cx(q + 1, q)
+        return m
+
+    idx_small, _ = build().get_top_k_probable_states(k=8)
+    idx_large, _ = build().get_top_k_probable_states(k=64)
+    hits_small = len(set(idx_small.tolist()[:8]) & true_top)
+    hits_large = len(set(idx_large.tolist()[:8]) & true_top)
+    assert hits_large >= hits_small
+
+
+def test_top_k_never_touches_full_statevector_at_large_n():
+    # 30 qubits: contract_to_statevector would refuse (>24). The beam
+    # search must still work -- it never builds a (2**30,) array.
+    n = 30
+    mps = MPSSimulator(n_qubits=n, max_bond=8)
+    mps.apply_gate_1q(H_GATE, 0)
+    for q in range(n - 1):
+        mps.apply_cx(q, q + 1)
+    idx_k, prob_k = mps.get_top_k_probable_states(k=8)
+    assert prob_k.sum() <= 1.0 + 1e-9
+    assert len(idx_k) > 0
+
