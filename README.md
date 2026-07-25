@@ -393,6 +393,22 @@ All channels applied as post-circuit stochastic Kraus operations on the full sta
 
 Fidelity metrics computed on every noisy run: Bhattacharyya `F = Σᵢ √(pᵢqᵢ)` and TVD `= ½Σᵢ|pᵢ−qᵢ|`.
 
+**Native integration with `circuit_to_energy_fn` via `NoiseSpec`.** Applying noise used to mean stepping outside the traced circuit computation: build the ideal statevector, exit the trace, call `apply_to_sv` separately, manage a PRNG key by hand around the training loop. `NoiseSpec` is a real JAX PyTree (`model`/`qubits` static, `p`/`jax_key` as leaves) that `circuit_to_energy_fn`'s `energy_fn` accepts directly as a fourth argument — noise is applied natively, in the same traced graph as `theta`, fully `jax.jit`/`jax.grad`/`jax.vmap`-composable:
+
+```python
+import jax
+from dense_evolution import QASMParser, circuit_to_energy_fn, NoiseSpec
+
+energy_fn, n_params = circuit_to_energy_fn(circuit, n_qubits)
+noise = NoiseSpec(model='depolarizing', p=0.05, jax_key=jax.random.PRNGKey(0))
+
+energy, sv = energy_fn(theta, h_matrix, noise=noise)          # applied inline
+energy, sv = jax.jit(energy_fn)(theta, h_matrix, None, noise) # jit-compatible
+grad = jax.grad(lambda t: energy_fn(t, h_matrix, None, noise)[0])(theta)  # grad flows through the noise
+```
+
+A fresh, independent, reproducible noise draw per call is a `jax.random.split` away — no OS-entropy fallback, no external key bookkeeping. `p` is also a tracked leaf (you *can* differentiate through it), though the gradient is ~0 almost everywhere in practice: the underlying channels sample via a hard threshold (`fire = r < p`), which isn't usefully differentiable without a smooth relaxation — out of scope here.
+
 **`apply_to_sv`'s randomness arguments** — `rng: np.random.Generator` and `jax_key: jax.random.PRNGKey` — cover the two statevector array types:
 
 - `sv` is a NumPy array → uses `rng` (or a fresh default generator if `rng=None`).
@@ -590,6 +606,11 @@ All circuits stored as OpenQASM 2.0 strings in `QASM_LIBRARY`.
 ---
 
 ## ▍ Changelog
+
+### v8.1.29
+- **Added**: `dense_evolution.NoiseSpec` -- a JAX PyTree (`model`/`qubits` static, `p`/`jax_key` as leaves, registered via `jax.tree_util.register_pytree_node`) that `circuit_to_energy_fn`'s `energy_fn` now accepts as a fourth `noise=` argument, applying `NoiseModel.apply_to_sv` natively inside the same traced computation as `theta` (issue #8, scoped up from #7's narrower fix). Removes the need for an external, Python-side noise-application step and manual PRNG key bookkeeping around a training loop -- `jax_key` is a pytree leaf, so it flows through `jax.jit`/`jax.grad`/`jax.vmap`/`jax.lax.scan` the same way any other JAX array does, with no OS-entropy fallback (reproducibility is structural, not opt-in). Verified: reproducible from the same key, energy differs from the ideal circuit under nonzero `p`, gradient w.r.t. `theta` flows correctly through the noisy pipeline, `jax.vmap` over a batch of independent keys works with no external Python loop, `jax.jit`-wrapped result matches eager evaluation exactly.
+- **Fixed**: found while wiring the above -- `NoiseModel.apply_to_sv`'s `if model == 'ideal' or p <= 0.0: return sv` early-exit raised `TracerBoolConversionError` as soon as `p` became a traced value (e.g. a `NoiseSpec` leaf under `jax.jit`) -- exactly the case #8 asked to enable. Fixed with a targeted `try/except` around only the `p <= 0.0` optimization: every channel's math already reduces to a no-op at `p=0` (`fire = r < p` is always `False`), so skipping the shortcut and falling through is still correct, it just loses the eager-mode fast path when `p` can't be checked concretely.
+- **Note**: `noise.p` is technically a differentiable pytree leaf, but the gradient through it is ~0 almost everywhere in practice -- the existing channels sample via a hard threshold (`fire = r < p`), not usefully differentiable without a smooth relaxation (e.g. Gumbel-softmax). Not addressed here, out of scope for what #8 asked (removing the state/key workaround, not making noise strength itself gradient-optimizable).
 
 ### v8.1.28
 - **Note**: v8.1.27 was published to PyPI from a stale local checkout that predated the `mitigation.py` module and the #4/#6/#7 fixes below -- the installable v8.1.27 package on PyPI does **not** contain them, despite this changelog. PyPI doesn't allow re-uploading files under an already-published version, so this release exists specifically to ship the real content. If you're on 8.1.27, upgrade to 8.1.28 -- don't rely on 8.1.27's changelog matching what you actually have installed (same situation as v8.1.15, see that entry below).

@@ -131,6 +131,123 @@ class TestCircuitToEnergyFn:
         assert float(jnp.linalg.norm(grad)) > 1e-6
 
 
+class TestEnergyFnNoiseSpec:
+    """circuit_to_energy_fn's `noise=` argument (registry.NoiseSpec, a
+    JAX PyTree): applies NoiseModel.apply_to_sv natively inside the same
+    traced computation as theta, instead of as an external Python-side
+    step the caller has to splice in around energy_fn. jax_key is a
+    pytree leaf (not an aux_data/static field), so it flows through
+    jit/grad/vmap the way any other JAX array does -- no external
+    key-management workaround, no OS-entropy fallback."""
+
+    def test_default_none_matches_pre_noise_behavior(self):
+        circ = de.QASMParser().parse(VQE_QASM)
+        energy_fn, n_params = de.circuit_to_energy_fn(circ, circ.n_qubits)
+        h_matrix = _random_hamiltonian(circ.n_qubits)
+        theta = jnp.asarray(np.random.default_rng(1).uniform(-np.pi, np.pi, n_params))
+        e_no_arg, _ = energy_fn(theta, h_matrix)
+        e_explicit_none, _ = energy_fn(theta, h_matrix, None, None)
+        assert float(e_no_arg) == pytest.approx(float(e_explicit_none))
+
+    def test_same_key_is_reproducible(self):
+        circ = de.QASMParser().parse(VQE_QASM)
+        energy_fn, n_params = de.circuit_to_energy_fn(circ, circ.n_qubits)
+        h_matrix = _random_hamiltonian(circ.n_qubits)
+        theta = jnp.asarray(np.random.default_rng(2).uniform(-np.pi, np.pi, n_params))
+        noise = de.NoiseSpec(model='depolarizing', p=0.15, jax_key=jax.random.PRNGKey(42))
+        e1, _ = energy_fn(theta, h_matrix, noise=noise)
+        e2, _ = energy_fn(theta, h_matrix, noise=noise)
+        assert float(e1) == pytest.approx(float(e2))
+
+    def test_noisy_energy_differs_from_ideal(self):
+        circ = de.QASMParser().parse(VQE_QASM)
+        energy_fn, n_params = de.circuit_to_energy_fn(circ, circ.n_qubits)
+        h_matrix = _random_hamiltonian(circ.n_qubits)
+        theta = jnp.asarray(np.random.default_rng(3).uniform(-np.pi, np.pi, n_params))
+        e_ideal, _ = energy_fn(theta, h_matrix)
+        noise = de.NoiseSpec(model='depolarizing', p=0.3, jax_key=jax.random.PRNGKey(7))
+        e_noisy, _ = energy_fn(theta, h_matrix, noise=noise)
+        assert float(e_ideal) != pytest.approx(float(e_noisy))
+
+    def test_zero_probability_reduces_to_ideal_even_when_traced(self):
+        # p=0.0 passed as a *traced* pytree leaf (under jax.jit) used to
+        # crash with TracerBoolConversionError -- apply_to_sv's early
+        # `if p <= 0.0: return sv` shortcut couldn't take a Python bool
+        # of a tracer. Fixed to try/except around that optimization only;
+        # every channel's math already reduces to a no-op at p=0
+        # (`fire = r < p` is always False), so falling through instead of
+        # short-circuiting is still correct.
+        circ = de.QASMParser().parse(VQE_QASM)
+        energy_fn, n_params = de.circuit_to_energy_fn(circ, circ.n_qubits)
+        h_matrix = _random_hamiltonian(circ.n_qubits)
+        theta = jnp.asarray(np.random.default_rng(4).uniform(-np.pi, np.pi, n_params))
+        e_ideal, _ = energy_fn(theta, h_matrix)
+
+        @jax.jit
+        def run(p):
+            noise = de.NoiseSpec(model='depolarizing', p=p, jax_key=jax.random.PRNGKey(1))
+            e, _ = energy_fn(theta, h_matrix, None, noise)
+            return e
+
+        e_zero = run(0.0)
+        assert float(e_zero) == pytest.approx(float(e_ideal))
+
+    def test_composable_with_jax_jit(self):
+        circ = de.QASMParser().parse(VQE_QASM)
+        energy_fn, n_params = de.circuit_to_energy_fn(circ, circ.n_qubits)
+        h_matrix = _random_hamiltonian(circ.n_qubits)
+        theta = jnp.asarray(np.random.default_rng(5).uniform(-np.pi, np.pi, n_params))
+        noise = de.NoiseSpec(model='depolarizing', p=0.1, jax_key=jax.random.PRNGKey(3))
+
+        e_eager, _ = energy_fn(theta, h_matrix, None, noise)
+        e_jit, _ = jax.jit(energy_fn)(theta, h_matrix, None, noise)
+        assert float(e_eager) == pytest.approx(float(e_jit))
+
+    def test_composable_with_jax_grad_through_noise(self):
+        # gradient w.r.t. theta must flow through the noisy pipeline,
+        # not just the ideal one
+        circ = de.QASMParser().parse(VQE_QASM)
+        energy_fn, n_params = de.circuit_to_energy_fn(circ, circ.n_qubits)
+        h_matrix = _random_hamiltonian(circ.n_qubits)
+        theta = jnp.asarray(np.random.default_rng(6).uniform(-np.pi, np.pi, n_params))
+        noise = de.NoiseSpec(model='depolarizing', p=0.1, jax_key=jax.random.PRNGKey(9))
+
+        def energy(t):
+            e, _ = energy_fn(t, h_matrix, None, noise)
+            return e
+
+        grad = jax.grad(energy)(theta)
+        assert float(jnp.linalg.norm(grad)) > 0.0
+
+    def test_composable_with_jax_vmap_over_keys(self):
+        # a batch of independent, reproducible noise realizations,
+        # natively -- no external Python loop managing keys
+        circ = de.QASMParser().parse(VQE_QASM)
+        energy_fn, n_params = de.circuit_to_energy_fn(circ, circ.n_qubits)
+        h_matrix = _random_hamiltonian(circ.n_qubits)
+        theta = jnp.asarray(np.random.default_rng(8).uniform(-np.pi, np.pi, n_params))
+        keys = jax.random.split(jax.random.PRNGKey(0), 6)
+
+        def run(k):
+            noise = de.NoiseSpec(model='depolarizing', p=0.15, jax_key=k)
+            e, _ = energy_fn(theta, h_matrix, None, noise)
+            return e
+
+        batch = jax.vmap(run)(keys)
+        assert batch.shape == (6,)
+        # independent keys must not all collapse to the same value
+        assert float(jnp.std(batch)) > 0.0
+
+    def test_qubits_subset_still_works(self):
+        circ = de.QASMParser().parse(VQE_QASM)
+        energy_fn, n_params = de.circuit_to_energy_fn(circ, circ.n_qubits)
+        h_matrix = _random_hamiltonian(circ.n_qubits)
+        theta = jnp.asarray(np.random.default_rng(9).uniform(-np.pi, np.pi, n_params))
+        noise = de.NoiseSpec(model='bitflip', p=0.5, jax_key=jax.random.PRNGKey(2), qubits=[0])
+        e, sv = energy_fn(theta, h_matrix, None, noise)
+        assert sv.shape == (2 ** circ.n_qubits,)
+
+
 class TestImportSafety:
 
     def test_root_import_never_fails(self):

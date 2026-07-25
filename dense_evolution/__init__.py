@@ -5,7 +5,7 @@ High-performance quantum statevector simulator optimized for NISQ circuits.
 from .simulator import DenseSVSimulator
 from .parser import QASMParser, QASMCircuit
 from .compiler import QuantumTranspiler
-from .registry import NoiseModel, QuantumHardwareRegistry
+from .registry import NoiseModel, NoiseSpec, QuantumHardwareRegistry
 from .gates import GATES, PARAMETRIC_GATES, GATE_IDS
 from .chunk import Chunk
 from .interop import from_qiskit, from_pennylane, run_qiskit_circuit, run_pennylane_circuit
@@ -13,4 +13,4 @@ from .autodiff import circuit_to_energy_fn
 from .mps import MPSSimulator
 from .mitigation import richardson_extrapolate, zero_noise_extrapolation
 
-__version__ = "8.1.28"
+__version__ = "8.1.29"

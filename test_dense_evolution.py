@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from dense_evolution import DenseSVSimulator, GATES, PARAMETRIC_GATES, NoiseModel, QuantumTranspiler, QASMParser, Chunk
+from dense_evolution import DenseSVSimulator, GATES, PARAMETRIC_GATES, NoiseModel, NoiseSpec, QuantumTranspiler, QASMParser, Chunk
 from dense_evolution import healing
 
 import inspect
@@ -877,6 +877,40 @@ class TestNoiseModelRngJaxKeyUnification:
         out_a = NoiseModel().apply_to_sv(sv, n=2, model='depolarizing', p=0.3, rng=np.random.default_rng(42))
         out_b = NoiseModel().apply_to_sv(sv, n=2, model='depolarizing', p=0.3, rng=np.random.default_rng(42))
         np.testing.assert_allclose(out_a, out_b)
+
+
+class TestNoiseSpecPyTree:
+    """NoiseSpec (issue #8): registers NoiseModel's parameters as a real
+    JAX PyTree -- model/qubits static (aux_data), p/jax_key as leaves
+    (children) -- so it can be passed through jax.jit/grad/vmap/scan the
+    same way any other JAX-native value can, e.g. as circuit_to_energy_fn's
+    `noise=` argument (see test_autodiff.py::TestEnergyFnNoiseSpec)."""
+
+    def test_tree_flatten_unflatten_roundtrip(self):
+        key = jax.random.PRNGKey(5)
+        spec = NoiseSpec(model='depolarizing', p=0.2, jax_key=key, qubits=[0, 2])
+        leaves, treedef = jax.tree_util.tree_flatten(spec)
+        rebuilt = jax.tree_util.tree_unflatten(treedef, leaves)
+        assert rebuilt.model == 'depolarizing'
+        assert rebuilt.qubits == (0, 2)
+        assert rebuilt.p == 0.2
+        assert bool(jnp.array_equal(rebuilt.jax_key, key))
+
+    def test_leaves_are_p_and_jax_key_only(self):
+        # model/qubits must NOT show up as traced leaves -- they're
+        # static aux_data, the whole point of the split
+        spec = NoiseSpec(model='bitflip', p=0.1, jax_key=jax.random.PRNGKey(1), qubits=[0])
+        leaves = jax.tree_util.tree_leaves(spec)
+        assert len(leaves) == 2
+
+    def test_jax_tree_map_transforms_leaves(self):
+        # jax_key has ndim=1 (shape (2,)); p is a scalar (ndim=0) -- this
+        # only touches p, confirming both leaves are independently
+        # addressable by a generic tree_map, the way any JAX PyTree's
+        # leaves are.
+        spec = NoiseSpec(model='depolarizing', p=0.1, jax_key=jax.random.PRNGKey(0))
+        doubled = jax.tree_util.tree_map(lambda x: x * 2 if jnp.ndim(x) == 0 else x, spec)
+        assert doubled.p == pytest.approx(0.2)
 
 
 # ─────────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@ from typing import Callable, Optional, Tuple
 from .parser import QASMCircuit
 from .gates import GATE_IDS
 from .compiler import QuantumTranspiler
-from .registry import HAS_JAX
+from .registry import HAS_JAX, NoiseModel, NoiseSpec
 
 if HAS_JAX:
     import jax
@@ -83,13 +83,26 @@ def circuit_to_energy_fn(
               Qiskit/PennyLane interop bridge (from_qiskit/from_pennylane).
 
     Returns (energy_fn, n_params):
-      energy_fn(theta, h_matrix, stato_zero=None) -> (energy, statevector)
-      is a pure JAX function, differentiable w.r.t. theta via jax.grad /
-      jax.value_and_grad(energy_fn, argnums=0, has_aux=True). stato_zero
-      defaults to |0...0> if not given.
+      energy_fn(theta, h_matrix, stato_zero=None, noise=None) ->
+      (energy, statevector) is a pure JAX function, differentiable w.r.t.
+      theta via jax.grad / jax.value_and_grad(energy_fn, argnums=0,
+      has_aux=True). stato_zero defaults to |0...0> if not given.
       n_params is the number of parametric gates in the circuit, in the
       same order theta is injected — build theta as an array of that
       length.
+
+      noise, when given, is a registry.NoiseSpec (a JAX PyTree) applied
+      to the statevector right after the circuit and before the energy
+      expectation value is computed — natively inside the same traced
+      computation as theta, not as an external step the caller has to
+      splice in around energy_fn themselves. Because NoiseSpec carries
+      its own jax_key as a pytree leaf, the whole thing stays
+      jit/grad/vmap-composable with no OS-entropy fallback and no
+      external key-management workaround:
+
+          noise = NoiseSpec(model='depolarizing', p=0.05,
+                             jax_key=jax.random.PRNGKey(0))
+          energy, sv = energy_fn(theta, h_matrix, noise=noise)
 
     This is the same engine dashboard_core.py's real VQE gradient uses
     internally (verified against finite differences, ~1e-11 agreement) —
@@ -104,7 +117,8 @@ def circuit_to_energy_fn(
     n_params = sum(1 for op in circuit.ops
                    if str(op['name']).lower().strip() in _PARAMETRIC_GATES)
 
-    def energy_fn(theta, h_matrix, stato_zero: Optional["jnp.ndarray"] = None):
+    def energy_fn(theta, h_matrix, stato_zero: Optional["jnp.ndarray"] = None,
+                  noise: Optional["NoiseSpec"] = None):
         if stato_zero is None:
             stato_zero = jnp.zeros(2 ** n_qubits, dtype=jnp.complex128).at[0].set(1.0)
 
@@ -116,18 +130,23 @@ def circuit_to_energy_fn(
             # at circuit_to_energy_fn() call time, so this branch is
             # resolved before any tracing happens — not a jax.lax.cond).
             sv = _compile_and_run_circuit_jit(stato_zero, template)
-            energy = jnp.real(jnp.vdot(sv, h_matrix @ sv))
-            return energy, sv
+        else:
+            def patch_and_apply(carry, op):
+                idx = carry
+                is_param = op[3] == -1.0
+                final_p = jnp.where(is_param, theta[idx], op[3])
+                next_idx = jnp.where(is_param, idx + jnp.int32(1), idx)
+                return next_idx, jnp.array([op[0], op[1], op[2], final_p], dtype=jnp.float64)
 
-        def patch_and_apply(carry, op):
-            idx = carry
-            is_param = op[3] == -1.0
-            final_p = jnp.where(is_param, theta[idx], op[3])
-            next_idx = jnp.where(is_param, idx + jnp.int32(1), idx)
-            return next_idx, jnp.array([op[0], op[1], op[2], final_p], dtype=jnp.float64)
+            _, patched_ops = jax.lax.scan(patch_and_apply, jnp.int32(0), template)
+            sv = _compile_and_run_circuit_jit(stato_zero, patched_ops)
 
-        _, patched_ops = jax.lax.scan(patch_and_apply, jnp.int32(0), template)
-        sv = _compile_and_run_circuit_jit(stato_zero, patched_ops)
+        if noise is not None:
+            sv = NoiseModel.apply_to_sv(
+                sv, n_qubits, model=noise.model, p=noise.p,
+                jax_key=noise.jax_key, qubits=list(noise.qubits) if noise.qubits else None,
+            )
+
         energy = jnp.real(jnp.vdot(sv, h_matrix @ sv))
         return energy, sv
 
