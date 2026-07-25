@@ -407,6 +407,27 @@ Active error tracking and stabilization integrated natively into the simulation 
 
 All core functions compiled via `@jax.jit`. Event history managed by `MemoryReflectionEngine` with JAX Zero-Drift spectral aggregation.
 
+### Zero-Noise Extrapolation (`dense_evolution.mitigation`)
+
+The primitives above are building blocks, not a runnable mitigation pipeline by themselves. `mitigation.py` is the orchestrator: it exposes ZNE under the names the field already uses (`richardson_extrapolate`, `zero_noise_extrapolation`, `noise_factors`) so it's discoverable without first learning the `Δ_pre_emp`/`Φ_AB` vocabulary above — the primitives themselves are not renamed, only composed.
+
+| Function | Signature | Description |
+|---|---|---|
+| `richardson_extrapolate` | `(expectation_values, noise_factors)` | Plain N-point Lagrange extrapolation to zero noise. Reduces exactly to the textbook `(3, -3, 1)` coefficients at `noise_factors=(1,2,3)` |
+| `zero_noise_extrapolation` | `(expectation_values, noise_factors, sigma_at_base_noise=None, target_sigma_ideal=10.0)` | Standard entry point. Falls back to `richardson_extrapolate` when `sigma_at_base_noise` is omitted; otherwise perturbs the 3-point Richardson coefficients via `calculate_delta_preemp` — Dense-Evolution's "predictive healing" ZNE variant. Only defined for exactly 3 noise factors; raises `NotImplementedError` otherwise rather than guessing |
+
+```python
+import dense_evolution as de
+
+e1, e2, e3 = 1.234, 0.876, 0.611          # values at 1x, 2x, 3x noise
+plain = de.zero_noise_extrapolation([e1, e2, e3], [1.0, 2.0, 3.0])
+
+# with a measured coherence signal at the base noise level, the
+# extrapolation is nudged by how far it is from the ideal target:
+healed = de.zero_noise_extrapolation([e1, e2, e3], [1.0, 2.0, 3.0],
+                                      sigma_at_base_noise=9.3, target_sigma_ideal=10.0)
+```
+
 ---
 
 ## ▍ IA Utils — Vector Sequence Healing
@@ -562,6 +583,9 @@ All circuits stored as OpenQASM 2.0 strings in `QASM_LIBRARY`.
 ---
 
 ## ▍ Changelog
+
+### v8.1.27
+- **Added**: `dense_evolution.mitigation` -- a Zero-Noise Extrapolation orchestrator (`richardson_extrapolate`, `zero_noise_extrapolation`, both exported from package root) using the field's standard ZNE vocabulary, composed on top of `healing.py`'s existing primitives rather than duplicating or renaming them. Motivated by the ZNE+predictive-healing combination previously existing only as hand-written logic (`_static_richardson`/`_adaptive_healing_richardson`) inside a downstream repo's test file, calling `calculate_delta_preemp` as one ingredient with no reusable, standard-named entry point in the package itself -- undiscoverable by name for anyone (human or AI) reading `dense_evolution` looking for "ZNE". `richardson_extrapolate` generalizes to N arbitrary noise factors (verified: reduces exactly to the textbook `(3, -3, 1)` 3-point coefficients at `noise_factors=(1,2,3)`, and is exact on synthetic linear data); the healing-adapted path is scoped to exactly 3 noise factors -- the only case it has been derived and verified against (cross-checked numerically against the original 3-point formula) -- and raises `NotImplementedError` rather than silently generalizing an unverified formula for other point counts.
 
 ### v8.1.26
 - **Verified, no bug found**: two areas flagged as untested in a prior RAM-constrained environment -- `Chunk`'s genuine multi-chunk dispatch (`num_chunks > 1`) on a 2-qubit gate spanning the very first (chunk-select) and very last (local) qubit of the register, and `QASMParser`'s handling of `for`-loops with an unresolvable bound (an undeclared bound variable, so `_resolve_int_expr` returns `None`) -- both confirmed correct. Closed the real test-coverage gap: 4 new tests in `TestChunkMultiPiece` (the long-range 2-qubit gate case, plus `MemoryPressureError` actually firing on simulated low RAM for both the `num_chunks==1` and `num_chunks>1` code paths -- previously only ever exercised indirectly, never asserted on directly) and 6 new tests in `TestQASMForLoop` (unresolvable `for` bound stripped cleanly with following code preserved -- verified via probability comparison, not just the op list -- `while` blocks, multiple unresolvable constructs in sequence, and a resolvable `for`-unroll immediately followed by an unresolvable `if`-strip).
