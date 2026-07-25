@@ -1565,6 +1565,138 @@ class TestChunkMultiPieceJIT:
                   f"200 gates: {elapsed:.4f}s (pre-fix Python-loop dispatch: ~2.2s)")
 
 
+class TestChunkDistributed:
+    """Chunk.run_chunk_distributed (issue #1): dispatches the multi-chunk
+    kernel across a real JAX device mesh (jax.shard_map + jax.lax.ppermute
+    for the cross-chunk edge exchange) instead of one process's RAM, one
+    physical chunk per device (v1 scope). JAX's device count is fixed at
+    process start, so these tests need >= 8 devices to exercise the
+    interesting (num_chunks>1) cases and are skipped otherwise -- run
+    with XLA_FLAGS=--xla_force_host_platform_device_count=8 (or more) to
+    actually execute them; see CI, which sets this for a dedicated step.
+
+    Correctness bar is the same one TestChunkMultiPiece already
+    established: cross-check against a plain DenseSVSimulator running the
+    identical circuit -- not against the single-process multi-chunk path,
+    to avoid two implementations of the same bug looking like agreement."""
+
+    MIN_DEVICES = 8
+
+    @pytest.fixture(autouse=True)
+    def _require_devices(self):
+        if jax.device_count() < self.MIN_DEVICES:
+            pytest.skip(
+                f"needs >= {self.MIN_DEVICES} JAX devices, only "
+                f"{jax.device_count()} available -- run with XLA_FLAGS="
+                f"--xla_force_host_platform_device_count={self.MIN_DEVICES}"
+            )
+
+    @pytest.fixture
+    def force_chunk_bits(self, monkeypatch):
+        import dense_evolution.chunk as chunk_mod
+
+        def _force(bits):
+            monkeypatch.setattr(chunk_mod, "get_dynamic_chunk", lambda dtype_target: bits)
+
+        return _force
+
+    def _compare_to_reference(self, n_qubits, circuit):
+        c = Chunk(n_qubits)
+        c.run_chunk_distributed(circuit)
+        sv_dist = np.asarray(c.get_statevector())
+
+        ref = DenseSVSimulator(n_qubits)
+        ref.run_circuit(circuit, transpile=True)
+        sv_ref = np.asarray(ref.get_statevector())
+        return sv_dist, sv_ref
+
+    def test_1q_local(self, force_chunk_bits):
+        force_chunk_bits(3)  # n_qubits=6 -> num_chunks=8, m=3
+        sv_dist, sv_ref = self._compare_to_reference(6, [('h', 3), ('rx', 4, 0.4), ('rz', 5, 0.9)])
+        np.testing.assert_allclose(sv_dist, sv_ref, atol=1e-9)
+
+    def test_1q_chunk_select(self, force_chunk_bits):
+        force_chunk_bits(3)
+        sv_dist, sv_ref = self._compare_to_reference(6, [('h', 0), ('h', 1), ('h', 2)])
+        np.testing.assert_allclose(sv_dist, sv_ref, atol=1e-9)
+
+    def test_2q_local_local(self, force_chunk_bits):
+        force_chunk_bits(3)
+        sv_dist, sv_ref = self._compare_to_reference(6, [('h', 3), ('cx', 3, 4), ('cx', 4, 5)])
+        np.testing.assert_allclose(sv_dist, sv_ref, atol=1e-9)
+
+    @pytest.mark.parametrize("gate", ["cx", "cz", "cy"])
+    def test_2q_control_chunk_select_target_local(self, force_chunk_bits, gate):
+        force_chunk_bits(3)
+        circuit = [('h', 0), ('h', 1), ('h', 2), ('h', 5), (gate, 0, 5)]
+        sv_dist, sv_ref = self._compare_to_reference(6, circuit)
+        np.testing.assert_allclose(sv_dist, sv_ref, atol=1e-9)
+
+    @pytest.mark.parametrize("gate", ["cx", "cz", "cy"])
+    def test_2q_control_local_target_chunk_select(self, force_chunk_bits, gate):
+        force_chunk_bits(3)
+        circuit = [('h', 5), ('h', 0), (gate, 5, 0)]
+        sv_dist, sv_ref = self._compare_to_reference(6, circuit)
+        np.testing.assert_allclose(sv_dist, sv_ref, atol=1e-9)
+
+    @pytest.mark.parametrize("gate", ["cx", "cz", "cy"])
+    def test_2q_control_chunk_select_target_chunk_select(self, force_chunk_bits, gate):
+        force_chunk_bits(3)
+        circuit = [('h', 0), ('h', 1), (gate, 0, 1)]
+        sv_dist, sv_ref = self._compare_to_reference(6, circuit)
+        np.testing.assert_allclose(sv_dist, sv_ref, atol=1e-9)
+
+    def test_parametric_2q_gates(self, force_chunk_bits):
+        force_chunk_bits(3)
+        circuit = [('h', q) for q in range(6)] + [('crz', 0, 1, 0.5), ('cp', 3, 4, 0.7)]
+        sv_dist, sv_ref = self._compare_to_reference(6, circuit)
+        np.testing.assert_allclose(sv_dist, sv_ref, atol=1e-9)
+
+    def test_random_mixed_circuit(self, force_chunk_bits):
+        force_chunk_bits(3)
+        rng = np.random.default_rng(11)
+        pool_1q, pool_2q = ['h', 'x', 'y', 'z', 's'], ['cx', 'cz', 'cy']
+        circuit = []
+        for _ in range(30):
+            if rng.random() < 0.5:
+                circuit.append((rng.choice(pool_1q), int(rng.integers(0, 6))))
+            else:
+                q1, q2 = rng.choice(6, size=2, replace=False)
+                circuit.append((rng.choice(pool_2q), int(q1), int(q2)))
+        sv_dist, sv_ref = self._compare_to_reference(6, circuit)
+        np.testing.assert_allclose(sv_dist, sv_ref, atol=1e-9)
+
+    def test_dtype_float32(self, force_chunk_bits):
+        force_chunk_bits(2)  # n_qubits=4 -> num_chunks=4, m=2
+        circuit = [('h', 0), ('h', 1), ('cx', 0, 2), ('rz', 3, 0.6)]
+        c = Chunk(4, use_float32=True)
+        c.run_chunk_distributed(circuit)
+        sv_dist = np.asarray(c.get_statevector())
+        ref = DenseSVSimulator(4, use_float32=True)
+        ref.run_circuit(circuit, transpile=True)
+        sv_ref = np.asarray(ref.get_statevector())
+        np.testing.assert_allclose(sv_dist, sv_ref, atol=1e-4)
+        assert sv_dist.dtype == np.complex64
+
+    def test_num_chunks_1_raises_clear_error(self):
+        # dispatch_distributed only makes sense for num_chunks>1; a Chunk
+        # that fits in a single chunk must raise, not silently no-op or
+        # fall back to the single-process path.
+        c = Chunk(2)  # tiny -- always fits in one chunk
+        assert c.num_chunks == 1
+        with pytest.raises(RuntimeError, match="num_chunks"):
+            c.run_chunk_distributed([('h', 0)])
+
+    def test_insufficient_devices_raises_clear_error(self, force_chunk_bits, monkeypatch):
+        # force num_chunks to exceed the actual device count, even though
+        # we have >= MIN_DEVICES for other tests in this class
+        force_chunk_bits(3)
+        c = Chunk(6)  # num_chunks=8
+        monkeypatch.setattr(jax, "device_count", lambda: 4)
+        with pytest.raises(RuntimeError, match="devices"):
+            c.run_chunk_distributed([('h', 0)])
+
+
 # ─────────────────────────────────────────────────────────────
 # 11. MEMORY
 # ─────────────────────────────────────────────────────────────

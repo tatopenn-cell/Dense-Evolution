@@ -421,6 +421,270 @@ if HAS_JAX:
         return step
 
 
+    # ─────────────────────────────────────────────────────────────────────
+    # Distributed (multi-device) variant — one physical chunk per device
+    # ─────────────────────────────────────────────────────────────────────
+
+    def _build_distributed_chunk_step(num_chunks: int, m: int, k: int, axis_name: str):
+        """Same 6-case formula set as _build_multi_chunk_step, but each
+        device holds exactly ONE chunk row (chunk_dim,) instead of the
+        whole (num_chunks, chunk_dim) stack living on one device/process —
+        issue #1: distribute chunks across a device mesh (multi-GPU/
+        multi-host), not just multi-chunk within one process's RAM.
+
+        The stacked-array formulation's "mix pairs of rows across axis 0"
+        (cases 2/5/6, touching a chunk-select qubit) becomes real
+        point-to-point network communication here: jax.lax.ppermute,
+        keyed on the fixed XOR-stride pairing between chunk indices — the
+        textbook pairwise-exchange communication pattern used by
+        distributed statevector simulators (each device sends its local
+        row to its stride-partner device and receives the partner's row
+        back). Cases 1/3/4 need NO communication at all: case 1/3 are
+        purely local (both qubits live inside this device's own chunk_dim
+        index space), and case 4 (ctrl chunk-select, tgt local) is a
+        decision every device can make on its OWN chunk index alone
+        (whether ITS id has the ctrl bit set) — no data from any other
+        device is needed to decide or to apply the local tgt gate.
+
+        ppermute's `perm` argument is a communication topology and must be
+        STATIC (known at trace time) — it cannot be built from q1/q2,
+        which are traced values read from the scanned circuit array. Since
+        q1/q2 only ever range over the m possible chunk-select qubit
+        indices [0, m), every possible stride is enumerated as its own
+        statically-built ppermute call, and jax.lax.switch (traced
+        unconditionally, same "trace every branch" pattern used
+        throughout this codebase) picks the right one at runtime — plus
+        one extra identity branch for "no chunk-select qubit involved,
+        no communication needed" (verified below to be exactly cases
+        1/3/4, never 2/5/6)."""
+        chunk_dim = 1 << k
+
+        def step(local_row, operation):
+            g_id  = operation[0].astype(jnp.int32)
+            q1    = operation[1].astype(jnp.int32)
+            q2    = operation[2].astype(jnp.int32)
+            param = operation[3]
+            dtype = local_row.dtype
+
+            my_id = jax.lax.axis_index(axis_name).astype(jnp.int32)
+
+            inv2         = jnp.asarray(1.0 / jnp.sqrt(2.0), dtype=dtype)
+            half_p       = param * jnp.float64(0.5)
+            cos_p        = jnp.cos(half_p).astype(dtype)
+            sin_p        = jnp.sin(half_p).astype(dtype)
+            exp_pos      = jnp.exp(1j * param).astype(dtype)
+            exp_ph4      = jnp.exp(1j * jnp.pi / 4.0).astype(dtype)
+            exp_mh4      = jnp.exp(-1j * jnp.pi / 4.0).astype(dtype)
+            exp_pos_half = jnp.exp(1j * half_p).astype(dtype)
+            exp_neg_half = jnp.exp(-1j * half_p).astype(dtype)
+
+            safe_gid = jnp.clip(g_id, 0, 13)
+            g_1q = jax.lax.switch(
+                safe_gid,
+                [
+                    lambda _: jnp.eye(2, dtype=dtype),
+                    lambda _: jnp.array([[inv2, inv2], [inv2, -inv2]], dtype=dtype),
+                    lambda _: jnp.array([[0.0 + 0j, 1.0 + 0j], [1.0 + 0j, 0.0 + 0j]], dtype=dtype),
+                    lambda _: jnp.array([[0.0 + 0j, -1j], [1j, 0.0 + 0j]], dtype=dtype),
+                    lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, -1.0 + 0j]], dtype=dtype),
+                    lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, 1j]], dtype=dtype),
+                    lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, -1j]], dtype=dtype),
+                    lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, exp_ph4]], dtype=dtype),
+                    lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, exp_mh4]], dtype=dtype),
+                    lambda _: jnp.array([[cos_p, -1j * sin_p], [-1j * sin_p, cos_p]], dtype=dtype),
+                    lambda _: jnp.array([[cos_p, -sin_p], [sin_p, cos_p]], dtype=dtype),
+                    lambda _: jnp.array([[jnp.exp(-1j * half_p), 0.0 + 0j], [0.0 + 0j, jnp.exp(1j * half_p)]], dtype=dtype),
+                    lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, exp_pos]], dtype=dtype),
+                    lambda _: jnp.array([[0.5 + 0.5j, 0.5 - 0.5j], [0.5 - 0.5j, 0.5 + 0.5j]], dtype=dtype),
+                ],
+                operand=None,
+            )
+
+            two_q_idx = jnp.where(g_id == 20, 0,
+                        jnp.where(g_id == 21, 1,
+                        jnp.where(g_id == 22, 2,
+                        jnp.where(g_id == 24, 3, 4))))
+            U = jax.lax.switch(
+                two_q_idx,
+                [
+                    lambda _: jnp.array([[0.0 + 0j, 1.0 + 0j], [1.0 + 0j, 0.0 + 0j]], dtype=dtype),
+                    lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, -1.0 + 0j]], dtype=dtype),
+                    lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, exp_pos]], dtype=dtype),
+                    lambda _: jnp.array([[0.0 + 0j, -1j], [1j, 0.0 + 0j]], dtype=dtype),
+                    lambda _: jnp.array([[exp_neg_half, 0.0 + 0j], [0.0 + 0j, exp_pos_half]], dtype=dtype),
+                ],
+                operand=None,
+            )
+            g00, g01, g10, g11 = g_1q[0, 0], g_1q[0, 1], g_1q[1, 0], g_1q[1, 1]
+            u00, u01, u10, u11 = U[0, 0], U[0, 1], U[1, 0], U[1, 1]
+
+            is_2q    = g_id >= 20
+            q1_chunk = q1 < m
+            q2_chunk = q2 < m
+
+            # ── single point-to-point exchange, done once per step ──────
+            # comm_qubit selects which stride to ppermute on: q2 (tgt) for
+            # any 2-qubit gate with a chunk-select target (cases 5 and 6),
+            # q1 for a 1-qubit gate on a chunk-select qubit (case 2),
+            # sentinel `m` (-> identity, no network traffic) for cases
+            # 1/3/4, which never need another device's data.
+            needs_comm_2q = is_2q & q2_chunk
+            needs_comm_1q = (~is_2q) & q1_chunk
+            comm_qubit = jnp.where(needs_comm_2q, q2, jnp.where(needs_comm_1q, q1, m))
+            safe_comm_idx = jnp.clip(comm_qubit, 0, m)
+
+            # NOTE: `_perm` MUST be bound as a default-argument value here
+            # (evaluated eagerly, once, at lambda-creation time inside this
+            # loop) rather than referencing `q`/`m` freely inside the
+            # lambda body -- a free reference would be looked up at CALL
+            # time via Python's normal late-binding closure semantics, by
+            # which point the loop variable `q` has already reached its
+            # final value (m-1) for every branch, silently making every
+            # ppermute use the LAST qubit's stride regardless of which
+            # branch was actually selected. Caught by exactly that
+            # symptom: only the branch for q == m-1 gave correct results.
+            ppermute_branches = [
+                (lambda _row, _perm=[(i, i ^ (1 << (m - 1 - q))) for i in range(num_chunks)]:
+                     jax.lax.ppermute(_row, axis_name, perm=_perm))
+                for q in range(m)
+            ] + [lambda _row: _row]  # identity: no chunk-select qubit involved
+            paired_row = jax.lax.switch(safe_comm_idx, ppermute_branches, local_row)
+
+            # ── case 1: 1-qubit, LOCAL qubit (q1 >= m) — no comm ─────────
+            def case_1q_local(_row):
+                local_phys = (k - 1) - (q1 - m)
+                stride     = jnp.int32(1) << local_phys
+                idx        = jnp.arange(chunk_dim, dtype=jnp.int32)
+                idx_pair   = idx ^ stride
+                mask0      = (idx & stride) == 0
+                amp_pair   = _row[idx_pair]
+                new0 = g00 * _row + g01 * amp_pair
+                new1 = g10 * amp_pair + g11 * _row
+                return jnp.where(mask0, new0, new1)
+
+            # ── case 2: 1-qubit, CHUNK-SELECT qubit (q1 < m) ─────────────
+            # paired_row already fetched via ppermute above (comm_qubit=q1).
+            def case_1q_chunk(_row):
+                stride = jnp.int32(1) << (m - 1 - q1)
+                mask0  = (my_id & stride) == 0
+                new0 = g00 * _row + g01 * paired_row
+                new1 = g10 * paired_row + g11 * _row
+                return jnp.where(mask0, new0, new1)
+
+            # ── case 3: 2-qubit, ctrl AND tgt both LOCAL — no comm ───────
+            def case_2q_local_local(_row):
+                ctrl_phys = (k - 1) - (q1 - m)
+                tgt_phys  = (k - 1) - (q2 - m)
+                idx       = jnp.arange(chunk_dim, dtype=jnp.int32)
+                ctrl_bit  = (idx & (jnp.int32(1) << ctrl_phys)) != 0
+                partner   = idx ^ (jnp.int32(1) << tgt_phys)
+                amp_partner = _row[partner]
+                new0 = u00 * _row + u01 * amp_partner
+                new1 = u10 * amp_partner + u11 * _row
+                tgt_bit = (idx & (jnp.int32(1) << tgt_phys)) != 0
+                after = jnp.where(tgt_bit, new1, new0)
+                return jnp.where(ctrl_bit, after, _row)
+
+            # ── case 4: ctrl CHUNK-SELECT, tgt LOCAL — no comm needed:   ─
+            # every device decides purely from its OWN chunk index (my_id)
+            # whether the control bit is set, and if so applies U locally.
+            def case_2q_ctrl_chunk_tgt_local(_row):
+                ctrl_stride = jnp.int32(1) << (m - 1 - q1)
+                ctrl_set    = (my_id & ctrl_stride) != 0
+                tgt_phys    = (k - 1) - (q2 - m)
+                idx         = jnp.arange(chunk_dim, dtype=jnp.int32)
+                tgt_bit     = (idx & (jnp.int32(1) << tgt_phys)) != 0
+                partner     = idx ^ (jnp.int32(1) << tgt_phys)
+                amp_partner = _row[partner]
+                new0 = u00 * _row + u01 * amp_partner
+                new1 = u10 * amp_partner + u11 * _row
+                after = jnp.where(tgt_bit, new1, new0)
+                return jnp.where(ctrl_set, after, _row)
+
+            # ── case 5: ctrl LOCAL, tgt CHUNK-SELECT ──────────────────────
+            # paired_row already fetched via ppermute above (comm_qubit=q2,
+            # keyed on tgt's stride). is_c0 is a per-device scalar decision
+            # (which side of the tgt pairing this device is on); ctrl_bit
+            # is a per-element mask within the row (elementwise, local).
+            def case_2q_ctrl_local_tgt_chunk(_row):
+                ctrl_phys  = (k - 1) - (q1 - m)
+                idx        = jnp.arange(chunk_dim, dtype=jnp.int32)
+                ctrl_bit   = (idx & (jnp.int32(1) << ctrl_phys)) != 0
+                tgt_stride = jnp.int32(1) << (m - 1 - q2)
+                is_c0      = (my_id & tgt_stride) == 0
+                new_c0 = u00 * _row + u01 * paired_row
+                new_c1 = u10 * paired_row + u11 * _row
+                after  = jnp.where(is_c0, new_c0, new_c1)
+                return jnp.where(ctrl_bit, after, _row)
+
+            # ── case 6: ctrl AND tgt both CHUNK-SELECT ────────────────────
+            # paired_row via ppermute keyed on tgt's stride (comm_qubit=q2);
+            # ctrl_set and is_c0 are both per-device scalars (this device's
+            # own chunk index bits) — no per-element masking needed at all.
+            def case_2q_both_chunk(_row):
+                ctrl_stride = jnp.int32(1) << (m - 1 - q1)
+                ctrl_set    = (my_id & ctrl_stride) != 0
+                tgt_stride  = jnp.int32(1) << (m - 1 - q2)
+                is_c0       = (my_id & tgt_stride) == 0
+                new_c0 = u00 * _row + u01 * paired_row
+                new_c1 = u10 * paired_row + u11 * _row
+                after  = jnp.where(is_c0, new_c0, new_c1)
+                return jnp.where(ctrl_set, after, _row)
+
+            result_2q = jnp.where(
+                q1_chunk & q2_chunk, case_2q_both_chunk(local_row),
+                jnp.where(q1_chunk & (~q2_chunk), case_2q_ctrl_chunk_tgt_local(local_row),
+                jnp.where((~q1_chunk) & q2_chunk, case_2q_ctrl_local_tgt_chunk(local_row),
+                                                   case_2q_local_local(local_row))))
+            result_1q = jnp.where(q1_chunk, case_1q_chunk(local_row), case_1q_local(local_row))
+
+            new_row = jnp.where(is_2q, result_2q, result_1q)
+            return new_row.astype(dtype), None
+
+        return step
+
+
+    def _build_distributed_chunk_runner(num_chunks: int, m: int, k: int):
+        """shard_map-wrapped runner: one chunk row per physical JAX device.
+        Requires jax.device_count() >= num_chunks (v1 scope: exactly one
+        chunk per device, the literal reading of issue #1 -- "distribuire
+        i chunk su più device"; a hybrid scheme with several chunks per
+        device is a possible future refinement, not attempted here).
+
+        compiled_ops (the small [g_id, q1, q2, param] sequence, identical
+        on every device) is replicated, not sharded -- P(None, None).
+        local_row is sharded along axis 0 of the (num_chunks, chunk_dim)
+        logical array, one (chunk_dim,) row per device -- P(axis_name,
+        None) on input/output, so each device's shard is that one row."""
+        from jax.sharding import Mesh, PartitionSpec as P
+
+        axis_name = 'chunks'
+        step = _build_distributed_chunk_step(num_chunks, m, k, axis_name)
+
+        devices = np.array(jax.devices()[:num_chunks])
+        mesh = Mesh(devices, axis_names=(axis_name,))
+
+        def run_local(local_shard, compiled_ops):
+            # shard_map keeps the sharded axis in the local shape (size
+            # num_chunks/mesh_size along axis 0 -- 1 in this v1 one-
+            # chunk-per-device scope), it doesn't squeeze it away: a
+            # (num_chunks, chunk_dim) input shards to (1, chunk_dim) per
+            # device here, not (chunk_dim,). `step` itself works on a
+            # clean (chunk_dim,) row -- squeeze going in, restore going out.
+            local_row = local_shard[0]
+            final_row, _ = jax.lax.scan(step, local_row, compiled_ops)
+            return final_row[None, :]
+
+        sharded_run = jax.shard_map(
+            run_local,
+            mesh=mesh,
+            in_specs=(P(axis_name, None), P(None, None)),
+            out_specs=P(axis_name, None),
+            check_vma=False,
+        )
+        return jax.jit(sharded_run), mesh
+
+
     def _build_multi_chunk_runner(num_chunks: int, m: int, k: int):
         """jax.jit-compiled (chunks, compiled_ops) -> final_chunks, closed
         over the static per-Chunk-instance geometry (num_chunks, m, k don't
@@ -623,6 +887,13 @@ class Chunk:
             self._multi_chunk_runner = _build_multi_chunk_runner(
                 num_chunks, self._m, self._mem_chunker.chunk_size_bits)
 
+            # 7b. Distributed (multi-device) runner — built lazily on first
+            # run_chunk_distributed() call, not here: it requires
+            # jax.device_count() >= num_chunks, which most single-process
+            # uses of Chunk will never need or satisfy.
+            self._distributed_runner = None
+            self._distributed_mesh   = None
+
     # ── Benchmark-facing attribute forwarding ────────────────────────────────
 
     @property
@@ -739,6 +1010,52 @@ class Chunk:
         for i, sim in enumerate(self._chunk_sims):
             sim.sv = final[i]
 
+    # ── Distributed multi-device gate dispatch (issue #1) ────────────────────
+
+    def dispatch_distributed(self, circuit: List) -> None:
+        """Executes *circuit* the same way _dispatch_multi does, but with
+        each chunk pinned to its own physical JAX device instead of all
+        chunks sharing one process's RAM — see
+        _build_distributed_chunk_step/_build_distributed_chunk_runner for
+        the kernel. Requires jax.device_count() >= num_chunks (v1 scope:
+        exactly one chunk per device); raises RuntimeError otherwise
+        rather than silently falling back to the single-process path,
+        since that would silently give up the whole point of calling this
+        method instead of run_chunk().
+
+        The (num_chunks, chunk_dim) logical array is never materialized
+        on any single device here (unlike _dispatch_multi, where it's one
+        process's RAM) -- each device holds and ever sees only its own
+        (chunk_dim,) row, exchanging edge data with its stride-partner
+        device via jax.lax.ppermute inside the kernel, not through this
+        Python method."""
+        if self._chunk_sims is None:
+            raise RuntimeError(
+                "dispatch_distributed() requires num_chunks > 1 "
+                "(this Chunk instance fits in a single chunk)."
+            )
+        num_chunks = self._mem_chunker.num_chunks
+        available = jax.device_count()
+        if available < num_chunks:
+            raise RuntimeError(
+                f"dispatch_distributed() needs >= {num_chunks} JAX devices "
+                f"(one per chunk), only {available} available. Force extra "
+                f"CPU devices for testing via the XLA_FLAGS environment "
+                f"variable: --xla_force_host_platform_device_count=N "
+                f"(set before the process starts, JAX's device count is "
+                f"fixed at first initialization)."
+            )
+        if self._distributed_runner is None:
+            self._distributed_runner, self._distributed_mesh = _build_distributed_chunk_runner(
+                num_chunks, self._m, self._mem_chunker.chunk_size_bits)
+
+        compiled_ops = _compile_multi_chunk_ops(circuit)
+        xp = self._chunk_sims[0].xp
+        stacked = xp.stack([sim.sv for sim in self._chunk_sims])
+        final = self._distributed_runner(stacked, compiled_ops)
+        for i, sim in enumerate(self._chunk_sims):
+            sim.sv = np.asarray(final[i])
+
     # ── Public API ───────────────────────────────────────────────────────────
 
     def run_chunk(
@@ -752,6 +1069,14 @@ class Chunk:
             return
         size = chunk_size_gates if chunk_size_gates is not None else self.chunk_size_gates
         self._circuit_chunker.split_circuit(circuit, chunk_size=size)
+
+    def run_chunk_distributed(self, circuit: List) -> None:
+        """Like run_chunk(), but dispatches across a real JAX device mesh
+        (dispatch_distributed) instead of one process's RAM — issue #1.
+        Requires jax.device_count() >= num_chunks; raises RuntimeError
+        otherwise (see dispatch_distributed's docstring for how to test
+        this with simulated multi-device CPU)."""
+        self.dispatch_distributed(circuit)
 
     def __repr__(self) -> str:
         s = self._guard.status()

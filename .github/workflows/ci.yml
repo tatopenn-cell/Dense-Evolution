@@ -36,12 +36,21 @@ jobs:
 
       - name: Run test suite
         run: |
-          pytest test_dense_evolution.py test_ia_healing.py test_dashboard_core.py test_ai_middleware.py test_interop.py test_autodiff.py test_quantum_scars.py -v --tb=short
-          pytest test_dense_evolution.py test_ia_healing.py test_dashboard_core.py test_ai_middleware.py test_interop.py test_autodiff.py test_quantum_scars.py -v --tb=short --junitxml=pytest-results.xml
+          pytest test_dense_evolution.py test_ia_healing.py test_dashboard_core.py test_ai_middleware.py test_interop.py test_autodiff.py test_quantum_scars.py test_mitigation.py test_mps.py -v --tb=short --junitxml=pytest-results.xml
+
+      - name: Run distributed-chunk tests (simulated multi-device)
+        # TestChunkDistributed (issue #1) needs >= 8 JAX devices to exercise
+        # anything beyond a skip -- JAX's device count is fixed at process
+        # start, so this needs its own pytest invocation with the env var
+        # set beforehand, not just a flag inside the test run above.
+        env:
+          XLA_FLAGS: "--xla_force_host_platform_device_count=8"
+        run: |
+          pytest test_dense_evolution.py -k TestChunkDistributed -v --tb=short --junitxml=pytest-results-distributed.xml
 
       - name: Upload test results on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: pytest-results-${{ matrix.python-version }}
-          path: pytest-results.xml
+          path: pytest-results*.xml

@@ -524,6 +524,21 @@ print(sim)
 #       chunk_size_bits=27, mem_per_chunk=2048.0 MB, ram_free=42.3%, has_jax=True)
 ```
 
+### Distributed dispatch across a device mesh — `run_chunk_distributed`
+
+`run_chunk()`'s multi-chunk path (`num_chunks > 1`) solves "RAM of one process" — every chunk lives in the same machine's memory, even though the kernel that moves them is JIT-fused. `run_chunk_distributed()` solves a different constraint: "more qubits than fit on one device," with one physical chunk pinned to its own JAX device (v1 scope: `jax.device_count()` must be `>= num_chunks`, exactly one chunk per device — a hybrid multi-chunk-per-device scheme is future work).
+
+```python
+from dense_evolution import Chunk
+
+sim = Chunk(30)  # num_chunks > 1 on most machines
+sim.run_chunk_distributed([['h', i] for i in range(30)])
+```
+
+Cross-chunk gate mixing (a gate touching one of the top `m = n_qubits - chunk_size_bits` "chunk-select" qubits) becomes real point-to-point network communication — `jax.lax.ppermute`, the same pairwise-exchange pattern distributed statevector simulators use, exchanging edge data only with the fixed XOR-stride partner device, never gathering the full state onto any single device. A gate entirely within a chunk's local qubits, or a control-chunk/target-local gate (decidable from each device's own chunk index alone), needs **no** communication at all.
+
+Requires `jax.device_count() >= num_chunks`; raises `RuntimeError` with the exact count needed otherwise. For local testing without real multi-GPU hardware, force extra simulated CPU devices via `XLA_FLAGS=--xla_force_host_platform_device_count=N` (set before the process starts — JAX's device count is fixed at first initialization, not changeable at runtime) — this validates the sharding/communication logic is correct, not real GPU-to-GPU network performance, which needs actual multi-GPU/multi-host hardware to measure honestly.
+
 ---
 
 ## ▍ Benchmarks
@@ -606,6 +621,11 @@ All circuits stored as OpenQASM 2.0 strings in `QASM_LIBRARY`.
 ---
 
 ## ▍ Changelog
+
+### v8.1.30
+- **Added**: `Chunk.run_chunk_distributed` -- dispatches the multi-chunk kernel across a real JAX device mesh (`jax.shard_map` + `jax.lax.ppermute`) instead of one process's RAM, one physical chunk per device (issue #1, v1 scope: `jax.device_count() >= num_chunks`). Cross-chunk gate mixing becomes point-to-point communication via `ppermute`, keyed on the fixed XOR-stride pairing between chunk indices -- the same pairwise-exchange pattern real distributed statevector simulators use; gates entirely local to a chunk, or with a chunk-select control and a local target (decidable from a device's own chunk index alone), need no communication at all. Verified for correctness against `DenseSVSimulator` on simulated multi-device CPU (`XLA_FLAGS=--xla_force_host_platform_device_count=N`) across all 6 gate/qubit-location cases individually, randomized mixed circuits at `num_chunks` in {4, 8}, and both dtypes -- CI now runs these in a dedicated step with 8 simulated devices (they skip cleanly on a single-device run). Real GPU-cluster network performance is not and cannot be measured in a single-device CI environment -- honest scope: this validates the sharding/communication logic is correct, not real multi-GPU throughput.
+- **Fixed while building it**: the `ppermute` permutation for each chunk-select qubit was built inside a Python list comprehension with the loop variable referenced directly in the lambda body -- classic late-binding closure bug, every branch silently used the *last* qubit's stride regardless of which was actually selected at runtime (only the branch for the last-iterated qubit happened to come out correct, which is exactly the failure pattern that surfaced it: `q0`/`q1` wrong, `q2` right, on a 3-chunk-select-qubit circuit). Fixed by binding the fully-precomputed static `perm` list as a default argument, evaluated eagerly at lambda-creation time instead of looked up by reference at call time.
+- **Also fixed**: `.github/workflows/ci.yml` never ran `test_mitigation.py` or `test_mps.py` -- both existed and passed locally but had never actually executed in CI. Added to the main test run.
 
 ### v8.1.29
 - **Added**: `dense_evolution.NoiseSpec` -- a JAX PyTree (`model`/`qubits` static, `p`/`jax_key` as leaves, registered via `jax.tree_util.register_pytree_node`) that `circuit_to_energy_fn`'s `energy_fn` now accepts as a fourth `noise=` argument, applying `NoiseModel.apply_to_sv` natively inside the same traced computation as `theta` (issue #8, scoped up from #7's narrower fix). Removes the need for an external, Python-side noise-application step and manual PRNG key bookkeeping around a training loop -- `jax_key` is a pytree leaf, so it flows through `jax.jit`/`jax.grad`/`jax.vmap`/`jax.lax.scan` the same way any other JAX array does, with no OS-entropy fallback (reproducibility is structural, not opt-in). Verified: reproducible from the same key, energy differs from the ideal circuit under nonzero `p`, gradient w.r.t. `theta` flows correctly through the noisy pipeline, `jax.vmap` over a batch of independent keys works with no external Python loop, `jax.jit`-wrapped result matches eager evaluation exactly.

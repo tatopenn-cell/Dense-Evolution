@@ -13,4 +13,4 @@ from .autodiff import circuit_to_energy_fn
 from .mps import MPSSimulator
 from .mitigation import richardson_extrapolate, zero_noise_extrapolation
 
-__version__ = "8.1.29"
+__version__ = "8.1.30"
