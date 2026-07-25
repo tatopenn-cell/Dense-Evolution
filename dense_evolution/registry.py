@@ -144,9 +144,20 @@ class NoiseModel:
         n       : number of qubits
         model   : one of NoiseModel.MODELS
         p       : error probability (or damping rate γ for amplitude_damping)
-        rng     : optional pre-seeded numpy Generator; created fresh if None
+        rng     : optional pre-seeded numpy Generator. Used directly when
+                  *sv* is a NumPy array. When *sv* is a JAX array, `rng`
+                  used to be silently ignored in favor of `jax_key` (or a
+                  non-reproducible OS-entropy key if that was also None
+                  -- issue #7); it is now used to *derive* a reproducible
+                  jax_key (`rng.integers(...)` seeds `jax.random.PRNGKey`)
+                  whenever `jax_key` isn't given explicitly, so seeding
+                  `rng` has the effect a caller expects on both array
+                  types instead of only on one of them.
         qubits  : subset of qubits to apply the channel to; defaults to all
-        jax_key : optional JAX PRNGKey; created fresh if None and sv is a JAX array
+        jax_key : optional JAX PRNGKey, only meaningful when *sv* is a JAX
+                  array. Takes precedence over `rng` when both are given
+                  (explicit key beats a derived one). Created from OS
+                  entropy if neither `jax_key` nor `rng` is given.
 
         Returns
         -------
@@ -160,13 +171,21 @@ class NoiseModel:
 
         # ── RNG initialisation ────────────────────────────────────────
         if is_jax:
-            if jax_key is None:
+            if jax_key is not None:
+                key = jax_key
+            elif rng is not None:
+                # Derive a reproducible JAX key from the caller's seeded
+                # NumPy generator instead of silently ignoring it -- each
+                # call advances `rng`'s state, so a fresh, identically-
+                # seeded `rng` reproduces the exact same sequence of keys
+                # across separate runs (same guarantee the NumPy path
+                # already gives).
+                key = jax.random.PRNGKey(int(rng.integers(0, 2**32 - 1)))
+            else:
                 seed_bytes = os.urandom(4)
                 jax_seed   = int.from_bytes(seed_bytes, byteorder='big')
                 jax_seed  ^= time.perf_counter_ns() & 0xFFFF_FFFF
                 key = jax.random.PRNGKey(jax_seed)
-            else:
-                key = jax_key
         else:
             if rng is None:
                 rng = _fresh_rng()

@@ -4,6 +4,7 @@ from dense_evolution import DenseSVSimulator, GATES, PARAMETRIC_GATES, NoiseMode
 from dense_evolution import healing
 
 import inspect
+import jax
 import jax.numpy as jnp # Ensure jnp is available for jax backend
 
 # Patch the measure method directly within the test file to ensure pytest uses the patched version
@@ -827,6 +828,56 @@ class TestNoiseModel:
         freq = counts / n_shots
         expected0 = 2 * p_dep / 3 + (1 - 2 * p_dep / 3) * p_damp
         assert freq[0] == pytest.approx(expected0, abs=0.02)
+
+class TestNoiseModelRngJaxKeyUnification:
+    """Issue #7: apply_to_sv used to pick rng vs jax_key based on the
+    input array's type, not on which one was actually passed -- a JAX
+    statevector silently ignored `rng` entirely and drew from OS entropy
+    instead, so a caller seeding `rng` for reproducibility got a
+    different, non-reproducible result every call with no signal
+    anything was wrong. Fixed: `rng` (when given and `jax_key` isn't)
+    now deterministically derives the JAX key too."""
+
+    def test_seeded_rng_is_reproducible_on_jax_statevector(self):
+        sv = jnp.array([0.5, 0.5, 0.5, 0.5], dtype=jnp.complex128)
+        rng_a = np.random.default_rng(42)
+        out_a = NoiseModel().apply_to_sv(sv, n=2, model='depolarizing', p=0.3, rng=rng_a)
+        rng_b = np.random.default_rng(42)
+        out_b = NoiseModel().apply_to_sv(sv, n=2, model='depolarizing', p=0.3, rng=rng_b)
+        np.testing.assert_allclose(np.asarray(out_a), np.asarray(out_b))
+
+    def test_seeded_rng_sequence_reproducible_across_multiple_calls(self):
+        sv = jnp.array([0.5, 0.5, 0.5, 0.5], dtype=jnp.complex128)
+
+        def run_sequence(seed):
+            rng = np.random.default_rng(seed)
+            o1 = NoiseModel().apply_to_sv(sv, n=2, model='depolarizing', p=0.3, rng=rng)
+            o2 = NoiseModel().apply_to_sv(sv, n=2, model='depolarizing', p=0.3, rng=rng)
+            o3 = NoiseModel().apply_to_sv(sv, n=2, model='depolarizing', p=0.3, rng=rng)
+            return o1, o2, o3
+
+        run1 = run_sequence(42)
+        run2 = run_sequence(42)
+        for a, b in zip(run1, run2):
+            np.testing.assert_allclose(np.asarray(a), np.asarray(b))
+
+    def test_explicit_jax_key_still_takes_precedence_over_rng(self):
+        sv = jnp.array([0.5, 0.5, 0.5, 0.5], dtype=jnp.complex128)
+        key = jax.random.PRNGKey(7)
+        out1 = NoiseModel().apply_to_sv(
+            sv, n=2, model='depolarizing', p=0.3, rng=np.random.default_rng(1), jax_key=key
+        )
+        out2 = NoiseModel().apply_to_sv(
+            sv, n=2, model='depolarizing', p=0.3, rng=np.random.default_rng(999), jax_key=key
+        )
+        np.testing.assert_allclose(np.asarray(out1), np.asarray(out2))
+
+    def test_numpy_path_unaffected(self):
+        sv = np.array([0.5, 0.5, 0.5, 0.5], dtype=complex)
+        out_a = NoiseModel().apply_to_sv(sv, n=2, model='depolarizing', p=0.3, rng=np.random.default_rng(42))
+        out_b = NoiseModel().apply_to_sv(sv, n=2, model='depolarizing', p=0.3, rng=np.random.default_rng(42))
+        np.testing.assert_allclose(out_a, out_b)
+
 
 # ─────────────────────────────────────────────────────────────
 # 9. TRANSPILER
