@@ -909,6 +909,90 @@ class TestQASMForLoop:
         circ = QASMParser().parse(qasm)
         assert [op['name'] for op in circ.ops] == ['h', 'cx']
 
+    # -- unresolvable-bound / multi-construct coverage --------------------
+    # Area verified separately (RAM-unconstrained environment): an
+    # unresolvable `for` bound falls through to the exact same
+    # `replacement = ''` strip path as if/while/def (see
+    # _process_block_constructs docstring) -- these tests exercise that
+    # specific trigger (an undeclared bound variable, so
+    # _resolve_int_expr returns None) rather than assuming the shared
+    # code path is equivalent without checking.
+
+    def test_unresolvable_for_loop_bound_stripped_following_gate_preserved(self):
+        # 'n' is never declared -- _resolve_int_expr must return None for
+        # it (confirmed by reading _eval_ast_node: an ast.Name not in env
+        # falls through to the final `raise`, caught by _resolve_int_expr's
+        # except-Exception), so this for loop takes the strip path, not
+        # the unroll path.
+        qasm = '''
+        qreg q[3];
+        for int i in [0:n] { h q[i]; }
+        cx q[0], q[1];
+        '''
+        circ = QASMParser().parse(qasm)
+        assert [op['name'] for op in circ.ops] == ['cx']
+        assert circ.ops[0]['qubits'] == [0, 1]
+
+    def test_unresolvable_for_loop_stripped_execution_matches_bare_circuit(self, sim3):
+        # Same pattern as the v8.1.13 regression tests: compare actual
+        # probabilities, not just the op list, against an equivalent
+        # circuit written without the unresolvable loop at all.
+        qasm_with_loop = '''
+        qreg q[3];
+        for int i in [0:n] { h q[i]; }
+        cx q[0], q[1];
+        '''
+        circ = QASMParser().parse(qasm_with_loop)
+        sim3.run_circuit(circ.to_tuples())
+        p_with_loop = probs(sim3)
+
+        ref = DenseSVSimulator(n_qubits=3, use_gpu=False, use_float32=False)
+        ref_circ = QASMParser().parse('qreg q[3]; cx q[0], q[1];')
+        ref.run_circuit(ref_circ.to_tuples())
+        p_ref = probs(ref)
+
+        np.testing.assert_allclose(p_with_loop, p_ref, atol=1e-12)
+
+    def test_while_block_does_not_corrupt_following_statement(self):
+        qasm = 'qreg q[2]; while (c==1) { x q[0]; } h q[1];'
+        circ = QASMParser().parse(qasm)
+        assert len(circ.ops) == 1
+        assert circ.ops[0] == {'type': 'gate', 'name': 'h', 'qubits': [1], 'params': []}
+
+    def test_multiple_unresolvable_constructs_in_sequence(self):
+        # for (unresolvable) + if + while, each stripped in turn, valid
+        # gates interleaved between and after every one of them survive.
+        qasm = '''
+        qreg q[3];
+        h q[0];
+        for int i in [0:n] { x q[i]; }
+        x q[1];
+        if (c==1) { y q[0]; }
+        y q[2];
+        while (c==1) { z q[0]; }
+        cx q[0], q[2];
+        '''
+        circ = QASMParser().parse(qasm)
+        assert [op['name'] for op in circ.ops] == ['h', 'x', 'y', 'cx']
+        assert [op['qubits'] for op in circ.ops] == [[0], [1], [2], [0, 2]]
+
+    def test_resolvable_for_then_unresolvable_if_then_valid_code(self):
+        # Combination the changelog's original fix never exercised: a
+        # resolvable for-loop (real unrolling, not stripping) immediately
+        # followed by an unresolvable-condition if (stripping) followed by
+        # more valid code -- confirms the unroll doesn't shift/corrupt the
+        # search position _process_block_constructs uses to find the next
+        # block.
+        qasm = '''
+        qreg q[3];
+        for int i in [0:1] { h q[i]; }
+        if (some_undeclared_condition) { x q[2]; }
+        cx q[0], q[1];
+        '''
+        circ = QASMParser().parse(qasm)
+        assert [op['name'] for op in circ.ops] == ['h', 'h', 'cx']
+        assert [op['qubits'] for op in circ.ops] == [[0], [1], [0, 1]]
+
 
 class TestQASMCircuitIterable:
     """Found via a user's own Colab testing: Chunk.run_chunk(circuit) (and
@@ -1194,6 +1278,64 @@ class TestChunkMultiPiece:
         sim = Chunk(4)
         sim.run_chunk([['h', 0]], 500)
         np.testing.assert_array_equal(np.asarray(sim.get_statevector()), np.asarray(sim.sv))
+
+    def test_2q_gate_spanning_first_to_last_qubit(self, force_chunk_bits):
+        # Explicit long-range case: control on qubit 0 (chunk-select, most
+        # significant) and target on the LAST local qubit (opposite end of
+        # the register), not just an adjacent chunk-select/local pair --
+        # the bit-shift math for chunk index vs local index is most likely
+        # to have an off-by-one/wrong-stride bug at the extremes.
+        force_chunk_bits(4)  # n=6, chunk_size_bits=4 -> m=2, local qubits [2,3,4,5]
+        sv_chunk, sv_ref = self._compare_to_reference(
+            6, [('h', 0), ('h', 5), ('cx', 0, 5)])
+        np.testing.assert_allclose(sv_chunk, sv_ref, atol=1e-9)
+
+    # ── MemoryPressureError actually firing, not just "doesn't crash" ────
+
+    def test_memory_pressure_error_fires_on_insufficient_ram_num_chunks_1(self, monkeypatch):
+        import dense_evolution.chunk as chunk_mod
+
+        class _FakeVM:
+            total = 8 * 1024 ** 3       # 8 GB
+            available = 0.05 * 8 * 1024 ** 3  # 5% free -- below any sane threshold
+            percent = 95.0
+
+        monkeypatch.setattr(chunk_mod.psutil, "virtual_memory", lambda: _FakeVM())
+        with pytest.raises(chunk_mod.MemoryPressureError, match="MEMORIA CRITICA"):
+            Chunk(10, memory_threshold=0.15)
+
+    def test_memory_pressure_error_fires_on_insufficient_ram_num_chunks_gt_1(self, monkeypatch, force_chunk_bits):
+        import dense_evolution.chunk as chunk_mod
+
+        force_chunk_bits(4)  # forces num_chunks>1 at small n_qubits
+
+        class _FakeVM:
+            total = 8 * 1024 ** 3
+            available = 0.05 * 8 * 1024 ** 3
+            percent = 95.0
+
+        monkeypatch.setattr(chunk_mod.psutil, "virtual_memory", lambda: _FakeVM())
+        with pytest.raises(chunk_mod.MemoryPressureError, match="MEMORIA INSUFFICIENTE"):
+            Chunk(6, memory_threshold=0.15)
+
+    def test_memory_pressure_error_not_raised_with_ample_ram(self, monkeypatch, force_chunk_bits):
+        # Negative control: the same fake-psutil machinery, but with
+        # generous available memory, must NOT raise -- confirms the two
+        # tests above are catching a real threshold check, not e.g. an
+        # unconditional raise or a monkeypatch that broke construction
+        # entirely.
+        import dense_evolution.chunk as chunk_mod
+
+        force_chunk_bits(4)
+
+        class _FakeVM:
+            total = 8 * 1024 ** 3
+            available = 0.90 * 8 * 1024 ** 3
+            percent = 10.0
+
+        monkeypatch.setattr(chunk_mod.psutil, "virtual_memory", lambda: _FakeVM())
+        c = Chunk(6, memory_threshold=0.15)
+        assert c.num_chunks == 4
 
 
 class TestChunkMultiPieceJIT:
