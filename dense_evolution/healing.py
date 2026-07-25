@@ -38,7 +38,17 @@ def calculate_phi_ab(state_A: jnp.ndarray, state_B: jnp.ndarray, ipg_vector: jnp
 
     alignment = jnp.where(
         (norm_change > 1e-12) & (norm_ipg > 1e-12),
-        jnp.dot(semantic_change, ipg_vector) / (norm_change * norm_ipg),
+        # jnp.dot on complex arrays is the bilinear (non-conjugated) product
+        # and stays complex, which used to blow up jnp.clip below with
+        # "ValueError: Clip received a complex value". jnp.real(jnp.vdot(..))
+        # is the correct Hermitian-inner-product real part -- for real
+        # inputs it reduces exactly to jnp.dot (no behavior change for
+        # existing real-valued callers), and for complex inputs (e.g. a
+        # genuine statevector) it gives the real alignment value this
+        # function needs. Re(vdot(a,b)) == Re(vdot(b,a)) always, even
+        # though vdot(a,b) != vdot(b,a) in general (they're conjugates) --
+        # argument order doesn't matter here only because we take the real part.
+        jnp.real(jnp.vdot(semantic_change, ipg_vector)) / (norm_change * norm_ipg),
         0.0
     )
     semantic_alignment = (alignment + 1.0) / 2.0

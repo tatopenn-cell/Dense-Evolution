@@ -42,9 +42,9 @@ A Streamlit dashboard (`app_dashboard.py`) provides live telemetry across 8 pane
 ## ▍ Install
 
 ```bash
-pip install dense-evolution
+pip install dense-evolution  # JAX is a core dependency, installed by default
 
-# full stack: JAX · GPU · dashboard · Qiskit/PennyLane interop
+# full stack: GPU · dashboard · Qiskit/PennyLane interop
 pip install dense-evolution[full]
 
 # just the interop bridge
@@ -94,7 +94,7 @@ sv    = sim.get_statevector()
 **Dashboard (local, Streamlit):**
 
 ```bash
-pip install "dense-evolution[jax,dashboard]"
+pip install "dense-evolution[dashboard]"  # JAX already included by default
 streamlit run app_dashboard.py
 ```
 
@@ -276,7 +276,7 @@ Backward-compatibility aliases: `chunk1 = MemoryChunker`, `chunk2 = Chunk`, `Chu
 from ia_utils.vector_healing import median_healing, enhanced_dense_healing_hybrid
 
 healed, radius   = median_healing(vettori, radius_baseline=None)
-healed, metadata = enhanced_dense_healing_hybrid(vettori, radius_baseline=None, median_fallback_threshold=0.1)
+healed, metadata = enhanced_dense_healing_hybrid(vettori, radius_baseline=None)
 ```
 
 See **IA Utils — Vector Sequence Healing** above for details.
@@ -359,7 +359,7 @@ sim, probs = run_pennylane_circuit(circuit)   # no reordering needed, see below
 
 ## ▍ Differentiable Circuits — `circuit_to_energy_fn`
 
-The real VQE gradient engine (`jax.value_and_grad` through a `jax.lax.scan`-based circuit template, verified against finite differences to ~1e-11) used to live only inside `dashboard_core.py`, unreachable from outside the Streamlit app. It's now public, dependency-light (needs only `dense-evolution[jax]`, no dashboard/pandas/streamlit), and composes directly with the interop bridge above:
+The real VQE gradient engine (`jax.value_and_grad` through a `jax.lax.scan`-based circuit template, verified against finite differences to ~1e-11) used to live only inside `dashboard_core.py`, unreachable from outside the Streamlit app. It's now public, dependency-light (needs only the base `dense-evolution` install, no dashboard/pandas/streamlit), and composes directly with the interop bridge above:
 
 ```python
 import jax
@@ -404,8 +404,6 @@ Active error tracking and stabilization integrated natively into the simulation 
 | `dephasing_tracking` | `Δ_pre_emp ∘ Σ` | Predictive deviation vs ideal eigenstate |
 | `phi_ab_alignment` | `Φ_AB(state_A, state_B, ipg)` | Semantic + coherence alignment between two quantum states |
 | `vettore_dinamico` | `V_din = K · log(E_B/E_A) · Φ_AB` | Log-differential energetic evolution vector |
-| `kappa_stabilization` | `κ-strength routine` | Proactive statevector profile shielding |
-| `richardson_integration` | `{λ₁=1.0, λ₂=2.0}` | Dual-point zero-noise trajectory approximation |
 
 All core functions compiled via `@jax.jit`. Event history managed by `MemoryReflectionEngine` with JAX Zero-Drift spectral aggregation.
 
@@ -418,13 +416,13 @@ All core functions compiled via `@jax.jit`. Event history managed by `MemoryRefl
 | Function | Approach | Returns |
 |---|---|---|
 | `median_healing(vettori, radius_baseline=None)` | `scipy.ndimage.median_filter`, dynamic radius `min(20, max(3, n // 3))` | `(healed: np.ndarray, radius: int)` |
-| `enhanced_dense_healing_hybrid(vettori, radius_baseline=None, median_fallback_threshold=0.1)` | Blends the `dense_evolution.healing` Φ-trigger logic with a median fallback, decided per-step | `(healed: np.ndarray, metadata: dict)` |
+| `enhanced_dense_healing_hybrid(vettori, radius_baseline=None)` | Blends the `dense_evolution.healing` Φ-trigger logic with a median fallback, decided per-step | `(healed: np.ndarray, metadata: dict)` |
 
 `enhanced_dense_healing_hybrid` metadata:
 
 | Key | Type | Description |
 |---|---|---|
-| `fallback_triggered` | `bool` | `True` if the median fallback or dense blending fired at least once |
+| `fallback_triggered` | `bool` | `True` only if the input contained genuine NaN/Inf corruption AND the median fallback fired to correct it -- does not reflect Phi-Trigger corrections on structurally noisy-but-valid data |
 | `adaptive_radius_used` | `int` | Baseline radius actually applied |
 | `reconstruction_error` | `float` | Mean norm of the correction applied vs. the sanitized input |
 
@@ -443,7 +441,7 @@ print(meta)
 # {'fallback_triggered': True, 'adaptive_radius_used': 16, 'reconstruction_error': 11.48}
 ```
 
-`jax` is imported lazily inside `enhanced_dense_healing_hybrid` — `median_healing` and the module import itself work without the `[jax]` extra installed; only calling `enhanced_dense_healing_hybrid` requires it.
+`jax` is imported lazily inside `enhanced_dense_healing_hybrid` (a leftover from when JAX was optional) — harmless now that `dense-evolution` always installs JAX as a core dependency, but it does mean `median_healing` and the module import itself never actually needed it in the first place.
 
 ---
 
@@ -564,6 +562,17 @@ All circuits stored as OpenQASM 2.0 strings in `QASM_LIBRARY`.
 ---
 
 ## ▍ Changelog
+
+### v8.1.24
+- **Fixed**: `dense_evolution.healing.calculate_phi_ab` raised `ValueError: Clip received a complex value` when called with complex statevectors (e.g. `sim.get_statevector()`) -- `jnp.dot(semantic_change, ipg_vector)` is the bilinear (non-conjugated) product on complex arrays and stays complex, which then hit `jnp.clip` at the end of the function. Fixed by using `jnp.real(jnp.vdot(...))` -- the correct Hermitian-inner-product real part, identical to `jnp.dot` for the real-valued inputs every existing caller already uses (`ia_utils.vector_healing.enhanced_dense_healing_hybrid`), and now also correct for genuinely complex input. Verified against a manual NumPy `Re(vdot(...))` calculation on a case with nonzero imaginary amplitudes (H+S gates), not just the crash repro (H+CX alone never produces a nonzero imaginary part, so it only proved "doesn't crash," not "computes the right number").
+- **Fixed**: `ia_utils.vector_healing.median_healing`/`enhanced_dense_healing_hybrid` emitted `RuntimeWarning: Mean of empty slice` whenever an input column was entirely `NaN` -- `np.nanmean` on an all-NaN slice returns `NaN` with a warning (silently caught and zeroed by the very next line, so the *output* was already correct, only the warning was noise). Fixed by pre-replacing whole all-NaN columns with `0.0` before calling `nanmean`, so it never sees an empty slice -- verified byte-identical output, zero warnings, in both functions (the preprocessing block was duplicated verbatim in each).
+- **Fixed**: `enhanced_dense_healing_hybrid`'s `fallback_triggered` metadata flag used to reflect only the internal Phi-Trigger heuristic classifying a step as "static", regardless of whether the input actually contained any `NaN`/`Inf` -- verified directly that a clean, uncorrupted random Gaussian array (no corruption at all) still came back `fallback_triggered=True`. Root cause: the heuristic is tuned for trajectories with real underlying dynamics (verified separately against a real noisy VQE run, where it correctly stayed quiet at low noise and fired at high noise) and mistakes pure structureless IID noise -- which has no coherent trend to recognize as "genuine change" -- for anomalous static behavior on nearly every step. `fallback_triggered` is now gated on the original input actually containing `NaN`/`Inf` (checked before sanitization) in addition to the fallback having fired -- the dashboard's "Fallback scattato" indicator will now only light up for genuine NaN/Inf corruption, not general noise-driven Phi-Trigger corrections (those corrections still happen internally, they're just no longer mislabeled as a NaN/Inf fallback).
+- **Docs**: removed two README rows (`kappa_stabilization`, `richardson_integration`) describing functions that never existed in `dense_evolution/healing.py` (confirmed against the full 140-line file -- 7 functions plus `MemoryReflectionEngine`, neither name present anywhere), and corrected two code examples that still showed a `median_fallback_threshold` parameter on `enhanced_dense_healing_hybrid` that was removed from the actual function signature back when its corresponding UI slider was dropped (commit `69fc8a4`) without updating the docs to match.
+
+### v8.1.23
+- **Added**: `MPSSimulator` (`dense_evolution/mps.py`, re-exported from the package root) -- a JAX-backed Matrix Product State simulator with adaptive SVD-truncated bond dimension. Verified exact against `DenseSVSimulator` on entangling circuits (TVD=0). Selectable as a dashboard engine (Quantum Simulator page) for circuits up to 24 qubits; for larger low-entanglement circuits, `get_probabilities_sampled`/`get_top_k_probable_states` scale to hundreds of qubits without ever materializing a `(2**n,)` statevector.
+- **Fixed**: large-qubit circuits submitted through the dashboard used to crash the whole Streamlit process (uncatchable OS-level OOM) instead of failing cleanly. They now route automatically through the existing `Chunk` anti-OOM wrapper, which raises a catchable, informative `MemoryPressureError` instead.
+- **Changed (breaking)**: JAX is now a **required core dependency** (`dependencies`, not `optional-dependencies`) -- `pip install dense-evolution` installs it by default, no `[jax]` extra needed anymore. Every simulator backend in this package already required JAX in practice; the previous `try/except ImportError` numpy-fallback path was never a real, maintained alternative and is no longer reachable (the numpy code itself is left in place for reference, just dead). If you were pinning an environment without JAX and relying on degraded-numpy behavior, this release will break that -- install `dense-evolution<8.1.23` to keep the old behavior.
 
 ### v8.1.22
 - **Added**: `ui_pages/quantum_scars.py` — a new "Quantum Scars" dashboard page (`app_dashboard.py`'s `st.navigation`), an interactive live demo of the PXP quantum many-body scar model (Rydberg blockade): builds `H_PXP` via sparse Pauli operators, exact-diagonalizes it (`scipy.linalg.eigh`, cached via `st.cache_resource` keyed on qubit count — the first use of that decorator in this codebase, since diagonalizing a dense `2**n_qubits` matrix is genuinely expensive and depends only on that one slider), propagates a Néel initial state under real-time Hamiltonian evolution, injects real noise via `NoiseModel.apply_to_sv`, and lets you compare fidelity revival with no protection, a cheap constraint-subspace projection (no extra diagonalization needed — a combinatorial mask of which computational-basis bitstrings have no two adjacent 1-bits), or an idealized exact-eigenstate "tower" projection. Distills the investigation already published at [`quantum_scar_investigation`](https://github.com/tatopenn-cell/Dense-Evolution-Ising-Tests/tree/main/scripts/quantum_scar_investigation) — which found no genuine scar in Dense Evolution's own frustrated Ising grids (wrong observable + gauge equivalence), then validated the same verification pipeline against PXP, where scars are real and well documented — into something runnable instead of only readable. Verified via `streamlit.testing.v1.AppTest` (real button-click simulation, zero exceptions) and a new `test_quantum_scars.py` (17 tests, all passing) unit-testing the numerical core directly: validity-mask combinatorics, `H_PXP` Hermiticity and Hilbert dimension, fidelity=1/norm-preservation under propagation, and both projections staying normalized with zero weight outside their target subspace.

@@ -1374,6 +1374,48 @@ class TestPredictiveHealingCore:
         phi = healing.calculate_phi_ab(a, b, jnp.array([1.0, 0.0]))
         assert 0.0 <= float(phi) <= 1.0
 
+    def test_phi_ab_handles_complex_statevectors_no_crash(self):
+        # Regression test: jnp.dot on complex arrays returns a complex
+        # scalar, which used to blow up jnp.clip with "ValueError: Clip
+        # received a complex value". Repro from the bug report.
+        sim = DenseSVSimulator(n_qubits=3)
+        sim.apply_gate_1q(GATES['h'], 0)
+        sim.apply_gate_2q(GATES['cx'], 0, 1)
+        sv = jnp.array(sim.get_statevector())
+        assert jnp.iscomplexobj(sv)
+        phi = healing.calculate_phi_ab(sv, sv, sv)
+        assert not jnp.iscomplexobj(phi)
+        assert 0.0 <= float(phi) <= 1.0
+
+    def test_phi_ab_complex_alignment_matches_manual_hermitian_dot(self):
+        # The bug-report repro (H+CX) never produces nonzero imaginary
+        # amplitudes, so it only proves "doesn't crash on complex dtype" --
+        # this exercises a genuinely complex case (S = phase gate) and
+        # cross-checks the result against a plain-NumPy Re(vdot(...)) calc.
+        sim_a = DenseSVSimulator(n_qubits=1)
+        sim_a.apply_gate_1q(GATES['h'], 0)
+        state_A = jnp.array(sim_a.get_statevector())
+
+        sim_b = DenseSVSimulator(n_qubits=1)
+        sim_b.apply_gate_1q(GATES['h'], 0)
+        sim_b.apply_gate_1q(GATES['s'], 0)
+        state_B = jnp.array(sim_b.get_statevector())
+        assert np.any(np.abs(np.imag(np.array(state_B))) > 1e-9)  # sanity: genuinely complex
+
+        phi = healing.calculate_phi_ab(state_A, state_B, state_B)
+        assert 0.0 <= float(phi) <= 1.0
+
+        sc = np.array(state_B) - np.array(state_A)
+        expected_alignment = np.real(np.vdot(sc, np.array(state_B))) / (
+            np.linalg.norm(sc) * np.linalg.norm(state_B))
+        expected_semantic_alignment = (expected_alignment + 1.0) / 2.0
+        dist = np.linalg.norm(np.array(state_A) - np.array(state_B))
+        expected_coherence = 1.0 - dist / float(healing.GLOBAL_CONSTANTS['MAX_SEMANTIC_DISTANCE'])
+        expected_phi = np.clip(
+            expected_semantic_alignment * healing.GLOBAL_CONSTANTS['WEIGHT_SEMANTIC']
+            + expected_coherence * healing.GLOBAL_CONSTANTS['WEIGHT_COHERENCE'], 0.0, 1.0)
+        assert float(phi) == pytest.approx(float(expected_phi), abs=1e-9)
+
     def test_vettore_dinamico_zero_energy_is_guarded(self):
         # E_A=0 must hit the invalid_inputs branch and return 0.0, not
         # propagate a log(inf)/NaN from the ratio computation.

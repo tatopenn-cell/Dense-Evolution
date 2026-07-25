@@ -31,8 +31,14 @@ def median_healing(vettori: np.ndarray, radius_baseline: int = None) -> (np.ndar
     processed_vettori = np.copy(vettori)
     processed_vettori[np.isinf(processed_vettori)] = np.nan
 
-    col_means = np.nanmean(processed_vettori, axis=0)
-    col_means[np.isnan(col_means)] = 0
+    # A column that's entirely NaN makes np.nanmean raise "RuntimeWarning:
+    # Mean of empty slice" and return NaN for it (silently caught by the
+    # next line, which zeroes it anyway) -- pre-replacing whole all-NaN
+    # columns with 0.0 means nanmean never sees an empty slice, so the
+    # warning never fires, with byte-identical output to before.
+    all_nan_cols = np.all(np.isnan(processed_vettori), axis=0)
+    safe_for_mean = np.where(all_nan_cols, 0.0, processed_vettori)
+    col_means = np.nanmean(safe_for_mean, axis=0)
     processed_vettori = np.where(np.isnan(processed_vettori), col_means, processed_vettori)
 
     if n < 3:
@@ -73,8 +79,11 @@ def enhanced_dense_healing_hybrid(
         tuple: Contiene:
             - np.ndarray: Vettori curati, della stessa shape dell'input.
             - dict: Metadati di telemetria contenenti:
-                    - 'fallback_triggered' (bool): `True` se il fallback mediano è stato applicato
-                                                   almeno una volta durante il healing.
+                    - 'fallback_triggered' (bool): `True` solo se l'input originale conteneva
+                                                   NaN/Inf E il fallback mediano è stato applicato
+                                                   almeno una volta per correggerlo. Non riflette
+                                                   correzioni del Phi-Trigger su dati validi ma
+                                                   "staticamente" rumorosi (nessuna corruzione reale).
                     - 'adaptive_radius_used' (int): Il raggio effettivamente calcolato e applicato.
                     - 'reconstruction_error' (float): La norma media di variazione (errore di ricostruzione)
                                                       introdotta rispetto ai vettori originali (potenzialmente corrotti).
@@ -92,11 +101,24 @@ def enhanced_dense_healing_hybrid(
     if n == 0:
         return np.empty((0, hidden_dim)), {'fallback_triggered': False, 'adaptive_radius_used': 0, 'reconstruction_error': 0.0}
 
+    # Computed on the RAW input, before any sanitization -- fallback_triggered
+    # in the returned metadata is gated on this (see below), so it reflects
+    # "there was genuine NaN/Inf corruption AND the median fallback fired",
+    # not just "the Phi-Trigger's internal heuristic called some row static".
+    # That heuristic alone also fires on structurally noisy-but-valid data
+    # (e.g. pure IID random input with no coherent trend for it to recognize
+    # as genuine motion) -- verified directly: clean random Gaussian input
+    # with zero NaN/Inf still tripped the un-gated flag.
+    had_nan_or_inf = bool(np.isnan(vettori).any() or np.isinf(vettori).any())
+
     processed_vettori = np.copy(vettori)
     processed_vettori[np.isinf(processed_vettori)] = np.nan
 
-    col_means = np.nanmean(processed_vettori, axis=0)
-    col_means[np.isnan(col_means)] = 0
+    # See median_healing's identical block above for why this avoids
+    # np.nanmean's "Mean of empty slice" warning on an all-NaN column.
+    all_nan_cols = np.all(np.isnan(processed_vettori), axis=0)
+    safe_for_mean = np.where(all_nan_cols, 0.0, processed_vettori)
+    col_means = np.nanmean(safe_for_mean, axis=0)
     processed_vettori = np.where(np.isnan(processed_vettori), col_means, processed_vettori)
 
     out = np.copy(processed_vettori)
@@ -149,7 +171,7 @@ def enhanced_dense_healing_hybrid(
     mean_reconstruction_error = np.mean(reconstruction_errors_per_step) if reconstruction_errors_per_step else 0.0
 
     metadata = {
-        'fallback_triggered': fallback_triggered_at_all,
+        'fallback_triggered': fallback_triggered_at_all and had_nan_or_inf,
         'adaptive_radius_used': adaptive_radius_used,
         'reconstruction_error': mean_reconstruction_error,
     }
