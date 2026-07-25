@@ -50,6 +50,7 @@ DenseSVSimulator has -- it is not a universal replacement, it is
 complementary.
 """
 
+import warnings
 from typing import List, Optional, Tuple
 
 import jax
@@ -115,6 +116,13 @@ class MPSSimulator:
         self.jsd_per_bond: List[float] = []
         self.entanglement_entropy = np.zeros(max(n_qubits - 1, 0))
         self._bond_history: List[int] = []
+        # Counts truncations where max_bond was hit before jsd_budget could
+        # be satisfied -- the while loop below exits silently in that case,
+        # and avg_JSD (a mean over all steps) can look deceptively low even
+        # when the final contracted state is badly wrong (verified: TVD
+        # ~0.97 against DenseSVSimulator on an 8-qubit/15-layer entangling
+        # circuit with max_bond=2, while avg_JSD read 0.0534).
+        self.budget_violations: int = 0
 
         for _ in range(n_qubits):
             g = jnp.zeros((1, 2, 1), dtype=jnp.complex64 if not jax.config.jax_enable_x64 else jnp.complex128)
@@ -149,6 +157,21 @@ class MPSSimulator:
         while jsd_val > self.jsd_budget and chi_new < max_possible:
             chi_new += 1
             jsd_val = _trunc_jsd(chi_new)
+
+        if jsd_val > self.jsd_budget:
+            # Loop exited because chi_new hit max_possible (== max_bond, in
+            # the common case where the bond isn't already capped by the
+            # SVD's own rank), not because jsd_budget was satisfied.
+            if self.budget_violations == 0:
+                warnings.warn(
+                    f"MPSSimulator: bond dimension capped at max_bond={self.chi}, "
+                    f"jsd_budget={self.jsd_budget:.1e} not honored "
+                    f"(jsd={jsd_val:.2e}) -- results may be unreliable, "
+                    f"consider raising max_bond.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            self.budget_violations += 1
 
         trunc_err = float(jnp.sqrt(jnp.sum(S[chi_new:] ** 2))) if len(S) > chi_new else 0.0
         self.truncation_errors.append(trunc_err)
@@ -364,5 +387,6 @@ class MPSSimulator:
             f"MPSSimulator | n={self.n} | chi_max={self.chi} | "
             f"chi_used={self.max_bond_used()} | mem={self.memory_mb():.3f}MB | "
             f"trunc_err={self.total_truncation_error():.2e} | "
-            f"avg_JSD={self.avg_jsd():.4f} | EE_max={ee_max:.3f}b"
+            f"avg_JSD={self.avg_jsd():.4f} | EE_max={ee_max:.3f}b | "
+            f"budget_violations={self.budget_violations}"
         )

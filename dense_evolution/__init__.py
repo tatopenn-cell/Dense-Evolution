@@ -12,4 +12,4 @@ from .interop import from_qiskit, from_pennylane, run_qiskit_circuit, run_pennyl
 from .autodiff import circuit_to_energy_fn
 from .mps import MPSSimulator
 
-__version__ = "8.1.24"
+__version__ = "8.1.25"

@@ -153,6 +153,38 @@ def test_matches_dense_simulator_smaller_bond_still_exact_here():
     assert tvd < 1e-9
 
 
+# ── budget_violations / jsd_budget-not-honored signal ────────────────────
+
+def test_budget_violations_flagged_when_max_bond_too_small():
+    # max_bond=2 is deliberately far too small for this circuit's real
+    # entanglement -- verified directly: TVD ~0.97 against DenseSVSimulator
+    # (a badly wrong result) while avg_JSD alone read a deceptively low
+    # 0.0534. budget_violations/the UserWarning are the real signal that
+    # the result can't be trusted at this max_bond.
+    n = 8
+    prob_dense = _entangling_circuit_probs_dense(n, layers=15)
+    with pytest.warns(UserWarning, match="jsd_budget.*not honored"):
+        prob_mps, mps = _entangling_circuit_probs_mps(n, layers=15, max_bond=2, jsd_budget=1e-5)
+    tvd = 0.5 * np.sum(np.abs(prob_dense - prob_mps))
+    assert tvd > 0.5, "sanity: this max_bond should produce a badly wrong result"
+    assert mps.budget_violations > 0
+    assert "budget_violations=" in mps.summary()
+
+
+def test_budget_violations_zero_when_max_bond_is_adequate():
+    # Same circuit shape as the exact-match tests above -- max_bond=64 is
+    # generous enough that jsd_budget is always satisfiable, so this must
+    # NOT warn and budget_violations must stay 0 (no false positives).
+    n = 8
+    import warnings
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        _, mps = _entangling_circuit_probs_mps(n, max_bond=64, jsd_budget=1e-5)
+    user_warnings = [w for w in caught if issubclass(w.category, UserWarning)]
+    assert user_warnings == []
+    assert mps.budget_violations == 0
+
+
 # ── large-n sampling path (no full statevector ever materialized) ────────
 
 def test_sampled_probabilities_low_entanglement_large_n():
