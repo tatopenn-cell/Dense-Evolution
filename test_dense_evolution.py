@@ -295,6 +295,74 @@ class TestBeastModeGateDispatchGaps:
         assert abs(p.sum() - 1.0) < 1e-9
 
 
+class TestUnknownGateRaises:
+    """Issue #4: a typo'd/unrecognized gate name used to be silently
+    dropped from the circuit in all three execution paths instead of
+    raising -- verified: h(0);ch(0,1);x(2) executed as if 'ch' wasn't
+    there, no exception, no warning."""
+
+    def test_run_circuit_raises_on_unknown_gate(self):
+        sim = DenseSVSimulator(n_qubits=2)
+        with pytest.raises(ValueError, match="unknown gate"):
+            sim.run_circuit([('h', 0), ('ch', 0, 1)])
+
+    def test_beast_mode_raises_on_unknown_gate(self):
+        sim = DenseSVSimulator(n_qubits=2)
+        with pytest.raises(ValueError, match="unknown gate"):
+            sim.run_circuit_jit_beast_mode([('h', 0), ('ch', 0, 1)])
+
+    def test_parametric_batch_raises_on_unknown_gate(self):
+        sim = DenseSVSimulator(n_qubits=2)
+        with pytest.raises(ValueError, match="unknown gate"):
+            sim.run_parametric_batch_jit(
+                [('h', 0), ('ch', 0, 1)], np.zeros((3, 0))
+            )
+
+    def test_known_gates_still_run_unaffected(self, sim2):
+        # regression guard: the new validation must not reject any
+        # currently-supported gate name
+        sim2.run_circuit([('h', 0), ('cx', 0, 1), ('rz', 1, 0.6)])
+        p = probs(sim2)
+        assert abs(p.sum() - 1.0) < 1e-9
+
+
+class TestParametricBatchColumnMismatchRaises:
+    """Issue #6: run_parametric_batch_jit assigns one parameter_batch
+    column per parametric gate, in gate-appearance order -- including
+    literal-float rotation gates, which silently ignored their literal
+    and consumed a column anyway. A column-count mismatch used to be
+    clipped silently by JAX's default out-of-bounds indexing instead of
+    raising -- verified (pre-fix) with a statevector delta of 0.66
+    against the intended circuit."""
+
+    def test_too_few_columns_raises(self):
+        # base_circuit has 2 parametric gates (rx, ry) but only 1 column
+        sim = DenseSVSimulator(n_qubits=2)
+        circuit = [('rx', 0, None), ('ry', 1, None)]
+        with pytest.raises(ValueError, match="parameter_batch"):
+            sim.run_parametric_batch_jit(circuit, np.zeros((5, 1)))
+
+    def test_too_many_columns_raises(self):
+        sim = DenseSVSimulator(n_qubits=2)
+        circuit = [('rx', 0, None)]
+        with pytest.raises(ValueError, match="parameter_batch"):
+            sim.run_parametric_batch_jit(circuit, np.zeros((5, 2)))
+
+    def test_literal_float_rotation_still_consumes_a_column(self):
+        # the exact footgun from issue #6: a literal float on a rotation
+        # gate is NOT exempt from the positional-slot contract
+        sim = DenseSVSimulator(n_qubits=2)
+        circuit = [('rx', 0, 0.5), ('ry', 1, None)]
+        with pytest.raises(ValueError, match="parameter_batch"):
+            sim.run_parametric_batch_jit(circuit, np.zeros((5, 1)))  # needs 2 columns, not 1
+
+    def test_matching_column_count_runs_correctly(self):
+        sim = DenseSVSimulator(n_qubits=2)
+        circuit = [('rx', 0, None), ('ry', 1, None)]
+        out = sim.run_parametric_batch_jit(circuit, np.zeros((3, 2)))
+        assert out.shape == (3, 4)
+
+
 class TestBeastModeQubitOrdering:
     """run_circuit_jit_beast_mode used raw qubit index as bit position
     (LSB-first: qubit 0 = least significant bit) inside _apply_gate_fast_step

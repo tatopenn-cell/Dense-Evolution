@@ -346,6 +346,13 @@ class DenseSVSimulator:
                         dtype=self.dtype)
                     self.apply_gate_1q(mat, int(args[0]))
 
+            else:
+                raise ValueError(
+                    f"unknown gate '{cmd[0]}' -- not in GATES or PARAMETRIC_GATES. "
+                    f"A typo in a gate name used to be silently dropped from the "
+                    f"circuit instead of raising (issue #4)."
+                )
+
 
 
     def run_circuit_jit_beast_mode(self, circuit: List):
@@ -359,7 +366,11 @@ class DenseSVSimulator:
         for cmd in target:
             name = cmd[0].lower() if isinstance(cmd[0], str) else str(cmd[0]).lower()
             if name not in GATE_IDS:
-                continue
+                raise ValueError(
+                    f"unknown gate '{cmd[0]}' -- not in GATE_IDS. A typo in a gate "
+                    f"name used to be silently dropped from the circuit instead of "
+                    f"raising (issue #4)."
+                )
 
             g_id = float(GATE_IDS[name])
             args = cmd[1:]
@@ -428,7 +439,11 @@ class DenseSVSimulator:
         for cmd in target:
             name = cmd[0].lower() if isinstance(cmd[0], str) else str(cmd[0]).lower()
             if name not in GATE_IDS:
-                continue
+                raise ValueError(
+                    f"unknown gate '{cmd[0]}' -- not in GATE_IDS. A typo in a gate "
+                    f"name used to be silently dropped from the circuit instead of "
+                    f"raising (issue #4)."
+                )
             g_id = float(GATE_IDS[name])
             args = cmd[1:]
             if name in ('rx', 'ry', 'rz', 'p', 'u1', 'phase'):
@@ -451,6 +466,18 @@ class DenseSVSimulator:
                 q1 = float(args[0]) if args else 0.0
                 self._check_qubit_range(q1, f"gate '{name}'")
                 compiled_ops.append([g_id, q1, 0.0, 0.0])
+
+        n_param_slots = sum(1 for op in compiled_ops if op[3] == -1.0)
+        parameter_batch = np.asarray(parameter_batch)
+        if parameter_batch.ndim != 2 or parameter_batch.shape[1] != n_param_slots:
+            raise ValueError(
+                f"parameter_batch has {parameter_batch.shape[-1] if parameter_batch.ndim else 0} "
+                f"column(s) but base_circuit has {n_param_slots} parametric gate(s) (rx/ry/rz/p/u1/"
+                f"phase/cp/crz/cphase) -- one column per parametric gate, in gate-appearance order. "
+                f"A literal float passed for one of these gates is NOT exempt: it still consumes a "
+                f"positional column. A mismatch here used to be clipped silently by JAX's default "
+                f"out-of-bounds indexing instead of raising (issue #6)."
+            )
 
         template    = jnp.array(compiled_ops, dtype=jnp.float64)
         init_sv     = jnp.zeros(self.dim, dtype=jnp.complex128).at[0].set(1.0)
