@@ -5,9 +5,16 @@ ipywidgets, no plt.ioff()/plt.ion() (Streamlit doesn't need interactive
 mode toggling), figures returned for st.pyplot().
 
 Split out of the former monolithic dashboard_core.py (Phase 1 of the
-dashboard refactor) -- pure move, no behavior change. build_panel_fisica/
-mosaico/vqe_results/md_results still hardcode their own colors instead of
-using plot_theme.C/_ax_style -- addressed in Phase 2, not here.
+dashboard refactor). build_panel_fisica/vqe_results/md_results/performance
+(Phase 2) now reuse plot_theme.C's semantic colors wherever a hardcoded
+hex literal was an EXACT match (entropy/purity/grad/noise/theta/dom/accent)
+-- zero visual change, verified. Near-miss shades (close but not identical
+to a C[...] value, e.g. '#00e5ff' vs C['energy']='#00e0ff') were
+deliberately left as local literals rather than forced onto the "closest"
+C key, which would have been a real (if small) unauthorized color drift.
+build_panel_mosaico already had its own centralized art palette
+(BG_ART/PANEL_ART/CYAN_N/PINK_N/PURP_N/GOLD_N, moved in Phase 1) --
+intentionally distinct from C, not touched here.
 """
 
 from typing import Dict
@@ -21,8 +28,9 @@ from matplotlib.colors import Normalize
 import seaborn as sns
 
 from .plot_theme import (
-    C, MONO, _cmap_prob, _ax_style, _series_enhanced, _energy_enhanced,
+    C, MONO, _cmap_prob, _ax_style, _series_plot,
     _noise_profile_plot, _badge, BG_ART, PANEL_ART, CYAN_N, PINK_N, PURP_N, GOLD_N,
+    FIG_BG_DARK,
 )
 
 
@@ -91,7 +99,7 @@ def build_panel_overview(res: Dict, df_vqe: pd.DataFrame, corr_matrix: pd.DataFr
     bar_cols = _cmap_prob(norm_p(prob))
     ax_pb.bar(np.arange(n_states), prob,
               color=bar_cols, width=1.0, edgecolor='none', alpha=0.85)
-    ax_pb.bar(idx_max, prob_max, color='#ffffff', width=1.0,
+    ax_pb.bar(idx_max, prob_max, color=C['dom'], width=1.0,
               edgecolor='none', alpha=0.95, zorder=3)
     ax_pb.axhline(1.0 / n_states, color=C['label'],
                   lw=0.7, ls=':', alpha=0.55)
@@ -181,30 +189,33 @@ def build_panel_overview(res: Dict, df_vqe: pd.DataFrame, corr_matrix: pd.DataFr
     )
 
     # ROW 4 — VQE energy | entropy
-    _energy_enhanced(fig.add_subplot(gs[4, 0]), df_vqe)
-    _series_enhanced(fig.add_subplot(gs[4, 1]), df_vqe,
-                     'Entropy', C['entropy'],
-                     'Von Neumann Entropy', 'Epoch', 'S  (bit)')
+    _series_plot(fig.add_subplot(gs[4, 0]), df_vqe,
+                 'VQE_Energy', C['energy'], 'VQE Energy', 'Epoch', 'E  (Ha)',
+                 badge=True, badge_fmt='Eₙ={:.4g} Ha', mark_convergence=True)
+    _series_plot(fig.add_subplot(gs[4, 1]), df_vqe,
+                 'Entropy', C['entropy'],
+                 'Von Neumann Entropy', 'Epoch', 'S  (bit)',
+                 badge=True)
 
     # ROW 5 — purity | gradient
-    _series_enhanced(fig.add_subplot(gs[5, 0]), df_vqe,
-                     'Purity', C['purity'],
-                     'State Purity  Tr(ρ²)', 'Epoch', 'Tr(ρ²)',
-                     ref_line=1.0)
-    _series_enhanced(fig.add_subplot(gs[5, 1]), df_vqe,
-                     'Gradient', C['grad'],
-                     '‖∇L‖  Gradient Norm', 'Epoch', '‖∇L‖',
-                     detect_plateau=True)
+    _series_plot(fig.add_subplot(gs[5, 0]), df_vqe,
+                 'Purity', C['purity'],
+                 'State Purity  Tr(ρ²)', 'Epoch', 'Tr(ρ²)',
+                 badge=True, ref_line=1.0)
+    _series_plot(fig.add_subplot(gs[5, 1]), df_vqe,
+                 'Gradient', C['grad'],
+                 '‖∇L‖  Gradient Norm', 'Epoch', '‖∇L‖',
+                 badge=True, detect_plateau=True)
 
     # ROW 6 — noise factor | theta correction
-    _series_enhanced(fig.add_subplot(gs[6, 0]), df_vqe,
-                     'Noise_Factor', C['noise'],
-                     'Noise Factor', 'Epoch', 'Factor',
-                     ref_line=1.0)
-    _series_enhanced(fig.add_subplot(gs[6, 1]), df_vqe,
-                     'Theta_Correction', C['theta'],
-                     'θ  Correction', 'Epoch', 'Δθ  (rad)',
-                     ref_line=0.0)
+    _series_plot(fig.add_subplot(gs[6, 0]), df_vqe,
+                 'Noise_Factor', C['noise'],
+                 'Noise Factor', 'Epoch', 'Factor',
+                 badge=True, ref_line=1.0)
+    _series_plot(fig.add_subplot(gs[6, 1]), df_vqe,
+                 'Theta_Correction', C['theta'],
+                 'θ  Correction', 'Epoch', 'Δθ  (rad)',
+                 badge=True, ref_line=0.0)
 
     # ROW 7 — correlation heatmap (full width)
     ax_c = fig.add_subplot(gs[7, :])
@@ -268,13 +279,13 @@ def build_panel_fisica(res, seed: int = 42) -> plt.Figure:
     dim_vis = min(1024, len(probabilita))
     sv_vis = np.sqrt(probabilita[:dim_vis])
 
-    fig = plt.figure(figsize=(22, 12), facecolor='#010409')
+    fig = plt.figure(figsize=(22, 12), facecolor=FIG_BG_DARK)
 
     metrics = [
         (0.12, "S H A N N O N - E N T R O P Y", f"{shannon_entropy:.4f} b", "#b400ff"),
         (0.38, "C O N C U R R E N C E - I N D E X", f"{concurrence_val:.4f}", "#ff007f"),
         (0.62, "P E A K - P R O B A B I L I T Y", f"{prob_max*100:.2f}%", "#00c8ff"),
-        (0.88, "S P E C T R A L - D E V I A T I O N", f"{deviazione_spettrale:.5f}", "#00ff9d")
+        (0.88, "S P E C T R A L - D E V I A T I O N", f"{deviazione_spettrale:.5f}", C['accent'])
     ]
     for x, label, val, col in metrics:
         fig.text(x, 0.960, label, color='#7d8590', fontsize=10, ha='center', fontfamily='monospace')
@@ -289,7 +300,7 @@ def build_panel_fisica(res, seed: int = 42) -> plt.Figure:
     y_c = raggio * np.sin(angoli)
     z_c = sv_vis
     ax2.scatter(x_c, y_c, z_c, c=z_c, cmap='plasma', s=80, alpha=0.7, edgecolors='#f0f6fc', lw=0.1)
-    ax2.set_title("Topografia Tridimensionale delle Ampiezza d'Onda ($2^n$)", color='#00ff9d', fontsize=12, fontweight='bold', pad=10)
+    ax2.set_title("Topografia Tridimensionale delle Ampiezza d'Onda ($2^n$)", color=C['accent'], fontsize=12, fontweight='bold', pad=10)
     ax2.axis('off')
 
     ax3 = fig.add_axes([0.05, 0.10, 0.45, 0.38], projection='3d')
@@ -300,7 +311,7 @@ def build_panel_fisica(res, seed: int = 42) -> plt.Figure:
     ampiezza_onda = max(0.1, deviazione_spettrale * 5.0)
     Z = np.sin(R * frequenza_onda) * np.exp(-R * 0.3) * ampiezza_onda
     ax3.plot_surface(X, Y, Z, cmap='magma', alpha=0.85, antialiased=True, lw=0)
-    ax3.set_title("Onda di Risonanza e Spettro Coerenza Spaziale", color='#00ff9d', fontsize=12, fontweight='bold', pad=10)
+    ax3.set_title("Onda di Risonanza e Spettro Coerenza Spaziale", color=C['accent'], fontsize=12, fontweight='bold', pad=10)
     ax3.axis('off')
 
     ax1 = fig.add_subplot(2, 2, 1, projection='3d')
@@ -311,7 +322,7 @@ def build_panel_fisica(res, seed: int = 42) -> plt.Figure:
     dx = dy = 0.6
     dz = probabilita[:num_barre]
     ax1.bar3d(indici_barre, zero_base, zero_base, dx, dy, dz, color='#00c8ff', alpha=0.7, shade=True)
-    ax1.set_title("Distribuzione Vettoriale Primitivi Quantistici", color='#00ff9d', fontsize=12, fontweight='bold')
+    ax1.set_title("Distribuzione Vettoriale Primitivi Quantistici", color=C['accent'], fontsize=12, fontweight='bold')
     ax1.axis('off')
 
     return fig
@@ -396,16 +407,16 @@ def build_panel_vqe_results(df_vqe: pd.DataFrame) -> plt.Figure:
         ax.axis('off')
         return fig
 
-    fig, axes = plt.subplots(3, 2, figsize=(20, 20), facecolor='#010409')
-    fig.suptitle('VQE Optimization Results', color='#00ff9d', fontsize=24, fontweight='bold', fontfamily='monospace')
+    fig, axes = plt.subplots(3, 2, figsize=(20, 20), facecolor=FIG_BG_DARK)
+    fig.suptitle('VQE Optimization Results', color=C['accent'], fontsize=24, fontweight='bold', fontfamily='monospace')
 
     plots = [
         (axes[0, 0], 'VQE_Energy', '#00e5ff', 'VQE Energy per Epoch', 'Energy (Ha)'),
-        (axes[0, 1], 'Entropy', '#f43f7a', 'Entropy per Epoch', 'Entropy (bit)'),
-        (axes[1, 0], 'Purity', '#4ade80', 'Purity per Epoch', 'Purity'),
-        (axes[1, 1], 'Gradient', '#fbbf24', 'Gradient per Epoch', 'Gradient'),
-        (axes[2, 0], 'Noise_Factor', '#fb923c', 'Noise Factor per Epoch', 'Noise Factor'),
-        (axes[2, 1], 'Theta_Correction', '#a78bfa', 'Theta Correction per Epoch', 'Theta (rad)'),
+        (axes[0, 1], 'Entropy', C['entropy'], 'Entropy per Epoch', 'Entropy (bit)'),
+        (axes[1, 0], 'Purity', C['purity'], 'Purity per Epoch', 'Purity'),
+        (axes[1, 1], 'Gradient', C['grad'], 'Gradient per Epoch', 'Gradient'),
+        (axes[2, 0], 'Noise_Factor', C['noise'], 'Noise Factor per Epoch', 'Noise Factor'),
+        (axes[2, 1], 'Theta_Correction', C['theta'], 'Theta Correction per Epoch', 'Theta (rad)'),
     ]
     for ax, col, color, title, ylabel in plots:
         ax.plot(df_vqe.index, df_vqe[col], color=color, linewidth=2)
@@ -431,15 +442,15 @@ def build_panel_md_results(df_md: pd.DataFrame, corr_matrix: pd.DataFrame) -> pl
         ax.axis('off')
         return fig
 
-    fig = plt.figure(figsize=(22, 20), facecolor='#010409')
+    fig = plt.figure(figsize=(22, 20), facecolor=FIG_BG_DARK)
     gs = gridspec.GridSpec(3, 2, figure=fig, hspace=0.4, wspace=0.3)
-    fig.suptitle('Molecular Dynamics Simulation Results', color='#00ff9d', fontsize=24, fontweight='bold', fontfamily='monospace')
+    fig.suptitle('Molecular Dynamics Simulation Results', color=C['accent'], fontsize=24, fontweight='bold', fontfamily='monospace')
 
     plots = [
         (gs[0, 0], 'Energia_VQE_Ha', '#00e5ff', 'VQE Energy (Ha) during MD', 'Energy (Ha)'),
-        (gs[0, 1], 'Entropia_von_Neumann_Bit', '#f43f7a', 'Von Neumann Entropy (Bit) during MD', 'Entropy (Bit)'),
-        (gs[1, 0], 'Purita_Stato', '#4ade80', 'State Purity during MD', 'Purity'),
-        (gs[1, 1], 'Gradiente_Operatore', '#fbbf24', 'Operator Gradient during MD', 'Gradient'),
+        (gs[0, 1], 'Entropia_von_Neumann_Bit', C['entropy'], 'Von Neumann Entropy (Bit) during MD', 'Entropy (Bit)'),
+        (gs[1, 0], 'Purita_Stato', C['purity'], 'State Purity during MD', 'Purity'),
+        (gs[1, 1], 'Gradiente_Operatore', C['grad'], 'Operator Gradient during MD', 'Gradient'),
     ]
     for gs_cell, col, color, title, ylabel in plots:
         ax = fig.add_subplot(gs_cell)
@@ -455,7 +466,7 @@ def build_panel_md_results(df_md: pd.DataFrame, corr_matrix: pd.DataFrame) -> pl
         corr_matrix,
         annot=True, fmt='.2f', cmap='RdYlBu_r',
         ax=ax4,
-        linewidths=0.25, linecolor='#010409',
+        linewidths=0.25, linecolor=FIG_BG_DARK,
         annot_kws={'size': 8.5, 'color': '#dde4f5', 'fontfamily': 'monospace'},
         cbar_kws={'label': 'Pearson r', 'shrink': 0.72, 'pad': 0.01},
     )
@@ -509,7 +520,7 @@ def build_panel_performance(res: Dict, run_history: list) -> plt.Figure:
     """New panel (see module docstring above). Time/RAM per run from
     `run_history` (a list of dicts with at least 'nome', 'n_qubits',
     'tempo', 'ram' — the same fields already returned by run_simulation)."""
-    fig, axes = plt.subplots(1, 2, figsize=(20, 7), facecolor='#010409')
+    fig, axes = plt.subplots(1, 2, figsize=(20, 7), facecolor=FIG_BG_DARK)
 
     if not run_history:
         for ax in axes:

@@ -3,9 +3,9 @@ Shared matplotlib styling primitives: palette, axis styling, and the
 time-series plot helpers used across the panel builders.
 
 Split out of the former monolithic dashboard_core.py (Phase 1 of the
-dashboard refactor) -- pure move, no behavior change. _series_plot/
-_series_enhanced/_energy_enhanced's redundancy is addressed in Phase 2,
-not here.
+dashboard refactor). _series_plot/_series_enhanced/_energy_enhanced's
+former redundancy was unified into a single _series_plot (Phase 2) --
+same visual output, one parameterized function instead of three.
 """
 
 import numpy as np
@@ -48,6 +48,12 @@ PINK_N    = '#ff0055'
 PURP_N    = '#7a00ff'
 GOLD_N    = '#ffaa00'
 
+# Repeated across build_panel_fisica/vqe_results/md_results/performance's
+# plt.figure(facecolor=...) -- distinct from C['bg'] (a different literal
+# in the original), centralized here (Phase 2) as one named constant
+# instead of 5 duplicated string literals in panels.py.
+FIG_BG_DARK = '#010409'
+
 
 def _ax_style(ax, title='', xlabel='', ylabel='', spine_alpha=0.6):
     ax.set_facecolor(C['panel'])
@@ -83,8 +89,26 @@ def _badge(ax, text, color):
                       facecolor=C['bg'], edgecolor=C['border'], alpha=0.72))
 
 
-def _series_plot(ax, df, col, color, title, xlabel, ylabel, show_raw=True):
-    """Unified time-series: raw line + fill + rolling mean + last-value annotation."""
+def _series_plot(ax, df, col, color, title, xlabel, ylabel, *,
+                  show_raw=True, badge=False, badge_fmt='{:.4g}',
+                  ref_line=None, detect_plateau=False,
+                  mark_convergence=False):
+    """Unified time-series: raw line + fill + rolling mean + last-value
+    annotation, with optional badge / reference-line / barren-plateau-span /
+    convergence-marker overlays.
+
+    Unifies what used to be three near-duplicate functions (_series_plot,
+    which this absorbs, plus _series_enhanced and _energy_enhanced, Phase 2
+    of the dashboard refactor) into one parameterized function -- same
+    visual output as each of the three original call shapes:
+      - old _series_plot(...)                    == _series_plot(...) (defaults)
+      - old _series_enhanced(..., ref_line=X)     == _series_plot(..., badge=True, ref_line=X)
+      - old _energy_enhanced(ax, df)              == _series_plot(ax, df, 'VQE_Energy',
+                                                       C['energy'], 'VQE Energy', 'Epoch',
+                                                       'E  (Ha)', badge=True,
+                                                       badge_fmt='Eₙ={:.4g} Ha',
+                                                       mark_convergence=True)
+    """
     _ax_style(ax, title, xlabel, ylabel)
     if df.empty or col not in df.columns:
         ax.axis('off')
@@ -107,17 +131,10 @@ def _series_plot(ax, df, col, color, title, xlabel, ylabel, show_raw=True):
                 color=color, fontsize=7.5, fontweight='bold',
                 ha='right', **MONO)
 
+    x_f = df.index.to_numpy(dtype=float)
 
-def _series_enhanced(ax, df, col, color, title, xlabel, ylabel,
-                     ref_line=None, detect_plateau=False):
-    """_series_plot + badge + optional ref_line + optional barren-plateau span."""
-    _series_plot(ax, df, col, color, title, xlabel, ylabel)
-    if df.empty or col not in df.columns:
-        return
-    x  = df.index.to_numpy(dtype=float)
-    y  = df[col].values
-
-    _badge(ax, f'{y[-1]:.4g}', color)
+    if badge:
+        _badge(ax, badge_fmt.format(y[-1]), color)
 
     if ref_line is not None:
         ax.axhline(ref_line, color=color, lw=0.6, ls='--', alpha=0.28)
@@ -128,31 +145,21 @@ def _series_enhanced(ax, df, col, color, title, xlabel, ylabel,
         if _bp.sum() > 3:
             _edges = np.where(np.diff(_bp.astype(int)))[0]
             if len(_edges) >= 2:
-                ax.axvspan(x[_edges[0]], x[_edges[1]],
+                ax.axvspan(x_f[_edges[0]], x_f[_edges[1]],
                            alpha=0.11, color=C['warn'])
                 ax.text(
-                    (x[_edges[0]] + x[_edges[1]]) / 2,
+                    (x_f[_edges[0]] + x_f[_edges[1]]) / 2,
                     y.max() * 0.88,
                     'plateau', ha='center', fontsize=6.5,
                     color=C['warn'], alpha=0.80, **MONO,
                 )
 
-
-def _energy_enhanced(ax, df):
-    """VQE Energy with convergence-epoch marker (∇ minimum)."""
-    _series_plot(ax, df, 'VQE_Energy', C['energy'],
-                 'VQE Energy', 'Epoch', 'E  (Ha)')
-    if df.empty or 'VQE_Energy' not in df.columns:
-        return
-    x  = df.index.to_numpy(dtype=float)
-    y  = df['VQE_Energy'].values
-    _badge(ax, f'Eₙ={y[-1]:.4g} Ha', C['energy'])
-    if len(y) > 2:
+    if mark_convergence and len(y) > 2:
         _conv = int(np.argmin(np.gradient(y)))
-        ax.axvline(x[_conv], color=C['warn'], lw=0.8, ls=':', alpha=0.55)
+        ax.axvline(x_f[_conv], color=C['warn'], lw=0.8, ls=':', alpha=0.55)
         ax.annotate(
             f'∇min@{_conv}',
-            xy=(x[_conv], y[_conv]),
+            xy=(x_f[_conv], y[_conv]),
             xytext=(6, -14), textcoords='offset points',
             color=C['warn'], fontsize=7.0,
             arrowprops=dict(arrowstyle='-', color=C['warn'], lw=0.5),
