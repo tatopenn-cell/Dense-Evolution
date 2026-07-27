@@ -72,6 +72,24 @@ def test_run_simulation_with_noise(noisy_res):
     assert 0.0 <= noisy_res["fidelity"] <= 1.0 + 1e-6
 
 
+def test_run_simulation_noise_is_reproducible_from_seed():
+    # Regression guard: `seed` used to only reach np.random.seed() (which
+    # controls shot sampling), never NoiseModel.apply_to_sv's own
+    # randomness -- for a JAX statevector (the normal case here),
+    # apply_to_sv falls back to OS entropy unless `rng=`/`jax_key=` is
+    # passed explicitly, so two runs with the identical seed silently
+    # produced different noisy probability distributions. Found as a
+    # flaky test in test_mitigation_runner.py (same seed, different
+    # fidelity_per_scale on 2 of 3 runs) before being traced here.
+    kwargs = dict(source_mode="Libreria Built-in", circuit_name=BELL_CIRCUIT,
+                  qasm_text="", noise_model="depolarizing", noise_p=0.2,
+                  shots=64, seed=99, use_float32=True)
+    res_a = dc.run_simulation(**kwargs)
+    res_b = dc.run_simulation(**kwargs)
+    np.testing.assert_allclose(res_a["prob"], res_b["prob"])
+    assert res_a["fidelity"] == pytest.approx(res_b["fidelity"])
+
+
 def test_run_simulation_heavy_circuit_15q():
     res = dc.run_simulation("Libreria Built-in", "Error Mitigation (Real-Stress)", "", "bitflip", 0.05, 64, 42, use_float32=True)
     assert res["n_qubits"] == 15

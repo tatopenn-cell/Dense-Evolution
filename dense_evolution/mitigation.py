@@ -21,11 +21,13 @@ def richardson_extrapolate(expectation_values, noise_factors) -> jnp.ndarray:
     """Polynomial (Lagrange) Richardson extrapolation to zero noise.
 
     `expectation_values[i]` is the value measured/simulated at noise scale
-    `noise_factors[i]` (e.g. 1x, 2x, 3x folded/scaled noise). Returns the
-    extrapolated zero-noise estimate. Works for any number of points and
-    any (not necessarily equally spaced) noise factors; for the common
-    3-point case at noise_factors=(1,2,3) this reduces exactly to the
-    textbook coefficients (3, -3, 1).
+    `noise_factors[i]` (e.g. 1x, 2x, 3x folded/scaled noise) -- a scalar,
+    or itself an array (e.g. a full probability distribution sampled at
+    that noise scale; extrapolated elementwise). Returns the extrapolated
+    zero-noise estimate, same shape as one `expectation_values[i]`. Works
+    for any number of points and any (not necessarily equally spaced)
+    noise factors; for the common 3-point case at noise_factors=(1,2,3)
+    this reduces exactly to the textbook coefficients (3, -3, 1).
     """
     lambdas = jnp.asarray(noise_factors, dtype=jnp.float64)
     values = jnp.asarray(expectation_values, dtype=jnp.float64)
@@ -36,7 +38,14 @@ def richardson_extrapolate(expectation_values, noise_factors) -> jnp.ndarray:
         return jnp.prod((0.0 - others) / (lambdas[i] - others))
 
     coeffs = jnp.stack([lagrange_coeff(i) for i in range(n)])
-    return jnp.sum(coeffs * values)
+    # Broadcast coeffs against the LEADING axis of values (the "one row per
+    # noise scale" axis), not jnp's default trailing-axis alignment --
+    # values may itself be array-valued per scale (values.shape = (n,
+    # *extra_dims)), e.g. a whole probability distribution rather than a
+    # bare scalar. A no-op reshape when values is 1-D (the scalar case),
+    # so existing scalar callers are unaffected.
+    coeffs = coeffs.reshape((n,) + (1,) * (values.ndim - 1))
+    return jnp.sum(coeffs * values, axis=0)
 
 
 def zero_noise_extrapolation(expectation_values, noise_factors,

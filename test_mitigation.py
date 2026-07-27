@@ -25,6 +25,20 @@ def test_richardson_extrapolate_exact_on_linear_data():
     assert got == pytest.approx(a, abs=1e-9)
 
 
+def test_richardson_extrapolate_supports_vector_valued_expectation_values():
+    # expectation_values[i] doesn't have to be a scalar -- e.g. a full
+    # probability distribution sampled at noise scale i. Found via a real
+    # broadcasting bug: coeffs (shape (n,)) times a stacked (n, d) array
+    # relies on jnp's default trailing-axis alignment, which pairs (n,)
+    # against d, not n -- fails outright unless d happens to equal n.
+    rng = np.random.default_rng(1)
+    v1, v2, v3 = rng.normal(size=4), rng.normal(size=4), rng.normal(size=4)
+    got = np.asarray(richardson_extrapolate([v1, v2, v3], [1.0, 2.0, 3.0]))
+    expected = 3.0 * v1 - 3.0 * v2 + 1.0 * v3
+    np.testing.assert_allclose(got, expected, atol=1e-9)
+    assert got.shape == (4,)
+
+
 def test_zero_noise_extrapolation_without_sigma_matches_richardson_extrapolate():
     values, lambdas = [1.234, 0.876, 0.611], [1.0, 2.0, 3.0]
     plain = float(richardson_extrapolate(values, lambdas))

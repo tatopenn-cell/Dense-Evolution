@@ -256,8 +256,17 @@ def _run_simulation_body(source_mode, circuit_name, qasm_text, noise_model, nois
         else:
             _run(sim, comandi_beast_mode)
         if noise_p > 0:
+            # `rng=` matters here even though sim.sv is a JAX array: without
+            # it, NoiseModel.apply_to_sv falls back to OS entropy for the
+            # noise channel's randomness (see dense_evolution/registry.py's
+            # rng/jax_key docs), so two runs with the same `seed` produced
+            # different noisy results despite the seed parameter implying
+            # otherwise -- found via a flaky test that called this with a
+            # fixed seed and expected (and got, only sometimes) the same
+            # fidelity degradation curve.
             sim.sv = de.NoiseModel.apply_to_sv(
-                sv=sim.sv, n=n_qubits, model=noise_model, p=float(noise_p)
+                sv=sim.sv, n=n_qubits, model=noise_model, p=float(noise_p),
+                rng=np.random.default_rng(seed),
             )
         prob_noisy = sim.get_probabilities()
 

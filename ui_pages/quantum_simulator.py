@@ -60,6 +60,31 @@ def _render_sidebar() -> dict:
         seed = st.number_input("Seed", min_value=0, max_value=10_000, value=42, key="qs_seed")
         double_precision = st.checkbox("Doppia precisione (float64)", value=False, key="qs_precision")
 
+        st.header("🩹 Error Mitigation (ZNE)")
+        zne_enabled = st.checkbox(
+            "Abilita Zero-Noise Extrapolation", value=False, key="qs_zne_enabled",
+            disabled=(noise_model == 'ideal'),
+            help="Richiede un modello di rumore attivo -- non applicabile a 'ideal'.",
+        )
+        if noise_model == 'ideal' and zne_enabled:
+            st.caption("⚠️ ZNE disabilitato: nessun rumore da estrapolare con 'ideal'.")
+            zne_enabled = False
+        if zne_enabled:
+            zne_healing = st.checkbox(
+                "Healing predittivo (Δpre_emp-adapted)", value=False, key="qs_zne_healing",
+                help=(
+                    "Corregge i 3 coefficienti di Richardson in base alla deviazione di "
+                    "coerenza osservata (σ da shot-noise binomiale alla scala base), invece "
+                    "del ZNE standard a pesi fissi."
+                ),
+            )
+            zne_target_sigma = (
+                st.number_input("Target σ ideale", value=10.0, key="qs_zne_target_sigma")
+                if zne_healing else 10.0
+            )
+        else:
+            zne_healing, zne_target_sigma = False, 10.0
+
         st.header("🧪 VQE")
         vqe_enabled = st.checkbox("Abilita telemetria VQE", value=True, key="qs_vqe_enabled")
         if vqe_enabled:
@@ -129,6 +154,7 @@ def _render_sidebar() -> dict:
         engine=engine,
         noise_model=noise_model, noise_p=noise_p, shots=shots, seed=seed,
         double_precision=double_precision,
+        zne_enabled=zne_enabled, zne_healing=zne_healing, zne_target_sigma=zne_target_sigma,
         vqe_enabled=vqe_enabled, vqe_epochs=vqe_epochs, vqe_lr=vqe_lr,
         vqe_beta1=vqe_beta1, vqe_beta2=vqe_beta2, confirm_heavy_vqe=confirm_heavy_vqe,
         hamiltonian_values=hamiltonian_values, hamiltonian_name=hamiltonian_name,
@@ -148,6 +174,19 @@ def _execute_run(p: dict) -> None:
         except Exception as e:
             st.error(f"Errore durante l'esecuzione del circuito: {e}")
             return
+
+    mitigation_res = None
+    if p["zne_enabled"]:
+        with st.spinner("Mitigazione ZNE (3 scale di rumore)..."):
+            try:
+                mitigation_res = dc.run_mitigation_sweep(
+                    p["source_mode"], p["circuit_name"], p["qasm_text"], p["noise_model"],
+                    p["noise_p"], p["shots"], int(p["seed"]),
+                    use_float32=not p["double_precision"], engine=p["engine"],
+                    healing_enabled=p["zne_healing"], target_sigma_ideal=p["zne_target_sigma"],
+                )
+            except Exception as e:
+                st.error(f"Errore durante la mitigazione ZNE: {e}")
 
     df_vqe = pd.DataFrame()
     vqe_ai_meta = {'fallback_triggered': False, 'adaptive_radius_used': 0, 'reconstruction_error': 0.0}
@@ -232,11 +271,15 @@ def _execute_run(p: dict) -> None:
         perf_fig = dc.build_panel_performance(res, history)
         helix_fig = dc.build_3d_helix_patch(res['n_qubits'], res['prob'])
         ham_fig = dc.build_panel_hamiltonian(p["hamiltonian_values"], p["hamiltonian_name"] or 'nessuna')
+        mitigation_fig = dc.build_panel_mitigation(mitigation_res, res) if mitigation_res else None
 
         overview_png = io.BytesIO()
         overview_fig.savefig(overview_png, format="png", dpi=300, facecolor='#010409', bbox_inches='tight')
 
-        for fig in (overview_fig, fisica_fig, mosaico_fig, vqe_fig, md_fig, perf_fig, ham_fig):
+        figs_to_close = [overview_fig, fisica_fig, mosaico_fig, vqe_fig, md_fig, perf_fig, ham_fig]
+        if mitigation_fig is not None:
+            figs_to_close.append(mitigation_fig)
+        for fig in figs_to_close:
             plt.close(fig)
 
     st.session_state["qs_res"] = res
@@ -253,6 +296,7 @@ def _execute_run(p: dict) -> None:
         "hamiltonian": ham_fig,
         "performance": perf_fig,
         "helix": helix_fig,
+        "mitigation": mitigation_fig,
     }
 
 
@@ -266,7 +310,7 @@ def _render_tabs() -> None:
 
     run_history = st.session_state.get("qs_run_history", [])
 
-    tabs = st.tabs(["Overview", "Fisica Stato", "Mosaico", "VQE Results", "MD Results", "Performance", "3D Helix", "Hamiltonian"])
+    tabs = st.tabs(["Overview", "Fisica Stato", "Mosaico", "VQE Results", "MD Results", "Performance", "3D Helix", "Hamiltonian", "Mitigation (ZNE)"])
 
     with tabs[0]:
         render_ai_shield_card("AI Vector-Healing Shield — Telemetria VQE", panels["vqe_ai_meta"])
@@ -325,6 +369,12 @@ def _render_tabs() -> None:
             "Se nessuna Hamiltoniana personalizzata è abilitata nella sidebar, il VQE usa uno spettro "
             "casuale ordinato (comportamento di default, invariato)."
         )
+
+    with tabs[8]:
+        if panels.get("mitigation") is None:
+            st.info("Abilita ZNE nella sidebar e riesegui per vedere questo pannello.")
+        else:
+            st.pyplot(panels["mitigation"])
 
 
 def render():
