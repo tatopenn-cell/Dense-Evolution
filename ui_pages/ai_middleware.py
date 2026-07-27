@@ -12,6 +12,7 @@ statevector's flat probability array (2**n_qubits) does not.
 import pandas as pd
 
 from ia_utils.vector_healing import enhanced_dense_healing_hybrid
+from ui_pages.components import AI_SHIELD_NEUTRAL_META
 
 
 def heal_telemetry(df: pd.DataFrame):
@@ -19,11 +20,7 @@ def heal_telemetry(df: pd.DataFrame):
     (healed_df, metadata). Empty/None input passes through with a neutral
     metadata dict (no NaN-safety claim to make about zero rows)."""
     if df is None or df.empty:
-        return (df if df is not None else pd.DataFrame()), {
-            'fallback_triggered': False,
-            'adaptive_radius_used': 0,
-            'reconstruction_error': 0.0,
-        }
+        return (df if df is not None else pd.DataFrame()), dict(AI_SHIELD_NEUTRAL_META)
 
     healed_values, metadata = enhanced_dense_healing_hybrid(df.to_numpy(dtype=float))
     healed_df = pd.DataFrame(healed_values, columns=df.columns, index=df.index)

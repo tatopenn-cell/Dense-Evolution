@@ -22,7 +22,10 @@ import streamlit as st
 
 import dashboard_core as dc
 from ui_pages.ai_middleware import heal_telemetry
-from ui_pages.components import render_ai_shield_card, render_metric_grid
+from ui_pages.components import (
+    render_ai_shield_card, render_metric_grid, render_page_banner, render_run_guard,
+    AI_SHIELD_NEUTRAL_META,
+)
 
 
 def _render_sidebar() -> dict:
@@ -189,7 +192,7 @@ def _execute_run(p: dict) -> None:
                 st.error(f"Errore durante la mitigazione ZNE: {e}")
 
     df_vqe = pd.DataFrame()
-    vqe_ai_meta = {'fallback_triggered': False, 'adaptive_radius_used': 0, 'reconstruction_error': 0.0}
+    vqe_ai_meta = dict(AI_SHIELD_NEUTRAL_META)
     if p["vqe_enabled"]:
         if res['n_qubits'] > dc.QM_MM_HEAVY_QUBIT_THRESHOLD and not p["confirm_heavy_vqe"]:
             st.warning(
@@ -235,7 +238,7 @@ def _execute_run(p: dict) -> None:
                 log_container.code("\n".join(log_lines[-12:]), language="text")
 
     df_md, corr_matrix = pd.DataFrame(), pd.DataFrame()
-    md_ai_meta = {'fallback_triggered': False, 'adaptive_radius_used': 0, 'reconstruction_error': 0.0}
+    md_ai_meta = dict(AI_SHIELD_NEUTRAL_META)
     if p["md_enabled"]:
         with st.spinner("Telemetria MD..."):
             df_md, _raw_corr = dc.run_md_telemetry(p["md_steps"], p["md_temp"])
@@ -301,12 +304,13 @@ def _execute_run(p: dict) -> None:
 
 
 def _render_tabs() -> None:
-    res = st.session_state.get("qs_res")
-    panels = st.session_state.get("qs_panels")
-
-    if res is None or panels is None:
-        st.info("Configura il circuito nella sidebar e premi **Esegui Simulazione** per iniziare.")
+    guard = render_run_guard(
+        "qs_res", "qs_panels",
+        message="Configura il circuito nella sidebar e premi **Esegui Simulazione** per iniziare.",
+    )
+    if guard is None:
         return
+    res, panels = guard
 
     run_history = st.session_state.get("qs_run_history", [])
 
@@ -378,20 +382,11 @@ def _render_tabs() -> None:
 
 
 def render():
-    st.markdown(
-        """
-        <div style="padding: 1.25rem 1.5rem; border-radius: 0.75rem;
-                    background: linear-gradient(90deg, #0a0014, #1a0226);
-                    border: 1px solid #a78bfa44; margin-bottom: 1rem;">
-            <h1 style="margin: 0; color: #a78bfa;">Dense Evolution v8.1.7 — Quantum Simulator Dashboard</h1>
-            <p style="margin: 0.5rem 0 0 0; color: #cccccc;">
-                Esegui un circuito OpenQASM su <code>DenseSVSimulator</code>, opzionalmente con rumore,
-                telemetria VQE (JAX autodiff + forze QM/MM Hellmann-Feynman) e dinamica molecolare —
-                entrambe protette dallo stesso scudo AI Vector-Healing della pagina Vector Healing.
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    render_page_banner(
+        "Quantum Simulator Dashboard",
+        """Esegui un circuito OpenQASM su <code>DenseSVSimulator</code>, opzionalmente con rumore,
+        telemetria VQE (JAX autodiff + forze QM/MM Hellmann-Feynman) e dinamica molecolare —
+        entrambe protette dallo stesso scudo AI Vector-Healing della pagina Vector Healing.""",
     )
 
     params = _render_sidebar()

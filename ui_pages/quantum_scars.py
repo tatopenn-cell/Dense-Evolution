@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 import streamlit as st
 
 from dense_evolution.registry import NoiseModel
-from ui_pages.components import render_metric_grid
+from ui_pages.components import render_metric_grid, render_page_banner, render_run_guard, render_matplotlib_figure
 
 DT_CHUNK = 0.2
 N_CHUNK = 100
@@ -146,24 +146,16 @@ def _run_experiment(pxp, n_trajectories, noise_p, protection, weight_threshold, 
 
 
 def render():
-    st.markdown(
-        """
-        <div style="padding: 1.25rem 1.5rem; border-radius: 0.75rem;
-                    background: linear-gradient(90deg, #001014, #012026);
-                    border: 1px solid #00e5ff44; margin-bottom: 1rem;">
-            <h1 style="margin: 0; color: #00e5ff;">Dense Evolution v8.1.22 — Quantum Many-Body Scars: PXP Live Demo</h1>
-            <p style="margin: 0.5rem 0 0 0; color: #cccccc;">
-                Dinamica esatta del modello PXP (blocco di Rydberg), lo stesso sistema usato per
-                validare la pipeline di verifica nell'indagine
-                <a href="https://github.com/tatopenn-cell/Dense-Evolution-Ising-Tests/tree/main/scripts/quantum_scar_investigation"
-                   style="color:#00e5ff;" target="_blank">quantum_scar_investigation</a>.
-                Parte dallo stato di Néel, inietta rumore reale
-                (<code>dense_evolution.registry.NoiseModel.apply_to_sv</code>, media su più
-                traiettorie quantistiche) e confronta i revival di fedeltà con/senza protezione.
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    render_page_banner(
+        "Quantum Many-Body Scars: PXP Live Demo",
+        """Dinamica esatta del modello PXP (blocco di Rydberg), lo stesso sistema usato per
+        validare la pipeline di verifica nell'indagine
+        <a href="https://github.com/tatopenn-cell/Dense-Evolution-Ising-Tests/tree/main/scripts/quantum_scar_investigation"
+           style="color:#00e5ff;" target="_blank">quantum_scar_investigation</a>.
+        Parte dallo stato di Néel, inietta rumore reale
+        (<code>dense_evolution.registry.NoiseModel.apply_to_sv</code>, media su più
+        traiettorie quantistiche) e confronta i revival di fedeltà con/senza protezione.""",
+        accent="#00e5ff", bg_from="#001014", bg_to="#012026",
     )
 
     with st.sidebar:
@@ -202,9 +194,11 @@ def render():
             "valid_dim": pxp["valid_dim"], "dim": pxp["dim"], "tower_ceiling": pxp["tower_ceiling"],
         }
 
-    result = st.session_state.get("scar_result")
+    result = render_run_guard(
+        "scar_result",
+        message="Configura i parametri nella sidebar e premi **Esegui esperimento** per iniziare.",
+    )
     if result is None:
-        st.info("Configura i parametri nella sidebar e premi **Esegui esperimento** per iniziare.")
         return
 
     render_metric_grid([
@@ -230,8 +224,7 @@ def render():
         ax.set_title("Revival della scar PXP")
         ax.legend(loc="upper right")
         ax.grid(alpha=0.2)
-        st.pyplot(fig)
-        plt.close(fig)
+        render_matplotlib_figure(fig)
 
     st.caption(
         "Report completo dell'indagine (inclusa la scar smentita nell'Ising frustrato, "

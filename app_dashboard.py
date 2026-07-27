@@ -1,5 +1,5 @@
 """
-Dense Evolution v8.1.7 - Interactive Dashboard (entrypoint)
+Dense Evolution - Interactive Dashboard (entrypoint)
 ------------------------------------------------------------
 Two pages sharing one AI vector-healing engine:
   - Quantum Simulator (ui_pages/quantum_simulator.py): circuit execution,
@@ -12,12 +12,13 @@ Run with:
     streamlit run app_dashboard.py
 """
 
+import dense_evolution
 import streamlit as st
 
 from ui_pages import quantum_simulator, vector_healing, quantum_scars
 
 st.set_page_config(
-    page_title="Dense Evolution v8.1.7 - Dashboard",
+    page_title=f"Dense Evolution v{dense_evolution.__version__} - Dashboard",
     page_icon="🧬",
     layout="wide",
 )

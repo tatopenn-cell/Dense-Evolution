@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import streamlit as st
 
 from ia_utils.vector_healing import enhanced_dense_healing_hybrid
-from ui_pages.components import render_ai_shield_card
+from ui_pages.components import render_ai_shield_card, render_page_banner, render_run_guard, render_matplotlib_figure
 
 HIDDEN_DIM = 6
 
@@ -40,24 +40,16 @@ def _generate_corrupted_sequence(n_steps, hidden_dim, anomaly_pct, rng):
 
 
 def render():
-    st.markdown(
-        """
-        <div style="padding: 1.25rem 1.5rem; border-radius: 0.75rem;
-                    background: linear-gradient(90deg, #001014, #012026);
-                    border: 1px solid #00e5ff44; margin-bottom: 1rem;">
-            <h1 style="margin: 0; color: #00e5ff;">Dense Evolution v8.1.9 — AI Vector Healing Dashboard</h1>
-            <p style="margin: 0.5rem 0 0 0; color: #cccccc;">
-                <code>ia_utils.vector_healing.enhanced_dense_healing_hybrid</code> è uno scudo anti-crash
-                per sequenze di vettori (es. hidden states): ripulisce <code>NaN</code>/<code>Inf</code>,
-                poi decide passo per passo — tramite la logica Φ-trigger di
-                <code>dense_evolution.healing</code> — se il valore fa parte di un cambio di tendenza
-                genuino (lasciato passare) o di uno spike isolato/rumore (sostituito con la mediana
-                locale). Lo stesso scudo protegge in produzione anche la telemetria VQE/MD del Quantum
-                Simulator.
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    render_page_banner(
+        "AI Vector Healing Dashboard",
+        """<code>ia_utils.vector_healing.enhanced_dense_healing_hybrid</code> è uno scudo anti-crash
+        per sequenze di vettori (es. hidden states): ripulisce <code>NaN</code>/<code>Inf</code>,
+        poi decide passo per passo — tramite la logica Φ-trigger di
+        <code>dense_evolution.healing</code> — se il valore fa parte di un cambio di tendenza
+        genuino (lasciato passare) o di uno spike isolato/rumore (sostituito con la mediana
+        locale). Lo stesso scudo protegge in produzione anche la telemetria VQE/MD del Quantum
+        Simulator.""",
+        accent="#00e5ff", bg_from="#001014", bg_to="#012026",
     )
 
     with st.sidebar:
@@ -80,10 +72,11 @@ def render():
             "n_steps": n_steps,
         }
 
-    result = st.session_state.get("healing_result")
-
+    result = render_run_guard(
+        "healing_result",
+        message="Configura i parametri nella sidebar e premi **Genera ed Esegui Healing** per iniziare.",
+    )
     if result is None:
-        st.info("Configura i parametri nella sidebar e premi **Genera ed Esegui Healing** per iniziare.")
         return
 
     ideal, corrupted, healed, metadata = (
@@ -116,5 +109,4 @@ def render():
         ax.legend(loc="upper right")
         ax.grid(alpha=0.2)
 
-        st.pyplot(fig)
-        plt.close(fig)
+        render_matplotlib_figure(fig)
