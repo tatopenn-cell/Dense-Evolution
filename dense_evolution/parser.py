@@ -526,14 +526,19 @@ class QASMParser:
         `{'__builtins__': {}}` entirely), fixed in this version.
 
         Handles: numeric literals, pi, pi/2, sqrt(2), cos(0.3), etc.
-        Returns 0.0 on any evaluation error (silent fallback) — same
-        contract as before, unrelated inputs behave identically.
+        Raises ValueError on anything else — malformed expressions (e.g.
+        'pi * / 2') and disallowed/malicious expressions alike. Used to
+        silently return 0.0 on any evaluation error instead; that hid a
+        typo as a *different, valid* circuit (rx(0) instead of an error)
+        with no signal anything was wrong — the same class of
+        silent-wrong-behavior issue already fixed for unknown gate names
+        and mismatched parameter batches (issues #4/#6).
         """
         try:
             tree = ast.parse(tok, mode='eval')
             return float(self._eval_ast_node(tree, self._MATH_ENV))
-        except Exception:
-            return 0.0
+        except Exception as e:
+            raise ValueError(f"Invalid gate parameter expression '{tok}': {e}") from e
 
     @staticmethod
     def _split_params(s: str) -> List[str]:

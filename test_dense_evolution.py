@@ -1203,19 +1203,26 @@ class TestParserEvalSecurity:
 
     @pytest.mark.parametrize('payload', _ESCAPE_PAYLOADS)
     def test_eval_param_blocks_sandbox_escapes(self, payload):
-        assert QASMParser()._eval_param(payload) == 0.0
+        # _eval_param used to swallow every rejected expression into a
+        # silent 0.0 (same fallback a genuine typo like 'pi * / 2' hit
+        # too); it now raises ValueError instead -- still structurally
+        # blocked (the AST whitelist never reaches these nodes), just
+        # explicit about it instead of silent, same as a malformed
+        # expression from a typo.
+        with pytest.raises(ValueError):
+            QASMParser()._eval_param(payload)
 
     @pytest.mark.parametrize('payload', _ESCAPE_PAYLOADS)
     def test_resolve_int_expr_blocks_sandbox_escapes(self, payload):
         assert QASMParser()._resolve_int_expr(payload, {}) is None
 
-    def test_original_exploit_through_full_parse_returns_silent_zero(self):
+    def test_original_exploit_through_full_parse_raises(self):
         # end-to-end through the actual public entry point, not just the
         # internal method directly
         qasm = ('OPENQASM 3.0; qubit[1] q; '
                 'rx(().__class__.__bases__[0].__subclasses__().__len__()) q[0];')
-        circ = QASMParser().parse(qasm)
-        assert circ.ops[0]['params'] == [0.0]
+        with pytest.raises(ValueError):
+            QASMParser().parse(qasm)
 
     def test_original_exploit_in_for_loop_bound_yields_no_ops(self):
         qasm = ('OPENQASM 3.0; qubit[1] q; '
@@ -1233,6 +1240,22 @@ class TestParserEvalSecurity:
     ])
     def test_legitimate_expressions_unchanged(self, expr, expected):
         assert QASMParser()._eval_param(expr) == pytest.approx(expected)
+
+    @pytest.mark.parametrize('malformed', [
+        'pi * / 2', 'pi +', '(pi', 'pi 2', '**pi', 'pi // 2',
+    ])
+    def test_malformed_expression_raises_instead_of_silent_zero(self, malformed):
+        # Found via an external code-review report, reproduced directly:
+        # 'rx(pi * / 2) q[0];' used to parse successfully and silently
+        # produce rx(0.0) -- a different, valid circuit, no signal a typo
+        # happened. Now raises instead of hiding the mistake.
+        with pytest.raises(ValueError):
+            QASMParser()._eval_param(malformed)
+
+    def test_malformed_expression_through_full_parse_raises(self):
+        qasm = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[1]; rx(pi * / 2) q[0];'
+        with pytest.raises(ValueError):
+            QASMParser().parse(qasm)
 
     def test_legitimate_for_loop_bounds_unchanged(self):
         qasm = 'qreg q[3]; int n = 3; for int i in [0:n-1] { x q[i]; }'

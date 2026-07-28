@@ -4,6 +4,7 @@ pyproject.toml
 dashboard_core/__init__.py
 dashboard_core/hamiltonians.py
 dashboard_core/helix_3d.py
+dashboard_core/interactive_panel.py
 dashboard_core/md_telemetry.py
 dashboard_core/metrics.py
 dashboard_core/mitigation_panel.py

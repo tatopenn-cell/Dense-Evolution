@@ -10,6 +10,7 @@ streamlit>=1.30.0
 plotly>=5.0.0
 pandas>=1.5.0
 seaborn>=0.12.0
+ipywidgets>=8.0.0
 
 [full]
 cupy-cuda12x>=12.0.0
