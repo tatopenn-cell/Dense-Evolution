@@ -33,6 +33,7 @@ from .helix_3d import build_3d_helix_patch
 from .provenance import run_benchmark_scan, build_provenance_json
 from .mitigation_runner import run_mitigation_sweep
 from .mitigation_panel import build_panel_mitigation
+from .interactive_panel import launch_interactive_panel
 
 __all__ = [
     'QASM_LIBRARY', 'infer_qubit_count_from_qasm',
@@ -47,4 +48,5 @@ __all__ = [
     'build_3d_helix_patch',
     'run_benchmark_scan', 'build_provenance_json',
     'run_mitigation_sweep', 'build_panel_mitigation',
+    'launch_interactive_panel',
 ]

@@ -239,9 +239,19 @@ def _execute_run(p: dict) -> None:
 
     df_md, corr_matrix = pd.DataFrame(), pd.DataFrame()
     md_ai_meta = dict(AI_SHIELD_NEUTRAL_META)
+    md_is_real, md_note = False, ''
     if p["md_enabled"]:
         with st.spinner("Telemetria MD..."):
-            df_md, _raw_corr = dc.run_md_telemetry(p["md_steps"], p["md_temp"])
+            # Real dynamics under p["hamiltonian_values"] when it's compatible
+            # with this circuit's statevector; otherwise run_md_telemetry
+            # falls back to the labeled mock itself (see md_telemetry.py).
+            df_md, _raw_corr = dc.run_md_telemetry(
+                p["md_steps"], p["md_temp"],
+                hamiltonian_values=p["hamiltonian_values"], sv=res['sim'].sv,
+                n_qubits=res['n_qubits'], seed=int(p["seed"]),
+            )
+            md_is_real = df_md.attrs.get('is_real', False)
+            md_note = df_md.attrs.get('note', '')
             df_md, md_ai_meta = heal_telemetry(df_md)
             corr_matrix = df_md.corr(method="pearson")  # recomputed from the healed data, not the raw one
 
@@ -290,6 +300,8 @@ def _execute_run(p: dict) -> None:
         "metrics": metrics,
         "vqe_ai_meta": vqe_ai_meta,
         "md_ai_meta": md_ai_meta,
+        "md_is_real": md_is_real,
+        "md_note": md_note,
         "overview": overview_fig,
         "overview_png": overview_png.getvalue(),
         "fisica": fisica_fig,
@@ -339,6 +351,10 @@ def _render_tabs() -> None:
         st.pyplot(panels["vqe"])
 
     with tabs[4]:
+        if panels.get("md_is_real"):
+            st.success(f"● DATI REALI — {panels.get('md_note', '')}")
+        else:
+            st.warning(f"● MOCK — {panels.get('md_note', '')}")
         render_ai_shield_card("AI Vector-Healing Shield — Telemetria MD", panels["md_ai_meta"])
         st.pyplot(panels["md"])
 

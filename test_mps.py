@@ -131,6 +131,93 @@ def test_toffoli_matches_classical_truth_table():
     assert prob[0b111] == pytest.approx(1.0, abs=1e-6)
 
 
+# ── regression: _apply_nonlocal_2q used to invert ctrl/tgt when q1 > q2 ──
+# (found via an external code review, independently reproduced and fixed;
+# apply_gate_2q's adjacent-qubit branch already normalized q1>q2 -- the
+# non-adjacent SWAP-chain branch didn't, silently swapping which qubit was
+# control vs target for any non-adjacent gate called with q1 > q2)
+
+def test_nonlocal_2q_gate_ctrl_greater_than_tgt():
+    n = 4
+    mps = MPSSimulator(n_qubits=n, max_bond=16)
+    mps.apply_gate_1q(H_GATE, 3)
+    mps.apply_cx(3, 0)  # non-adjacent, ctrl(3) > tgt(0)
+    sv = mps.contract_to_statevector()
+    prob = np.abs(sv) ** 2
+    # H on q3 then CX(ctrl=3,tgt=0): entangles q3/q0, q1/q2 stay |0>
+    assert prob[0b0000] == pytest.approx(0.5, abs=1e-9)
+    assert prob[0b1001] == pytest.approx(0.5, abs=1e-9)
+
+
+def test_nonlocal_2q_gate_ctrl_greater_than_tgt_matches_dense_simulator():
+    n = 5
+    ops = [["h", 0, -1], ["h", 2, -1],
+           ["cx", 4, 0],   # non-adjacent, ctrl > tgt -- the buggy case
+           ["cx", 3, 1],   # non-adjacent, ctrl > tgt -- again
+           ["cx", 0, 4]]   # non-adjacent, ctrl < tgt, for contrast
+    sim = de.DenseSVSimulator(n_qubits=n, use_gpu=False, use_float32=False)
+    sim.run_circuit_jit_beast_mode(ops)
+    prob_dense = np.array(sim.get_probabilities())
+
+    mps = MPSSimulator(n_qubits=n, max_bond=16)
+    mps.apply_gate_1q(H_GATE, 0)
+    mps.apply_gate_1q(H_GATE, 2)
+    mps.apply_cx(4, 0)
+    mps.apply_cx(3, 1)
+    mps.apply_cx(0, 4)
+    prob_mps = np.abs(mps.contract_to_statevector()) ** 2
+
+    tvd = 0.5 * np.sum(np.abs(prob_dense - prob_mps))
+    assert tvd < 1e-6, f"TVD={tvd} -- MPS diverged from DenseSVSimulator on ctrl>tgt non-adjacent gates"
+
+
+def test_ghz_via_out_of_order_nonlocal_cnots():
+    # Exact repro of the originally-reported bug: H(0), then three
+    # non-adjacent CNOTs where the middle one has ctrl > tgt.
+    n = 4
+    mps = MPSSimulator(n_qubits=n, jsd_budget=1e-6)
+    mps.apply_gate_1q(H_GATE, 0)
+    mps.apply_cx(0, 3)
+    mps.apply_cx(3, 1)  # non-adjacent, ctrl > tgt -- the reported bug
+    mps.apply_cx(1, 2)
+    prob = np.abs(mps.contract_to_statevector()) ** 2
+    assert prob[0b0000] == pytest.approx(0.5, abs=1e-6)
+    assert prob[0b1111] == pytest.approx(0.5, abs=1e-6)
+    assert np.sum(prob) == pytest.approx(1.0, abs=1e-6)
+
+
+@pytest.mark.parametrize("use_float64", [False, True])
+def test_nonlocal_2q_gate_ctrl_greater_than_tgt_both_dtypes(use_float64):
+    import jax
+    previous = jax.config.jax_enable_x64
+    jax.config.update("jax_enable_x64", use_float64)
+    try:
+        n = 4
+        mps = MPSSimulator(n_qubits=n, max_bond=16)
+        mps.apply_gate_1q(H_GATE, 3)
+        mps.apply_cx(3, 0)
+        prob = np.abs(mps.contract_to_statevector()) ** 2
+        assert prob[0b0000] == pytest.approx(0.5, abs=1e-6)
+        assert prob[0b1001] == pytest.approx(0.5, abs=1e-6)
+    finally:
+        jax.config.update("jax_enable_x64", previous)
+
+
+def test_toffoli_non_adjacent_unordered_controls():
+    # apply_ccx composes from apply_cx calls that aren't guaranteed
+    # adjacent-and-increasing -- exercises _apply_nonlocal_2q for a real
+    # 3-qubit gate, not just a raw CNOT.
+    n = 4
+    mps = MPSSimulator(n_qubits=n, max_bond=16)
+    x = np.array([[0, 1], [1, 0]], dtype=complex)
+    mps.apply_gate_1q(x, 3)
+    mps.apply_gate_1q(x, 0)
+    mps.apply_ccx(3, 0, 1)  # controls at 3 and 0 (non-adjacent, unordered), target 1
+    prob = np.abs(mps.contract_to_statevector()) ** 2
+    # controls q3=1,q0=1 -> target q1 flips 0->1; q2 stays 0 -> |1101>
+    assert prob[0b1101] == pytest.approx(1.0, abs=1e-6)
+
+
 # ── the actual regression check: cross-validation vs DenseSVSimulator ────
 
 def test_matches_dense_simulator_on_entangling_circuit():

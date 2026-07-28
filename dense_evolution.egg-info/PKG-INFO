@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: dense-evolution
-Version: 8.1.11
+Version: 8.1.32
 Summary: Micro-optimized High-Performance NISQ Statevector Quantum Circuit Simulator (Hardware-Adaptive Integration of Native NumPy, CUDA-Accelerated CuPy, and Linear Kernel Fusion via JAX JIT/XLA Compilation)
 Author-email: Salvatore Pennacchio <jtatopenn@libero.it>
 License: Business Source License 1.1
@@ -27,6 +27,8 @@ Requires-Dist: numpy>=1.22.0
 Requires-Dist: matplotlib>=3.5.0
 Requires-Dist: psutil>=5.9.0
 Requires-Dist: scipy>=1.9.0
+Requires-Dist: jax>=0.4.0
+Requires-Dist: jaxlib>=0.4.0
 Provides-Extra: jax
 Requires-Dist: jax>=0.4.0; extra == "jax"
 Requires-Dist: jaxlib>=0.4.0; extra == "jax"
@@ -37,14 +39,18 @@ Requires-Dist: streamlit>=1.30.0; extra == "dashboard"
 Requires-Dist: plotly>=5.0.0; extra == "dashboard"
 Requires-Dist: pandas>=1.5.0; extra == "dashboard"
 Requires-Dist: seaborn>=0.12.0; extra == "dashboard"
+Provides-Extra: qiskit
+Requires-Dist: qiskit>=1.0.0; extra == "qiskit"
+Provides-Extra: pennylane
+Requires-Dist: pennylane>=0.35.0; extra == "pennylane"
 Provides-Extra: full
-Requires-Dist: jax>=0.4.0; extra == "full"
-Requires-Dist: jaxlib>=0.4.0; extra == "full"
 Requires-Dist: cupy-cuda12x>=12.0.0; extra == "full"
 Requires-Dist: streamlit>=1.30.0; extra == "full"
 Requires-Dist: plotly>=5.0.0; extra == "full"
 Requires-Dist: pandas>=1.5.0; extra == "full"
 Requires-Dist: seaborn>=0.12.0; extra == "full"
+Requires-Dist: qiskit>=1.0.0; extra == "full"
+Requires-Dist: pennylane>=0.35.0; extra == "full"
 Dynamic: license-file
 
 ```
@@ -91,10 +97,14 @@ A Streamlit dashboard (`app_dashboard.py`) provides live telemetry across 8 pane
 ## ▍ Install
 
 ```bash
-pip install dense-evolution
+pip install dense-evolution  # JAX is a core dependency, installed by default
 
-# full stack: JAX · GPU · dashboard
+# full stack: GPU · dashboard · Qiskit/PennyLane interop
 pip install dense-evolution[full]
+
+# just the interop bridge
+pip install dense-evolution[qiskit]
+pip install dense-evolution[pennylane]
 
 # development
 git clone https://github.com/tatopenn-cell/Dense-Evolution.git
@@ -139,7 +149,7 @@ sv    = sim.get_statevector()
 **Dashboard (local, Streamlit):**
 
 ```bash
-pip install "dense-evolution[jax,dashboard]"
+pip install "dense-evolution[dashboard]"  # JAX already included by default
 streamlit run app_dashboard.py
 ```
 
@@ -321,7 +331,7 @@ Backward-compatibility aliases: `chunk1 = MemoryChunker`, `chunk2 = Chunk`, `Chu
 from ia_utils.vector_healing import median_healing, enhanced_dense_healing_hybrid
 
 healed, radius   = median_healing(vettori, radius_baseline=None)
-healed, metadata = enhanced_dense_healing_hybrid(vettori, radius_baseline=None, median_fallback_threshold=0.1)
+healed, metadata = enhanced_dense_healing_hybrid(vettori, radius_baseline=None)
 ```
 
 See **IA Utils — Vector Sequence Healing** above for details.
@@ -360,6 +370,69 @@ See **IA Utils — Vector Sequence Healing** above for details.
 
 ---
 
+## ▍ Interop — Qiskit / PennyLane
+
+Run a circuit you already wrote in Qiskit or PennyLane on Dense-Evolution's simulator, no manual gate-by-gate rewrite. Both bridges go through OpenQASM 2.0 (`qiskit.qasm2.dumps` / `qml.to_openqasm`) and the existing `QASMParser` — not a bespoke translator, so gate coverage matches whatever the parser/simulator already support (see Gate Library above).
+
+```python
+from qiskit import QuantumCircuit
+from dense_evolution import run_qiskit_circuit
+
+qc = QuantumCircuit(2)
+qc.h(0)
+qc.cx(0, 1)
+
+sim, probs = run_qiskit_circuit(qc)   # probs already in Qiskit's own bit order
+```
+
+```python
+import pennylane as qml
+from dense_evolution import run_pennylane_circuit
+
+dev = qml.device("default.qubit", wires=2)
+
+@qml.qnode(dev)
+def circuit():
+    qml.Hadamard(wires=0)
+    qml.CNOT(wires=[0, 1])
+    return qml.probs(wires=[0, 1])
+
+sim, probs = run_pennylane_circuit(circuit)   # no reordering needed, see below
+```
+
+`from_qiskit(circuit)` / `from_pennylane(circuit)` return a `QASMCircuit` (structural conversion only) for anyone who wants to manage their own `DenseSVSimulator`/`Chunk` instead of the convenience runners above.
+
+**Bit-order — read this before comparing arrays across frameworks.** Qiskit indexes probability/statevector arrays little-endian (qubit 0 = least-significant bit); Dense-Evolution indexes MSB-first everywhere (`phys = n_qubits - 1 - qubit`, the same convention `apply_gate_1q`/`apply_gate_2q`/`measure`/beast-mode use). `run_qiskit_circuit` reorders its output into Qiskit's own convention so it's directly comparable to `Statevector(circuit).probabilities()`. PennyLane's own wire convention already matches Dense-Evolution's MSB-first indexing natively — `run_pennylane_circuit` does **not** reorder, on purpose; verified directly on an asymmetric circuit that the two frameworks genuinely need different treatment here, not just "symmetric for simplicity."
+
+**Known limits** (inherited from the QASM2 bridge, not something this layer works around):
+- No classical control flow — `if`/`while` and mid-circuit-measurement-conditioned gates are parsed out, not executed (same limitation as native QASM3 circuits, see Changelog v8.1.13).
+- No expansion of composite/custom gates. A Qiskit call like `mcx` with 3+ controls gets exported as a named `gate mcx { ... }` definition; the definition is parsed cleanly (no longer corrupts what follows it) but the gate itself isn't a primitive Dense-Evolution knows how to execute, so a call to it is a silent no-op — same as referencing any unrecognized gate name elsewhere in this simulator. Stick to the gates in the Gate Library table above for results you can trust.
+- Only a plugin/backend-free bridge — no `qiskit.providers.BackendV2` or PennyLane `Device` registration, so you still call `run_qiskit_circuit`/`run_pennylane_circuit` explicitly rather than pointing existing framework code at a new backend/device string.
+- **`run_qiskit_circuit`/`run_pennylane_circuit` themselves are not differentiable.** `from_pennylane`/`from_qiskit` materialize every gate parameter into a plain Python `float` inside the QASM text before parsing — the value leaves the JAX trace entirely. `jax.grad` through `run_pennylane_circuit` does **not** raise: it silently returns `0.0`, which looks like "already converged" rather than "not wired up." Verified directly, not just documented from a guess. **For a real gradient, use `circuit_to_energy_fn` instead** (see next section) — pass it the `QASMCircuit` that `from_qiskit`/`from_pennylane` returns, before that float-baking happens, and `jax.grad` works correctly (also verified directly, on a PennyLane circuit imported this exact way).
+
+---
+
+## ▍ Differentiable Circuits — `circuit_to_energy_fn`
+
+The real VQE gradient engine (`jax.value_and_grad` through a `jax.lax.scan`-based circuit template, verified against finite differences to ~1e-11) used to live only inside `dashboard_core.py`, unreachable from outside the Streamlit app. It's now public, dependency-light (needs only the base `dense-evolution` install, no dashboard/pandas/streamlit), and composes directly with the interop bridge above:
+
+```python
+import jax
+from dense_evolution import QASMParser, circuit_to_energy_fn
+
+circ = QASMParser().parse("OPENQASM 2.0; include \"qelib1.inc\"; qreg q[1]; rx(0.5) q[0];")
+energy_fn, n_params = circuit_to_energy_fn(circ, circ.n_qubits)
+
+h_matrix = ...  # your Hamiltonian, shape (2**n_qubits, 2**n_qubits)
+theta = jax.numpy.zeros(n_params)
+
+(energy, statevector), grad = jax.value_and_grad(energy_fn, argnums=0, has_aux=True)(theta, h_matrix)
+```
+
+`energy_fn(theta, h_matrix, stato_zero=None) -> (energy, statevector)` is a pure JAX function differentiable in `theta`; `stato_zero` defaults to `|0...0⟩`. `circuit` can come from `QASMParser.parse`, `from_qiskit`, or `from_pennylane` interchangeably — this is what closes the interop bridge's non-differentiability gap noted above.
+
+---
+
 ## ▍ Noise Models
 
 All channels applied as post-circuit stochastic Kraus operations on the full statevector.
@@ -375,6 +448,29 @@ All channels applied as post-circuit stochastic Kraus operations on the full sta
 
 Fidelity metrics computed on every noisy run: Bhattacharyya `F = Σᵢ √(pᵢqᵢ)` and TVD `= ½Σᵢ|pᵢ−qᵢ|`.
 
+**Native integration with `circuit_to_energy_fn` via `NoiseSpec`.** Applying noise used to mean stepping outside the traced circuit computation: build the ideal statevector, exit the trace, call `apply_to_sv` separately, manage a PRNG key by hand around the training loop. `NoiseSpec` is a real JAX PyTree (`model`/`qubits` static, `p`/`jax_key` as leaves) that `circuit_to_energy_fn`'s `energy_fn` accepts directly as a fourth argument — noise is applied natively, in the same traced graph as `theta`, fully `jax.jit`/`jax.grad`/`jax.vmap`-composable:
+
+```python
+import jax
+from dense_evolution import QASMParser, circuit_to_energy_fn, NoiseSpec
+
+energy_fn, n_params = circuit_to_energy_fn(circuit, n_qubits)
+noise = NoiseSpec(model='depolarizing', p=0.05, jax_key=jax.random.PRNGKey(0))
+
+energy, sv = energy_fn(theta, h_matrix, noise=noise)          # applied inline
+energy, sv = jax.jit(energy_fn)(theta, h_matrix, None, noise) # jit-compatible
+grad = jax.grad(lambda t: energy_fn(t, h_matrix, None, noise)[0])(theta)  # grad flows through the noise
+```
+
+A fresh, independent, reproducible noise draw per call is a `jax.random.split` away — no OS-entropy fallback, no external key bookkeeping. `p` is also a tracked leaf (you *can* differentiate through it), though the gradient is ~0 almost everywhere in practice: the underlying channels sample via a hard threshold (`fire = r < p`), which isn't usefully differentiable without a smooth relaxation — out of scope here.
+
+**`apply_to_sv`'s randomness arguments** — `rng: np.random.Generator` and `jax_key: jax.random.PRNGKey` — cover the two statevector array types:
+
+- `sv` is a NumPy array → uses `rng` (or a fresh default generator if `rng=None`).
+- `sv` is a JAX array (e.g. the statevector returned by `circuit_to_energy_fn`'s `energy_fn`, the common case when composing noise into a `jax.grad`/`jax.value_and_grad` pipeline) → uses `jax_key` if given explicitly; otherwise, if `rng` is given, a JAX key is *derived* from it (`rng.integers(...)` seeds `jax.random.PRNGKey`) so a seeded `rng` reproduces the same sequence of keys across separate runs, the same guarantee the NumPy path already gives; only when *neither* is given does it fall back to a fresh, non-reproducible key from OS entropy.
+
+`jax_key`, when given, always takes precedence over `rng` — pass it explicitly (and split a fresh subkey per call, e.g. `jax.random.split`) when you specifically want a different-but-reproducible noise draw each step rather than one implied by advancing a shared `rng`. Prior to v8.1.27, `rng` was silently ignored whenever `sv` was a JAX array (issue #7) — a caller who seeded `rng` expecting NumPy-style reproducibility got a different result on every call with no error or warning.
+
 ---
 
 ## ▍ Mitigation & Predictive Healing
@@ -386,10 +482,31 @@ Active error tracking and stabilization integrated natively into the simulation 
 | `dephasing_tracking` | `Δ_pre_emp ∘ Σ` | Predictive deviation vs ideal eigenstate |
 | `phi_ab_alignment` | `Φ_AB(state_A, state_B, ipg)` | Semantic + coherence alignment between two quantum states |
 | `vettore_dinamico` | `V_din = K · log(E_B/E_A) · Φ_AB` | Log-differential energetic evolution vector |
-| `kappa_stabilization` | `κ-strength routine` | Proactive statevector profile shielding |
-| `richardson_integration` | `{λ₁=1.0, λ₂=2.0}` | Dual-point zero-noise trajectory approximation |
 
 All core functions compiled via `@jax.jit`. Event history managed by `MemoryReflectionEngine` with JAX Zero-Drift spectral aggregation.
+
+### Zero-Noise Extrapolation (`dense_evolution.mitigation`)
+
+The primitives above are building blocks, not a runnable mitigation pipeline by themselves. `mitigation.py` is the orchestrator: it exposes ZNE under the names the field already uses (`richardson_extrapolate`, `zero_noise_extrapolation`, `noise_factors`) so it's discoverable without first learning the `Δ_pre_emp`/`Φ_AB` vocabulary above — the primitives themselves are not renamed, only composed.
+
+| Function | Signature | Description |
+|---|---|---|
+| `richardson_extrapolate` | `(expectation_values, noise_factors)` | Plain N-point Lagrange extrapolation to zero noise. Reduces exactly to the textbook `(3, -3, 1)` coefficients at `noise_factors=(1,2,3)` |
+| `zero_noise_extrapolation` | `(expectation_values, noise_factors, sigma_at_base_noise=None, target_sigma_ideal=10.0)` | Standard entry point. Falls back to `richardson_extrapolate` when `sigma_at_base_noise` is omitted; otherwise perturbs the 3-point Richardson coefficients via `calculate_delta_preemp` — Dense-Evolution's "predictive healing" ZNE variant. Only defined for exactly 3 noise factors; raises `NotImplementedError` otherwise rather than guessing |
+
+```python
+import dense_evolution as de
+
+e1, e2, e3 = 1.234, 0.876, 0.611          # values at 1x, 2x, 3x noise
+plain = de.zero_noise_extrapolation([e1, e2, e3], [1.0, 2.0, 3.0])
+
+# with a measured coherence signal at the base noise level, the
+# extrapolation is nudged by how far it is from the ideal target:
+healed = de.zero_noise_extrapolation([e1, e2, e3], [1.0, 2.0, 3.0],
+                                      sigma_at_base_noise=9.3, target_sigma_ideal=10.0)
+```
+
+`richardson_extrapolate`/`zero_noise_extrapolation` accept array-valued `expectation_values` too (e.g. a full probability distribution per noise scale, extrapolated elementwise), not just scalars — this is what the Streamlit dashboard's **Mitigation (ZNE)** tab uses under the hood (`dashboard_core.mitigation_runner.run_mitigation_sweep`): run the active circuit at 1x/2x/3x the configured noise probability, extrapolate the whole probability vector (and fidelity) to zero noise, reusing these two functions exactly as-is.
 
 ---
 
@@ -400,13 +517,13 @@ All core functions compiled via `@jax.jit`. Event history managed by `MemoryRefl
 | Function | Approach | Returns |
 |---|---|---|
 | `median_healing(vettori, radius_baseline=None)` | `scipy.ndimage.median_filter`, dynamic radius `min(20, max(3, n // 3))` | `(healed: np.ndarray, radius: int)` |
-| `enhanced_dense_healing_hybrid(vettori, radius_baseline=None, median_fallback_threshold=0.1)` | Blends the `dense_evolution.healing` Φ-trigger logic with a median fallback, decided per-step | `(healed: np.ndarray, metadata: dict)` |
+| `enhanced_dense_healing_hybrid(vettori, radius_baseline=None)` | Blends the `dense_evolution.healing` Φ-trigger logic with a median fallback, decided per-step | `(healed: np.ndarray, metadata: dict)` |
 
 `enhanced_dense_healing_hybrid` metadata:
 
 | Key | Type | Description |
 |---|---|---|
-| `fallback_triggered` | `bool` | `True` if the median fallback or dense blending fired at least once |
+| `fallback_triggered` | `bool` | `True` only if the input contained genuine NaN/Inf corruption AND the median fallback fired to correct it -- does not reflect Phi-Trigger corrections on structurally noisy-but-valid data |
 | `adaptive_radius_used` | `int` | Baseline radius actually applied |
 | `reconstruction_error` | `float` | Mean norm of the correction applied vs. the sanitized input |
 
@@ -425,7 +542,7 @@ print(meta)
 # {'fallback_triggered': True, 'adaptive_radius_used': 16, 'reconstruction_error': 11.48}
 ```
 
-`jax` is imported lazily inside `enhanced_dense_healing_hybrid` — `median_healing` and the module import itself work without the `[jax]` extra installed; only calling `enhanced_dense_healing_hybrid` requires it.
+`jax` is imported lazily inside `enhanced_dense_healing_hybrid` (a leftover from when JAX was optional) — harmless now that `dense-evolution` always installs JAX as a core dependency, but it does mean `median_healing` and the module import itself never actually needed it in the first place.
 
 ---
 
@@ -464,6 +581,21 @@ print(sim)
 #       chunk_size_bits=27, mem_per_chunk=2048.0 MB, ram_free=42.3%, has_jax=True)
 ```
 
+### Distributed dispatch across a device mesh — `run_chunk_distributed`
+
+`run_chunk()`'s multi-chunk path (`num_chunks > 1`) solves "RAM of one process" — every chunk lives in the same machine's memory, even though the kernel that moves them is JIT-fused. `run_chunk_distributed()` solves a different constraint: "more qubits than fit on one device," with one physical chunk pinned to its own JAX device (v1 scope: `jax.device_count()` must be `>= num_chunks`, exactly one chunk per device — a hybrid multi-chunk-per-device scheme is future work).
+
+```python
+from dense_evolution import Chunk
+
+sim = Chunk(30)  # num_chunks > 1 on most machines
+sim.run_chunk_distributed([['h', i] for i in range(30)])
+```
+
+Cross-chunk gate mixing (a gate touching one of the top `m = n_qubits - chunk_size_bits` "chunk-select" qubits) becomes real point-to-point network communication — `jax.lax.ppermute`, the same pairwise-exchange pattern distributed statevector simulators use, exchanging edge data only with the fixed XOR-stride partner device, never gathering the full state onto any single device. A gate entirely within a chunk's local qubits, or a control-chunk/target-local gate (decidable from each device's own chunk index alone), needs **no** communication at all.
+
+Requires `jax.device_count() >= num_chunks`; raises `RuntimeError` with the exact count needed otherwise. For local testing without real multi-GPU hardware, force extra simulated CPU devices via `XLA_FLAGS=--xla_force_host_platform_device_count=N` (set before the process starts — JAX's device count is fixed at first initialization, not changeable at runtime) — this validates the sharding/communication logic is correct, not real GPU-to-GPU network performance, which needs actual multi-GPU/multi-host hardware to measure honestly.
+
 ---
 
 ## ▍ Benchmarks
@@ -496,10 +628,10 @@ print(sim)
 
 ## ▍ VQE Engine
 
-**Positional parameter injection** — `QASMParser` tokenizes all literals to `0.0` for JIT speed. VQE recovers parameters by:
+Built on `circuit_to_energy_fn` (see previous section) — no separate mechanism. Parameter injection:
 1. Counting parametric gates (`rx ry rz p u1 cp crz`) → `n_params`
 2. Initializing `θ ∈ ℝⁿ` uniform in `[−π, π]`
-3. Injecting `θ[i]` sequentially by gate order in the AST via `risolvi_qasm()`
+3. Injecting `θ[i]` sequentially by gate order, via a `-1.0` sentinel in the compiled op template patched in with `jnp.where` inside a `jax.lax.scan` — never a Python `float()` call, which would sever the JAX trace and make the gradient below fake.
 
 Compatible with any custom OpenQASM 2.0 string without pre-labelling.
 
@@ -546,6 +678,99 @@ All circuits stored as OpenQASM 2.0 strings in `QASM_LIBRARY`.
 ---
 
 ## ▍ Changelog
+
+### v8.1.32
+- **Added**: `dashboard_core.mitigation_runner.run_mitigation_sweep`/`dashboard_core.mitigation_panel.build_panel_mitigation` -- Zero-Noise Extrapolation and predictive healing, wired into the Streamlit dashboard as a real feature for the first time (`dense_evolution.mitigation`/`dense_evolution.healing` existed in the core package but had zero references anywhere in the dashboard before this). Runs the active circuit at 3 noise scales (`1x/2x/3x` the sidebar's noise probability) and extrapolates to zero noise via `zero_noise_extrapolation`, reused exactly as-is -- no reimplementation of the Richardson/healing math in the dashboard layer. New sidebar section ("🩹 Error Mitigation (ZNE)") and a new "Mitigation (ZNE)" tab showing fidelity-vs-noise-scale and ideal/raw/ZNE-corrected probability overlays; the healing-adapted path's coherence signal (`sigma_at_base_noise`) reuses the shot-noise binomial sigma already computed and shown elsewhere in the dashboard (`build_panel_overview`'s NISQ Shot Histogram) as a pragmatic proxy, documented as such rather than presented as a first-principles derivation.
+- **Fixed**: `dense_evolution.mitigation.richardson_extrapolate` raised `ValueError: Incompatible shapes for broadcasting` whenever `expectation_values[i]` was itself array-valued (e.g. a full probability distribution per noise scale, not a bare scalar) -- found building the panel above, where each noise scale's "expectation value" is naturally a whole probability vector. Root cause: stacking `expectation_values` via `jnp.asarray` and multiplying by the `(n,)`-shaped Lagrange coefficients relied on JAX's default trailing-axis broadcast alignment, which pairs the coefficients against the *last* axis of the stacked array instead of the *leading* "one row per noise scale" axis. Fixed by reshaping the coefficients to broadcast against the leading axis explicitly and summing over `axis=0` -- a no-op reshape for the pre-existing scalar case (verified: all prior scalar-input tests pass unchanged), now also correct for vector/array-valued inputs.
+- **Fixed**: `dashboard_core.run_simulation`'s `seed` parameter only ever reached `np.random.seed()` (shot sampling) -- for a JAX statevector (the normal case), the actual noise channel applied via `NoiseModel.apply_to_sv` was never given `rng=`/`jax_key=`, so it silently fell back to OS-entropy randomness regardless of `seed`. Two calls with the identical seed produced different noisy results. Found as a flaky test (`run_mitigation_sweep`'s 3-noise-scale sweep, same seed passed to each scale, expected -- and needed, for a meaningful extrapolation -- the same underlying noise realization scaled by `p`, got a fresh random one each time). Fixed by passing `rng=np.random.default_rng(seed)` explicitly to `apply_to_sv`.
+- **Refactor**: `dashboard_core.py` (1900-line single file) split into a package (`dashboard_core/`: `qasm_library`, `hamiltonians`, `simulation_runner`, `vqe_engine`, `md_telemetry`, `plot_theme`, `metrics`, `panels`, `helix_3d`, `mitigation_runner`, `mitigation_panel`, `provenance`) behind a backward-compatible `__init__.py` façade re-exporting the same public surface -- `import dashboard_core as dc` and every `dc.xxx` call site unchanged, verified via the existing test suite passing identically with zero test-file edits. `_series_plot`/`_series_enhanced`/`_energy_enhanced` (three near-duplicate time-series plotting functions, `_energy_enhanced` duplicating `_series_enhanced`'s logic inline instead of calling it) unified into one parameterized `_series_plot`. Hardcoded color literals in `build_panel_fisica`/`vqe_results`/`md_results`/`performance` that exactly matched an existing `plot_theme.C` value now reference it instead of repeating the literal -- zero visual change, by construction; near-miss shades (close but not identical to a `C[...]` value) deliberately left alone rather than forced onto the "closest" key, which would have been a small but real, unauthorized color drift.
+- **Also fixed**: `.github/workflows/ci.yml` never ran `test_mitigation.py` or `test_mps.py`.
+- **Refactor (`ui_pages/`, repo-only, not part of the pip package)**: the gradient header banner, the "run → session_state → guard → render" early-return pattern, and the neutral AI-shield metadata dict were each copy-pasted across 2-3 of `quantum_simulator.py`/`vector_healing.py`/`quantum_scars.py`/`ai_middleware.py` instead of shared. New `ui_pages/components.py` helpers (`render_page_banner`, `render_run_guard`, `render_matplotlib_figure`) and `AI_SHIELD_NEUTRAL_META` replace them -- same visuals, one place to change instead of three. Fixes, as a side effect, three independently-drifted hardcoded version numbers in the page banners (`v8.1.9`/`v8.1.7`/`v8.1.22`) plus a fourth in `app_dashboard.py`'s own `st.set_page_config`/docstring -- all four now read `dense_evolution.__version__` instead of a stale literal. Verified: existing `test_ai_middleware.py`/`test_quantum_scars.py` pass unchanged (22/22); all `ui_pages` modules import cleanly; the actual Streamlit server started and served all 3 page routes with no server-side exceptions in the log (no automated UI test exists for this layer, per the pre-existing documented gap -- this is the closest verification available without a browser screenshot tool in this environment).
+
+### v8.1.31
+- **Changed**: `dashboard_core` (the compute/panel layer behind the Streamlit dashboard) is now part of the installable package (`pyproject.toml`'s `packages`), not repo-only -- `pip install dense-evolution[dashboard,jax]` alone now gives `import dashboard_core as dc` with the full 53-circuit QASM library and every panel builder, no `git clone` required. Superseded within the same release by v8.1.32's package split (`dashboard_core.py` → `dashboard_core/`) -- the packaging mechanism changed from a single `py-modules` entry to a real package directory, but the end result (`pip install` alone is sufficient) is unchanged.
+
+### v8.1.30
+- **Added**: `Chunk.run_chunk_distributed` -- dispatches the multi-chunk kernel across a real JAX device mesh (`jax.shard_map` + `jax.lax.ppermute`) instead of one process's RAM, one physical chunk per device (issue #1, v1 scope: `jax.device_count() >= num_chunks`). Cross-chunk gate mixing becomes point-to-point communication via `ppermute`, keyed on the fixed XOR-stride pairing between chunk indices -- the same pairwise-exchange pattern real distributed statevector simulators use; gates entirely local to a chunk, or with a chunk-select control and a local target (decidable from a device's own chunk index alone), need no communication at all. Verified for correctness against `DenseSVSimulator` on simulated multi-device CPU (`XLA_FLAGS=--xla_force_host_platform_device_count=N`) across all 6 gate/qubit-location cases individually, randomized mixed circuits at `num_chunks` in {4, 8}, and both dtypes -- CI now runs these in a dedicated step with 8 simulated devices (they skip cleanly on a single-device run). Real GPU-cluster network performance is not and cannot be measured in a single-device CI environment -- honest scope: this validates the sharding/communication logic is correct, not real multi-GPU throughput.
+- **Fixed while building it**: the `ppermute` permutation for each chunk-select qubit was built inside a Python list comprehension with the loop variable referenced directly in the lambda body -- classic late-binding closure bug, every branch silently used the *last* qubit's stride regardless of which was actually selected at runtime (only the branch for the last-iterated qubit happened to come out correct, which is exactly the failure pattern that surfaced it: `q0`/`q1` wrong, `q2` right, on a 3-chunk-select-qubit circuit). Fixed by binding the fully-precomputed static `perm` list as a default argument, evaluated eagerly at lambda-creation time instead of looked up by reference at call time.
+- **Also fixed**: `.github/workflows/ci.yml` never ran `test_mitigation.py` or `test_mps.py` -- both existed and passed locally but had never actually executed in CI. Added to the main test run.
+
+### v8.1.29
+- **Added**: `dense_evolution.NoiseSpec` -- a JAX PyTree (`model`/`qubits` static, `p`/`jax_key` as leaves, registered via `jax.tree_util.register_pytree_node`) that `circuit_to_energy_fn`'s `energy_fn` now accepts as a fourth `noise=` argument, applying `NoiseModel.apply_to_sv` natively inside the same traced computation as `theta` (issue #8, scoped up from #7's narrower fix). Removes the need for an external, Python-side noise-application step and manual PRNG key bookkeeping around a training loop -- `jax_key` is a pytree leaf, so it flows through `jax.jit`/`jax.grad`/`jax.vmap`/`jax.lax.scan` the same way any other JAX array does, with no OS-entropy fallback (reproducibility is structural, not opt-in). Verified: reproducible from the same key, energy differs from the ideal circuit under nonzero `p`, gradient w.r.t. `theta` flows correctly through the noisy pipeline, `jax.vmap` over a batch of independent keys works with no external Python loop, `jax.jit`-wrapped result matches eager evaluation exactly.
+- **Fixed**: found while wiring the above -- `NoiseModel.apply_to_sv`'s `if model == 'ideal' or p <= 0.0: return sv` early-exit raised `TracerBoolConversionError` as soon as `p` became a traced value (e.g. a `NoiseSpec` leaf under `jax.jit`) -- exactly the case #8 asked to enable. Fixed with a targeted `try/except` around only the `p <= 0.0` optimization: every channel's math already reduces to a no-op at `p=0` (`fire = r < p` is always `False`), so skipping the shortcut and falling through is still correct, it just loses the eager-mode fast path when `p` can't be checked concretely.
+- **Note**: `noise.p` is technically a differentiable pytree leaf, but the gradient through it is ~0 almost everywhere in practice -- the existing channels sample via a hard threshold (`fire = r < p`), not usefully differentiable without a smooth relaxation (e.g. Gumbel-softmax). Not addressed here, out of scope for what #8 asked (removing the state/key workaround, not making noise strength itself gradient-optimizable).
+
+### v8.1.28
+- **Note**: v8.1.27 was published to PyPI from a stale local checkout that predated the `mitigation.py` module and the #4/#6/#7 fixes below -- the installable v8.1.27 package on PyPI does **not** contain them, despite this changelog. PyPI doesn't allow re-uploading files under an already-published version, so this release exists specifically to ship the real content. If you're on 8.1.27, upgrade to 8.1.28 -- don't rely on 8.1.27's changelog matching what you actually have installed (same situation as v8.1.15, see that entry below).
+
+### v8.1.27
+- **Added**: `dense_evolution.mitigation` -- a Zero-Noise Extrapolation orchestrator (`richardson_extrapolate`, `zero_noise_extrapolation`, both exported from package root) using the field's standard ZNE vocabulary, composed on top of `healing.py`'s existing primitives rather than duplicating or renaming them. Motivated by the ZNE+predictive-healing combination previously existing only as hand-written logic (`_static_richardson`/`_adaptive_healing_richardson`) inside a downstream repo's test file, calling `calculate_delta_preemp` as one ingredient with no reusable, standard-named entry point in the package itself -- undiscoverable by name for anyone (human or AI) reading `dense_evolution` looking for "ZNE". `richardson_extrapolate` generalizes to N arbitrary noise factors (verified: reduces exactly to the textbook `(3, -3, 1)` 3-point coefficients at `noise_factors=(1,2,3)`, and is exact on synthetic linear data); the healing-adapted path is scoped to exactly 3 noise factors -- the only case it has been derived and verified against (cross-checked numerically against the original 3-point formula) -- and raises `NotImplementedError` rather than silently generalizing an unverified formula for other point counts.
+- **Breaking**: `run_circuit`/`run_circuit_jit_beast_mode`/`run_parametric_batch_jit` now raise `ValueError` on an unrecognized gate name instead of silently dropping the gate (issue #4). Verified pre-fix: `run_circuit_jit_beast_mode([('h', 0), ('ch', 0, 1), ('x', 2)])` executed only `h`/`x`, `ch` vanished with no error or warning -- a typo in a gate name (`'crx'` instead of `'crz'`) used to silently run a different circuit than the one written. Anyone relying on the old silent-skip behavior will now get an explicit error instead -- there is no legitimate use case for a gate name silently doing nothing.
+- **Breaking**: `run_parametric_batch_jit` now validates `parameter_batch.shape[1]` against the actual number of parametric gates (rx/ry/rz/p/u1/phase/cp/crz/cphase) in `base_circuit`, raising `ValueError` on a mismatch instead of letting JAX's default out-of-bounds indexing clip silently (issue #6). This is the same positional-slot contract responsible for two independently-discovered corrupted-results bugs in a downstream repo (`Dense-Evolution-Ising-Tests` v2.1.0): a literal-float rotation gate still consumes a column, it is never exempt, and a grid built assuming otherwise used to produce a plausible-looking but wrong statevector with no signal that anything was off.
+- **Fixed**: `NoiseModel.apply_to_sv` used to silently ignore `rng` whenever `sv` was a JAX array, drawing from OS entropy instead -- a caller seeding `rng = np.random.default_rng(42)` for reproducibility got a different, non-reproducible result on every call, silently (issue #7). Verified pre-fix directly: two consecutive calls with the identical seeded `rng` and identical input diverged. Found while reviewing an end-to-end QML+noise+ZNE test script combining `circuit_to_energy_fn`, `NoiseModel`, and the new `zero_noise_extrapolation` under one `jax.value_and_grad` -- gradients did flow correctly through the whole pipeline (that part worked as intended), but the epoch-to-epoch loss instability in that script traced back to this, not to the optimizer or to `mitigation.py`. Fixed: when `sv` is a JAX array and `jax_key` isn't given explicitly, `rng` (if given) now *derives* the JAX key (`rng.integers(...)` seeds `jax.random.PRNGKey`) instead of being ignored -- a fresh, identically-seeded `rng` now reproduces the exact same sequence of keys across separate runs, matching the guarantee the NumPy path already gave. `jax_key`, when given explicitly, still takes precedence over a derived one. Making `apply_to_sv` itself composable inside a single `jax.jit` block (no internal Python-level branching or OS-entropy side effects) is a larger, separate redesign -- not done here, see issue #7 for the remaining scope.
+
+### v8.1.26
+- **Verified, no bug found**: two areas flagged as untested in a prior RAM-constrained environment -- `Chunk`'s genuine multi-chunk dispatch (`num_chunks > 1`) on a 2-qubit gate spanning the very first (chunk-select) and very last (local) qubit of the register, and `QASMParser`'s handling of `for`-loops with an unresolvable bound (an undeclared bound variable, so `_resolve_int_expr` returns `None`) -- both confirmed correct. Closed the real test-coverage gap: 4 new tests in `TestChunkMultiPiece` (the long-range 2-qubit gate case, plus `MemoryPressureError` actually firing on simulated low RAM for both the `num_chunks==1` and `num_chunks>1` code paths -- previously only ever exercised indirectly, never asserted on directly) and 6 new tests in `TestQASMForLoop` (unresolvable `for` bound stripped cleanly with following code preserved -- verified via probability comparison, not just the op list -- `while` blocks, multiple unresolvable constructs in sequence, and a resolvable `for`-unroll immediately followed by an unresolvable `if`-strip).
+
+### v8.1.25
+- **Fixed**: `MPSSimulator._svd_truncate` used to silently violate `jsd_budget` whenever `max_bond` was too small for the circuit's real entanglement -- the `while jsd_val > self.jsd_budget and chi_new < max_possible` loop exits with no signal once `chi_new` hits `max_bond`, even if `jsd_val` is still far above budget. `summary()`'s `avg_JSD` only reports the mean of the per-step local errors, not the accumulated global error, so it can read deceptively low while the final contracted state is badly wrong -- verified directly on an 8-qubit/15-layer entangling circuit with `max_bond=2`: TVD ~0.97 against `DenseSVSimulator` (a near-total mismatch) while `avg_JSD` read a reassuring-looking 0.0534. Added a `budget_violations` counter (incremented every time this happens, exposed in `summary()`) and a `UserWarning` on the first violation (`"bond dimension capped at max_bond=..., jsd_budget=... not honored ... results may be unreliable"`) -- not an exception, so existing code that tolerates the tradeoff keeps working, but now with an explicit, checkable signal instead of a silently-optimistic average.
+
+### v8.1.24
+- **Fixed**: `dense_evolution.healing.calculate_phi_ab` raised `ValueError: Clip received a complex value` when called with complex statevectors (e.g. `sim.get_statevector()`) -- `jnp.dot(semantic_change, ipg_vector)` is the bilinear (non-conjugated) product on complex arrays and stays complex, which then hit `jnp.clip` at the end of the function. Fixed by using `jnp.real(jnp.vdot(...))` -- the correct Hermitian-inner-product real part, identical to `jnp.dot` for the real-valued inputs every existing caller already uses (`ia_utils.vector_healing.enhanced_dense_healing_hybrid`), and now also correct for genuinely complex input. Verified against a manual NumPy `Re(vdot(...))` calculation on a case with nonzero imaginary amplitudes (H+S gates), not just the crash repro (H+CX alone never produces a nonzero imaginary part, so it only proved "doesn't crash," not "computes the right number").
+- **Fixed**: `ia_utils.vector_healing.median_healing`/`enhanced_dense_healing_hybrid` emitted `RuntimeWarning: Mean of empty slice` whenever an input column was entirely `NaN` -- `np.nanmean` on an all-NaN slice returns `NaN` with a warning (silently caught and zeroed by the very next line, so the *output* was already correct, only the warning was noise). Fixed by pre-replacing whole all-NaN columns with `0.0` before calling `nanmean`, so it never sees an empty slice -- verified byte-identical output, zero warnings, in both functions (the preprocessing block was duplicated verbatim in each).
+- **Fixed**: `enhanced_dense_healing_hybrid`'s `fallback_triggered` metadata flag used to reflect only the internal Phi-Trigger heuristic classifying a step as "static", regardless of whether the input actually contained any `NaN`/`Inf` -- verified directly that a clean, uncorrupted random Gaussian array (no corruption at all) still came back `fallback_triggered=True`. Root cause: the heuristic is tuned for trajectories with real underlying dynamics (verified separately against a real noisy VQE run, where it correctly stayed quiet at low noise and fired at high noise) and mistakes pure structureless IID noise -- which has no coherent trend to recognize as "genuine change" -- for anomalous static behavior on nearly every step. `fallback_triggered` is now gated on the original input actually containing `NaN`/`Inf` (checked before sanitization) in addition to the fallback having fired -- the dashboard's "Fallback scattato" indicator will now only light up for genuine NaN/Inf corruption, not general noise-driven Phi-Trigger corrections (those corrections still happen internally, they're just no longer mislabeled as a NaN/Inf fallback).
+- **Docs**: removed two README rows (`kappa_stabilization`, `richardson_integration`) describing functions that never existed in `dense_evolution/healing.py` (confirmed against the full 140-line file -- 7 functions plus `MemoryReflectionEngine`, neither name present anywhere), and corrected two code examples that still showed a `median_fallback_threshold` parameter on `enhanced_dense_healing_hybrid` that was removed from the actual function signature back when its corresponding UI slider was dropped (commit `69fc8a4`) without updating the docs to match.
+
+### v8.1.23
+- **Added**: `MPSSimulator` (`dense_evolution/mps.py`, re-exported from the package root) -- a JAX-backed Matrix Product State simulator with adaptive SVD-truncated bond dimension. Verified exact against `DenseSVSimulator` on entangling circuits (TVD=0). Selectable as a dashboard engine (Quantum Simulator page) for circuits up to 24 qubits; for larger low-entanglement circuits, `get_probabilities_sampled`/`get_top_k_probable_states` scale to hundreds of qubits without ever materializing a `(2**n,)` statevector.
+- **Fixed**: large-qubit circuits submitted through the dashboard used to crash the whole Streamlit process (uncatchable OS-level OOM) instead of failing cleanly. They now route automatically through the existing `Chunk` anti-OOM wrapper, which raises a catchable, informative `MemoryPressureError` instead.
+- **Changed (breaking)**: JAX is now a **required core dependency** (`dependencies`, not `optional-dependencies`) -- `pip install dense-evolution` installs it by default, no `[jax]` extra needed anymore. Every simulator backend in this package already required JAX in practice; the previous `try/except ImportError` numpy-fallback path was never a real, maintained alternative and is no longer reachable (the numpy code itself is left in place for reference, just dead). If you were pinning an environment without JAX and relying on degraded-numpy behavior, this release will break that -- install `dense-evolution<8.1.23` to keep the old behavior.
+
+### v8.1.22
+- **Added**: `ui_pages/quantum_scars.py` — a new "Quantum Scars" dashboard page (`app_dashboard.py`'s `st.navigation`), an interactive live demo of the PXP quantum many-body scar model (Rydberg blockade): builds `H_PXP` via sparse Pauli operators, exact-diagonalizes it (`scipy.linalg.eigh`, cached via `st.cache_resource` keyed on qubit count — the first use of that decorator in this codebase, since diagonalizing a dense `2**n_qubits` matrix is genuinely expensive and depends only on that one slider), propagates a Néel initial state under real-time Hamiltonian evolution, injects real noise via `NoiseModel.apply_to_sv`, and lets you compare fidelity revival with no protection, a cheap constraint-subspace projection (no extra diagonalization needed — a combinatorial mask of which computational-basis bitstrings have no two adjacent 1-bits), or an idealized exact-eigenstate "tower" projection. Distills the investigation already published at [`quantum_scar_investigation`](https://github.com/tatopenn-cell/Dense-Evolution-Ising-Tests/tree/main/scripts/quantum_scar_investigation) — which found no genuine scar in Dense Evolution's own frustrated Ising grids (wrong observable + gauge equivalence), then validated the same verification pipeline against PXP, where scars are real and well documented — into something runnable instead of only readable. Verified via `streamlit.testing.v1.AppTest` (real button-click simulation, zero exceptions) and a new `test_quantum_scars.py` (17 tests, all passing) unit-testing the numerical core directly: validity-mask combinatorics, `H_PXP` Hermiticity and Hilbert dimension, fidelity=1/norm-preservation under propagation, and both projections staying normalized with zero weight outside their target subspace.
+
+### v8.1.21
+- **Added**: `QASMCircuit.__iter__` — duck-types a parsed circuit as an iterable of the same tuples `.to_tuples()` returns, so it works anywhere a plain circuit list is expected (`Chunk.run_chunk`, `QuantumTranspiler.transpile`, ...) without remembering to call `.to_tuples()` first. Found via a user's own Colab testing: `Chunk.run_chunk(QASMParser().parse(qasm))` — a very natural thing to try — raised `TypeError: 'QASMCircuit' object is not iterable`.
+- **Fixed / Performance**: `Chunk`'s multi-chunk dispatch (`num_chunks > 1`) used to apply every gate through a Python loop calling non-JIT `apply_gate_1q`/`apply_gate_2q` — measured 6x slower than `run_circuit_jit_beast_mode` on an identical workload. Replaced with a single `jax.lax.scan` over the whole circuit operating directly on the stacked `(num_chunks, chunk_dim)` representation — never materializing a `(2**n_qubits,)` array, preserving the anti-OOM property `Chunk` exists for. The 6 gate/qubit-location cases were ported formula-for-formula from the old Python-loop implementation and verified case-by-case against it (all 18 pre-existing `TestChunkMultiPiece` tests, which cross-check against `DenseSVSimulator`, pass unchanged against the new kernel) before the old code was removed. Gate coverage is now built via `GATE_IDS` instead of the old `GATES`/`PARAMETRIC_GATES` lookup, aligning it with beast-mode's own coverage. Measured speedup on the exact benchmark that surfaced the problem (10 qubits/200 gates/4 forced chunks): **2.2s → 0.42s**, now close to beast-mode's 0.37s on the same non-chunked workload.
+- **Note**: a Colab report of "17s vs milliseconds" that prompted this investigation turned out, on reproduction, to be `num_chunks==1` (not the multi-chunk path at all) — 0.49s locally on the identical circuit, most likely first-time JIT compilation overhead on Colab's specific hardware rather than a code defect. The 6x slowdown that *was* real and is fixed here was found and confirmed with a separate synthetic benchmark (`num_chunks` forced via monkeypatch), not the original report.
+
+### v8.1.20
+- **Fixed**: `from_pennylane`/`run_pennylane_circuit` silently renumbered qubits whenever wires weren't touched in ascending order — both PennyLane's `qml.to_openqasm` and the older `tape.to_openqasm()` number exported QASM qubits by first-touch order, not by actual wire index (e.g. `PauliX(wires=2)` then `CNOT(wires=[2,1])` exported as `x q[0]; cx q[0],q[1];`, silently mapping wire 2→q[0] and wire 1→q[1]). Found via independent fuzz testing (20 random circuits touching 4 wires in random order: 9/20 matched PennyLane's own results before the fix, 20/20 after). Fixed by passing an explicit `wires=` argument — the device's declared wire order for a QNode, the tape's own wires sorted ascending for a bare tape — forcing the true wire order into the export instead of relying on touch order.
+- **Fixed**: `NoiseModel.apply_to_sv`'s `depolarizing` channel (and the `combined` channel's depolarizing sub-channel) picked which Pauli error (X/Y/Z) to apply using thresholds `p/3` and `2p/3` compared against a draw uniform on the *full* `[0,1)` range — but that draw should only ever decide *which* Pauli fires, independent of the overall fire-rate `p`, so the thresholds needed to be the fixed values `1/3` and `2/3` instead. The bug skewed every depolarizing/combined-noise circuit heavily toward Z regardless of `p` (verified: at `p=0.3`, `P(X|fire)=P(Y|fire)=10%`, `P(Z|fire)=80%` instead of the documented 33.3% each — confirmed both via an isolated 100k-sample trace of the raw branch logic and via full statevector simulation, both matching the bug's predicted skew to within statistical noise). Found via independent statistical fuzz testing comparing measured frequencies against the analytic prediction — a test that only checks "the channel runs without crashing" would never have caught this. `bitflip`, `phaseflip`, and `amplitude_damping` were verified unaffected (correct by construction, don't use this three-way branch).
+- **Docs**: opened a tracking issue for a related robustness gap found during the same fuzzing pass — unrecognized gate names (a typo like `'crx'` instead of `'crz'`, or any gate not in `GATE_IDS`) are silently dropped everywhere in the simulator instead of raising, same pattern already documented for the Qiskit interop bridge's unsupported custom gates. Not fixed here — would be a breaking-change decision for `run_circuit`/`run_circuit_jit_beast_mode`/`run_parametric_batch_jit`'s public behavior, tracked separately.
+
+### v8.1.19 — Security fix
+- **Fixed (security)**: `QASMParser`'s gate-parameter evaluator (`_eval_param`, used for expressions like `rx(...)`, `p(...)`) called `eval()` with `{'__builtins__': {}}` as its only protection. That blocks direct builtin names (`open`, `len`, `__import__`, ...) but does **not** block attribute/dunder traversal of the live Python object graph (`().__class__.__bases__[0].__subclasses__()...`), which needs no builtin name at all — from there, any class loaded in the process is reachable, including ones whose `__globals__` reference `os`/`subprocess`. Verified directly: a crafted gate-parameter expression, passed through the public `QASMParser.parse()` entry point (the primary entry point of the whole library — used by the dashboard, the Qiskit/PennyLane interop bridge, and any direct usage), executed successfully. Anyone parsing untrusted QASM text was affected, in every previously published version. Fixed by replacing `eval()` with an AST node-type whitelist evaluator (`_eval_ast_node`) — only literals, `+-*/%**` arithmetic, and calls/lookups restricted to the documented math environment (`pi`, `sin`, `sqrt`, ...) are ever evaluated; an `ast.Attribute` node (produced by any `.` in the expression) is never one of the handled cases, so attribute-based escapes are structurally impossible rather than blocklisted. `_resolve_int_expr` (QASM3 `for`-loop bounds) used the same `eval()` pattern but was already protected by a pre-filter regex rejecting any non-arithmetic character — verified safe before this fix — now shares the same AST evaluator for consistency, so no raw `eval()`/`exec()` remains anywhere in the codebase (confirmed via full-repo search). No public API or behavior change for legitimate expressions — every previously-supported parameter syntax (`pi`, `pi/2`, `sqrt(2)`, `cos(0.3)`, etc.) evaluates identically.
+
+**If you parse QASM text from any source you don't fully trust, upgrade immediately.**
+
+### v8.1.18
+- **Fixed**: removed a global `warnings.filterwarnings('ignore')` from `registry.py`, run unconditionally on `import dense_evolution`. It silenced every Python warning process-wide for the importing user's whole session — not just this package's, but their own code's and every other library's too. Inherited unchanged from the original Colab notebook (added in v8.0.6, never reconsidered once this became a real pip package). Concretely masked real signal: the JAX float64→float32 truncation `UserWarning`s visible throughout this project's own test output (precision silently lost under `use_float32=True`) would have been invisible to anyone using the package normally.
+
+### v8.1.17
+- **Added**: `donate_argnums=(0,)` on `run_circuit_jit_beast_mode`'s statevector buffer — the only one of `_compile_and_run_circuit_jit`'s four call sites where it's safe (`self.sv` is always rebound immediately after, verified across chunked/repeated calls and separate simulator instances). `run_parametric_batch_jit` (its `init_sv` is a `vmap`-broadcast closure shared across the whole batch) and `circuit_to_energy_fn`'s VQE loop (same `stato_zero` reused every epoch) are deliberately left un-donated — donating there would make JAX raise on the second use instead of helping. Verified with a real measurement, not just a claim: RSS growth on a 22-qubit/300-gate circuit drops from +89.4MB to +4.5MB.
+
+### v8.1.16
+- **Note**: v8.1.15's published PyPI package does **not** contain the `from_pennylane` Python 3.10 fix described below, despite the changelog entry — the fix landed in the repo before the PyPI upload, but the actual `pip install`-able wheel/sdist for 8.1.15 was built and uploaded from an earlier commit. PyPI doesn't allow re-uploading files under an already-published version, so this release exists specifically to ship that fix as an installable package. If you're on 8.1.15, upgrade to 8.1.16 — don't rely on 8.1.15's changelog matching what you actually have installed.
+
+### v8.1.15
+- **Added**: `dense_evolution.autodiff.circuit_to_energy_fn(circuit, n_qubits)` — the real VQE gradient engine (`jax.value_and_grad` through a `jax.lax.scan` circuit template, verified against finite differences to ~1e-11) is now public API, independent of `dashboard_core.py`/Streamlit. Takes a `QASMCircuit` — the same type `from_qiskit`/`from_pennylane` return — so it closes the non-differentiability gap documented in v8.1.14: `circuit_to_energy_fn(from_pennylane(qnode, ...), n_qubits)` now gives a real, non-zero `jax.grad`, verified directly, where `run_pennylane_circuit` alone silently returned `0.0`.
+- **Changed**: `dashboard_core.py`'s `_build_vqe_template`/`_vqe_energy_fn` removed — `_run_vqe_telemetry_body` now calls the same public `circuit_to_energy_fn`, one engine instead of two copies of the same math that could silently drift apart. Verified behaviorally identical: all existing dashboard VQE tests pass unchanged, same tolerances.
+- **Fixed**: found while testing the newly-public API — calling the engine on a circuit with zero parametric gates crashed on empty-array indexing during JAX tracing. Previously unreachable because `dashboard_core.py` always special-cased `n_params == 0` before calling in; a real gap once this became public API someone could call directly. Fixed with a static (non-traced) branch.
+- **Docs**: the README's VQE Engine section had drifted stale, still describing the deleted `risolvi_qasm()` mechanism from before the real-gradient rewrite — corrected, and a new "Differentiable Circuits" section documents `circuit_to_energy_fn` with a verified end-to-end example.
+- **Fixed**: `from_pennylane` broke on Python 3.10 — CI caught it (3.10 job red, 3.11/3.12 green). Newer PennyLane releases dropped Python 3.10 support, so pip resolves an older PennyLane (0.42.3) there instead of the version this bridge was built against (0.45.1); `qml.to_openqasm(tape)` behaves incompatibly between the two for a bare tape/QuantumScript input (crashes with `AttributeError: 'QuantumTape' object has no attribute 'func'` on the older one). Verified against both versions directly (installed 0.42.3 in an isolated venv to reproduce). `from_pennylane` now picks whichever serialization path the installed PennyLane version actually supports instead of assuming the newer one unconditionally.
+
+### v8.1.14
+- **Added**: interop bridge for Qiskit and PennyLane — `from_qiskit`/`from_pennylane` convert an existing circuit to a `QASMCircuit` by reusing the existing `QASMParser` (via `qiskit.qasm2.dumps` / `qml.to_openqasm`) instead of a bespoke gate-by-gate translator; `run_qiskit_circuit`/`run_pennylane_circuit` execute it directly on `DenseSVSimulator`. Handles the bit-order mismatch explicitly instead of leaving it as a silent trap: Qiskit indexes arrays little-endian (qubit 0 = LSB), Dense-Evolution is MSB-first everywhere else in the codebase, so `run_qiskit_circuit` reorders its output to match Qiskit's own convention (verified against `Statevector(...).probabilities()` on an asymmetric circuit); PennyLane's own wire order already matches Dense-Evolution's natively (verified the same way), so `run_pennylane_circuit` does **not** reorder — kept as two separate code paths on purpose. New optional extras `dense-evolution[qiskit]` / `dense-evolution[pennylane]`.
+- **Fixed**: found while building the Qiskit bridge — `qiskit.qasm2.dumps` exports composite gates (e.g. `mcx`) as a `gate NAME params { ... }` definition on a single line, the same brace-delimited block corruption already fixed for QASM3 `for`/`if`/`while`/`def` in v8.1.13, just not covered because `gate` wasn't in that fix's keyword set (verified: before the fix, a 4-qubit circuit using `mcx` silently inflated to `n_qubits=5` with a ghost op). Extended the same brace-matching preprocessor to also strip `gate` definitions cleanly.
+
+### v8.1.13
+- **Fixed**: `QASMParser` declared OpenQASM 3.0 support but `for`/`if`/`while`/`def` blocks — brace-delimited, not `;`-terminated — were mishandled by the naive `split(';')` statement splitter: a `for`-loop's body was never extracted, and its closing `}` merged into whatever real statement followed on the same line, corrupting it too (verified: `for int i in [0:2] { h q[i]; } cx q[0],q[1];` produced a single ghost op named `'}'`, with the loop body lost and the real `cx` silently dropped — executed circuit stayed `|000⟩` at 100% probability, no error). Needed for writing VQE ansätze with a loop over qubits instead of one line per qubit. Added `_process_block_constructs`, run before the `;`-split: `for`-loops with resolvable integer bounds (literals, or `int`/`const int` variables declared earlier in the source — QASM3's inclusive-end range semantics) are now genuinely unrolled by substituting the loop variable into the body per iteration; `if`/`while`/`def` blocks and `for`-loops with unresolvable bounds are cleanly stripped instead of corrupting the source that follows them.
+
+### v8.1.12
+- **Fixed**: `run_circuit_jit_beast_mode` / `run_parametric_batch_jit` silently dropped `cy`, `cp`, `crz`, `u1`, `p`, `sx` — they weren't in `GATE_IDS`, so `if name not in GATE_IDS: continue` skipped them with no error (verified: `h(0);h(1);crz(0,1,1.2)` produced the exact same output as `h(0);h(1)` alone). `dashboard_core.py` already treats these as first-class gates, so any circuit using them — dashboard-built or hand-written QASM — silently ran the wrong physics through the fast path nearly everything uses. Added the missing `GATE_IDS` entries and the missing kernel implementations for `cy`/`crz`/`sx` in `_apply_gate_fast_step` — `crz` specifically needed its own kernel, not reuse of `cp`'s (CP phases `|11⟩` only; CRZ phases the target conditioned on its own bit, a different gate).
+- **Fixed**: `run_circuit_jit_beast_mode` used the raw qubit index as bit position (LSB-first) instead of the documented MSB-first convention (`phys = n_qubits - 1 - qubit`) used by `run_circuit()`/`apply_gate_1q()`/`apply_gate_2q()`/`measure()` elsewhere in the simulator. Pre-existing, not introduced by the fix above — found while verifying it, masked until now because every beast-mode circuit tested to date happened to be symmetric under qubit reversal (Bell states, GHZ states, uniform superpositions), so the wrong labeling never showed up in the probabilities. Verified with `X` on qubit 0 in a 3-qubit register: gave index 1 (LSB) instead of index 4 (MSB, correct). `do_1q`/`do_2q` now compute physical bit positions consistently with the rest of the simulator; `Chunk`'s `num_chunks==1` (via beast mode) and `num_chunks>1` (via `apply_gate_1q`/`apply_gate_2q`) paths are now finally consistent with each other too.
+- **Fixed**: the VQE gradient (`run_vqe_telemetry`) was never a real derivative — `grad_vqe_params[i] = 0.5*(energy-target)*sin(theta[i]) + gaussian_noise`, no `jax.grad`, no parameter-shift rule, no backprop on θ anywhere in the codebase (the only real `jax.value_and_grad` usage, in `QMMMForceEngine`, differentiates classical QM/MM forces w.r.t. atomic positions, not circuit parameters). `risolvi_qasm` (the old circuit-building path) converted θ to a Python `float` before use, severing the JAX trace, so backprop couldn't pass through it. Replaced with a real `jax.grad` pipeline reusing `run_parametric_batch_jit`'s own sentinel-injection pattern (θ substituted via `jnp.where` inside a `jax.lax.scan`, never a `float()` call) — verified against a finite-difference gradient (~1.5e-10 agreement) on a real circuit from `QASM_LIBRARY`, and confirmed genuine Adam-optimizer convergence (monotonic energy descent to a minimum) over 40 epochs, unlike the old noisy formula. Public signature and DataFrame columns of `run_vqe_telemetry` unchanged.
 
 ### v8.1.11
 - **Fixed**: `dash.py` (the original Colab notebook) was declared as an installable module (`py-modules = ["dash"]`) with the *same name* as the real Plotly `dash` package, itself listed as an optional dependency in the very same `pyproject.toml` — a genuine packaging collision, not just a local dev annoyance. It also had unconditional module-level `from google.colab import files` / `import ipywidgets`, so `import dash` crashed immediately outside Colab. Nothing in the maintained codebase (`dashboard_core.py`/`app_dashboard.py`, the real Streamlit port) imports it anymore. Moved to `legacy/dash.py` (reference only, not packaged), removed from `py-modules`. The `dashboard` extra now installs what the real dashboard actually needs (`streamlit`, `pandas`, `seaborn`, `plotly`) instead of the unused `dash` package.

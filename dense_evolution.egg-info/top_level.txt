@@ -1,2 +1,3 @@
+dashboard_core
 dense_evolution
 ia_utils

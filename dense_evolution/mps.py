@@ -217,7 +217,17 @@ class MPSSimulator:
         self.jsd_per_bond.append(jsd_val)
 
     def _apply_nonlocal_2q(self, gate_2q: jnp.ndarray, q1: int, q2: int) -> None:
-        """Non-adjacent 2-qubit gate via a SWAP chain down to adjacent."""
+        """Non-adjacent 2-qubit gate via a SWAP chain down to adjacent.
+
+        The SWAP chain always ends up applying the gate at (target, target+1)
+        with target = min(q1, q2) first -- so without normalizing here, a
+        caller passing q1 > q2 (e.g. apply_cx(ctrl=3, tgt=1)) would silently
+        have its control/target roles swapped for asymmetric gates like CNOT.
+        Same fix as apply_gate_2q's adjacent-qubit branch just above, applied
+        before the swap chain runs so it always sees q1 < q2."""
+        if q1 > q2:
+            q1, q2 = q2, q1
+            gate_2q = jnp.transpose(gate_2q, (1, 0, 3, 2))
         swap = jnp.array(
             [[1, 0, 0, 0], [0, 0, 1, 0], [0, 1, 0, 0], [0, 0, 0, 1]], dtype=complex
         ).reshape(2, 2, 2, 2)

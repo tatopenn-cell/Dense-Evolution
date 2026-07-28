@@ -31,12 +31,12 @@ jobs:
           pip install pytest numpy scipy pandas matplotlib psutil ipython seaborn plotly
           pip install setuptools pytest numpy scipy pandas matplotlib psutil ipython jax jaxlib seaborn plotly
           pip install qiskit pennylane
-          pip install streamlit>=1.30.0
+          pip install streamlit>=1.30.0 ipywidgets>=8.0.0
           pip install . --no-deps # Installa il pacchetto locale
 
       - name: Run test suite
         run: |
-          pytest test_dense_evolution.py test_ia_healing.py test_dashboard_core.py test_ai_middleware.py test_interop.py test_autodiff.py test_quantum_scars.py test_mitigation.py test_mps.py -v --tb=short --junitxml=pytest-results.xml
+          pytest test_dense_evolution.py test_ia_healing.py test_dashboard_core.py test_ai_middleware.py test_interop.py test_autodiff.py test_quantum_scars.py test_mitigation.py test_mps.py test_mitigation_runner.py test_interactive_panel.py -v --tb=short --junitxml=pytest-results.xml
 
       - name: Run distributed-chunk tests (simulated multi-device)
         # TestChunkDistributed (issue #1) needs >= 8 JAX devices to exercise
