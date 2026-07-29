@@ -12,8 +12,13 @@ the primary correctness signal here, not just internal self-consistency.
 import numpy as np
 import pytest
 
+import jax
+import jax.numpy as jnp
+
 import dense_evolution as de
-from dense_evolution.mps import MPSSimulator, _jsd_vectors
+from dense_evolution.mps import (
+    MPSSimulator, _jsd_vectors, _vectorized_chi_search, _expand_nonlocal_2q_positions,
+)
 
 INV2 = 1.0 / np.sqrt(2.0)
 H_GATE = INV2 * np.array([[1, 1], [1, -1]], dtype=complex)
@@ -434,4 +439,332 @@ def test_top_k_never_touches_full_statevector_at_large_n():
     idx_k, prob_k = mps.get_top_k_probable_states(k=8)
     assert prob_k.sum() <= 1.0 + 1e-9
     assert len(idx_k) > 0
+
+
+# ── _vectorized_chi_search: JIT-fusion groundwork (issue: MPS is ~140x ──
+# slower than Qiskit Aer's MPS backend on a 60-qubit stress circuit,
+# measured 88.9s vs 0.64s -- root cause: zero @jax.jit anywhere in this
+# file, including a host-syncing Python `while` loop in _svd_truncate to
+# search for the truncated bond dimension. _vectorized_chi_search replaces
+# that loop with one vectorized pass; this test is the correctness gate
+# before it's wired into _svd_truncate itself (a later step) -- it must
+# reproduce the while loop's (chi_new, jsd_val) exactly, not approximately,
+# across real _svd_truncate calls captured from real entangled circuits.
+
+def _capture_real_svd_truncate_calls(n_qubits, max_bond, jsd_budget, seed, layers):
+    """Runs a real entangling circuit through MPSSimulator, capturing the
+    TRUE full (pre-truncation) singular-value spectrum _svd_truncate saw
+    internally for every 2-qubit gate, plus what the real while loop
+    decided (chi_new, jsd_val) -- so _vectorized_chi_search can be checked
+    against real data, not synthetic arrays."""
+    captured = []
+    orig_svd_truncate = MPSSimulator._svd_truncate
+
+    def spy(self, theta_mat):
+        full_S = np.array(jnp.linalg.svd(theta_mat, full_matrices=False)[1])
+        U, S, Vh, trunc_err, jsd_val = orig_svd_truncate(self, theta_mat)
+        captured.append((full_S, self.eps, self.jsd_budget, self.chi, U.shape[1], jsd_val))
+        return U, S, Vh, trunc_err, jsd_val
+
+    MPSSimulator._svd_truncate = spy
+    try:
+        rng = np.random.default_rng(seed)
+        mps = MPSSimulator(n_qubits=n_qubits, max_bond=max_bond, jsd_budget=jsd_budget)
+        cx = jnp.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0]],
+                        dtype=complex).reshape(2, 2, 2, 2)
+        mps.apply_gate_1q(H_GATE, 0)
+        for _ in range(layers):
+            for i in range(n_qubits):
+                theta = float(rng.uniform(0.1, 1.5))
+                rx = jnp.array([[jnp.cos(theta / 2), -1j * jnp.sin(theta / 2)],
+                                 [-1j * jnp.sin(theta / 2), jnp.cos(theta / 2)]], dtype=complex)
+                mps.apply_gate_1q(rx, i)
+            for i in range(0, n_qubits - 1, 2):
+                mps.apply_gate_2q(cx, i, i + 1)
+            for i in range(1, n_qubits - 1, 2):
+                mps.apply_gate_2q(cx, i, i + 1)
+    finally:
+        MPSSimulator._svd_truncate = orig_svd_truncate
+    return captured
+
+
+@pytest.mark.parametrize("n_qubits,max_bond,jsd_budget,seed,layers", [
+    (14, 32, 1e-5, 0, 6),   # the config that first validated this during design
+    (10, 8,  1e-3, 1, 4),   # small max_bond -- more likely to hit budget violations
+    (20, 64, 1e-6, 2, 5),   # larger, tighter budget
+    (6,  4,  1e-2, 3, 8),   # tiny bond, many layers -- stresses the violation fallback
+])
+def test_vectorized_chi_search_matches_real_while_loop(n_qubits, max_bond, jsd_budget, seed, layers):
+    captured = _capture_real_svd_truncate_calls(n_qubits, max_bond, jsd_budget, seed, layers)
+    assert len(captured) > 0, "expected at least one real _svd_truncate call"
+    for full_S, eps, budget, chi, real_chi_new, real_jsd_val in captured:
+        vec_chi_new, vec_jsd_val = _vectorized_chi_search(jnp.array(full_S), eps, budget, chi)
+        assert vec_chi_new == real_chi_new
+        assert vec_jsd_val == pytest.approx(real_jsd_val, abs=1e-9)
+
+
+# ── _expand_nonlocal_2q_positions: JIT-fusion groundwork, step 2 ────────
+# Moves the SWAP-chain expansion _apply_nonlocal_2q does at runtime to a
+# pre-compile-time Python function, so a future jax.lax.scan-based kernel
+# can consume a flat, pre-expanded op list instead of dispatching SWAPs
+# inside the traced region.
+
+@pytest.mark.parametrize("n_qubits", [6, 10, 15])
+def test_expand_nonlocal_2q_positions_matches_real_dispatch_sequence(n_qubits):
+    """Exhaustive: every (q1, q2) pair for this n_qubits must produce the
+    exact same sequence of adjacent-pair apply_gate_2q calls the real
+    runtime SWAP-chain dispatch produces."""
+    CNOT = jnp.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0]],
+                      dtype=complex).reshape(2, 2, 2, 2)
+
+    def real_sequence(q1, q2):
+        calls = []
+        orig_apply_gate_2q = MPSSimulator.apply_gate_2q
+
+        def spy(self, gate_2q, a, b):
+            calls.append((a, b))
+            return orig_apply_gate_2q(self, gate_2q, a, b)
+
+        MPSSimulator.apply_gate_2q = spy
+        try:
+            mps = MPSSimulator(n_qubits=n_qubits, max_bond=8)
+            mps._apply_nonlocal_2q(CNOT, q1, q2)
+        finally:
+            MPSSimulator.apply_gate_2q = orig_apply_gate_2q
+        return calls
+
+    for q1 in range(n_qubits):
+        for q2 in range(n_qubits):
+            if q1 == q2:
+                continue
+            real_seq = real_sequence(q1, q2)
+            pred_seq, gate_index, needs_transpose = _expand_nonlocal_2q_positions(q1, q2)
+            assert pred_seq == real_seq, f"(q1={q1}, q2={q2}): predicted {pred_seq} != real {real_seq}"
+            assert needs_transpose == (q1 > q2)
+
+
+def test_expand_nonlocal_2q_positions_replay_matches_final_state():
+    """End-to-end, not just index bookkeeping: replaying the predicted
+    sequence by hand (SWAP at every position except gate_index, the real
+    gate -- transposed if needs_transpose -- at gate_index) through the
+    existing eager apply_gate_2q must produce the identical final quantum
+    state as calling apply_gate_2q(gate, q1, q2) directly (which routes
+    through the real runtime _apply_nonlocal_2q dispatch internally)."""
+    n_qubits = 8
+    swap = jnp.array([[1, 0, 0, 0], [0, 0, 1, 0], [0, 1, 0, 0], [0, 0, 0, 1]],
+                      dtype=complex).reshape(2, 2, 2, 2)
+    CNOT = jnp.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0]],
+                      dtype=complex).reshape(2, 2, 2, 2)
+
+    for q1, q2 in [(0, 3), (3, 0), (2, 7), (7, 2), (1, 6)]:
+        # Reference: real dispatch, via the public API exactly as used elsewhere.
+        mps_real = MPSSimulator(n_qubits=n_qubits, max_bond=16)
+        mps_real.apply_gate_1q(H_GATE, 0)
+        mps_real.apply_gate_1q(H_GATE, 4)
+        mps_real.apply_gate_2q(CNOT, q1, q2)
+        sv_real = np.asarray(mps_real.contract_to_statevector())
+
+        # Replay: predicted sequence, executed by hand through the same
+        # eager apply_gate_2q primitive, no call into _apply_nonlocal_2q.
+        mps_replay = MPSSimulator(n_qubits=n_qubits, max_bond=16)
+        mps_replay.apply_gate_1q(H_GATE, 0)
+        mps_replay.apply_gate_1q(H_GATE, 4)
+        seq, gate_index, needs_transpose = _expand_nonlocal_2q_positions(q1, q2)
+        gate_to_apply = jnp.transpose(CNOT, (1, 0, 3, 2)) if needs_transpose else CNOT
+        for i, (a, b) in enumerate(seq):
+            mps_replay.apply_gate_2q(gate_to_apply if i == gate_index else swap, a, b)
+        sv_replay = np.asarray(mps_replay.contract_to_statevector())
+
+        fidelity = np.abs(np.vdot(sv_real, sv_replay)) ** 2
+        assert fidelity == pytest.approx(1.0, abs=1e-9), f"(q1={q1}, q2={q2}): fidelity={fidelity}"
+
+
+# ── run_circuit_jit: JIT-fusion groundwork, step 3 ───────────────────────
+# The fused whole-circuit jax.lax.scan path. Correctness bar is the same
+# one this file already established for the eager path: cross-validation
+# against DenseSVSimulator on real entangling circuits, not just internal
+# self-consistency. The eager apply_gate_1q/apply_gate_2q/_apply_nonlocal_2q
+# methods are untouched by this -- run_circuit_jit is a new, additional
+# entry point.
+
+def test_run_circuit_jit_bell_state():
+    mps = MPSSimulator(n_qubits=2, max_bond=8)
+    mps.run_circuit_jit([["h", 0], ["cx", 0, 1]])
+    prob = np.abs(np.asarray(mps.contract_to_statevector())) ** 2
+    assert prob[0b00] == pytest.approx(0.5, abs=1e-9)
+    assert prob[0b11] == pytest.approx(0.5, abs=1e-9)
+
+
+def test_run_circuit_jit_ghz_chain():
+    n = 6
+    ops = [["h", 0]] + [["cx", q, q + 1] for q in range(n - 1)]
+    mps = MPSSimulator(n_qubits=n, max_bond=8)
+    mps.run_circuit_jit(ops)
+    prob = np.abs(np.asarray(mps.contract_to_statevector())) ** 2
+    assert prob[0] == pytest.approx(0.5, abs=1e-9)
+    assert prob[2 ** n - 1] == pytest.approx(0.5, abs=1e-9)
+
+
+def test_run_circuit_jit_nonlocal_ctrl_greater_than_tgt_ghz():
+    # The exact scenario the MPS ctrl/tgt inversion bug was found on
+    # earlier this session (H, CX(0,3), CX(3,1) non-adjacent+ctrl>tgt,
+    # CX(1,2)) -- must stay correct through the fused path too.
+    n = 4
+    mps = MPSSimulator(n_qubits=n, max_bond=16)
+    mps.run_circuit_jit([["h", 0], ["cx", 0, 3], ["cx", 3, 1], ["cx", 1, 2]])
+    sv = np.asarray(mps.contract_to_statevector())
+    exact = np.zeros(2 ** n, dtype=complex)
+    exact[0] = exact[-1] = 1 / np.sqrt(2)
+    fidelity = np.abs(np.vdot(sv, exact)) ** 2
+    assert fidelity == pytest.approx(1.0, abs=1e-9)
+
+
+def test_run_circuit_jit_toffoli_matches_classical_truth_table():
+    mps = MPSSimulator(n_qubits=3, max_bond=8)
+    mps.run_circuit_jit([["x", 0], ["x", 1], ["ccx", 0, 1, 2]])
+    # MPSSimulator has no run_circuit_jit-native ccx decomposition -- use
+    # the transpiler's own, same source of truth compiler.py/chunk.py use.
+    prob = np.abs(np.asarray(mps.contract_to_statevector())) ** 2
+    assert prob[0b111] == pytest.approx(1.0, abs=1e-6)
+
+
+@pytest.mark.parametrize("n_qubits,max_bond,jsd_budget,seed,layers", [
+    (12, 64, 1e-6, 5, 4),   # generous max_bond -- exact match expected
+    (16, 32, 1e-5, 7, 3),
+])
+def test_run_circuit_jit_matches_dense_simulator(n_qubits, max_bond, jsd_budget, seed, layers):
+    rng = np.random.default_rng(seed)
+    ops = [["h", q] for q in range(n_qubits)]
+    for _ in range(layers):
+        for q in range(0, n_qubits - 1, 2):
+            ops.append(["cx", q + 1, q])
+        for q in range(n_qubits):
+            ops.append(["rz", q, float(rng.uniform(0.1, 1.5))])
+        for q in range(1, n_qubits - 1, 2):
+            ops.append(["cx", q + 1, q])
+
+    sim_dense = de.DenseSVSimulator(n_qubits=n_qubits, use_gpu=False, use_float32=False)
+    sim_dense.run_circuit_jit_beast_mode(ops)
+    prob_dense = np.array(sim_dense.get_probabilities())
+
+    mps = MPSSimulator(n_qubits=n_qubits, max_bond=max_bond, jsd_budget=jsd_budget)
+    mps.run_circuit_jit(ops)
+    prob_mps = np.abs(np.asarray(mps.contract_to_statevector())) ** 2
+
+    tvd = 0.5 * np.sum(np.abs(prob_dense - prob_mps))
+    assert tvd < 1e-6, f"TVD={tvd} -- run_circuit_jit diverged from DenseSVSimulator"
+
+
+def test_run_circuit_jit_matches_eager_even_under_budget_violation():
+    # max_bond=8 is deliberately too small for this circuit's real
+    # entanglement (triggers real budget_violations, same as
+    # test_budget_violations_flagged_when_max_bond_too_small above) --
+    # DenseSVSimulator is NOT the right correctness bar here (neither
+    # MPS path can match it at this max_bond, by construction, that's
+    # what "budget violation" means). What must hold: the fused path's
+    # lossy truncation must match the eager path's own lossy truncation
+    # almost exactly -- fusion must not introduce error *beyond* what the
+    # eager implementation itself already accepts at this max_bond.
+    n_qubits, max_bond, jsd_budget, seed, layers = 10, 8, 1e-3, 6, 5
+    rng = np.random.default_rng(seed)
+    ops = [["h", q] for q in range(n_qubits)]
+    for _ in range(layers):
+        for q in range(0, n_qubits - 1, 2):
+            ops.append(["cx", q + 1, q])
+        for q in range(n_qubits):
+            ops.append(["rz", q, float(rng.uniform(0.1, 1.5))])
+        for q in range(1, n_qubits - 1, 2):
+            ops.append(["cx", q + 1, q])
+
+    mps_eager = MPSSimulator(n_qubits=n_qubits, max_bond=max_bond, jsd_budget=jsd_budget)
+    rz_cache = {}
+    for op in ops:
+        if op[0] == "h":
+            mps_eager.apply_gate_1q(H_GATE, op[1])
+        elif op[0] == "cx":
+            mps_eager.apply_cx(op[1], op[2])
+        elif op[0] == "rz":
+            theta = op[2]
+            if theta not in rz_cache:
+                rz_cache[theta] = jnp.array(
+                    [[jnp.exp(-1j * theta / 2), 0], [0, jnp.exp(1j * theta / 2)]], dtype=complex)
+            mps_eager.apply_gate_1q(rz_cache[theta], op[1])
+    assert mps_eager.budget_violations > 0, "test setup should genuinely stress max_bond"
+    sv_eager = np.asarray(mps_eager.contract_to_statevector())
+
+    mps_fused = MPSSimulator(n_qubits=n_qubits, max_bond=max_bond, jsd_budget=jsd_budget)
+    mps_fused.run_circuit_jit(ops)
+    sv_fused = np.asarray(mps_fused.contract_to_statevector())
+
+    fidelity = np.abs(np.vdot(sv_eager, sv_fused)) ** 2
+    assert fidelity == pytest.approx(1.0, abs=1e-9)
+
+
+# ── bookkeeping parity: JIT-fusion groundwork, step 4 ────────────────────
+# entanglement_entropy/_bond_history/jsd_per_bond/truncation_errors/
+# budget_violations must end up populated the same way after
+# run_circuit_jit as after the equivalent eager apply_gate_1q/apply_cx
+# calls -- same information, populated from jax.lax.scan's stacked
+# per-step diagnostics instead of Python list.append()s inside a loop.
+
+def test_run_circuit_jit_bookkeeping_matches_eager():
+    n_qubits, max_bond, jsd_budget, seed, layers = 10, 8, 1e-3, 6, 5
+    rng = np.random.default_rng(seed)
+    ops = [["h", q] for q in range(n_qubits)]
+    for _ in range(layers):
+        for q in range(0, n_qubits - 1, 2):
+            ops.append(["cx", q + 1, q])
+        for q in range(n_qubits):
+            ops.append(["rz", q, float(rng.uniform(0.1, 1.5))])
+        for q in range(1, n_qubits - 1, 2):
+            ops.append(["cx", q + 1, q])
+
+    mps_eager = MPSSimulator(n_qubits=n_qubits, max_bond=max_bond, jsd_budget=jsd_budget)
+    rz_cache = {}
+    for op in ops:
+        if op[0] == "h":
+            mps_eager.apply_gate_1q(H_GATE, op[1])
+        elif op[0] == "cx":
+            mps_eager.apply_cx(op[1], op[2])
+        elif op[0] == "rz":
+            theta = op[2]
+            if theta not in rz_cache:
+                rz_cache[theta] = jnp.array(
+                    [[jnp.exp(-1j * theta / 2), 0], [0, jnp.exp(1j * theta / 2)]], dtype=complex)
+            mps_eager.apply_gate_1q(rz_cache[theta], op[1])
+
+    mps_fused = MPSSimulator(n_qubits=n_qubits, max_bond=max_bond, jsd_budget=jsd_budget)
+    mps_fused.run_circuit_jit(ops)
+
+    assert mps_fused._bond_history == mps_eager._bond_history
+    assert mps_fused.budget_violations == mps_eager.budget_violations
+    assert len(mps_fused.jsd_per_bond) == len(mps_eager.jsd_per_bond)
+    for fused_v, eager_v in zip(mps_fused.jsd_per_bond, mps_eager.jsd_per_bond):
+        assert fused_v == pytest.approx(eager_v, abs=1e-9)
+    for fused_v, eager_v in zip(mps_fused.truncation_errors, mps_eager.truncation_errors):
+        assert fused_v == pytest.approx(eager_v, abs=1e-6)
+    assert np.max(np.abs(mps_fused.entanglement_entropy - mps_eager.entanglement_entropy)) < 1e-9
+    assert mps_eager.budget_violations > 0, "test setup should genuinely stress max_bond"
+
+
+@pytest.mark.parametrize("use_float64", [False, True])
+def test_run_circuit_jit_both_dtypes(use_float64):
+    previous = jax.config.jax_enable_x64
+    jax.config.update("jax_enable_x64", use_float64)
+    try:
+        mps = MPSSimulator(n_qubits=4, max_bond=8)
+        mps.run_circuit_jit([["h", 0], ["cx", 0, 3], ["cx", 3, 1], ["cx", 1, 2]])
+        sv = np.asarray(mps.contract_to_statevector())
+        exact = np.zeros(16, dtype=complex)
+        exact[0] = exact[-1] = 1 / np.sqrt(2)
+        fidelity = np.abs(np.vdot(sv, exact)) ** 2
+        assert fidelity == pytest.approx(1.0, abs=1e-6)
+    finally:
+        jax.config.update("jax_enable_x64", previous)
+
+
+def test_run_circuit_jit_rejects_unknown_gate():
+    mps = MPSSimulator(n_qubits=2, max_bond=4)
+    with pytest.raises(ValueError):
+        mps.run_circuit_jit([["not_a_real_gate", 0]])
 
