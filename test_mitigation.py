@@ -1,8 +1,12 @@
 import numpy as np
+import jax.numpy as jnp
 import pytest
 
 import dense_evolution as de
-from dense_evolution.mitigation import richardson_extrapolate, zero_noise_extrapolation
+from dense_evolution.mitigation import (
+    richardson_extrapolate, zero_noise_extrapolation,
+    project_to_physical, uhlmann_fidelity, zne_density_matrix,
+)
 
 
 def test_richardson_extrapolate_matches_known_3point_coefficients():
@@ -112,3 +116,118 @@ def test_zero_noise_extrapolation_rejects_non_3point_healing_request():
 def test_exported_from_package_root():
     assert de.richardson_extrapolate is richardson_extrapolate
     assert de.zero_noise_extrapolation is zero_noise_extrapolation
+    assert de.project_to_physical is project_to_physical
+    assert de.uhlmann_fidelity is uhlmann_fidelity
+    assert de.zne_density_matrix is zne_density_matrix
+
+
+def _random_density_matrix(rng, d):
+    a = rng.normal(size=(d, d)) + 1j * rng.normal(size=(d, d))
+    rho = a @ a.conj().T
+    return rho / np.trace(rho)
+
+
+def test_project_to_physical_matches_paper_worked_example():
+    # Smolin, Gambetta & Smith (2012), arXiv:1106.5458, Fig. 1: starting
+    # eigenvalues 3/5, 1/2, 7/20, 1/10, -11/20 (trace 1, one negative)
+    # project to 9/20, 7/20, 1/5, 0, 0 exactly.
+    eigvals_in = np.array([3 / 5, 1 / 2, 7 / 20, 1 / 10, -11 / 20])
+    assert eigvals_in.sum() == pytest.approx(1.0, abs=1e-12)
+    rho_raw = jnp.asarray(np.diag(eigvals_in), dtype=jnp.complex128)
+
+    got = np.asarray(project_to_physical(rho_raw))
+    got_eigvals = np.sort(np.linalg.eigvalsh(got))[::-1]
+    expected_eigvals = np.array([9 / 20, 7 / 20, 1 / 5, 0.0, 0.0])
+    np.testing.assert_allclose(got_eigvals, expected_eigvals, atol=1e-9)
+
+
+def _random_traceless_hermitian(rng, d):
+    a = rng.normal(size=(d, d)) + 1j * rng.normal(size=(d, d))
+    h = (a + a.conj().T) / 2
+    return h - (np.trace(h).real / d) * np.eye(d)
+
+
+def test_project_to_physical_output_is_a_valid_density_matrix():
+    rng = np.random.default_rng(2)
+    for _ in range(10):
+        d = rng.integers(2, 6)
+        rho = _random_density_matrix(rng, d)
+        # perturb with a traceless Hermitian matrix so trace stays exactly
+        # 1 while pushing eigenvalues negative (likely, for this scale).
+        rho_raw = jnp.asarray(rho + 0.5 * _random_traceless_hermitian(rng, d), dtype=jnp.complex128)
+        got = np.asarray(project_to_physical(rho_raw))
+        np.testing.assert_allclose(got, got.conj().T, atol=1e-9)
+        assert np.trace(got).real == pytest.approx(1.0, abs=1e-9)
+        assert np.trace(got).imag == pytest.approx(0.0, abs=1e-9)
+        assert np.linalg.eigvalsh(got).min() >= -1e-9
+
+
+def test_project_to_physical_is_a_near_no_op_on_already_physical_input():
+    rng = np.random.default_rng(3)
+    rho = jnp.asarray(_random_density_matrix(rng, 4), dtype=jnp.complex128)
+    got = project_to_physical(rho)
+    np.testing.assert_allclose(np.asarray(got), np.asarray(rho), atol=1e-9)
+
+
+def test_uhlmann_fidelity_self_is_one():
+    rng = np.random.default_rng(4)
+    rho = jnp.asarray(_random_density_matrix(rng, 3), dtype=jnp.complex128)
+    assert uhlmann_fidelity(rho, rho) == pytest.approx(1.0, abs=1e-9)
+
+
+def test_uhlmann_fidelity_matches_pure_state_overlap():
+    rng = np.random.default_rng(5)
+    for _ in range(5):
+        psi_a = rng.normal(size=4) + 1j * rng.normal(size=4)
+        psi_a /= np.linalg.norm(psi_a)
+        psi_b = rng.normal(size=4) + 1j * rng.normal(size=4)
+        psi_b /= np.linalg.norm(psi_b)
+        rho_a = jnp.asarray(np.outer(psi_a, psi_a.conj()), dtype=jnp.complex128)
+        rho_b = jnp.asarray(np.outer(psi_b, psi_b.conj()), dtype=jnp.complex128)
+        expected = abs(np.vdot(psi_a, psi_b)) ** 2
+        got = uhlmann_fidelity(rho_a, rho_b)
+        assert got == pytest.approx(expected, abs=1e-6)
+
+
+def test_uhlmann_fidelity_is_symmetric():
+    rng = np.random.default_rng(6)
+    rho_a = jnp.asarray(_random_density_matrix(rng, 3), dtype=jnp.complex128)
+    rho_b = jnp.asarray(_random_density_matrix(rng, 3), dtype=jnp.complex128)
+    assert uhlmann_fidelity(rho_a, rho_b) == pytest.approx(uhlmann_fidelity(rho_b, rho_a), abs=1e-9)
+
+
+def test_zne_density_matrix_output_is_a_valid_density_matrix():
+    rng = np.random.default_rng(7)
+    d = 4
+    rho_at_scales = jnp.stack([
+        jnp.asarray(_random_density_matrix(rng, d), dtype=jnp.complex128) for _ in range(3)
+    ])
+    got = np.asarray(zne_density_matrix(rho_at_scales, [1.0, 2.0, 3.0]))
+    np.testing.assert_allclose(got, got.conj().T, atol=1e-9)
+    assert np.trace(got).real == pytest.approx(1.0, abs=1e-9)
+    assert np.linalg.eigvalsh(got).min() >= -1e-9
+
+
+def test_zne_density_matrix_is_exactly_richardson_then_projection():
+    rng = np.random.default_rng(8)
+    d = 3
+    rho_at_scales = jnp.stack([
+        jnp.asarray(_random_density_matrix(rng, d), dtype=jnp.complex128) for _ in range(3)
+    ])
+    noise_factors = [1.0, 2.0, 3.0]
+    expected = project_to_physical(richardson_extrapolate(rho_at_scales, noise_factors))
+    got = zne_density_matrix(rho_at_scales, noise_factors)
+    np.testing.assert_allclose(np.asarray(got), np.asarray(expected), atol=1e-12)
+
+
+def test_zne_density_matrix_preserves_complex_off_diagonal_entries():
+    # A minimal, hand-built 3-scale complex input where the correct
+    # zero-noise extrapolation has a nonzero imaginary part -- guards
+    # against the exact bug fixed in richardson_extrapolate resurfacing
+    # silently through this composed entry point.
+    base = np.array([[0.6, 0.1 + 0.2j], [0.1 - 0.2j, 0.4]])
+    rho_at_scales = jnp.stack([
+        jnp.asarray(base * (1.0 + 0.1 * s), dtype=jnp.complex128) for s in (0, 1, 2)
+    ])
+    got = np.asarray(zne_density_matrix(rho_at_scales, [1.0, 2.0, 3.0]))
+    assert np.any(np.abs(got.imag) > 1e-9)
