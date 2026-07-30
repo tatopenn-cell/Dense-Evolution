@@ -33,6 +33,52 @@ of `2ⁿ × 16 bytes`.
 - **Interop** with [Qiskit and PennyLane](api/interop.md), and [autodiff](api/autodiff.md)
   through `circuit_to_energy_fn` for gradient-based VQE.
 
+## Module dependencies
+
+Real module graph, traced from the actual `import` statements in each file (not an
+idealized layering) -- circuit sources feed three interchangeable execution engines, which
+in turn feed the higher-level mitigation/autodiff layers.
+
+```mermaid
+flowchart LR
+    subgraph core["Core"]
+        parser["parser<br/>(QASMParser)"]
+        gates["gates"]
+        registry["registry<br/>(NoiseModel)"]
+        compiler["compiler<br/>(QuantumTranspiler)"]
+    end
+
+    subgraph engines["Engines"]
+        simulator["simulator<br/>(DenseSVSimulator)"]
+        mps["mps<br/>(MPSSimulator)"]
+        chunk["chunk<br/>(Chunk)"]
+    end
+
+    subgraph higher["Higher-level"]
+        interop["interop<br/>(Qiskit / PennyLane)"]
+        autodiff["autodiff<br/>(circuit_to_energy_fn)"]
+        healing["healing<br/>(predictive primitives)"]
+        mitigation["mitigation<br/>(ZNE)"]
+    end
+
+    gates --> registry
+    simulator --> registry
+    simulator --> gates
+    simulator --> compiler
+    mps --> compiler
+    mps --> gates
+    chunk --> simulator
+    chunk --> compiler
+    chunk --> gates
+    interop --> parser
+    interop --> simulator
+    autodiff --> parser
+    autodiff --> gates
+    autodiff --> compiler
+    autodiff --> registry
+    mitigation --> healing
+```
+
 ## Where to start
 
 New to the package? Start with **[Getting Started](getting-started.md)**.

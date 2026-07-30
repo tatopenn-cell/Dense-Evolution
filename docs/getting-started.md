@@ -62,24 +62,53 @@ sim.run_chunk(circuit_ops, chunk_size_gates=500)   # SafeMemoryGuard active
 
 ## Zero-Noise Extrapolation
 
+Self-contained: builds its own noisy density matrices via Monte Carlo, so it runs as-is.
+`rho_ideal` is used only to grade the result at the end, never fed into the correction
+itself (see the full writeup in [Examples](examples.md#density-matrix-zne-healing)).
+
 ```python
+import numpy as np
 import jax.numpy as jnp
-from dense_evolution import zne_density_matrix, uhlmann_fidelity
+import dense_evolution as de
+from dense_evolution.registry import NoiseModel
+from dense_evolution.mitigation import zne_density_matrix, uhlmann_fidelity
 
-# rho_at_scales[i]: a noisy density-matrix estimate at noise_factors[i]
-corrected = zne_density_matrix(rho_at_scales, noise_factors=[1.0, 2.0, 3.0])
+N_QUBITS, SCALES, K = 2, (1.0, 2.0, 3.0), 200
+rng = np.random.default_rng(0)
 
-# grade against a known ideal state -- never feed this back into correction
-fidelity = uhlmann_fidelity(corrected, rho_ideal)
+sim = de.DenseSVSimulator(N_QUBITS)
+sim.run_circuit([("h", 0), ("cx", 0, 1)])
+ideal_sv = np.asarray(sim.get_statevector())
+rho_ideal = jnp.asarray(np.outer(ideal_sv, ideal_sv.conj()), dtype=jnp.complex128)
+
+def noisy_density_matrix(p):
+    dim = len(ideal_sv)
+    rho = np.zeros((dim, dim), dtype=np.complex128)
+    for _ in range(K):
+        sv_noisy = NoiseModel.apply_to_sv(ideal_sv.copy(), N_QUBITS, 'depolarizing', p, rng=rng)
+        rho += np.outer(sv_noisy, sv_noisy.conj())
+    return jnp.asarray(rho / K, dtype=jnp.complex128)
+
+rho_at_scales = jnp.stack([noisy_density_matrix(0.05 * scale) for scale in SCALES])
+
+raw_fidelity = uhlmann_fidelity(rho_at_scales[0], rho_ideal)
+corrected = zne_density_matrix(rho_at_scales, SCALES)
+corrected_fidelity = uhlmann_fidelity(corrected, rho_ideal)
 ```
 
 See [`dense_evolution.mitigation`](api/mitigation.md) for the full API, including the
-`_jit` variants for use inside a larger `jax.jit`-compiled pipeline.
+`_jit` variants for use inside a larger `jax.jit`-compiled pipeline, and
+[Examples](examples.md) for this walkthrough plus MPS and differentiable-VQE examples.
 
 ## Dashboard (local, Streamlit)
 
+`app_dashboard.py` lives at the root of the cloned repository -- it is not part of the
+pip-installed package, so this needs the `git clone` from the [Install](#install) section
+above, not just `pip install`.
+
 ```bash
 pip install "dense-evolution[dashboard]"  # JAX already included by default
+cd Dense-Evolution
 streamlit run app_dashboard.py
 ```
 
