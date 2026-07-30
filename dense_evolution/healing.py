@@ -1,3 +1,27 @@
+"""
+dense_evolution.healing -- predictive-healing primitives for noisy vector
+sequences (VQE/MD telemetry, quantum state trajectories).
+
+Built empirically, one formula at a time, not derived top-down from a
+named theory -- worth being precise about, since one piece of it turns
+out to have a real mathematical identity worth naming rather than
+leaving implicit: calculate_vettore_dinamico's core term,
+log(E_B / E_A), is a log-likelihood ratio -- the same elementary
+quantity Kullback-Leibler divergence (relative entropy) is built from
+(D_KL(A||B) = sum_x A(x) * log(A(x)/B(x)), a probability-weighted
+average of exactly this log-ratio, which calculate_vettore_dinamico
+does not compute -- it uses one un-weighted log-ratio between two
+scalars, not a full KL divergence over a distribution). Equivalently,
+if -log(E) is read as self-information ("surprisal"), log(E_B/E_A) is
+the *difference in surprisal* between the two states.
+
+Not every formula in this module carries the same reading -- calculate_
+phi_ab's blend of cosine-alignment and Euclidean-distance terms is a
+geometric similarity construction, not an information-theoretic one;
+naming it as such would be the overclaiming this note is trying to
+avoid, not fix.
+"""
+
 import jax
 import jax.numpy as jnp
 import json
@@ -61,7 +85,14 @@ def calculate_phi_ab(state_A: jnp.ndarray, state_B: jnp.ndarray, ipg_vector: jnp
 
 @jax.jit
 def calculate_vettore_dinamico(E_A: jnp.ndarray, E_B: jnp.ndarray, Phi_AB: jnp.ndarray) -> jnp.ndarray:
-    """Calcola il Vettore Dinamico (V_dinamic) come variazione logaritmica differenziale energetica."""
+    """Calcola il Vettore Dinamico (V_dinamic) come variazione logaritmica differenziale energetica.
+
+    log(E_B / E_A) is a log-likelihood ratio -- the same elementary
+    quantity Kullback-Leibler divergence is built from (see this
+    module's docstring for the precise distinction: this is one
+    un-weighted log-ratio between two scalars, not a full KL divergence
+    over a probability distribution). Equivalently, the difference in
+    surprisal (-log E) between the two states."""
     valid_inputs = (E_A > 1e-12) & (E_B > 1e-12)
     ratio = jnp.where(valid_inputs, E_B / E_A, 1.0)
     log_ratio_clamped = jnp.clip(jnp.log(ratio), -5.0, 5.0)
