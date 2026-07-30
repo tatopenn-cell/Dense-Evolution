@@ -14,4 +14,4 @@ from .mps import MPSSimulator
 from .mitigation import (richardson_extrapolate, zero_noise_extrapolation,
                           project_to_physical, uhlmann_fidelity, zne_density_matrix)
 
-__version__ = "8.1.37"
+__version__ = "8.1.38"
