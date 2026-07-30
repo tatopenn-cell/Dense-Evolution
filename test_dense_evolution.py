@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 from dense_evolution import DenseSVSimulator, GATES, PARAMETRIC_GATES, NoiseModel, NoiseSpec, QuantumTranspiler, QASMParser, Chunk
+from dense_evolution import QASMCircuit
 from dense_evolution import healing
 
 import inspect
@@ -1250,6 +1251,81 @@ class TestQASMForLoop:
         circ = QASMParser().parse(qasm)
         assert [op['name'] for op in circ.ops] == ['h', 'h', 'cx']
         assert [op['qubits'] for op in circ.ops] == [[0], [1], [0, 1]]
+
+
+class TestQASMParserValidateAndEdgeCases:
+    """QASMParser.validate() was never called by any existing test (only
+    parse() itself), plus a handful of parser edge-case branches (QASM3
+    `bit[N]` classical register syntax, unbalanced braces/parentheses,
+    multi-parameter gates, and out-of-declared-range indexed qubits)."""
+
+    def test_validate_accepts_well_formed_circuit(self):
+        qasm = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[2]; h q[0]; cx q[0],q[1];'
+        circ = QASMParser().parse(qasm)
+        ok, msg = QASMParser().validate(circ)
+        assert ok is True
+        assert msg == 'OK'
+
+    def test_validate_rejects_zero_qubits(self):
+        empty = QASMCircuit(0, 0, [])
+        ok, msg = QASMParser().validate(empty)
+        assert ok is False
+        assert 'n_qubits' in msg
+
+    def test_validate_rejects_no_ops(self):
+        no_ops = QASMCircuit(2, 0, [])
+        ok, msg = QASMParser().validate(no_ops)
+        assert ok is False
+        assert 'No gate operations' in msg
+
+    def test_validate_rejects_out_of_range_qubit_reference(self):
+        bad = QASMCircuit(2, 0, [{'type': 'gate', 'name': 'h', 'qubits': [5], 'params': []}])
+        ok, msg = QASMParser().validate(bad)
+        assert ok is False
+        assert 'qubit 5' in msg
+
+    def test_qasm3_bit_declaration(self):
+        qasm = 'OPENQASM 3.0; qreg q[2]; bit[2] c; h q[0]; cx q[0],q[1];'
+        circ = QASMParser().parse(qasm)
+        assert circ.n_cbits == 2
+        assert [op['name'] for op in circ.ops] == ['h', 'cx']
+
+    def test_unbalanced_parentheses_in_gate_call_skipped(self):
+        # 'rx(0.5 q[0];' -- missing closing paren -- must be skipped
+        # (returns None internally, no op emitted), not raise.
+        qasm = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[2]; rx(0.5 q[0]; h q[1];'
+        circ = QASMParser().parse(qasm)
+        assert [op['name'] for op in circ.ops] == ['h']
+
+    def test_unbalanced_braces_in_for_loop_bail_out(self):
+        # A for-loop construct with a missing closing brace must not hang
+        # or raise -- _process_block_constructs bails out and the rest is
+        # handled by whatever the existing fallback does.
+        qasm = '''
+        OPENQASM 3.0;
+        qreg q[2];
+        for int i in [0:1] { h q[i];
+        cx q[0], q[1];
+        '''
+        circ = QASMParser().parse(qasm)  # must not hang/raise
+        assert isinstance(circ.ops, list)
+
+    def test_multi_parameter_gate_comma_split(self):
+        # u2(phi, lam) -- a real 2-parameter gate, exercises _split_params's
+        # depth==0 comma-splitting branch (every other parametric-gate test
+        # elsewhere in this file uses a single parameter).
+        qasm = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[1]; u2(0.1,0.2) q[0];'
+        circ = QASMParser().parse(qasm)
+        assert circ.ops[0]['name'] == 'u2'
+        assert circ.ops[0]['params'] == pytest.approx([0.1, 0.2])
+
+    def test_indexed_qubit_beyond_declared_range_uses_numeric_fallback(self):
+        # q[5] on a 2-qubit qreg -- not in qmap, falls back to the literal
+        # index rather than being dropped (BUG FIX 7's documented gate,
+        # only for tokens with no letters).
+        qasm = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[2]; h q[5];'
+        circ = QASMParser().parse(qasm)
+        assert circ.ops[0]['qubits'] == [5]
 
 
 class TestQASMCircuitIterable:
