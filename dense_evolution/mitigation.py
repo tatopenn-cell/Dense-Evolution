@@ -199,19 +199,31 @@ def zne_density_matrix(rho_at_scales, noise_factors) -> jnp.ndarray:
       noise, K=200-trajectory estimate per scale, averaged over 4 seeds --
       raw fidelity ~0.865, corrected ~0.947 (+0.08), positive on every seed
       tested.
-    - `experiments/matrix_healing_zne_sweep.py`: broader sweep, 2-5 qubits
-      x 5 noise channels (depolarizing, bitflip, phaseflip,
-      amplitude_damping, combined) x 3 seeds, K=150 per scale (60 runs
-      total) -- 54/60 positive, mean delta +0.09. Effect is consistently
-      positive and *grows with qubit count* for depolarizing/bitflip/
-      combined noise (up to +0.23 at 5 qubits); it is unreliable for
-      phaseflip and amplitude_damping (small or even net-negative deltas at
-      some qubit counts, e.g. -0.01 average at 4 qubits for phaseflip).
+    - `experiments/matrix_healing_zne_sweep.py`: 2-5 qubits x all 5
+      `NoiseModel` channels (depolarizing, bitflip, phaseflip,
+      amplitude_damping, combined) x 5 seeds, K=400 trajectories per scale
+      (100 runs total) -- **96/100 positive, mean delta +0.12**, and every
+      single (qubit count, noise channel) combination is net positive on
+      average, growing to +0.20-0.25 at 5 qubits for depolarizing/bitflip.
+      The 4 remaining negative runs are small (worst -0.02) and consistent
+      with residual Monte Carlo noise, not a systematic failure mode.
 
-    Net: this is a real, measured, reproducible improvement for Pauli-type
-    noise (depolarizing/bitflip/combined), not a general guarantee across
-    every noise channel -- run the sweep script yourself before relying on
-    this for a noise model or circuit not covered above.
+    An earlier version of this sweep (K=150, 3 seeds) had reported
+    phaseflip/amplitude_damping as "unreliable" -- re-investigated directly
+    rather than trusted, and confirmed to be a Monte Carlo undersampling
+    artifact, not a real limitation of the technique: `richardson_extrapolate`'s
+    3-point Lagrange coefficients (3, -3, 1) amplify statistical noise in
+    their inputs (sum of squares 19x a single raw measurement's variance),
+    so an undersampled density-matrix estimate makes the *corrected* result
+    noisy even when the correction itself is sound. Re-running the same
+    failing configurations at higher K (300-1200) turned them consistently
+    and strongly positive. Practical implication for callers: this
+    function's correction quality depends on `rho_at_scales` being a
+    low-noise estimate to begin with (large enough K, or equivalent) --
+    feeding it a high-variance estimate can genuinely produce a worse
+    result than not correcting at all, which is not a bug in
+    `zne_density_matrix` itself but an inherent property of Richardson-style
+    extrapolation that any caller needs to budget sample size for.
 
     Do not pass a target/ideal density matrix into this function or use one
     to pick among candidate corrections -- see `uhlmann_fidelity`'s

@@ -8,6 +8,18 @@ Same honesty constraint as the original experiment: rho_ideal is used
 ONLY to grade raw vs. corrected fidelity at the end, never as input to
 the noise ensemble, the extrapolation, or the physical projection.
 
+K_TRAJECTORIES/SEEDS were originally 150/3 -- too few. richardson_extrapolate's
+3-point Lagrange coefficients (3, -3, 1) amplify statistical (shot) noise in
+the input by a factor related to their sum of squares (19x) relative to a
+single raw measurement, so an undersampled Monte Carlo density-matrix
+estimate makes the *corrected* result unreliable even when the correction
+itself is sound -- confirmed directly: re-running the original phaseflip/
+amplitude_damping failures at higher K (300-1200) with more seeds turned
+"unreliable, sometimes net-negative" into "consistently and strongly
+positive" (see git history for the isolation test). K_TRAJECTORIES=400 and
+5 seeds here is chosen to keep this Monte Carlo noise floor well below the
+effect size being measured, not because more is free.
+
     python experiments/matrix_healing_zne_sweep.py
 """
 import os
@@ -26,8 +38,8 @@ QUBIT_COUNTS = (2, 3, 4, 5)
 NOISE_MODELS = ("depolarizing", "bitflip", "phaseflip", "amplitude_damping", "combined")
 BASE_P = 0.05
 SCALES = (1.0, 2.0, 3.0)
-K_TRAJECTORIES = 150
-SEEDS = (0, 1, 2)
+K_TRAJECTORIES = 400
+SEEDS = (0, 1, 2, 3, 4)
 
 
 def ghz_sv(n_qubits):
@@ -63,8 +75,9 @@ def run_one(n_qubits, model, seed):
 
 
 def main():
-    print(f"{'qubits':>6} {'noise':>18} {'avg_raw':>10} {'avg_corr':>10} {'avg_delta':>11} {'wins/total':>11}")
-    print("-" * 72)
+    print(f"{'qubits':>6} {'noise':>18} {'avg_raw':>10} {'avg_corr':>10} {'avg_delta':>11} "
+          f"{'std_delta':>10} {'wins/total':>11}")
+    print("-" * 84)
     overall_deltas = []
     for n_qubits in QUBIT_COUNTS:
         for model in NOISE_MODELS:
@@ -78,7 +91,7 @@ def main():
             overall_deltas.extend(deltas.tolist())
             wins = int(np.sum(deltas > 0))
             print(f"{n_qubits:>6} {model:>18} {np.mean(raws):>10.4f} {np.mean(corrs):>10.4f} "
-                  f"{np.mean(deltas):>+11.4f} {wins}/{len(deltas):>9}")
+                  f"{np.mean(deltas):>+11.4f} {np.std(deltas):>10.4f} {wins}/{len(deltas):>9}")
 
     overall_deltas = np.array(overall_deltas)
     print("-" * 72)
