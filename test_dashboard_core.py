@@ -195,6 +195,93 @@ def test_md_telemetry_shape(md_telemetry):
     assert corr_matrix.shape == (len(df_md.columns), len(df_md.columns))
 
 
+def test_md_telemetry_mock_mode_labeled_honestly(md_telemetry):
+    # No hamiltonian_values/sv/n_qubits given (the md_telemetry fixture) --
+    # must fall back to the mock generator and say so via df.attrs, not
+    # present synthetic data as real.
+    df_md, _ = md_telemetry
+    assert df_md.attrs["is_real"] is False
+    assert "dimostrativi" in df_md.attrs["note"].lower()
+
+
+def test_md_telemetry_real_mode_shape_and_attrs(bell_res):
+    # H2 (Idrogeno) - R = 0.74 Å: a real 2-qubit (dim=4) diagonal Hamiltonian
+    # matching BELL_CIRCUIT's 2-qubit statevector -- exercises the REAL
+    # branch (run_md_telemetry.py:34-37, _run_md_telemetry_real), never hit
+    # by the existing mock-only md_telemetry fixture.
+    h2_values = [-1.13, -0.45, 0.12, 0.64]
+    sv = bell_res["sim"].get_statevector()
+    df_md, corr_matrix = dc.run_md_telemetry(
+        md_steps=15, md_temp=300, hamiltonian_values=h2_values, sv=sv, n_qubits=2, seed=42)
+
+    assert len(df_md) == 15
+    assert df_md.attrs["is_real"] is True
+    assert "reale" in df_md.attrs["note"].lower()
+    expected_columns = {"Energia_VQE_Ha", "Entropia_von_Neumann_Bit",
+                         "Purita_Stato", "Gradiente_Operatore", "Fattore_Rumore_Termico"}
+    assert expected_columns.issubset(set(df_md.columns))
+    assert corr_matrix.shape == (len(df_md.columns), len(df_md.columns))
+
+
+def test_md_telemetry_real_mode_physically_sane_values(bell_res):
+    h2_values = [-1.13, -0.45, 0.12, 0.64]
+    sv = bell_res["sim"].get_statevector()
+    df_md, _ = dc.run_md_telemetry(
+        md_steps=10, md_temp=300, hamiltonian_values=h2_values, sv=sv, n_qubits=2, seed=7)
+
+    # Purity of a valid density matrix is always in (0, 1] (Tr(rho^2) <= 1,
+    # with equality only for a pure state; > 0 since rho is never the zero
+    # matrix).
+    assert (df_md["Purita_Stato"] > 0).all()
+    assert (df_md["Purita_Stato"] <= 1.0 + 1e-9).all()
+    # von Neumann entropy is non-negative by construction (-sum(p*log2(p))
+    # with p in [0,1]).
+    assert (df_md["Entropia_von_Neumann_Bit"] >= -1e-9).all()
+    # Energy is a probability-weighted average of the Hamiltonian's own
+    # eigenvalues, so it can never leave [min(H), max(H)].
+    assert df_md["Energia_VQE_Ha"].between(min(h2_values) - 1e-6, max(h2_values) + 1e-6).all()
+    # All finite -- no NaN/inf from a degenerate normalization edge case.
+    assert np.isfinite(df_md.to_numpy()).all()
+
+
+def test_md_telemetry_real_mode_zero_temperature_skips_noise(bell_res):
+    # md_temp<=0 -> p_thermal=0 -> the noiseless branch (realizations=[psi],
+    # md_telemetry.py:166-167), a distinct code path from the noisy ENSEMBLE
+    # branch exercised by the other real-mode tests above.
+    h2_values = [-1.13, -0.45, 0.12, 0.64]
+    sv = bell_res["sim"].get_statevector()
+    df_md, _ = dc.run_md_telemetry(
+        md_steps=8, md_temp=0, hamiltonian_values=h2_values, sv=sv, n_qubits=2, seed=1)
+    assert df_md.attrs["is_real"] is True
+    assert (df_md["Fattore_Rumore_Termico"] == 0.0).all()
+    # No thermal noise -> the state stays pure under unitary evolution only
+    # -> purity stays at (numerically) exactly 1 every step.
+    assert np.allclose(df_md["Purita_Stato"], 1.0, atol=1e-9)
+
+
+def test_md_telemetry_real_mode_reproducible_with_seed(bell_res):
+    h2_values = [-1.13, -0.45, 0.12, 0.64]
+    sv = bell_res["sim"].get_statevector()
+    df_a, _ = dc.run_md_telemetry(
+        md_steps=10, md_temp=300, hamiltonian_values=h2_values, sv=sv, n_qubits=2, seed=99)
+    df_b, _ = dc.run_md_telemetry(
+        md_steps=10, md_temp=300, hamiltonian_values=h2_values, sv=sv, n_qubits=2, seed=99)
+    pd.testing.assert_frame_equal(df_a, df_b)
+
+
+def test_md_telemetry_dimension_mismatch_falls_back_to_mock(bell_res):
+    # hamiltonian_values given but wrong dimension for n_qubits=2 (needs 4,
+    # this has 8) -- exercises _check_real_mode_inputs's mismatch branch
+    # (md_telemetry.py:48-53), distinct from the "nothing given at all"
+    # path the mock-only fixture already covers.
+    sv = bell_res["sim"].get_statevector()
+    wrong_dim_hamiltonian = [-1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, 2.5]  # dim=8, needs dim=4
+    df_md, _ = dc.run_md_telemetry(
+        md_steps=5, md_temp=300, hamiltonian_values=wrong_dim_hamiltonian, sv=sv, n_qubits=2, seed=0)
+    assert df_md.attrs["is_real"] is False
+    assert "non" in df_md.attrs["note"].lower() and "compatibile" in df_md.attrs["note"].lower()
+
+
 # ── compute_overview_metrics ────────────────────────────────────────────
 
 def test_compute_overview_metrics_keys(bell_res):
