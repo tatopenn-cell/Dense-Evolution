@@ -5,7 +5,7 @@ import pytest
 import dense_evolution as de
 from dense_evolution.mitigation import (
     richardson_extrapolate, zero_noise_extrapolation, polynomial_extrapolate,
-    project_to_physical, uhlmann_fidelity, zne_density_matrix,
+    project_to_physical, uhlmann_fidelity, zne_density_matrix, zne_density_matrix_jit,
 )
 
 
@@ -120,6 +120,7 @@ def test_exported_from_package_root():
     assert de.project_to_physical is project_to_physical
     assert de.uhlmann_fidelity is uhlmann_fidelity
     assert de.zne_density_matrix is zne_density_matrix
+    assert de.zne_density_matrix_jit is zne_density_matrix_jit
 
 
 def test_polynomial_extrapolate_matches_richardson_at_exact_point_count():
@@ -284,3 +285,62 @@ def test_zne_density_matrix_preserves_complex_off_diagonal_entries():
     ])
     got = np.asarray(zne_density_matrix(rho_at_scales, [1.0, 2.0, 3.0]))
     assert np.any(np.abs(got.imag) > 1e-9)
+
+
+def test_zne_density_matrix_jit_matches_eager_exactly():
+    rng = np.random.default_rng(20)
+    d = 4
+    mats = []
+    for _ in range(3):
+        a = rng.normal(size=(d, d)) + 1j * rng.normal(size=(d, d))
+        m = a @ a.conj().T
+        mats.append(m / np.trace(m))
+    rho_at_scales = jnp.asarray(np.stack(mats), dtype=jnp.complex128)
+    noise_factors = jnp.asarray([1.0, 2.0, 3.0], dtype=jnp.float64)
+
+    eager = zne_density_matrix(rho_at_scales, [1.0, 2.0, 3.0], degree=2)
+    jitted = zne_density_matrix_jit(rho_at_scales, noise_factors, degree=2)
+    np.testing.assert_array_equal(np.asarray(eager), np.asarray(jitted))
+
+
+def test_zne_density_matrix_jit_output_is_a_valid_density_matrix():
+    rng = np.random.default_rng(21)
+    d = 5
+    mats = []
+    for _ in range(5):
+        a = rng.normal(size=(d, d)) + 1j * rng.normal(size=(d, d))
+        m = a @ a.conj().T
+        mats.append(m / np.trace(m))
+    rho_at_scales = jnp.asarray(np.stack(mats), dtype=jnp.complex128)
+    noise_factors = jnp.asarray([1.0, 2.0, 3.0, 4.0, 5.0], dtype=jnp.float64)
+
+    got = np.asarray(zne_density_matrix_jit(rho_at_scales, noise_factors, degree=2))
+    np.testing.assert_allclose(got, got.conj().T, atol=1e-9)
+    assert np.trace(got).real == pytest.approx(1.0, abs=1e-9)
+    assert np.linalg.eigvalsh(got).min() >= -1e-9
+
+
+def test_zne_density_matrix_jit_actually_compiles_under_jit():
+    # zne_density_matrix_jit is already jax.jit-wrapped; this specifically
+    # checks it doesn't raise a tracing error (e.g. from a stray
+    # np.iscomplexobj/np.asarray call on a traced value) when called
+    # through an *additional* outer jax.jit, the realistic case of
+    # embedding it inside a larger jitted pipeline (e.g. jax.lax.scan).
+    import jax
+
+    rng = np.random.default_rng(22)
+    d = 3
+    mats = []
+    for _ in range(3):
+        a = rng.normal(size=(d, d)) + 1j * rng.normal(size=(d, d))
+        m = a @ a.conj().T
+        mats.append(m / np.trace(m))
+    rho_at_scales = jnp.asarray(np.stack(mats), dtype=jnp.complex128)
+    noise_factors = jnp.asarray([1.0, 2.0, 3.0], dtype=jnp.float64)
+
+    from dense_evolution.mitigation import _zne_density_matrix_core
+    import functools
+    outer_jit = jax.jit(functools.partial(_zne_density_matrix_core, degree=2))
+    result = outer_jit(rho_at_scales, noise_factors)
+    result.block_until_ready()
+    assert np.trace(np.asarray(result)).real == pytest.approx(1.0, abs=1e-9)
