@@ -79,6 +79,7 @@ nav:
   - Home: index.md
   - Getting Started: getting-started.md
   - Examples: examples.md
+  - Benchmarks: benchmarks.md
   - API Reference:
       - api/index.md
       - Simulator: api/simulator.md
@@ -93,4 +94,5 @@ nav:
       - Interop (Qiskit / PennyLane): api/interop.md
       - Autodiff: api/autodiff.md
   - Changelog: changelog.md
+  - Contributing: contributing.md
   - License: LICENSE.md
