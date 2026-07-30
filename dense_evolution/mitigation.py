@@ -20,7 +20,8 @@ from .healing import calculate_delta_preemp
 
 __all__ = ["richardson_extrapolate", "zero_noise_extrapolation", "polynomial_extrapolate",
            "project_to_physical", "uhlmann_fidelity", "zne_density_matrix",
-           "zne_density_matrix_jit"]
+           "richardson_extrapolate_jit", "zero_noise_extrapolation_jit",
+           "uhlmann_fidelity_jit", "zne_density_matrix_jit"]
 
 
 def richardson_extrapolate(expectation_values, noise_factors) -> jnp.ndarray:
@@ -48,6 +49,18 @@ def richardson_extrapolate(expectation_values, noise_factors) -> jnp.ndarray:
     lambdas = jnp.asarray(noise_factors, dtype=jnp.float64)
     values_dtype = jnp.complex128 if np.iscomplexobj(np.asarray(expectation_values)) else jnp.float64
     values = jnp.asarray(expectation_values, dtype=values_dtype)
+    return _richardson_extrapolate_core(values, lambdas)
+
+
+def _richardson_extrapolate_core(values: jnp.ndarray, lambdas: jnp.ndarray) -> jnp.ndarray:
+    """`jax.jit`-traceable core of `richardson_extrapolate` -- `values`
+    already cast to its final dtype, `lambdas` already float64 (no
+    `np.iscomplexobj`/`np.asarray` call on a possibly-traced value). `n`
+    comes from `lambdas.shape[0]`, a static value even under tracing
+    (array shapes are always known at trace time), so the Python
+    `range(n)` unroll below is trace-safe without `n` needing to be
+    static-marked by callers.
+    """
     n = lambdas.shape[0]
 
     def lagrange_coeff(i):
@@ -63,6 +76,21 @@ def richardson_extrapolate(expectation_values, noise_factors) -> jnp.ndarray:
     # so existing scalar callers are unaffected.
     coeffs = coeffs.reshape((n,) + (1,) * (values.ndim - 1))
     return jnp.sum(coeffs * values, axis=0)
+
+
+richardson_extrapolate_jit = jax.jit(_richardson_extrapolate_core)
+"""`jax.jit`-compiled entry point for `richardson_extrapolate`. Unlike
+`polynomial_extrapolate`/`zne_density_matrix`'s jitted variants, no
+argument needs to be marked static here -- `n` (the point count) is read
+from `lambdas.shape[0]`, itself always static under tracing, not from a
+Python `degree` parameter.
+
+`values` must already be complex128 or float64 (pick the dtype yourself
+before calling -- this skips `richardson_extrapolate`'s `np.iscomplexobj`
+auto-detection, which isn't traceable) and `lambdas` a float64 array.
+Verified to match `richardson_extrapolate` exactly on real and complex
+input; JAX recompiles per distinct input shape/dtype, as usual.
+"""
 
 
 def zero_noise_extrapolation(expectation_values, noise_factors,
@@ -100,14 +128,39 @@ def zero_noise_extrapolation(expectation_values, noise_factors,
         )
     values_dtype = jnp.complex128 if np.iscomplexobj(np.asarray(expectation_values)) else jnp.float64
     values = jnp.asarray(expectation_values, dtype=values_dtype)
-    e_l1, e_l2, e_l3 = values[0], values[1], values[2]
+    return _zero_noise_extrapolation_healing_core(
+        values, jnp.asarray(sigma_at_base_noise, dtype=jnp.float64), target_sigma_ideal)
 
-    delta_p = calculate_delta_preemp(jnp.asarray(sigma_at_base_noise, dtype=jnp.float64),
-                                      target_sigma_ideal)
+
+def _zero_noise_extrapolation_healing_core(values: jnp.ndarray, sigma_at_base_noise: jnp.ndarray,
+                                            target_sigma_ideal: float) -> jnp.ndarray:
+    """`jax.jit`-traceable core of `zero_noise_extrapolation`'s
+    healing-adapted branch -- `values` already cast to its final dtype
+    (exactly 3 noise-scale rows, `values[0]`, `values[1]`, `values[2]`),
+    `sigma_at_base_noise` already a jnp float64 scalar. `calculate_delta_preemp`
+    is itself already `@jax.jit`-decorated (`dense_evolution.healing`), so
+    calling it here composes cleanly under an outer jit.
+    """
+    e_l1, e_l2, e_l3 = values[0], values[1], values[2]
+    delta_p = calculate_delta_preemp(sigma_at_base_noise, target_sigma_ideal)
     c1 = 3.0 - 0.01 * delta_p
     c2 = -3.0 + 0.02 * delta_p
     c3 = 1.0 - 0.01 * delta_p
     return (c1 * e_l1 + c2 * e_l2 + c3 * e_l3) / (c1 + c2 + c3)
+
+
+zero_noise_extrapolation_jit = jax.jit(_zero_noise_extrapolation_healing_core)
+"""`jax.jit`-compiled entry point for `zero_noise_extrapolation`'s
+healing-adapted branch (the `sigma_at_base_noise is not None` case --
+the plain-Richardson case already has `richardson_extrapolate_jit`, use
+that directly instead). `values` must already be complex128 or float64
+with exactly 3 rows, `sigma_at_base_noise` a float64 scalar; the
+`lambdas.shape[0] != 3` validation and dtype auto-detection that
+`zero_noise_extrapolation` does are both skipped here (not traceable) --
+callers are responsible for passing exactly-3-row input themselves.
+`target_sigma_ideal` is a plain Python float, fine to leave non-static
+since it only ever multiplies/subtracts, no Python branching on its value.
+"""
 
 
 def polynomial_extrapolate(expectation_values, noise_factors, degree: int = 2) -> jnp.ndarray:
@@ -253,18 +306,36 @@ def uhlmann_fidelity(rho_A: jnp.ndarray, rho_B: jnp.ndarray) -> float:
     against the previous full-reconstruction version: identical to machine
     precision (~1e-16) on 30 random density-matrix pairs.
     """
+    rho_A = jnp.asarray(rho_A, dtype=jnp.complex128)
+    rho_B = jnp.asarray(rho_B, dtype=jnp.complex128)
+    return float(_uhlmann_fidelity_core(rho_A, rho_B))
+
+
+def _uhlmann_fidelity_core(rho_A: jnp.ndarray, rho_B: jnp.ndarray) -> jnp.ndarray:
+    """`jax.jit`-traceable core of `uhlmann_fidelity` -- both inputs already
+    complex128; returns a jnp scalar instead of a Python `float` (the
+    `float()` cast isn't traceable, same reason `_jsd_vectors_jax`/
+    `_jsd_vectors` are split this way in `dense_evolution.mps`).
+    """
     def sqrt_eigvals(m):
         w = jnp.linalg.eigvalsh(m)
         return jnp.clip(jnp.real(w), 0.0, None)
-
-    rho_A = jnp.asarray(rho_A, dtype=jnp.complex128)
-    rho_B = jnp.asarray(rho_B, dtype=jnp.complex128)
 
     w_A, v_A = jnp.linalg.eigh(rho_A)
     sqrt_A = (v_A * jnp.sqrt(jnp.clip(jnp.real(w_A), 0.0, None))) @ jnp.conj(v_A).T
     inner = sqrt_A @ rho_B @ sqrt_A
     inner_evals = sqrt_eigvals(inner)
-    return float(jnp.sum(jnp.sqrt(inner_evals)) ** 2)
+    return jnp.real(jnp.sum(jnp.sqrt(inner_evals)) ** 2)
+
+
+uhlmann_fidelity_jit = jax.jit(_uhlmann_fidelity_core)
+"""`jax.jit`-compiled entry point for `uhlmann_fidelity`. Both `rho_A`/
+`rho_B` must already be `complex128` (this skips `uhlmann_fidelity`'s
+own `jnp.asarray(..., dtype=jnp.complex128)` cast, itself trace-safe, but
+kept out of the core to mirror the other `_core` functions' convention).
+Returns a jnp scalar, not a Python `float` -- call `float(...)` yourself
+if you need one outside a jitted context. Verified to match `uhlmann_fidelity`
+exactly (same underlying math, just not cast to a Python float)."""
 
 
 def zne_density_matrix(rho_at_scales, noise_factors, degree: int = 2) -> jnp.ndarray:

@@ -6,6 +6,7 @@ import dense_evolution as de
 from dense_evolution.mitigation import (
     richardson_extrapolate, zero_noise_extrapolation, polynomial_extrapolate,
     project_to_physical, uhlmann_fidelity, zne_density_matrix, zne_density_matrix_jit,
+    richardson_extrapolate_jit, zero_noise_extrapolation_jit, uhlmann_fidelity_jit,
 )
 
 
@@ -121,6 +122,9 @@ def test_exported_from_package_root():
     assert de.uhlmann_fidelity is uhlmann_fidelity
     assert de.zne_density_matrix is zne_density_matrix
     assert de.zne_density_matrix_jit is zne_density_matrix_jit
+    assert de.richardson_extrapolate_jit is richardson_extrapolate_jit
+    assert de.zero_noise_extrapolation_jit is zero_noise_extrapolation_jit
+    assert de.uhlmann_fidelity_jit is uhlmann_fidelity_jit
 
 
 def test_polynomial_extrapolate_matches_richardson_at_exact_point_count():
@@ -344,3 +348,101 @@ def test_zne_density_matrix_jit_actually_compiles_under_jit():
     result = outer_jit(rho_at_scales, noise_factors)
     result.block_until_ready()
     assert np.trace(np.asarray(result)).real == pytest.approx(1.0, abs=1e-9)
+
+
+def test_richardson_extrapolate_jit_matches_eager():
+    lambdas = jnp.asarray([1.0, 2.0, 3.0], dtype=jnp.float64)
+    values = jnp.asarray([1 + 2j, 3 + 4j, 3 + 4j], dtype=jnp.complex128)
+    got = richardson_extrapolate_jit(values, lambdas)
+    expected = richardson_extrapolate([1 + 2j, 3 + 4j, 3 + 4j], [1.0, 2.0, 3.0])
+    np.testing.assert_allclose(np.asarray(got), np.asarray(expected))
+
+
+def test_richardson_extrapolate_jit_compiles_under_outer_jit():
+    import jax
+    lambdas = jnp.asarray([1.0, 2.0, 3.0], dtype=jnp.float64)
+    values = jnp.asarray([1.0, 2.0, 3.0], dtype=jnp.float64)
+    outer_jit = jax.jit(richardson_extrapolate_jit)
+    result = outer_jit(values, lambdas)
+    result.block_until_ready()
+    assert float(result) == pytest.approx(0.0, abs=1e-9)  # linear data -> exact intercept 0
+
+
+def test_zero_noise_extrapolation_jit_matches_eager():
+    values = jnp.asarray([1 + 2j, 3 + 4j, 3 + 4j], dtype=jnp.complex128)
+    sigma = jnp.asarray(7.5, dtype=jnp.float64)
+    got = zero_noise_extrapolation_jit(values, sigma, 10.0)
+    expected = zero_noise_extrapolation([1 + 2j, 3 + 4j, 3 + 4j], [1.0, 2.0, 3.0],
+                                         sigma_at_base_noise=7.5, target_sigma_ideal=10.0)
+    np.testing.assert_allclose(np.asarray(got), np.asarray(expected))
+
+
+def test_zero_noise_extrapolation_jit_target_sigma_ideal_stays_dynamic():
+    # target_sigma_ideal must NOT need to be static -- calculate_delta_preemp
+    # uses jnp.where internally, not a Python if, so it's trace-safe as a
+    # plain traced float. Regression guard: if this ever needs
+    # static_argnames, this test starts raising a tracing error (the
+    # primary thing being checked -- no exception on a second call with a
+    # different target, no recompilation required). A wide target gap and
+    # non-degenerate complex values also confirm the coefficients (and so
+    # the result) actually do move, not just "didn't crash".
+    import jax
+    values = jnp.asarray([1 + 2j, 3 + 4j, 3 + 4j], dtype=jnp.complex128)
+    sigma = jnp.asarray(0.5, dtype=jnp.float64)
+
+    @jax.jit
+    def f(values, sigma, target):
+        return zero_noise_extrapolation_jit(values, sigma, target)
+
+    r1 = f(values, sigma, 10.0)
+    r2 = f(values, sigma, 1.0)  # different target, same compiled function
+    assert not jnp.allclose(r1, r2)
+
+
+def test_uhlmann_fidelity_jit_matches_eager():
+    rng = np.random.default_rng(23)
+    d = 3
+    a = rng.normal(size=(d, d)) + 1j * rng.normal(size=(d, d))
+    rho_a = jnp.asarray(a @ a.conj().T / np.trace(a @ a.conj().T), dtype=jnp.complex128)
+    b = rng.normal(size=(d, d)) + 1j * rng.normal(size=(d, d))
+    rho_b = jnp.asarray(b @ b.conj().T / np.trace(b @ b.conj().T), dtype=jnp.complex128)
+
+    got = uhlmann_fidelity_jit(rho_a, rho_b)
+    expected = uhlmann_fidelity(rho_a, rho_b)
+    assert float(got) == pytest.approx(expected, abs=1e-9)
+
+
+def test_full_pipeline_composes_under_a_single_outer_jax_jit():
+    # The realistic case this whole _jit family exists for: several of
+    # these functions called together inside ONE outer jax.jit (e.g. a
+    # step function passed to jax.lax.scan), not each jitted in isolation.
+    import jax
+    from dense_evolution.mitigation import (
+        _zero_noise_extrapolation_healing_core, _zne_density_matrix_core, _uhlmann_fidelity_core,
+    )
+
+    rng = np.random.default_rng(24)
+    d = 3
+    mats = []
+    for _ in range(3):
+        a = rng.normal(size=(d, d)) + 1j * rng.normal(size=(d, d))
+        m = a @ a.conj().T
+        mats.append(m / np.trace(m))
+    rho_at_scales = jnp.asarray(np.stack(mats), dtype=jnp.complex128)
+    noise_factors = jnp.asarray([1.0, 2.0, 3.0], dtype=jnp.float64)
+    sigma = jnp.asarray(7.5, dtype=jnp.float64)
+    rho_target = rho_at_scales[0]
+
+    @jax.jit
+    def full_pipeline(rho_at_scales, noise_factors, sigma, target_sigma, rho_target):
+        healed = _zero_noise_extrapolation_healing_core(rho_at_scales, sigma, target_sigma)
+        corrected = _zne_density_matrix_core(rho_at_scales, noise_factors, 2)
+        fidelity = _uhlmann_fidelity_core(corrected, rho_target)
+        return healed, corrected, fidelity
+
+    healed, corrected, fidelity = full_pipeline(rho_at_scales, noise_factors, sigma, 10.0, rho_target)
+    jax.block_until_ready((healed, corrected, fidelity))
+
+    np.testing.assert_allclose(np.asarray(corrected), np.asarray(corrected).conj().T, atol=1e-9)
+    assert np.trace(np.asarray(corrected)).real == pytest.approx(1.0, abs=1e-9)
+    assert 0.0 <= float(fidelity) <= 1.0 + 1e-9
