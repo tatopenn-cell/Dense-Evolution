@@ -642,3 +642,81 @@ def test_estrai_valore_puro_plain_object_returned_unchanged():
 def test_estrai_valore_puro_numpy_scalar_types_pass_through():
     assert estrai_valore_puro(np.int64(9)) == 9
     assert estrai_valore_puro(np.float32(1.5)) == 1.5
+
+
+# ── run_simulation: gates/engines not exercised by bell_res/noisy_res ──────
+
+def test_run_simulation_ccx_gate_through_full_pipeline():
+    # Grover_3q_Oracle_111 uses ccx -- BELL_CIRCUIT/VQE_CIRCUIT don't,
+    # so the ccx/toffoli branch of _run_simulation_body's own
+    # comandi_beast_mode builder (simulation_runner.py:197-204) was
+    # never exercised through the real run_simulation entry point
+    # (only via _run_on_mps directly, a different code path).
+    res = dc.run_simulation("Libreria Built-in", "Grover_3q_Oracle_111", "", "ideal", 0.0, 64, 42, use_float32=True)
+    assert res["n_qubits"] == 3
+    assert np.isclose(np.sum(res["prob"]), 1.0, atol=1e-5)
+
+
+def test_run_simulation_cp_gate_through_full_pipeline():
+    # QFT 4 qubit uses cp -- exercises the cp/crz branch
+    # (simulation_runner.py:205-212), also never hit via bell_res/noisy_res.
+    res = dc.run_simulation("Libreria Built-in", "QFT 4 qubit", "", "ideal", 0.0, 64, 42, use_float32=True)
+    assert res["n_qubits"] == 4
+    assert np.isclose(np.sum(res["prob"]), 1.0, atol=1e-5)
+
+
+def test_run_simulation_mps_engine_with_noise():
+    # bell_res/noisy_res only ever combine engine='dense' with noise, or
+    # engine='mps' with noise_model='ideal' -- never engine='mps' PLUS a
+    # real noise channel, which is its own branch (the usa_mps sub-cases
+    # inside the noisy_model != 'ideal' path, simulation_runner.py:244-245
+    # and 255) computing sim_ideal and sim separately via _mps_statevector.
+    res = dc.run_simulation(
+        "Libreria Built-in", BELL_CIRCUIT, "", "depolarizing", 0.05, 64, 42,
+        use_float32=True, engine="mps")
+    assert res["n_qubits"] == 2
+    assert 0.0 <= res["fidelity"] <= 1.0 + 1e-6
+    assert np.isclose(np.sum(res["prob"]), 1.0, atol=1e-5)
+
+
+def test_run_simulation_custom_qasm_text_mode():
+    # Every other run_simulation test in this file uses source_mode=
+    # "Libreria Built-in" -- the else branch (qasm_string=qasm_text,
+    # nome_circuito='Custom Workspace', simulation_runner.py:99-100),
+    # the actual "paste your own QASM" path in the dashboard, was untested.
+    custom_qasm = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[2]; creg c[2]; h q[0]; cx q[0],q[1]; measure q -> c;'
+    res = dc.run_simulation("Custom Workspace", "", custom_qasm, "ideal", 0.0, 64, 42, use_float32=True)
+    assert res["nome"] == "Custom Workspace"
+    assert res["n_qubits"] == 2
+    assert np.isclose(np.sum(res["prob"]), 1.0, atol=1e-5)
+
+
+def test_run_simulation_mps_engine_rejects_over_24_qubits():
+    # simulation_runner.py:151-160's explicit ValueError -- MPSSimulator's
+    # dashboard integration is capped at 24 qubits (get_probabilities_sampled
+    # for larger circuits isn't wired to the dense-array-expecting panels
+    # yet). A qreg-only QASM string (no gates needed) is enough to report
+    # n_qubits=30 without actually running anything expensive.
+    big_qasm = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[30]; creg c[30];'
+    with pytest.raises(ValueError, match="24 qubit"):
+        dc.run_simulation("Custom Workspace", "", big_qasm, "ideal", 0.0, 64, 42, use_float32=True, engine="mps")
+
+
+def test_run_simulation_chunk_engine(monkeypatch):
+    # de.Chunk is only actually used (usa_chunk=True) when
+    # MemoryChunker(n_qubits).num_chunks > 1, which needs chunk_size_bits
+    # (get_dynamic_chunk's real-RAM-based result, always >= 16) to be
+    # smaller than n_qubits -- never true for the 2-4 qubit circuits used
+    # elsewhere in this file, and not worth a genuinely 17+ qubit circuit
+    # just to reach this branch quickly. Force it instead by patching
+    # get_dynamic_chunk to a tiny value so even a 3-qubit circuit chunks
+    # (de.Chunk's own correctness against DenseSVSimulator is already
+    # covered by test_dense_evolution.py; this only checks
+    # run_simulation's own dispatch actually uses de.Chunk when told to).
+    import dense_evolution.chunk as chunk_module
+    monkeypatch.setattr(chunk_module, "get_dynamic_chunk", lambda dtype_target: 1)
+
+    res = dc.run_simulation("Libreria Built-in", BELL_CIRCUIT, "", "ideal", 0.0, 64, 42, use_float32=True)
+    from dense_evolution import Chunk
+    assert isinstance(res["sim"], Chunk)
+    assert np.isclose(np.sum(res["prob"]), 1.0, atol=1e-5)
