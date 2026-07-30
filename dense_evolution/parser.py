@@ -32,7 +32,7 @@ class QASMCircuit:
     def to_tuples(self) -> List[Tuple]:
         """
         Convert ops to the tuple format expected by DenseSVSimulator.run_circuit:
-            (name, qubit0[, qubit1, ...][, param0, ...])
+        `(name, qubit0, [qubit1, ...], [param0, ...])`
 
         BUG FIX (original): the original returned
             (name,) + tuple(qubits) + tuple(params)

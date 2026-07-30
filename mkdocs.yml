@@ -1,0 +1,89 @@
+site_name: Dense-Evolution
+site_description: High-performance NISQ statevector quantum circuit simulator, JAX XLA-accelerated.
+site_url: https://tatopenn-cell.github.io/Dense-Evolution/
+repo_url: https://github.com/tatopenn-cell/Dense-Evolution
+repo_name: tatopenn-cell/Dense-Evolution
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: cyan
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: black
+      accent: cyan
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.top
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true
+
+extra_javascript:
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+
+plugins:
+  - search
+  - include-markdown
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: ["."]
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            merge_init_into_class: true
+            separate_signature: true
+            show_signature_annotations: true
+            members_order: source
+            heading_level: 2
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - API Reference:
+      - api/index.md
+      - Simulator: api/simulator.md
+      - MPS Simulator: api/mps.md
+      - Chunk (large-scale): api/chunk.md
+      - QASM Parser: api/parser.md
+      - Compiler: api/compiler.md
+      - Registry & Noise Models: api/registry.md
+      - Gates: api/gates.md
+      - Mitigation (ZNE / density-matrix healing): api/mitigation.md
+      - Healing (predictive primitives): api/healing.md
+      - Interop (Qiskit / PennyLane): api/interop.md
+      - Autodiff: api/autodiff.md
+  - Changelog: changelog.md
+  - License: LICENSE.md

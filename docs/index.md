@@ -1,0 +1,51 @@
+# Dense-Evolution
+
+**Dense statevector quantum simulator · JAX XLA · NISQ · VQE · QML**
+
+[![CI](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml/badge.svg)](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/dense-evolution?style=flat-square&color=00e5ff)](https://pypi.org/project/dense-evolution/)
+[![Python](https://img.shields.io/badge/Python-3.9+-blue?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![JAX](https://img.shields.io/badge/Backend-JAX_XLA-f9ab00?style=flat-square&logo=google&logoColor=white)](https://github.com/google/jax)
+
+Dense-Evolution is a high-performance statevector simulator for deep NISQ circuits, VQE
+pipelines, and QML workloads. It eliminates Kronecker-product overhead via stride-sliced
+linear kernel fusion compiled through JAX XLA, keeping memory at the theoretical minimum
+of `2ⁿ × 16 bytes`.
+
+## What's in here
+
+- **[`DenseSVSimulator`](api/simulator.md)** — the core dense statevector engine, JIT-fused
+  circuit execution, projective measurement.
+- **[`MPSSimulator`](api/mps.md)** — matrix-product-state engine for low-entanglement
+  circuits at hundreds of qubits, with a `jax.lax.scan`-fused execution path.
+- **[`Chunk`](api/chunk.md)** — anti-OOM statevector chunking for circuits too large for a
+  single dense allocation, including a real multi-device distributed dispatch path.
+- **[`QASMParser`](api/parser.md)** — OpenQASM 2.0 / 3.0 parsing, including `for` loops,
+  range syntax, and QASM3 classical `bit` registers.
+- **[`dense_evolution.mitigation`](api/mitigation.md)** — Zero-Noise Extrapolation, both the
+  classic scalar/vector form and a density-matrix extension (Smolin-Gambetta-Smith physical
+  projection, Uhlmann fidelity), every entry point with a `jax.jit`-compatible variant.
+- **[`dense_evolution.healing`](api/healing.md)** — the predictive-healing primitives
+  (`calculate_delta_preemp`, `calculate_vettore_dinamico`, ...) ZNE's healing-adapted branch
+  is built on.
+- **[`NoiseModel`](api/registry.md)** — Kraus-channel noise (depolarizing, bitflip,
+  phaseflip, amplitude damping, and a combined worst-case model), JAX- and NumPy-native.
+- **Interop** with [Qiskit and PennyLane](api/interop.md), and [autodiff](api/autodiff.md)
+  through `circuit_to_energy_fn` for gradient-based VQE.
+
+## Where to start
+
+New to the package? Start with **[Getting Started](getting-started.md)**.
+
+Looking for a specific function or class? Jump straight to the **[API
+Reference](api/index.md)**.
+
+Want to see what changed recently? Check the **[Changelog](changelog.md)**.
+
+## Honesty as a design principle
+
+This library's docstrings and changelog document real, measured findings — including
+negative results and rejected approaches — not just the features that worked. Where a
+number is quoted (a speedup, a fidelity improvement, a coverage percentage), it was
+measured directly and the measurement is described, not assumed. See the
+[Changelog](changelog.md) for the full history.

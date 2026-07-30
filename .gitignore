@@ -16,3 +16,6 @@ Thumbs.db
 desktop.ini
 dist/
 *.egg-info/
+
+# MkDocs build output (rebuilt by CI on every deploy, never committed)
+site/
