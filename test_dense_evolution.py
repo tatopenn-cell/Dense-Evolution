@@ -886,6 +886,54 @@ class TestNoiseModel:
         expected0 = 2 * p_dep / 3 + (1 - 2 * p_dep / 3) * p_damp
         assert freq[0] == pytest.approx(expected0, abs=0.02)
 
+    def test_phaseflip_jax_array_branch(self):
+        # Every existing phaseflip/combined test above uses a plain NumPy
+        # sv -- registry.py's `is_jax` branches for these two models
+        # (jnp.where-based, distinct code from the NumPy np.where branches)
+        # were never exercised with an actual JAX array.
+        sv = jnp.array([1.0, 0.0], dtype=jnp.complex128)
+        rng = np.random.default_rng(11)
+        sv_out = NoiseModel.apply_to_sv(sv, n=1, model='phaseflip', p=0.5, rng=rng)
+        assert isinstance(sv_out, jnp.ndarray)
+        assert abs(float(jnp.linalg.norm(sv_out)) - 1.0) < 1e-6
+
+    def test_combined_model_jax_array_branch(self):
+        sv = jnp.array([0.0, 1.0], dtype=jnp.complex128)
+        rng = np.random.default_rng(13)
+        sv_out = NoiseModel.apply_to_sv(sv, n=1, model='combined', p=0.4, rng=rng)
+        assert isinstance(sv_out, jnp.ndarray)
+        assert abs(float(jnp.linalg.norm(sv_out)) - 1.0) < 1e-6
+
+    def test_apply_to_sv_numpy_path_without_rng_uses_fresh_entropy(self):
+        # NumPy sv + rng=None -> registry.py's _fresh_rng() call (never
+        # exercised by any existing test, which always pass a seeded rng).
+        sv = np.array([1.0, 0.0], dtype=complex)
+        sv_out = NoiseModel.apply_to_sv(sv, n=1, model='bitflip', p=0.5, rng=None)
+        assert abs(np.linalg.norm(sv_out) - 1.0) < 1e-10
+
+
+class TestQuantumHardwareRegistry:
+    def test_print_diagnostics_runs(self, capsys):
+        from dense_evolution.registry import QuantumHardwareRegistry
+        reg = QuantumHardwareRegistry()
+        reg.print_diagnostics()
+        captured = capsys.readouterr()
+        assert "MAX_DENSE" in captured.out
+
+    def test_detect_gpu_true_branch(self, monkeypatch):
+        from dense_evolution.registry import QuantumHardwareRegistry
+        import subprocess
+        monkeypatch.setattr(subprocess, "check_output", lambda *a, **kw: b"fake gpu output")
+        reg = QuantumHardwareRegistry()
+        assert reg.has_gpu is True
+
+    def test_noise_spec_repr(self):
+        from dense_evolution import NoiseSpec
+        spec = NoiseSpec(model="depolarizing", p=0.1, jax_key=jax.random.PRNGKey(0))
+        r = repr(spec)
+        assert "NoiseSpec" in r and "depolarizing" in r
+
+
 class TestNoiseModelRngJaxKeyUnification:
     """Issue #7: apply_to_sv used to pick rng vs jax_key based on the
     input array's type, not on which one was actually passed -- a JAX
