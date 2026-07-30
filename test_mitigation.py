@@ -39,6 +39,41 @@ def test_richardson_extrapolate_supports_vector_valued_expectation_values():
     assert got.shape == (4,)
 
 
+def test_richardson_extrapolate_preserves_complex_input():
+    # Regression test: expectation_values used to be forced to jnp.float64
+    # unconditionally, silently discarding the imaginary part of complex
+    # input (e.g. density-matrix entries) with only a low-signal
+    # ComplexWarning. Hand-computed via the textbook (3, -3, 1) Lagrange
+    # coefficients on real and imaginary parts separately.
+    a, b, c = 1 + 2j, 3 + 4j, 3 + 4j
+    d, e, f = 2 + 1j, 6 + 8j, 6 + 8j
+    got = np.asarray(richardson_extrapolate([[a, d], [b, e], [c, f]], [1.0, 2.0, 3.0]))
+    expected = np.array([
+        3.0 * a - 3.0 * b + 1.0 * c,
+        3.0 * d - 3.0 * e + 1.0 * f,
+    ])
+    np.testing.assert_allclose(got, expected, atol=1e-9)
+    assert np.iscomplexobj(got)
+    assert np.any(np.imag(got) != 0.0) or np.any(np.imag(expected) != 0.0)
+
+
+def test_richardson_extrapolate_real_input_stays_real():
+    got = richardson_extrapolate([1.0, 2.0, 3.0], [1.0, 2.0, 3.0])
+    assert not np.iscomplexobj(np.asarray(got))
+
+
+def test_zero_noise_extrapolation_healing_branch_preserves_complex_input():
+    e1, e2, e3 = 1 + 2j, 2 + 1j, 3 + 0.5j
+    delta_p = abs(9.0 - 10.0) / 10.0
+    c1, c2, c3 = 3.0 - 0.01 * delta_p, -3.0 + 0.02 * delta_p, 1.0 - 0.01 * delta_p
+    expected = (c1 * e1 + c2 * e2 + c3 * e3) / (c1 + c2 + c3)
+    got = complex(zero_noise_extrapolation([e1, e2, e3], [1.0, 2.0, 3.0],
+                                            sigma_at_base_noise=9.0,
+                                            target_sigma_ideal=10.0))
+    assert got == pytest.approx(expected, abs=1e-9)
+    assert got.imag != 0.0
+
+
 def test_zero_noise_extrapolation_without_sigma_matches_richardson_extrapolate():
     values, lambdas = [1.234, 0.876, 0.611], [1.0, 2.0, 3.0]
     plain = float(richardson_extrapolate(values, lambdas))

@@ -10,6 +10,7 @@ internal healing vocabulary.
 This module composes `dense_evolution.healing`'s existing primitives
 (`calculate_delta_preemp`, ...) -- it does not rename or replace them.
 """
+import numpy as np
 import jax.numpy as jnp
 
 from .healing import calculate_delta_preemp
@@ -28,9 +29,20 @@ def richardson_extrapolate(expectation_values, noise_factors) -> jnp.ndarray:
     for any number of points and any (not necessarily equally spaced)
     noise factors; for the common 3-point case at noise_factors=(1,2,3)
     this reduces exactly to the textbook coefficients (3, -3, 1).
+
+    `expectation_values` may be complex (e.g. density matrix entries,
+    which are complex off-diagonal in general) -- dtype is picked from
+    the input itself (complex128 if complex, float64 otherwise, matching
+    this function's previous always-float64 behavior for real input
+    exactly). Found via a real test case: forcing float64 unconditionally
+    silently discarded the imaginary part of complex input with no
+    visible error, only a low-signal ComplexWarning easy to miss --
+    confirmed directly (`richardson_extrapolate([1+2j, 3+4j], ...)` used
+    to return a purely real result, dropping real information).
     """
     lambdas = jnp.asarray(noise_factors, dtype=jnp.float64)
-    values = jnp.asarray(expectation_values, dtype=jnp.float64)
+    values_dtype = jnp.complex128 if np.iscomplexobj(np.asarray(expectation_values)) else jnp.float64
+    values = jnp.asarray(expectation_values, dtype=values_dtype)
     n = lambdas.shape[0]
 
     def lagrange_coeff(i):
@@ -81,7 +93,8 @@ def zero_noise_extrapolation(expectation_values, noise_factors,
             "Healing-adapted ZNE is only defined for exactly 3 noise factors; "
             "call richardson_extrapolate(...) directly for the plain N-point case."
         )
-    values = jnp.asarray(expectation_values, dtype=jnp.float64)
+    values_dtype = jnp.complex128 if np.iscomplexobj(np.asarray(expectation_values)) else jnp.float64
+    values = jnp.asarray(expectation_values, dtype=values_dtype)
     e_l1, e_l2, e_l3 = values[0], values[1], values[2]
 
     delta_p = calculate_delta_preemp(jnp.asarray(sigma_at_base_noise, dtype=jnp.float64),
