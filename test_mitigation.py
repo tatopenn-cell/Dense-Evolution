@@ -4,7 +4,7 @@ import pytest
 
 import dense_evolution as de
 from dense_evolution.mitigation import (
-    richardson_extrapolate, zero_noise_extrapolation,
+    richardson_extrapolate, zero_noise_extrapolation, polynomial_extrapolate,
     project_to_physical, uhlmann_fidelity, zne_density_matrix,
 )
 
@@ -116,9 +116,45 @@ def test_zero_noise_extrapolation_rejects_non_3point_healing_request():
 def test_exported_from_package_root():
     assert de.richardson_extrapolate is richardson_extrapolate
     assert de.zero_noise_extrapolation is zero_noise_extrapolation
+    assert de.polynomial_extrapolate is polynomial_extrapolate
     assert de.project_to_physical is project_to_physical
     assert de.uhlmann_fidelity is uhlmann_fidelity
     assert de.zne_density_matrix is zne_density_matrix
+
+
+def test_polynomial_extrapolate_matches_richardson_at_exact_point_count():
+    # degree = n_points - 1 means the least-squares fit is exactly
+    # determined -- must equal the unique interpolating polynomial, i.e.
+    # richardson_extrapolate, to numerical precision.
+    rng = np.random.default_rng(10)
+    for n in (3, 4, 5):
+        values = rng.normal(size=n) + 1j * rng.normal(size=n)
+        lambdas = np.arange(1, n + 1, dtype=float)
+        expected = np.asarray(richardson_extrapolate(values.tolist(), lambdas.tolist()))
+        got = np.asarray(polynomial_extrapolate(values.tolist(), lambdas.tolist(), degree=n - 1))
+        np.testing.assert_allclose(got, expected, atol=1e-8)
+
+
+def test_polynomial_extrapolate_exact_on_matching_degree_polynomial():
+    rng = np.random.default_rng(11)
+    coeffs = rng.normal(size=3)  # degree-2 polynomial
+    lambdas = np.array([1.0, 2.0, 3.0, 4.0, 5.0])  # 5 points, overdetermined
+    values = sum(c * lambdas ** k for k, c in enumerate(coeffs))
+    expected_intercept = coeffs[0]
+    got = float(polynomial_extrapolate(values.tolist(), lambdas.tolist(), degree=2))
+    assert got == pytest.approx(expected_intercept, abs=1e-6)
+
+
+def test_polynomial_extrapolate_rejects_underdetermined_fit():
+    with pytest.raises(ValueError):
+        polynomial_extrapolate([1.0, 2.0], [1.0, 2.0], degree=2)
+
+
+def test_polynomial_extrapolate_preserves_complex_input():
+    values = [1 + 2j, 2 + 1j, 3 + 0.5j, 4 - 1j, 5 - 2j]
+    got = polynomial_extrapolate(values, [1.0, 2.0, 3.0, 4.0, 5.0], degree=2)
+    assert np.iscomplexobj(np.asarray(got))
+    assert complex(got).imag != 0.0
 
 
 def _random_density_matrix(rng, d):
@@ -218,6 +254,23 @@ def test_zne_density_matrix_is_exactly_richardson_then_projection():
     expected = project_to_physical(richardson_extrapolate(rho_at_scales, noise_factors))
     got = zne_density_matrix(rho_at_scales, noise_factors)
     np.testing.assert_allclose(np.asarray(got), np.asarray(expected), atol=1e-12)
+
+
+def test_zne_density_matrix_accepts_more_than_three_scales():
+    # Unlike richardson_extrapolate's exact interpolation (which gets
+    # measurably worse with more points, see polynomial_extrapolate's
+    # docstring), zne_density_matrix's degree=2 least-squares default
+    # should stay well-behaved -- still a valid density matrix -- when
+    # given more than 3 noise-scale points.
+    rng = np.random.default_rng(9)
+    d = 3
+    rho_at_scales = jnp.stack([
+        jnp.asarray(_random_density_matrix(rng, d), dtype=jnp.complex128) for _ in range(6)
+    ])
+    got = np.asarray(zne_density_matrix(rho_at_scales, [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]))
+    np.testing.assert_allclose(got, got.conj().T, atol=1e-9)
+    assert np.trace(got).real == pytest.approx(1.0, abs=1e-9)
+    assert np.linalg.eigvalsh(got).min() >= -1e-9
 
 
 def test_zne_density_matrix_preserves_complex_off_diagonal_entries():
