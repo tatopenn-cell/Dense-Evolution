@@ -16,6 +16,7 @@ import pandas as pd
 import pytest
 
 import dashboard_core as dc
+from dashboard_core.qasm_library import _run_on_mps
 
 
 BELL_CIRCUIT = "Bell |Φ+⟩"          # no parametric gates -> mock VQE path
@@ -472,3 +473,79 @@ def test_run_vqe_telemetry_without_on_epoch_still_works(bell_res):
         BELL_CIRCUIT, bell_res["n_qubits"], True, epochs=3, lr=0.05, beta1=0.9, beta2=0.999, seed=42,
     )
     assert len(df) == 3
+
+
+# ── _run_on_mps gate dispatch ────────────────────────────────────────────
+# comandi_beast_mode formats: 1q non-param [name, qubit, -1], 1q parametric
+# [name, qubit, param], 2q non-param [name, control, target], 2q parametric
+# [name, control, target, param], 3q [name, c1, c2, target] -- matches
+# run_simulation's own comandi_beast_mode construction (simulation_runner.py:167-212).
+# Called directly (not via run_simulation) because run_simulation's own
+# gate-name whitelist there never forwards names _run_on_mps doesn't handle
+# (e.g. 'ch', 'cswap') -- to reach _run_on_mps's own "unhandled gate" branch,
+# it has to be exercised directly with a hand-built ops list.
+
+def test_run_on_mps_cx_and_parametric_1q_gates():
+    # cx and the rx/ry/rz/u1/p parametric-1q branch -- not exercised by any
+    # of the gate-specific tests below, which deliberately pick other gates.
+    mps = _run_on_mps(
+        [["ry", 0, 0.7], ["rz", 1, 0.3], ["u1", 0, 0.1], ["p", 1, 0.2], ["cx", 0, 1]], n_qubits=2)
+    sv = np.asarray(mps.contract_to_statevector())
+    assert np.isclose(np.linalg.norm(sv), 1.0, atol=1e-6)
+
+
+def test_run_on_mps_cz_and_swap_gates():
+    mps = _run_on_mps([["h", 0, -1], ["cz", 0, 1], ["swap", 1, 2]], n_qubits=3)
+    sv = np.asarray(mps.contract_to_statevector())
+    assert sv.shape == (8,)
+    assert np.isclose(np.linalg.norm(sv), 1.0, atol=1e-6)
+
+
+def test_run_on_mps_cy_gate_matches_dense_simulator():
+    import dense_evolution as de
+    ops = [["h", 0, -1], ["cy", 0, 1]]
+    mps = _run_on_mps(ops, n_qubits=2)
+    mps_sv = np.asarray(mps.contract_to_statevector())
+
+    dense = de.DenseSVSimulator(n_qubits=2)
+    dense.run_circuit([("h", 0), ("cy", 0, 1)])
+    dense_sv = np.asarray(dense.get_statevector())
+    # global phase can differ -- compare via fidelity, not raw amplitudes
+    fidelity = abs(np.vdot(mps_sv, dense_sv)) ** 2
+    assert fidelity == pytest.approx(1.0, abs=1e-6)
+
+
+def test_run_on_mps_cp_and_crz_parametric_2q_gates():
+    mps = _run_on_mps(
+        [["h", 0, -1], ["h", 1, -1], ["cp", 0, 1, 0.5], ["crz", 1, 2, 0.3]], n_qubits=3)
+    sv = np.asarray(mps.contract_to_statevector())
+    assert np.isclose(np.linalg.norm(sv), 1.0, atol=1e-6)
+
+
+def test_run_on_mps_ccx_gate():
+    mps = _run_on_mps([["h", 0, -1], ["h", 1, -1], ["ccx", 0, 1, 2]], n_qubits=3)
+    sv = np.asarray(mps.contract_to_statevector())
+    assert np.isclose(np.linalg.norm(sv), 1.0, atol=1e-6)
+
+
+def test_run_on_mps_u2_u3_skipped_with_warning(capsys):
+    # u2/u3 can't be represented in the single-param-slot comandi_beast_mode
+    # format -- _run_on_mps must skip them (not crash) and say so.
+    mps = _run_on_mps([["h", 0, -1], ["u2", 0, 0.1], ["u3", 0, 0.2]], n_qubits=1)
+    sv = np.asarray(mps.contract_to_statevector())
+    assert np.isclose(np.linalg.norm(sv), 1.0, atol=1e-6)
+    captured = capsys.readouterr()
+    assert "u2" in captured.out and "u3" in captured.out
+    assert "Warning" in captured.out
+
+
+def test_run_on_mps_unhandled_gate_name_skipped_with_warning(capsys):
+    # A gate name outside _run_on_mps's own dispatch table (e.g. 'ch',
+    # 'cswap' -- both appear in QASM_LIBRARY circuits, but never reach here
+    # via run_simulation's own separate whitelist) must be skipped with a
+    # warning, not raise.
+    mps = _run_on_mps([["h", 0, -1], ["ch", 0, 1]], n_qubits=2)
+    sv = np.asarray(mps.contract_to_statevector())
+    assert np.isclose(np.linalg.norm(sv), 1.0, atol=1e-6)
+    captured = capsys.readouterr()
+    assert "ch" in captured.out and "Warning" in captured.out
