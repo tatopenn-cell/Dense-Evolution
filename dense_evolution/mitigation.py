@@ -21,7 +21,7 @@ from .healing import calculate_delta_preemp
 __all__ = ["richardson_extrapolate", "zero_noise_extrapolation", "polynomial_extrapolate",
            "project_to_physical", "uhlmann_fidelity", "zne_density_matrix",
            "richardson_extrapolate_jit", "zero_noise_extrapolation_jit",
-           "uhlmann_fidelity_jit", "zne_density_matrix_jit"]
+           "polynomial_extrapolate_jit", "uhlmann_fidelity_jit", "zne_density_matrix_jit"]
 
 
 def richardson_extrapolate(expectation_values, noise_factors) -> jnp.ndarray:
@@ -225,6 +225,21 @@ def _polynomial_extrapolate_core(values: jnp.ndarray, lambdas: jnp.ndarray, degr
     coeffs, *_ = jnp.linalg.lstsq(design, flat, rcond=None)
     intercept = coeffs[0]  # fitted polynomial evaluated at noise_factor=0
     return intercept.reshape(orig_shape)
+
+
+polynomial_extrapolate_jit = functools.partial(jax.jit, static_argnames=("degree",))(_polynomial_extrapolate_core)
+"""`jax.jit`-compiled entry point for `polynomial_extrapolate`, added for
+consistency with every other function in this module (`richardson_extrapolate_jit`,
+`zero_noise_extrapolation_jit`, `uhlmann_fidelity_jit`, `zne_density_matrix_jit`)
+-- until now this was the one function whose `_core` existed (used
+internally by `zne_density_matrix_jit`) but had no standalone public jit
+entry point of its own.
+
+`values` must already be cast to its final dtype (complex128 or float64)
+and `lambdas` a float64 array -- this skips `polynomial_extrapolate`'s
+`np.iscomplexobj` auto-detection, not traceable. `degree` is static (same
+constraint as `zne_density_matrix_jit`). Verified to match
+`polynomial_extrapolate` exactly."""
 
 
 def project_to_physical(rho_raw: jnp.ndarray) -> jnp.ndarray:

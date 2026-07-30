@@ -7,6 +7,7 @@ from dense_evolution.mitigation import (
     richardson_extrapolate, zero_noise_extrapolation, polynomial_extrapolate,
     project_to_physical, uhlmann_fidelity, zne_density_matrix, zne_density_matrix_jit,
     richardson_extrapolate_jit, zero_noise_extrapolation_jit, uhlmann_fidelity_jit,
+    polynomial_extrapolate_jit,
 )
 
 
@@ -348,6 +349,26 @@ def test_zne_density_matrix_jit_actually_compiles_under_jit():
     result = outer_jit(rho_at_scales, noise_factors)
     result.block_until_ready()
     assert np.trace(np.asarray(result)).real == pytest.approx(1.0, abs=1e-9)
+
+
+def test_polynomial_extrapolate_jit_matches_eager():
+    lambdas = jnp.asarray([1.0, 2.0, 3.0, 4.0, 5.0], dtype=jnp.float64)
+    values = jnp.asarray([1 + 2j, 3 + 4j, 3 + 4j, 2 - 1j, 5 + 0.5j], dtype=jnp.complex128)
+    got = polynomial_extrapolate_jit(values, lambdas, degree=2)
+    expected = polynomial_extrapolate(
+        [1 + 2j, 3 + 4j, 3 + 4j, 2 - 1j, 5 + 0.5j], [1.0, 2.0, 3.0, 4.0, 5.0], degree=2)
+    np.testing.assert_allclose(np.asarray(got), np.asarray(expected))
+
+
+def test_polynomial_extrapolate_jit_compiles_under_outer_jit():
+    import jax
+    import functools
+    lambdas = jnp.asarray([1.0, 2.0, 3.0], dtype=jnp.float64)
+    values = jnp.asarray([1.0, 2.0, 3.0], dtype=jnp.float64)
+    outer_jit = jax.jit(functools.partial(polynomial_extrapolate_jit, degree=2))
+    result = outer_jit(values, lambdas)
+    result.block_until_ready()
+    assert float(result) == pytest.approx(0.0, abs=1e-9)  # linear data -> exact intercept 0
 
 
 def test_richardson_extrapolate_jit_matches_eager():
