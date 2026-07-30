@@ -1,3 +1,3 @@
 # License
 
-{% include-markdown "../LICENSE.md" %}
+{% include-markdown "../license.md" %}
