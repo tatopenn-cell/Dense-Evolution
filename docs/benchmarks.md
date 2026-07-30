@@ -4,12 +4,11 @@ Included directly from the repository [`README.md`](https://github.com/tatopenn-
 so it never goes stale relative to the single source of truth. See the
 [Changelog](changelog.md) for how these numbers evolved release to release.
 
-## Anti-OOM chunking vs. PennyLane
+## Anti-OOM chunking vs. PennyLane, and general benchmarks
 
-{% include-markdown "../README.md" start="### Benchmark vs PennyLane — Windows CPU (8 GB RAM)" end="### Distributed dispatch across a device mesh" %}
+> The distributed-dispatch section below covers `run_chunk_distributed` -- multi-device
+> sharding, not a benchmark number itself, but kept here since it's part of the same
+> performance story. General throughput/drift numbers (measured on Google Colab Free Tier)
+> follow further down.
 
-## General benchmarks
-
-> Measured on Google Colab Free Tier (CPU runtime) unless noted otherwise above.
-
-{% include-markdown "../README.md" start="## ▍ Benchmarks" end="## ▍ Dashboard Panels" %}
+{% include-markdown "../README.md" start="### Benchmark vs PennyLane — Windows CPU (8 GB RAM)" end="## ▍ Dashboard Panels" %}

@@ -16,4 +16,4 @@ from .mitigation import (richardson_extrapolate, zero_noise_extrapolation, polyn
                           richardson_extrapolate_jit, zero_noise_extrapolation_jit,
                           polynomial_extrapolate_jit, uhlmann_fidelity_jit, zne_density_matrix_jit)
 
-__version__ = "8.1.41"
+__version__ = "8.1.42"
