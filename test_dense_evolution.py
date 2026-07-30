@@ -123,6 +123,29 @@ class TestInitialization:
         with pytest.raises(ValueError):
             sim2.set_initial_state(np.array([1, 0, 0], dtype=complex))
 
+    def test_zero_norm_state_raises(self, sim2):
+        with pytest.raises(ValueError):
+            sim2.set_initial_state(np.zeros(4, dtype=complex))
+
+    def test_set_initial_state_explicit_none_resets_to_zero(self, sim2):
+        sim2.set_initial_state(np.array([1, 0, 0, 1], dtype=complex) / np.sqrt(2))
+        sim2.set_initial_state(None)
+        sv = sim2.get_statevector()
+        expected = np.zeros(4, dtype=complex)
+        expected[0] = 1.0
+        np.testing.assert_allclose(sv, expected, atol=1e-12)
+
+    def test_set_state_is_an_alias_for_set_initial_state(self, sim2):
+        sv_in = np.array([0, 1, 0, 0], dtype=complex)
+        sim2.set_state(sv_in)
+        np.testing.assert_allclose(np.abs(sim2.get_statevector()), np.abs(sv_in), atol=1e-12)
+
+    def test_n_qubits_out_of_range_raises(self):
+        with pytest.raises(ValueError):
+            DenseSVSimulator(n_qubits=0)
+        with pytest.raises(ValueError):
+            DenseSVSimulator(n_qubits=35)
+
 # ─────────────────────────────────────────────────────────────
 # 2. SINGLE-QUBIT GATES
 # ─────────────────────────────────────────────────────────────
@@ -592,6 +615,21 @@ class TestTwoQubitGates:
         with pytest.raises(ValueError):
             sim2.apply_cx(0, 5)
 
+    def test_apply_gate_2q_direct_validation(self, sim2):
+        # apply_cx/apply_cz do their own validation before delegating to
+        # apply_gate_2q -- this exercises apply_gate_2q's OWN validation
+        # directly, never reached via those callers.
+        with pytest.raises(ValueError):
+            sim2.apply_gate_2q(np.eye(4), 0, 0)
+        with pytest.raises(ValueError):
+            sim2.apply_gate_2q(np.eye(4), 0, 5)
+
+    def test_apply_cz_invalid_qubit_indices_raise(self, sim2):
+        with pytest.raises(ValueError):
+            sim2.apply_cz(1, 1)
+        with pytest.raises(ValueError):
+            sim2.apply_cz(0, 5)
+
 # ─────────────────────────────────────────────────────────────
 # 4. GHZ STATE (Esempio 1 dal README)
 # ─────────────────────────────────────────────────────────────
@@ -673,6 +711,25 @@ class TestParametricGates:
             sim2_local = DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
             sim2_local.apply_rx(0, theta)
             assert abs(norm(sim2_local) - 1.0) < 1e-12
+
+    def test_run_circuit_u3_three_parameter_gate(self, sim2):
+        # run_circuit's classic (non-JIT) dispatch len(args)==4 branch --
+        # a 1-qubit gate taking 3 independent parameters (theta, phi, lam),
+        # distinct from every other parametric gate here (all single-param).
+        sim2.run_circuit([('u3', 0, np.pi, 0.3, 0.7)], transpile=True)
+        assert abs(norm(sim2) - 1.0) < 1e-12
+
+    def test_run_parametric_batch_jit_cp_gate(self):
+        # run_parametric_batch_jit's cp/crz/cphase branch -- a 2-qubit
+        # parametric gate, distinct from the 1-qubit rx/ry/rz/p/u1 and
+        # non-parametric cx/cz/swap/cy branches exercised elsewhere.
+        sim = DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
+        sim.apply_gate_1q(GATES['h'], 0)
+        sim.apply_gate_1q(GATES['h'], 1)
+        out = sim.run_parametric_batch_jit([('cp', 0, 1, None)], np.array([[0.5]]))
+        out_np = np.asarray(out)
+        assert out_np.shape == (1, 4)
+        np.testing.assert_allclose(np.sum(np.abs(out_np) ** 2, axis=1), 1.0, atol=1e-6)
 
 # ─────────────────────────────────────────────────────────────
 # 7. MEASUREMENT
@@ -1586,6 +1643,99 @@ class TestChunkMultiPieceJIT:
         with capsys.disabled():
             print(f"\n[multi-chunk JIT speed] n_qubits={n_qubits} num_chunks=4 "
                   f"200 gates: {elapsed:.4f}s (pre-fix Python-loop dispatch: ~2.2s)")
+
+
+class TestChunkUtilities:
+    """Coverage-driven tests for chunk.py's smaller utility surfaces --
+    get_dynamic_chunk's non-default dtype branches, SafeMemoryGuard/
+    MemoryChunker's __repr__/geometry/validation, _compile_multi_chunk_ops's
+    unknown-gate-skip and empty-circuit paths, CircuitChunker's no-simulator
+    guard, and Chunk's property forwarders in num_chunks>1 mode (never
+    exercised by TestChunkMultiPiece's own tests, which only ever compare
+    statevectors/probabilities against DenseSVSimulator, not these
+    introspection properties directly)."""
+
+    def test_get_dynamic_chunk_numpy_complex128(self):
+        from dense_evolution.chunk import get_dynamic_chunk
+        bits = get_dynamic_chunk(np.complex128)
+        assert 16 <= bits <= 27
+
+    def test_get_dynamic_chunk_other_dtype(self):
+        from dense_evolution.chunk import get_dynamic_chunk
+        bits = get_dynamic_chunk(np.float32)
+        assert 16 <= bits <= 27
+
+    def test_safe_memory_guard_rejects_invalid_threshold(self):
+        from dense_evolution.chunk import SafeMemoryGuard
+        with pytest.raises(ValueError):
+            SafeMemoryGuard(threshold_pct=0.0)
+        with pytest.raises(ValueError):
+            SafeMemoryGuard(threshold_pct=1.0)
+        with pytest.raises(ValueError):
+            SafeMemoryGuard(threshold_pct=-0.1)
+
+    def test_safe_memory_guard_repr(self):
+        from dense_evolution.chunk import SafeMemoryGuard
+        guard = SafeMemoryGuard(threshold_pct=0.15)
+        r = repr(guard)
+        assert "SafeMemoryGuard" in r and "threshold=15%" in r
+
+    def test_memory_chunker_geometry_and_repr(self):
+        from dense_evolution.chunk import MemoryChunker
+        mc = MemoryChunker(n_qubits=4)
+        num_chunks, chunk_dim, chunk_size_bits = mc.geometry()
+        assert num_chunks == mc.num_chunks
+        assert chunk_dim == mc.chunk_dim
+        assert chunk_size_bits == mc.chunk_size_bits
+        r = repr(mc)
+        assert "MemoryChunker" in r and "num_chunks=" in r
+
+    def test_compile_multi_chunk_ops_skips_unknown_gate(self):
+        from dense_evolution.chunk import _compile_multi_chunk_ops
+        # 'not_a_real_gate' isn't in GATE_IDS -- must be silently skipped
+        # (same documented behavior as beast-mode's own GATE_IDS lookup),
+        # 'h' on qubit 0 must still be compiled.
+        rows = _compile_multi_chunk_ops([('not_a_real_gate', 0), ('h', 0)])
+        rows_np = np.asarray(rows)
+        assert rows_np.shape[0] == 1
+
+    def test_compile_multi_chunk_ops_empty_circuit(self):
+        from dense_evolution.chunk import _compile_multi_chunk_ops
+        rows = _compile_multi_chunk_ops([])
+        rows_np = np.asarray(rows)
+        assert rows_np.shape == (0, 4)
+
+    def test_circuit_chunker_requires_simulator_instance(self):
+        from dense_evolution.chunk import CircuitChunker
+        chunker = CircuitChunker()  # no simulator_instance
+        with pytest.raises(RuntimeError, match="no simulator instance"):
+            chunker.split_circuit([('h', 0)])
+
+    def test_chunk_repr(self):
+        c = Chunk(n_qubits=3)
+        r = repr(c)
+        assert "Chunk(" in r and "num_chunks=" in r
+
+    def test_chunk_multi_piece_property_forwarding(self, monkeypatch):
+        # Same force_chunk_bits pattern as TestChunkMultiPiece, but this
+        # time actually touching the properties themselves (chunk_size_bits,
+        # chunk_dim, dtype, memory_geometry, the sv setter, memory_mb) in
+        # num_chunks>1 mode, which no existing test does directly.
+        import dense_evolution.chunk as chunk_mod
+        monkeypatch.setattr(chunk_mod, "get_dynamic_chunk", lambda dtype_target: 4)
+
+        c = Chunk(n_qubits=6)  # chunk_size_bits=4 -> num_chunks=4
+        assert c.num_chunks == 4
+        assert c.chunk_size_bits == 4
+        assert c.chunk_dim == 2 ** 4
+        assert c.dtype is not None
+        assert c.memory_geometry.num_chunks == 4
+        assert c.memory_mb() > 0
+
+        # sv getter/setter round-trip through the multi-chunk split path
+        original_sv = np.asarray(c.sv).copy()
+        c.sv = original_sv  # exercises the setter's num_chunks>1 branch
+        np.testing.assert_allclose(np.asarray(c.sv), original_sv, atol=1e-12)
 
 
 class TestChunkDistributed:
