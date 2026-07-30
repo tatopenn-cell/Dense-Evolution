@@ -17,6 +17,7 @@ import pytest
 
 import dashboard_core as dc
 from dashboard_core.qasm_library import _run_on_mps
+from dashboard_core.simulation_runner import estrai_valore_puro
 
 
 BELL_CIRCUIT = "Bell |Φ+⟩"          # no parametric gates -> mock VQE path
@@ -549,3 +550,95 @@ def test_run_on_mps_unhandled_gate_name_skipped_with_warning(capsys):
     assert np.isclose(np.linalg.norm(sv), 1.0, atol=1e-6)
     captured = capsys.readouterr()
     assert "ch" in captured.out and "Warning" in captured.out
+
+
+# ── estrai_valore_puro ───────────────────────────────────────────────────
+# Extracts a "pure" (int/float/str) value out of whatever shape the QASM
+# parser's parsed circuit ops hand it (a plain int, a callable, an object
+# exposing .index or .value, a numeric string) -- NOT Streamlit widget
+# unwrapping, despite that being a plausible-sounding guess; this module
+# has no Streamlit import at all. Almost none of its branches were
+# exercised before -- existing tests only ever fed it already-plain ints.
+
+def test_estrai_valore_puro_none_returns_zero():
+    assert estrai_valore_puro(None) == 0
+
+
+def test_estrai_valore_puro_calls_function_like_callable():
+    assert estrai_valore_puro(lambda: 5) == 5
+
+
+def test_estrai_valore_puro_function_like_callable_exception_returns_zero():
+    def boom():
+        raise RuntimeError("nope")
+    assert estrai_valore_puro(boom) == 0
+
+
+def test_estrai_valore_puro_calls_generic_callable_object():
+    class Foo:
+        def __call__(self):
+            return 42
+    assert estrai_valore_puro(Foo()) == 42
+
+
+def test_estrai_valore_puro_generic_callable_exception_falls_through():
+    class Boom:
+        def __call__(self):
+            raise RuntimeError("nope")
+    # No .index/.value, not a str/int/float -- exception in the generic
+    # callable branch just falls through to the final `return elemento`.
+    b = Boom()
+    assert estrai_valore_puro(b) is b
+
+
+def test_estrai_valore_puro_index_attribute_plain_value():
+    class QubitRef:
+        def __init__(self, idx):
+            self.index = idx
+    assert estrai_valore_puro(QubitRef(3)) == 3
+
+
+def test_estrai_valore_puro_index_attribute_callable_value():
+    class QubitRef:
+        def __init__(self, idx):
+            self.index = lambda: idx
+    assert estrai_valore_puro(QubitRef(7)) == 7
+
+
+def test_estrai_valore_puro_value_attribute_plain_value():
+    class ParamRef:
+        def __init__(self, v):
+            self.value = v
+    assert estrai_valore_puro(ParamRef(0.5)) == 0.5
+
+
+def test_estrai_valore_puro_value_attribute_callable_value():
+    class ParamRef:
+        def __init__(self, v):
+            self.value = lambda: v
+    assert estrai_valore_puro(ParamRef(0.25)) == 0.25
+
+
+def test_estrai_valore_puro_string_with_dot_becomes_float():
+    assert estrai_valore_puro("3.5") == 3.5
+
+
+def test_estrai_valore_puro_string_digits_become_int():
+    assert estrai_valore_puro("42") == 42
+
+
+def test_estrai_valore_puro_non_numeric_string_returned_as_is():
+    assert estrai_valore_puro("abc") == "abc"
+    assert estrai_valore_puro("a.b") == "a.b"  # has '.', still not a valid float
+
+
+def test_estrai_valore_puro_plain_object_returned_unchanged():
+    class Opaque:
+        pass
+    o = Opaque()
+    assert estrai_valore_puro(o) is o
+
+
+def test_estrai_valore_puro_numpy_scalar_types_pass_through():
+    assert estrai_valore_puro(np.int64(9)) == 9
+    assert estrai_valore_puro(np.float32(1.5)) == 1.5

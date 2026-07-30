@@ -24,6 +24,22 @@ SHOTS_SAMPLING_CAP = 4096
 def estrai_valore_puro(elemento):
     if elemento is None:
         return 0
+    # Checked before the .index/.value attribute-extraction branches below,
+    # not after: every Python str has an .index() *method* (str.index),
+    # so hasattr(elemento, 'index') is true for ANY string -- without this
+    # ordering, a numeric string like "3.5" would hit that branch first,
+    # fail calling .index() with no arguments, and silently fall through
+    # to 0 instead of being parsed as a number. Confirmed directly: before
+    # this fix, estrai_valore_puro("3.5") returned 0, not 3.5 -- the
+    # str-parsing block below was unreachable dead code for any real
+    # string input, not a deliberately unused case.
+    if isinstance(elemento, str):
+        try:
+            if '.' in elemento:
+                return float(elemento)
+            return int(elemento)
+        except ValueError:
+            return elemento
     tipo_str = str(type(elemento)).lower()
     if "builtin" in tipo_str or "method" in tipo_str or "function" in tipo_str:
         try:
@@ -51,13 +67,6 @@ def estrai_valore_puro(elemento):
             except Exception: pass
         if val is not elemento:
             return estrai_valore_puro(val)
-    if isinstance(elemento, str):
-        try:
-            if '.' in elemento:
-                return float(elemento)
-            return int(elemento)
-        except ValueError:
-            return elemento
     if isinstance(elemento, (int, float, np.integer, np.floating)):
         return elemento
     return elemento
