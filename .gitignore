@@ -7,6 +7,9 @@ __pycache__/
 *.pyo
 *.pyd
 .pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
 
 # Ignora file di sistema invisibili di Windows
 Thumbs.db

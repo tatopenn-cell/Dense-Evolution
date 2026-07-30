@@ -78,6 +78,10 @@ full = [
     "qiskit>=1.0.0",
     "pennylane>=0.35.0"
 ]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0"
+]
 
 [project.urls]
 Homepage = "https://github.com/tatopenn-cell/Dense-Evolution"
@@ -96,3 +100,15 @@ packages = ["dense_evolution", "ia_utils", "dashboard_core"]
 [tool.black]
 line-length = 100
 target-version = ['py39', 'py310', 'py311', 'py312']
+
+[tool.coverage.run]
+source = ["dense_evolution", "ia_utils", "dashboard_core"]
+omit = ["test_*.py", "experiments/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:"
+]
+precision = 1
