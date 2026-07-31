@@ -5,6 +5,8 @@ Both frameworks are optional dependencies — pytest.importorskip guards each
 class so this file stays green in environments without qiskit/pennylane
 installed, on top of CI installing both explicitly.
 """
+import sys
+
 import numpy as np
 import pytest
 
@@ -48,6 +50,22 @@ class TestImportSafety:
 # Qiskit
 # ─────────────────────────────────────────────────────────────
 
+@pytest.mark.skipif(
+    sys.platform == 'darwin',
+    reason=(
+        "qiskit.circuit.QuantumCircuit.__init__ segfaults (SIGSEGV) inside "
+        "Qiskit's own compiled extension on macOS CI runners -- reproduced "
+        "on the simplest possible call, QuantumCircuit(3), on Python "
+        "3.10/3.11/3.12, macos-latest (arm64). Not a Dense-Evolution bug: "
+        "every Dense-Evolution-only test passes cleanly on macOS, and this "
+        "is the only place the whole suite touches Qiskit's own circuit "
+        "constructor. Skipped here rather than left to crash the entire "
+        "pytest process (a segfault kills everything after it, not just "
+        "this test). TestPennyLaneInterop below is unaffected and still "
+        "runs on macOS. Re-enable once this is confirmed fixed upstream or "
+        "traced to a specific dependency-version conflict."
+    ),
+)
 class TestQiskitInterop:
 
     qiskit = pytest.importorskip('qiskit')
