@@ -50,85 +50,93 @@ class TestImportSafety:
 # Qiskit
 # ─────────────────────────────────────────────────────────────
 
-@pytest.mark.skipif(
-    sys.platform == 'darwin',
-    reason=(
-        "qiskit.circuit.QuantumCircuit.__init__ segfaults (SIGSEGV) inside "
-        "Qiskit's own compiled extension on macOS CI runners -- reproduced "
-        "on the simplest possible call, QuantumCircuit(3), on Python "
-        "3.10/3.11/3.12, macos-latest (arm64). Not a Dense-Evolution bug: "
-        "every Dense-Evolution-only test passes cleanly on macOS, and this "
-        "is the only place the whole suite touches Qiskit's own circuit "
-        "constructor. Skipped here rather than left to crash the entire "
-        "pytest process (a segfault kills everything after it, not just "
-        "this test). TestPennyLaneInterop below is unaffected and still "
-        "runs on macOS. Re-enable once this is confirmed fixed upstream or "
-        "traced to a specific dependency-version conflict."
-    ),
-)
-class TestQiskitInterop:
+# qiskit itself (its compiled Rust extension) is what destabilizes the
+# process on macOS CI runners, not any one specific call into it —
+# reproduced first as a deterministic SIGSEGV inside
+# qiskit.circuit.QuantumCircuit.__init__ on the simplest possible call,
+# QuantumCircuit(3) (Python 3.10/3.11/3.12, macos-latest/arm64); after
+# skipping that test's *execution* the crash didn't go away, it just
+# moved to a non-deterministic segfault during interpreter shutdown --
+# because `qiskit = pytest.importorskip('qiskit')` as a class-body
+# statement still runs at collection time regardless of a skipif marker
+# on the class, so qiskit was still being loaded into the process either
+# way. The only fix that actually removes the trigger is to stop
+# importing qiskit at all on macOS, by never defining the class there in
+# the first place. Not a Dense-Evolution bug: every Dense-Evolution-only
+# test (including the rest of this file, TestPennyLaneInterop) passes
+# cleanly and deterministically on macOS. Re-enable once this is
+# confirmed fixed upstream or traced to a specific dependency conflict.
+if sys.platform == 'darwin':
 
-    qiskit = pytest.importorskip('qiskit')
+    @pytest.mark.skip(reason="qiskit destabilizes the process on macOS CI runners -- see comment above")
+    class TestQiskitInterop:
+        pass
 
-    @staticmethod
-    def _asymmetric_circuit():
-        from qiskit import QuantumCircuit
-        qc = QuantumCircuit(3)
-        qc.h(0)
-        qc.cx(0, 1)
-        qc.rx(0.5, 2)
-        qc.crz(0.3, 1, 2)
-        return qc
+else:
 
-    def test_from_qiskit_structure(self):
-        qc = self._asymmetric_circuit()
-        circ = from_qiskit(qc)
-        assert circ.n_qubits == 3
-        names = [op['name'] for op in circ.ops]
-        assert names == ['h', 'cx', 'rx', 'crz']
+    class TestQiskitInterop:
 
-    def test_run_qiskit_circuit_matches_statevector_probabilities(self):
-        from qiskit.quantum_info import Statevector
-        qc = self._asymmetric_circuit()
-        qk_probs = Statevector.from_instruction(qc).probabilities()
-        _, de_probs = run_qiskit_circuit(qc, use_float32=False)
-        np.testing.assert_allclose(de_probs, qk_probs, atol=1e-6)
+        qiskit = pytest.importorskip('qiskit')
 
-    def test_bit_order_regression_asymmetric_circuit(self):
-        # X only on qubit 0 of 3 -> must land on qiskit index 1 (q0 = LSB),
-        # not index 4 (which would be the DE-native MSB-first index) —
-        # pins the exact convention, not just "some permutation happened to
-        # work" on a symmetric circuit.
-        from qiskit import QuantumCircuit
-        qc = QuantumCircuit(3)
-        qc.x(0)
-        _, probs = run_qiskit_circuit(qc, use_float32=False)
-        nonzero = np.where(probs > 1e-9)[0]
-        assert list(nonzero) == [1]
+        @staticmethod
+        def _asymmetric_circuit():
+            from qiskit import QuantumCircuit
+            qc = QuantumCircuit(3)
+            qc.h(0)
+            qc.cx(0, 1)
+            qc.rx(0.5, 2)
+            qc.crz(0.3, 1, 2)
+            return qc
 
-    def test_custom_gate_definition_does_not_corrupt_following_statement(self):
-        # qiskit.qasm2.dumps emits composite gates (e.g. mcx) as a `gate
-        # NAME params { ... }` block on a single line — same brace-block
-        # corruption class as QASM3 for/if/while/def, fixed by widening
-        # _RE_BLOCK_HEAD to also strip `gate` blocks. mcx itself has no
-        # physical implementation in this simulator (unknown gate name,
-        # silent no-op elsewhere in run_circuit too) — that part is a real,
-        # separate, documented limitation, not something this test hides.
-        from qiskit import QuantumCircuit
-        qc = QuantumCircuit(4)
-        qc.h(0)
-        qc.mcx([0, 1, 2], 3)
-        circ = from_qiskit(qc)
-        assert circ.n_qubits == 4
-        assert [op['name'] for op in circ.ops] == ['h', 'mcx']
+        def test_from_qiskit_structure(self):
+            qc = self._asymmetric_circuit()
+            circ = from_qiskit(qc)
+            assert circ.n_qubits == 3
+            names = [op['name'] for op in circ.ops]
+            assert names == ['h', 'cx', 'rx', 'crz']
 
-    def test_to_qiskit_bit_order_is_involution(self):
-        # bit-reversal applied twice must return the original array
-        rng = np.random.default_rng(0)
-        probs = rng.random(2 ** 3)
-        once = _to_qiskit_bit_order(probs, 3)
-        twice = _to_qiskit_bit_order(once, 3)
-        np.testing.assert_allclose(twice, probs)
+        def test_run_qiskit_circuit_matches_statevector_probabilities(self):
+            from qiskit.quantum_info import Statevector
+            qc = self._asymmetric_circuit()
+            qk_probs = Statevector.from_instruction(qc).probabilities()
+            _, de_probs = run_qiskit_circuit(qc, use_float32=False)
+            np.testing.assert_allclose(de_probs, qk_probs, atol=1e-6)
+
+        def test_bit_order_regression_asymmetric_circuit(self):
+            # X only on qubit 0 of 3 -> must land on qiskit index 1 (q0 = LSB),
+            # not index 4 (which would be the DE-native MSB-first index) —
+            # pins the exact convention, not just "some permutation happened to
+            # work" on a symmetric circuit.
+            from qiskit import QuantumCircuit
+            qc = QuantumCircuit(3)
+            qc.x(0)
+            _, probs = run_qiskit_circuit(qc, use_float32=False)
+            nonzero = np.where(probs > 1e-9)[0]
+            assert list(nonzero) == [1]
+
+        def test_custom_gate_definition_does_not_corrupt_following_statement(self):
+            # qiskit.qasm2.dumps emits composite gates (e.g. mcx) as a `gate
+            # NAME params { ... }` block on a single line — same brace-block
+            # corruption class as QASM3 for/if/while/def, fixed by widening
+            # _RE_BLOCK_HEAD to also strip `gate` blocks. mcx itself has no
+            # physical implementation in this simulator (unknown gate name,
+            # silent no-op elsewhere in run_circuit too) — that part is a real,
+            # separate, documented limitation, not something this test hides.
+            from qiskit import QuantumCircuit
+            qc = QuantumCircuit(4)
+            qc.h(0)
+            qc.mcx([0, 1, 2], 3)
+            circ = from_qiskit(qc)
+            assert circ.n_qubits == 4
+            assert [op['name'] for op in circ.ops] == ['h', 'mcx']
+
+        def test_to_qiskit_bit_order_is_involution(self):
+            # bit-reversal applied twice must return the original array
+            rng = np.random.default_rng(0)
+            probs = rng.random(2 ** 3)
+            once = _to_qiskit_bit_order(probs, 3)
+            twice = _to_qiskit_bit_order(once, 3)
+            np.testing.assert_allclose(twice, probs)
 
 
 # ─────────────────────────────────────────────────────────────
