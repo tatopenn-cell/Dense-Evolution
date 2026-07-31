@@ -15,5 +15,9 @@ from .mitigation import (richardson_extrapolate, zero_noise_extrapolation, polyn
                           project_to_physical, uhlmann_fidelity, zne_density_matrix,
                           richardson_extrapolate_jit, zero_noise_extrapolation_jit,
                           polynomial_extrapolate_jit, uhlmann_fidelity_jit, zne_density_matrix_jit)
+from .topology import entangling_layer
+from .observables import pauli_expectation, pauli_sum_expectation
+from .states import ghz_state
+from .measurement import sample_counts, statevector_fidelity
 
 __version__ = "8.1.42"
