@@ -18,6 +18,7 @@
 
 [![CI](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml/badge.svg)](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-tatopenn--cell.github.io-00e5ff?style=flat-square)](https://tatopenn-cell.github.io/Dense-Evolution/)
+[![codecov](https://codecov.io/gh/tatopenn-cell/Dense-Evolution/branch/main/graph/badge.svg)](https://codecov.io/gh/tatopenn-cell/Dense-Evolution)
 [![PyPI](https://img.shields.io/pypi/v/dense-evolution?style=flat-square&color=00e5ff)](https://pypi.org/project/dense-evolution/)
 [![PyPI Downloads](https://img.shields.io/pypi/dm/dense-evolution?style=flat-square&color=00e5ff)](https://pypi.org/project/dense-evolution/)
 [![Python](https://img.shields.io/badge/Python-3.9+-blue?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
