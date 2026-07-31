@@ -5,7 +5,7 @@ What does this change, and why is it needed — not just what it does mechanical
 ## Testing
 
 - [ ] Added/updated tests for the change (especially for anything numerical — statevector/probability outputs)
-- [ ] `pytest test_dense_evolution.py test_ia_healing.py test_dashboard_core.py test_ai_middleware.py test_interop.py test_autodiff.py` passes locally
+- [ ] `pytest tests/` passes locally
 - [ ] Updated `README.md`'s changelog section if this is user-visible
 
 ## Notes for the reviewer

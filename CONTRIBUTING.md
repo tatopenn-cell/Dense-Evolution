@@ -30,10 +30,12 @@ pip install -e .[full]
 ## Running tests
 
 ```bash
-pytest test_dense_evolution.py test_ia_healing.py test_dashboard_core.py test_ai_middleware.py test_interop.py test_autodiff.py test_quantum_scars.py test_mitigation.py test_mps.py test_mitigation_runner.py test_interactive_panel.py test_docs_examples.py -v
+pytest tests/ -v
 ```
 
-`test_interop.py` needs `qiskit`/`pennylane` installed (skips cleanly via `pytest.importorskip` if they aren't). CI (`.github/workflows/ci.yml`) runs the full suite on Python 3.10/3.11/3.12 on every push/PR to `main` — check it's green before asking for a review.
+`tests/test_interop.py` needs `qiskit`/`pennylane` installed (skips cleanly via `pytest.importorskip` if they aren't). CI (`.github/workflows/ci.yml`) runs the full suite on Python 3.10/3.11/3.12 on every push/PR to `main` — check it's green before asking for a review.
+
+Tests are organized one file per source module (`tests/test_simulator.py` ↔ `dense_evolution/simulator.py`, and so on) — add new tests to the matching file rather than a catch-all.
 
 ## Making changes
 

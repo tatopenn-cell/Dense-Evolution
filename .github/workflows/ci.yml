@@ -36,7 +36,7 @@ jobs:
 
       - name: Run test suite
         run: |
-          pytest test_dense_evolution.py test_ia_healing.py test_dashboard_core.py test_ai_middleware.py test_interop.py test_autodiff.py test_quantum_scars.py test_mitigation.py test_mps.py test_mitigation_runner.py test_interactive_panel.py test_docs_examples.py -v --tb=short --junitxml=pytest-results.xml --cov=dense_evolution --cov=ia_utils --cov=dashboard_core --cov-report=term-missing --cov-report=xml
+          pytest tests/ -v --tb=short --junitxml=pytest-results.xml --cov=dense_evolution --cov=ia_utils --cov=dashboard_core --cov-report=term-missing --cov-report=xml
 
       - name: Upload coverage report
         if: matrix.python-version == '3.12'
@@ -61,7 +61,7 @@ jobs:
         env:
           XLA_FLAGS: "--xla_force_host_platform_device_count=8"
         run: |
-          pytest test_dense_evolution.py -k TestChunkDistributed -v --tb=short --junitxml=pytest-results-distributed.xml
+          pytest tests/test_chunk.py -k TestChunkDistributed -v --tb=short --junitxml=pytest-results-distributed.xml
 
       - name: Upload test results on failure
         if: failure()

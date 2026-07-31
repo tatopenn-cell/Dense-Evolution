@@ -711,7 +711,7 @@ def test_run_simulation_chunk_engine(monkeypatch):
     # just to reach this branch quickly. Force it instead by patching
     # get_dynamic_chunk to a tiny value so even a 3-qubit circuit chunks
     # (de.Chunk's own correctness against DenseSVSimulator is already
-    # covered by test_dense_evolution.py; this only checks
+    # covered by tests/test_chunk.py; this only checks
     # run_simulation's own dispatch actually uses de.Chunk when told to).
     import dense_evolution.chunk as chunk_module
     monkeypatch.setattr(chunk_module, "get_dynamic_chunk", lambda dtype_target: 1)

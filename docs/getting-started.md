@@ -116,8 +116,8 @@ streamlit run app_dashboard.py
 
 ```bash
 pip install -e .[dev]
-pytest test_dense_evolution.py test_mitigation.py test_mps.py -v
+pytest tests/ -v
 
 # with coverage
-pytest --cov=dense_evolution --cov-report=term-missing
+pytest tests/ --cov=dense_evolution --cov-report=term-missing
 ```

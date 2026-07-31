@@ -3,8 +3,8 @@ Executes the actual Python code blocks published in docs/getting-started.md
 and docs/examples.md, instead of a hand-maintained copy of them.
 
 The docs snippets were written by copying from real, already-tested code
-(experiments/matrix_healing_zne.py, test_mps.py, test_autodiff.py) -- this
-file closes the other direction: if a future API change (renamed function,
+(experiments/matrix_healing_zne.py, tests/test_mps.py, tests/test_autodiff.py)
+-- this file closes the other direction: if a future API change (renamed function,
 changed signature, removed argument) breaks what's *published*, these tests
 fail immediately instead of the breakage sitting undiscovered until someone
 rereads the site by hand.
@@ -20,7 +20,7 @@ import pathlib
 import numpy as np
 import pytest
 
-REPO_ROOT = pathlib.Path(__file__).parent
+REPO_ROOT = pathlib.Path(__file__).parent.parent
 
 
 def _extract_section_code(md_path, heading):
