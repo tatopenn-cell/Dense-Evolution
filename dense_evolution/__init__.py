@@ -19,5 +19,8 @@ from .topology import entangling_layer
 from .observables import pauli_expectation, pauli_sum_expectation
 from .states import ghz_state
 from .measurement import sample_counts, statevector_fidelity
+from .qft import qft
+from .random_circuit import random_circuit
+from .drawing import draw_circuit
 
 __version__ = "8.1.42"
