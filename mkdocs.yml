@@ -94,6 +94,13 @@ nav:
       - Healing (predictive primitives): api/healing.md
       - Interop (Qiskit / PennyLane): api/interop.md
       - Autodiff: api/autodiff.md
+      - Topology (entangling layers): api/topology.md
+      - States (GHZ, ...): api/states.md
+      - Observables (Pauli expectation): api/observables.md
+      - Measurement (sampling & fidelity): api/measurement.md
+      - QFT: api/qft.md
+      - Random Circuit: api/random_circuit.md
+      - Drawing (text diagrams): api/drawing.md
   - Changelog: changelog.md
   - Contributing: contributing.md
   - License: LICENSE.md
