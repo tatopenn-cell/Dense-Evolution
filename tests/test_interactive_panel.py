@@ -36,6 +36,18 @@ def _find(widgets_list, description):
     raise KeyError(description)
 
 
+def _find_deep(widgets_list, description):
+    """Like _find, but descends into nested VBox/HBox children too -- for
+    widgets like w_ham_mode/w_ham_select/w_ham_json, which only exist
+    inside w_ham_box (itself one entry in the flat sidebar list), not as
+    direct children of the sidebar."""
+    for w in widgets_list:
+        found = _find_recursive(w, description)
+        if found is not None:
+            return found
+    raise KeyError(description)
+
+
 def _mode_panel(panel, title):
     """panel.children[0] is the mode ToggleButtons; the rest are the four
     mode panels in the same order as its .options."""
@@ -129,6 +141,150 @@ def test_run_button_vqe_and_md_together():
     _find(kids, "Circuito:").value = "VQE ansatz H₂"
     _find(kids, "Epochs:").value = 4
     _find(kids, "MD steps:").value = 10
+
+    w_run.click()
+
+    assert "Fatto" in w_status.value
+
+
+def test_source_mode_change_toggles_circuit_and_qasm_visibility():
+    # _on_source_mode_change -- never triggered by any run-button test
+    # above, which all leave the default "Libreria Built-in" untouched.
+    panel = dc.launch_interactive_panel()
+    kids, tabs, w_run, w_status = _panel_widgets(panel)
+
+    w_source_mode = _find(kids, "Sorgente:")
+    w_circuit = _find(kids, "Circuito:")
+    w_qasm_text = _find(kids, "OpenQASM 2.0:")
+
+    assert w_circuit.layout.display is None
+    assert w_qasm_text.layout.display == "none"
+
+    w_source_mode.value = "Custom QASM Textarea"
+    assert w_circuit.layout.display == "none"
+    assert w_qasm_text.layout.display is None
+
+    w_source_mode.value = "Libreria Built-in"
+    assert w_circuit.layout.display is None
+    assert w_qasm_text.layout.display == "none"
+
+
+def test_hamiltonian_enabled_toggle_populates_and_clears_box():
+    # _on_ham_enabled_change -- no earlier test ever flips w_ham_enabled.
+    panel = dc.launch_interactive_panel()
+    kids, tabs, w_run, w_status = _panel_widgets(panel)
+
+    w_ham_enabled = _find(kids, "Abilita Hamiltoniana personalizzata")
+    w_ham_box = None
+    for w in kids:
+        if type(w).__name__ == "VBox" and len(w.children) == 0:
+            w_ham_box = w
+            break
+    assert w_ham_box is not None and w_ham_box.children == ()
+
+    w_ham_enabled.value = True
+    assert len(w_ham_box.children) > 0  # populated with mode/select/json/save widgets
+
+    w_ham_enabled.value = False
+    assert w_ham_box.children == ()  # cleared again
+
+
+def test_hamiltonian_mode_change_toggles_widget_visibility():
+    # _on_ham_mode_change -- needs w_ham_enabled=True first so w_ham_box's
+    # children (which include w_ham_mode) actually exist to observe.
+    panel = dc.launch_interactive_panel()
+    kids, tabs, w_run, w_status = _panel_widgets(panel)
+
+    _find(kids, "Abilita Hamiltoniana personalizzata").value = True
+    w_ham_mode = _find_deep(kids, "Modalità:")
+    w_ham_select = _find_deep(kids, "Hamiltoniana:")
+    w_ham_json = _find_deep(kids, "Array JSON:")
+
+    # No assertion on the pre-change state here: w_ham_box.children is set
+    # directly (not via .observe), so _on_ham_mode_change hasn't run yet
+    # at this point regardless of w_ham_mode.value already being
+    # "Libreria Built-in" -- only an actual value change fires it.
+    w_ham_mode.value = "Custom JSON Textarea"
+    assert w_ham_select.layout.display == "none"
+    assert w_ham_json.layout.display is None
+
+    w_ham_mode.value = "Libreria Built-in"
+    assert w_ham_select.layout.display is None
+    assert w_ham_json.layout.display == "none"
+
+
+def test_hamiltonian_save_button_saves_custom_json_to_library():
+    # _on_ham_save_clicked -- never triggered by any earlier test.
+    panel = dc.launch_interactive_panel()
+    kids, tabs, w_run, w_status = _panel_widgets(panel)
+
+    _find(kids, "Abilita Hamiltoniana personalizzata").value = True
+    _find_deep(kids, "Modalità:").value = "Custom JSON Textarea"
+    _find_deep(kids, "Nome (salva):").value = "test_saved_hamiltonian"
+    _find_deep(kids, "Array JSON:").value = "[-1.0, 0.5, 0.5, -1.0]"
+
+    w_save_btn = None
+    for w in kids:
+        found = _find_button_recursive(w, "Salva in libreria")
+        if found is not None:
+            w_save_btn = found
+    assert w_save_btn is not None
+    w_save_btn.click()  # must not raise
+
+    # confirmed via the saved hamiltonian now being selectable:
+    w_ham_select = _find_deep(kids, "Hamiltoniana:")
+    assert "test_saved_hamiltonian" in w_ham_select.options
+
+
+def test_run_button_with_hamiltonian_enabled_library_mode():
+    # Covers the hamiltonian_values extraction branch in _on_run_clicked
+    # (w_ham_mode == 'Libreria Built-in') -- never exercised since no
+    # earlier run-button test enables the Hamiltonian at all.
+    panel = dc.launch_interactive_panel()
+    kids, tabs, w_run, w_status = _panel_widgets(panel)
+
+    _find(kids, "Abilita telemetria VQE").value = False
+    _find(kids, "Abilita telemetria MD").value = False
+    _find(kids, "Abilita Hamiltoniana personalizzata").value = True
+    w_ham_select = _find_deep(kids, "Hamiltoniana:")
+    assert len(w_ham_select.options) > 0  # Bell |Φ+⟩ (2 qubit) has compatible built-ins
+    w_ham_select.value = w_ham_select.options[0]
+
+    w_run.click()
+
+    assert "Fatto" in w_status.value
+
+
+def test_run_button_with_hamiltonian_enabled_custom_json_mode():
+    # Same branch, the other half (Custom JSON Textarea).
+    panel = dc.launch_interactive_panel()
+    kids, tabs, w_run, w_status = _panel_widgets(panel)
+
+    _find(kids, "Abilita telemetria VQE").value = False
+    _find(kids, "Abilita telemetria MD").value = False
+    _find(kids, "Abilita Hamiltoniana personalizzata").value = True
+    _find_deep(kids, "Modalità:").value = "Custom JSON Textarea"
+
+    w_run.click()  # default Array JSON text is valid -- must not raise
+
+    assert "Fatto" in w_status.value
+
+
+def test_run_button_heavy_circuit_skips_vqe_without_confirmation():
+    # Covers the ">QM_MM_HEAVY_QUBIT_THRESHOLD qubit, not confirmed" skip
+    # branch -- "Error Mitigation (Real-Stress)" is the one QASM_LIBRARY
+    # entry with more than 12 qubits (15). The "saltata" warning is only
+    # visible transiently mid-run: _on_run_clicked unconditionally
+    # overwrites w_status with the final "Fatto" once every step (VQE
+    # skipped or not) finishes, so by the time click() returns there's
+    # nothing left to assert about that intermediate message -- exercising
+    # the skip branch itself (no crash) is the actual coverage target.
+    panel = dc.launch_interactive_panel()
+    kids, tabs, w_run, w_status = _panel_widgets(panel)
+
+    _find(kids, "Circuito:").value = "Error Mitigation (Real-Stress)"
+    _find(kids, "Abilita telemetria MD").value = False
+    assert _find(kids, "Confermo VQE reale anche su circuiti pesanti (>12 qubit)").value is False
 
     w_run.click()
 
