@@ -2,11 +2,27 @@
 Interactive ipywidgets panel — Colab/Jupyter-native, no Streamlit, no
 external tunnel/link. Lives entirely in the calling cell's output.
 
-Full feature parity with ui_pages/quantum_simulator.py's Streamlit page
-(same 9 output panels, same sidebar controls: circuit source, engine,
-noise, ZNE/predictive healing, VQE, custom Hamiltonian, MD) -- built on
-the same dashboard_core functions that page calls, just driven by
-ipywidgets instead of Streamlit's rerun-the-whole-script model.
+Full feature parity with app_dashboard.py's Streamlit dashboard -- all four
+pages, switchable via a mode selector at the top instead of Streamlit's
+st.navigation sidebar:
+  - Quantum Simulator (ui_pages/quantum_simulator.py): same 9 output
+    panels, same sidebar controls (circuit source, engine, noise,
+    ZNE/predictive healing, VQE, custom Hamiltonian, MD) -- built on the
+    same dashboard_core functions that page calls.
+  - Vector Healing (ui_pages/vector_healing.py): the same
+    enhanced_dense_healing_hybrid sandbox, driven by
+    dashboard_core.vector_healing_demo instead of that page's private
+    corrupted-sequence generator (ui_pages is repo-only, not importable
+    from the installable package -- see that module's own docstring).
+  - Quantum Scars (ui_pages/quantum_scars.py): the same PXP live demo,
+    driven by dashboard_core.scars_engine, same reasoning.
+  - Research Bridge (ui_pages/research_bridge.py): the same four bridges
+    (Google chain, Colab, custom API, local CLI), driven directly by
+    dashboard_core.research_bridge, which was already Streamlit-free.
+
+All four are driven by ipywidgets instead of Streamlit's rerun-the-whole-
+script model -- no st.session_state, no st.rerun(), plain closures and
+direct widget-callback wiring instead.
 
 Requires the `ipywidgets` extra (`pip install dense-evolution[dashboard]`).
 
@@ -68,6 +84,7 @@ def launch_interactive_panel():
             "pip install dense-evolution[dashboard]"
         ) from e
     import matplotlib.pyplot as plt
+    import numpy as np
 
     run_history = []
     ham_library = dict(LIBRERIA_HAMILTONIANE)
@@ -364,6 +381,483 @@ def launch_interactive_panel():
         widgets.HBox([w_run, w_status]),
     ])
 
-    panel = widgets.VBox([sidebar, tabs])
+    panel_quantum_sim = widgets.VBox([sidebar, tabs])
+
+    # ════════════════════════════════════════════════════════════════
+    # Vector Healing — sandbox for ia_utils.vector_healing.enhanced_dense_healing_hybrid
+    # (same panel as ui_pages/vector_healing.py's Streamlit page)
+    # ════════════════════════════════════════════════════════════════
+    from .vector_healing_demo import generate_corrupted_sequence
+    from ia_utils.vector_healing import enhanced_dense_healing_hybrid
+
+    VH_HIDDEN_DIM = 6
+    vh_state = {}
+
+    w_vh_n_steps = widgets.IntSlider(value=80, min=10, max=150, description='Step / token:',
+                                      style={'description_width': 'initial'})
+    w_vh_anomaly_pct = widgets.IntSlider(value=10, min=5, max=30, description='% Anomalie:',
+                                          style={'description_width': 'initial'})
+    w_vh_run = widgets.Button(description='▶ Genera ed Esegui Healing', button_style='primary')
+    w_vh_status = widgets.HTML(value='')
+    w_vh_channel = widgets.Dropdown(options=list(range(VH_HIDDEN_DIM)), value=0, description='Canale:')
+    w_vh_shield_out = widgets.Output()
+    w_vh_plot_out = widgets.Output()
+
+    def _vh_render_channel(channel):
+        if not vh_state:
+            return
+        ideal, corrupted, healed = vh_state['ideal'], vh_state['corrupted'], vh_state['healed']
+        x = np.arange(vh_state['n_steps'])
+        ideal_channel = ideal[:, channel]
+
+        fig, ax = plt.subplots(figsize=(11, 5))
+        ax.plot(x, ideal_channel, label='Ideale', color='#888888', linewidth=1.5, linestyle='--')
+        ax.plot(x, corrupted[:, channel], label='Corrotto', color='#ff4b4b', linewidth=1.2, alpha=0.75)
+        ax.plot(x, healed[:, channel], label='Curato', color='#00c853', linewidth=2.2)
+        margin = 1.5
+        ax.set_ylim(ideal_channel.min() - margin, ideal_channel.max() + margin)
+        ax.set_xlabel('Step / Token')
+        ax.set_ylabel(f'Valore (canale {channel})')
+        ax.set_title('Vector Healing — Ideale vs Corrotto vs Curato')
+        ax.legend(loc='upper right')
+        ax.grid(alpha=0.2)
+        with w_vh_plot_out:
+            clear_output(wait=True)
+            display(fig)
+        plt.close(fig)
+
+    def _on_vh_run_clicked(_btn):
+        w_vh_run.disabled = True
+        w_vh_status.value = '<span style="color:#00c8ff">⏳ Generazione e healing...</span>'
+        rng = np.random.default_rng()
+        ideal, corrupted = generate_corrupted_sequence(
+            w_vh_n_steps.value, VH_HIDDEN_DIM, w_vh_anomaly_pct.value, rng)
+        healed, metadata = enhanced_dense_healing_hybrid(corrupted)
+        vh_state.clear()
+        vh_state.update(ideal=ideal, corrupted=corrupted, healed=healed, n_steps=w_vh_n_steps.value)
+        with w_vh_shield_out:
+            clear_output(wait=True)
+            display(widgets.HTML(
+                f'<b>🛡️ AI Vector-Healing Shield</b> — '
+                f'Fallback: {"Sì" if metadata["fallback_triggered"] else "No"}, '
+                f'Raggio: {metadata["adaptive_radius_used"]}, '
+                f'Errore ricostruzione: {metadata["reconstruction_error"]:.4f}'
+            ))
+        _vh_render_channel(w_vh_channel.value)
+        w_vh_status.value = '<span style="color:#00ff9d">● Fatto</span>'
+        w_vh_run.disabled = False
+
+    def _on_vh_channel_change(change):
+        _vh_render_channel(change['new'])
+
+    w_vh_run.on_click(_on_vh_run_clicked)
+    w_vh_channel.observe(_on_vh_channel_change, names='value')
+
+    panel_vector_healing = widgets.VBox([
+        widgets.HTML('<b>🧬 AI Vector Healing Dashboard</b> — sandbox interattiva per lo scudo '
+                      'anti-crash che protegge in produzione la telemetria VQE/MD del Quantum Simulator.'),
+        widgets.VBox([
+            widgets.HTML('<b>⚙️ Configurazione</b>'), w_vh_n_steps, w_vh_anomaly_pct,
+            widgets.HBox([w_vh_run, w_vh_status]),
+        ]),
+        w_vh_shield_out,
+        w_vh_channel,
+        w_vh_plot_out,
+    ])
+
+    # ════════════════════════════════════════════════════════════════
+    # Quantum Scars — live PXP (Rydberg blockade) demo
+    # (same panel as ui_pages/quantum_scars.py's Streamlit page)
+    # ════════════════════════════════════════════════════════════════
+    from .scars_engine import build_pxp, run_experiment, DT_CHUNK, N_CHUNK
+
+    w_qs_n_qubits = widgets.IntSlider(value=10, min=6, max=12, description='Qubit (catena PXP):',
+                                       style={'description_width': 'initial'})
+    w_qs_noise_p = widgets.FloatSlider(value=0.01, min=0.0, max=0.05, step=0.005,
+                                        description='Rumore depol. (p):', style={'description_width': 'initial'})
+    w_qs_n_traj = widgets.IntSlider(value=10, min=5, max=30, description='Traiettorie:')
+    w_qs_protection = widgets.Dropdown(
+        options=['Nessuna', 'Proiezione vincolo (economica)', 'Proiezione torre (ideale)'],
+        value='Nessuna', description='Protezione:', style={'description_width': 'initial'},
+    )
+    w_qs_run = widgets.Button(description='▶ Esegui esperimento', button_style='primary')
+    w_qs_status = widgets.HTML(value='')
+    w_qs_metrics_out = widgets.Output()
+    w_qs_plot_out = widgets.Output()
+
+    def _on_qs_run_clicked(_btn):
+        w_qs_run.disabled = True
+        w_qs_status.value = '<span style="color:#00c8ff">⏳ Diagonalizzazione H_PXP...</span>'
+        pxp = build_pxp(w_qs_n_qubits.value)
+        w_qs_status.value = '<span style="color:#00c8ff">⏳ Simulazione delle traiettorie...</span>'
+        fidelity_protected = run_experiment(
+            pxp, n_trajectories=w_qs_n_traj.value, noise_p=w_qs_noise_p.value,
+            protection=w_qs_protection.value, weight_threshold=0.02, base_seed=1000,
+        )
+        fidelity_clean = run_experiment(
+            pxp, n_trajectories=1, noise_p=0.0, protection='Nessuna',
+            weight_threshold=0.02, base_seed=0,
+        )
+        with w_qs_metrics_out:
+            clear_output(wait=True)
+            display(widgets.HTML(
+                '<div style="display:flex;flex-wrap:wrap;gap:12px">' + ''.join(
+                    f'<div style="border:1px solid #333;border-radius:6px;padding:6px 10px">'
+                    f'<div style="font-size:11px;color:#888">{label}</div>'
+                    f'<div style="font-size:15px;font-weight:bold">{value}</div></div>'
+                    for label, value in [
+                        ('Qubit', pxp['n_qubits']),
+                        ('Dimensione Hilbert', pxp['dim']),
+                        ('Sottospazio valido (vincolo)', pxp['valid_dim']),
+                        ('Soffitto torre (peso Néel)', f"{pxp['tower_ceiling']*100:.1f}%"),
+                    ]
+                ) + '</div>'
+            ))
+        times = np.arange(1, N_CHUNK + 1) * DT_CHUNK
+        fig, ax = plt.subplots(figsize=(11, 5))
+        ax.plot(times, fidelity_clean, label='Nessun rumore (riferimento)',
+                color='gold', linewidth=1.5, linestyle='--')
+        ax.plot(times, fidelity_protected, label=f'p={w_qs_noise_p.value} — {w_qs_protection.value}',
+                color='#00e5ff', linewidth=2.2)
+        ax.set_xlabel('Tempo t')
+        ax.set_ylabel('Fedeltà |⟨Néel|ψ(t)⟩|²')
+        ax.set_title('Revival della scar PXP')
+        ax.legend(loc='upper right')
+        ax.grid(alpha=0.2)
+        with w_qs_plot_out:
+            clear_output(wait=True)
+            display(fig)
+        plt.close(fig)
+        w_qs_status.value = '<span style="color:#00ff9d">● Fatto</span>'
+        w_qs_run.disabled = False
+
+    w_qs_run.on_click(_on_qs_run_clicked)
+
+    panel_quantum_scars = widgets.VBox([
+        widgets.HTML('<b>🌀 Quantum Many-Body Scars: PXP Live Demo</b> — parte dallo stato di Néel, '
+                      'inietta rumore reale (NoiseModel.apply_to_sv) e confronta i revival di fedeltà '
+                      'con/senza protezione. Oltre 10 qubit la diagonalizzazione esatta rallenta.'),
+        widgets.VBox([
+            widgets.HTML('<b>⚙️ Configurazione</b>'), w_qs_n_qubits, w_qs_noise_p, w_qs_n_traj, w_qs_protection,
+            widgets.HBox([w_qs_run, w_qs_status]),
+        ]),
+        w_qs_metrics_out,
+        w_qs_plot_out,
+    ])
+
+    # ════════════════════════════════════════════════════════════════
+    # Research Bridge — hypothesis + real numbers vs. an external AI
+    # (same panel as ui_pages/research_bridge.py's Streamlit page)
+    # ════════════════════════════════════════════════════════════════
+    from .research_bridge import (
+        build_context_block, build_search_query, call_custom_api, new_log_entry,
+        build_next_search_query, call_local_cli,
+    )
+    import urllib.parse
+    import json as _json
+
+    rb_log = []
+    rb_chain = []
+
+    w_rb_hypothesis = widgets.Textarea(
+        description='Ipotesi:', placeholder='Cosa stai verificando?',
+        layout=widgets.Layout(width='650px', height='80px'), style={'description_width': 'initial'},
+    )
+    w_rb_real_data = widgets.Textarea(
+        description='Dati reali (opz.):', placeholder='Incolla output/CSV di un tuo esperimento...',
+        layout=widgets.Layout(width='650px', height='90px'), style={'description_width': 'initial'},
+    )
+    w_rb_notes = widgets.Text(description='Note (opz.):', layout=widgets.Layout(width='650px'),
+                               style={'description_width': 'initial'})
+    w_rb_context_out = widgets.Output()
+
+    def _rb_context_block():
+        return build_context_block(w_rb_hypothesis.value, w_rb_real_data.value, w_rb_notes.value)
+
+    def _rb_refresh_context(*_):
+        with w_rb_context_out:
+            clear_output(wait=True)
+            if w_rb_hypothesis.value.strip():
+                print(_rb_context_block())
+            else:
+                display(widgets.HTML('<i>Scrivi un\'ipotesi sopra per generare il blocco da incollare.</i>'))
+
+    for _w in (w_rb_hypothesis, w_rb_real_data, w_rb_notes):
+        _w.observe(_rb_refresh_context, names='value')
+
+    # ── Google (chained ReAct search) ──────────────────────────────
+    w_rb_react_url = widgets.Text(description='Endpoint API (opz.):', layout=widgets.Layout(width='500px'),
+                                   style={'description_width': 'initial'})
+    w_rb_react_key = widgets.Password(description='Chiave API (opz.):', style={'description_width': 'initial'})
+    w_rb_react_model = widgets.Text(description='Modello (opz.):', style={'description_width': 'initial'})
+    w_rb_google_history_out = widgets.Output()
+    w_rb_google_query_out = widgets.Output()
+    w_rb_google_response = widgets.Textarea(description='Risposta Google:',
+                                             layout=widgets.Layout(width='650px', height='100px'),
+                                             style={'description_width': 'initial'})
+    w_rb_google_save = widgets.Button(description='✅ Salva questo passo')
+    w_rb_google_stop = widgets.Button(description='🏁 Ferma e salva la catena')
+    w_rb_google_status = widgets.HTML(value='')
+
+    def _rb_current_query():
+        if not rb_chain:
+            return build_search_query(w_rb_hypothesis.value)
+        return rb_chain[-1].get('_next_query', build_search_query(w_rb_hypothesis.value))
+
+    def _rb_render_google():
+        with w_rb_google_history_out:
+            clear_output(wait=True)
+            for i, step in enumerate(rb_chain):
+                preview = step['result'][:300] + ('...' if len(step['result']) > 300 else '')
+                display(widgets.HTML(f'<b>Passo {i + 1}:</b> <code>{step["query"]}</code><br>'
+                                      f'<span style="color:#888">{preview}</span>'))
+        with w_rb_google_query_out:
+            clear_output(wait=True)
+            query = _rb_current_query()
+            url = 'https://www.google.com/search?q=' + urllib.parse.quote(query) + '&udm=50'
+            label = 'Prima ricerca' if not rb_chain else f'Follow-up (passo {len(rb_chain) + 1})'
+            display(widgets.HTML(
+                f'<b>{label}:</b> <code>{query}</code><br>'
+                f'<a href="{url}" target="_blank">Apri Google ({"nuova conversazione" if not rb_chain else "nella conversazione GIÀ aperta"})</a>'
+            ))
+
+    def _on_rb_google_save(_btn):
+        if not w_rb_google_response.value.strip():
+            return
+        query = _rb_current_query()
+        rb_chain.append({'query': query, 'result': w_rb_google_response.value.strip()})
+        w_rb_google_response.value = ''
+        if w_rb_react_url.value and w_rb_react_key.value:
+            w_rb_google_status.value = '<span style="color:#00c8ff">⏳ Ragiono sulla prossima ricerca (ReAct)...</span>'
+            try:
+                next_step = build_next_search_query(
+                    w_rb_hypothesis.value, rb_chain, w_rb_react_url.value,
+                    w_rb_react_key.value, w_rb_react_model.value)
+            except Exception as e:
+                next_step = None
+                w_rb_google_status.value = f'<span style="color:#ff6b35">Ragionamento fallito: {e}</span>'
+            if next_step is not None:
+                if next_step['done']:
+                    summary = '\n\n'.join(f"Passo {i+1}: {s['query']} -> {s['result']}"
+                                           for i, s in enumerate(rb_chain))
+                    rb_log.append(new_log_entry(
+                        f'Google (catena ReAct, {len(rb_chain)} passi)', w_rb_hypothesis.value, summary,
+                        f"SINTESI FINALE: {next_step['reasoning']}", w_rb_react_model.value))
+                    rb_chain.clear()
+                    w_rb_google_status.value = f'<span style="color:#00ff9d">Catena completa: {next_step["reasoning"]}</span>'
+                    _rb_render_log()
+                else:
+                    rb_chain[-1]['_next_query'] = next_step['query'] or query
+                    w_rb_google_status.value = ''
+        _rb_render_google()
+
+    def _on_rb_google_stop(_btn):
+        if not rb_chain:
+            return
+        summary = '\n\n'.join(f"Passo {i+1}: {s['query']} -> {s['result']}" for i, s in enumerate(rb_chain))
+        rb_log.append(new_log_entry(f'Google (catena, {len(rb_chain)} passi)', w_rb_hypothesis.value,
+                                     summary, rb_chain[-1]['result']))
+        rb_chain.clear()
+        w_rb_google_status.value = '<span style="color:#00ff9d">Catena salvata nel log.</span>'
+        _rb_render_google()
+        _rb_render_log()
+
+    w_rb_google_save.on_click(_on_rb_google_save)
+    w_rb_google_stop.on_click(_on_rb_google_stop)
+    w_rb_hypothesis.observe(lambda _c: _rb_render_google(), names='value')
+
+    tab_google = widgets.VBox([
+        widgets.HTML('<i>Nessuna API per l\'AI Mode di google.com — apri la ricerca UNA volta, poi '
+                      'continua nella STESSA conversazione per i follow-up.</i>'),
+        w_rb_google_query_out,
+        w_rb_google_response,
+        widgets.HBox([w_rb_google_save, w_rb_google_stop]),
+        w_rb_google_status,
+        widgets.HTML('<b>Cronologia:</b>'), w_rb_google_history_out,
+        widgets.Accordion(children=[widgets.VBox([w_rb_react_url, w_rb_react_key, w_rb_react_model])],
+                           titles=('🧠 Chiave per il ragionamento tra un passo e l\'altro (opzionale)',)),
+    ])
+
+    # ── Colab (copy/paste) ──────────────────────────────────────────
+    w_rb_colab_block_out = widgets.Output()
+    w_rb_colab_response = widgets.Textarea(description='Risposta:', layout=widgets.Layout(width='650px', height='100px'),
+                                            style={'description_width': 'initial'})
+    w_rb_colab_save = widgets.Button(description='Salva nel log')
+    w_rb_colab_status = widgets.HTML(value='')
+
+    def _on_rb_colab_save(_btn):
+        if not w_rb_colab_response.value.strip():
+            return
+        rb_log.append(new_log_entry('Colab personale', w_rb_hypothesis.value, _rb_context_block(),
+                                     w_rb_colab_response.value.strip()))
+        w_rb_colab_status.value = '<span style="color:#00ff9d">Salvato.</span>'
+        _rb_render_log()
+
+    w_rb_colab_save.on_click(_on_rb_colab_save)
+
+    def _rb_refresh_colab_block(*_):
+        with w_rb_colab_block_out:
+            clear_output(wait=True)
+            print(_rb_context_block())
+            display(widgets.HTML('<a href="https://colab.research.google.com/" target="_blank">Apri Colab</a>'))
+
+    for _w in (w_rb_hypothesis, w_rb_real_data, w_rb_notes):
+        _w.observe(_rb_refresh_colab_block, names='value')
+
+    tab_colab = widgets.VBox([
+        widgets.HTML('<i>Copia il blocco intero, incollalo in una cella/chat del tuo notebook, incolla la risposta.</i>'),
+        w_rb_colab_block_out, w_rb_colab_response,
+        widgets.HBox([w_rb_colab_save, w_rb_colab_status]),
+    ])
+
+    # ── Custom API (automated) ───────────────────────────────────────
+    w_rb_api_url = widgets.Text(description='Endpoint API:', layout=widgets.Layout(width='500px'),
+                                 style={'description_width': 'initial'})
+    w_rb_api_key = widgets.Password(description='Chiave API:', style={'description_width': 'initial'})
+    w_rb_api_model = widgets.Text(description='Modello (opz.):', style={'description_width': 'initial'})
+    w_rb_api_send = widgets.Button(description='🚀 Invia direttamente', button_style='primary')
+    w_rb_api_out = widgets.Output()
+
+    def _on_rb_api_send(_btn):
+        with w_rb_api_out:
+            clear_output(wait=True)
+            if not (w_rb_api_url.value and w_rb_api_key.value):
+                display(widgets.HTML('<span style="color:#ff6b35">Endpoint e chiave richiesti.</span>'))
+                return
+            print('⏳ Chiamata in corso...')
+        try:
+            reply = call_custom_api(_rb_context_block(), w_rb_api_url.value, w_rb_api_key.value, w_rb_api_model.value)
+            rb_log.append(new_log_entry('Chiave personale', w_rb_hypothesis.value, _rb_context_block(),
+                                         reply, w_rb_api_model.value))
+            with w_rb_api_out:
+                clear_output(wait=True)
+                display(widgets.HTML('<span style="color:#00ff9d">Risposta ricevuta e salvata nel log.</span>'))
+                print(reply)
+            _rb_render_log()
+        except Exception as e:
+            with w_rb_api_out:
+                clear_output(wait=True)
+                display(widgets.HTML(f'<span style="color:#ff6b35">Chiamata fallita: {e}</span>'))
+
+    w_rb_api_send.on_click(_on_rb_api_send)
+
+    tab_custom = widgets.VBox([
+        widgets.HTML('<i>Riconosce da solo l\'API Anthropic da un URL con "anthropic.com"; qualsiasi altro '
+                      'endpoint è trattato come compatibile OpenAI chat-completions.</i>'),
+        w_rb_api_url, w_rb_api_key, w_rb_api_model, w_rb_api_send, w_rb_api_out,
+    ])
+
+    # ── Local CLI (automated, no separate API cost) ──────────────────
+    w_rb_cli_command = widgets.Text(description='Comando:', placeholder="es: claude -p",
+                                     layout=widgets.Layout(width='500px'), style={'description_width': 'initial'})
+    w_rb_cli_run = widgets.Button(description='💻 Esegui in locale', button_style='primary')
+    w_rb_cli_out = widgets.Output()
+
+    def _on_rb_cli_run(_btn):
+        with w_rb_cli_out:
+            clear_output(wait=True)
+            if not w_rb_cli_command.value.strip():
+                display(widgets.HTML('<span style="color:#ff6b35">Comando richiesto.</span>'))
+                return
+            print('⏳ Esecuzione in corso...')
+        try:
+            reply = call_local_cli(_rb_context_block(), w_rb_cli_command.value)
+            rb_log.append(new_log_entry('IA locale (CLI)', w_rb_hypothesis.value, _rb_context_block(),
+                                         reply, w_rb_cli_command.value))
+            with w_rb_cli_out:
+                clear_output(wait=True)
+                display(widgets.HTML('<span style="color:#00ff9d">Risposta ricevuta e salvata nel log.</span>'))
+                print(reply)
+            _rb_render_log()
+        except Exception as e:
+            with w_rb_cli_out:
+                clear_output(wait=True)
+                display(widgets.HTML(f'<span style="color:#ff6b35">Esecuzione fallita: {e}</span>'))
+
+    w_rb_cli_run.on_click(_on_rb_cli_run)
+
+    tab_local = widgets.VBox([
+        widgets.HTML('<i>Richiama un\'IA a riga di comando già autenticata sul PC (Claude Code o altro), '
+                      'tramite un comando locale invece di una chiamata a pagamento.</i>'),
+        w_rb_cli_command, w_rb_cli_run, w_rb_cli_out,
+    ])
+
+    # ── Log + export ──────────────────────────────────────────────────
+    w_rb_log_out = widgets.Output()
+    w_rb_log_export = widgets.Button(description='⬇️ Esporta log (JSON)')
+    w_rb_log_export_status = widgets.HTML(value='')
+
+    def _rb_render_log():
+        with w_rb_log_out:
+            clear_output(wait=True)
+            if not rb_log:
+                display(widgets.HTML('<i>Nessuna voce nel log ancora.</i>'))
+                return
+            display(widgets.HTML(f'<b>Log ({len(rb_log)} voci)</b>'))
+            for entry in reversed(rb_log):
+                display(widgets.HTML(
+                    f'<div style="border:1px solid #333;border-radius:6px;padding:8px;margin:4px 0">'
+                    f'<b>{entry["timestamp"]} — {entry["source"]}</b><br>'
+                    f'<i>Ipotesi:</i> {entry["hypothesis"]}<br>'
+                    + (f'<span style="color:#888">Modello: {entry["model"]}</span><br>' if entry.get("model") else '')
+                    + f'<div style="color:#ccc;white-space:pre-wrap">{entry["response"][:500]}</div></div>'
+                ))
+
+    def _on_rb_log_export(_btn):
+        path = 'research_bridge_log.json'
+        with open(path, 'w', encoding='utf-8') as f:
+            _json.dump(rb_log, f, indent=2, ensure_ascii=False)
+        try:
+            from google.colab import files as _colab_files
+            _colab_files.download(path)
+            w_rb_log_export_status.value = f'<span style="color:#00ff9d">Download avviato: {path}</span>'
+        except ImportError:
+            from IPython.display import FileLink
+            with w_rb_log_out:
+                display(FileLink(path))
+            w_rb_log_export_status.value = f'<span style="color:#00ff9d">Salvato come {path} (link sopra).</span>'
+
+    w_rb_log_export.on_click(_on_rb_log_export)
+
+    rb_tabs = widgets.Tab(children=[tab_google, tab_colab, tab_custom, tab_local])
+    for i, name in enumerate(['🔍 Google', '📓 Colab personale', '🔑 La tua IA (API)', '💻 IA locale (CLI)']):
+        rb_tabs.set_title(i, name)
+
+    panel_research_bridge = widgets.VBox([
+        widgets.HTML('<b>🌉 Research Bridge</b> — impacchetta un\'ipotesi (più i numeri reali di un tuo '
+                      'esperimento) in un blocco pronto da incollare, e confrontala con un\'IA esterna a scelta.'),
+        w_rb_hypothesis, w_rb_real_data, w_rb_notes,
+        widgets.HTML('<b>Blocco di contesto:</b>'), w_rb_context_out,
+        rb_tabs,
+        widgets.HTML('<b>Log</b>'), w_rb_log_out,
+        widgets.HBox([w_rb_log_export, w_rb_log_export_status]),
+    ])
+    _rb_refresh_context()
+    _rb_refresh_colab_block()
+    _rb_render_google()
+    _rb_render_log()
+
+    # ════════════════════════════════════════════════════════════════
+    # Mode switch — same show/hide pattern already used for w_qasm_text
+    # above; the Quantum Simulator panel itself (sidebar + tabs) is
+    # untouched, just wrapped.
+    # ════════════════════════════════════════════════════════════════
+    mode_panels = {
+        '⚛️ Quantum Simulator': panel_quantum_sim,
+        '🧬 Vector Healing': panel_vector_healing,
+        '🌀 Quantum Scars': panel_quantum_scars,
+        '🌉 Research Bridge': panel_research_bridge,
+    }
+    w_mode = widgets.ToggleButtons(options=list(mode_panels.keys()), value='⚛️ Quantum Simulator')
+    for name, p in mode_panels.items():
+        p.layout.display = None if name == w_mode.value else 'none'
+
+    def _on_mode_change(change):
+        for name, p in mode_panels.items():
+            p.layout.display = None if name == change['new'] else 'none'
+
+    w_mode.observe(_on_mode_change, names='value')
+
+    panel = widgets.VBox([w_mode] + list(mode_panels.values()))
     display(panel)
     return panel
