@@ -304,61 +304,9 @@ def test_contract_to_statevector_raises_above_24_qubits():
     with pytest.raises(MemoryError):
         mps.contract_to_statevector()
 
-# ── dashboard integration: dc.run_simulation(..., engine='mps') ──────────
-
-def test_dashboard_run_simulation_mps_matches_dense_bell():
-    import dashboard_core as dc
-
-    qasm_bell = ('OPENQASM 2.0; include "qelib1.inc"; qreg q[2]; creg c[2]; '
-                 'h q[0]; cx q[0],q[1]; measure q -> c;')
-
-    res_dense = dc.run_simulation(
-        'Custom Workspace', 'Custom Workspace', qasm_bell,
-        'ideal', 0.0, 100, 42, use_float32=True, engine='dense',
-    )
-    res_mps = dc.run_simulation(
-        'Custom Workspace', 'Custom Workspace', qasm_bell,
-        'ideal', 0.0, 100, 42, use_float32=True, engine='mps',
-    )
-    assert np.allclose(res_dense['prob'], res_mps['prob'], atol=1e-9)
-    # res['sim'] must stay a DenseSVSimulator regardless of engine, so
-    # everything downstream (VQE's res['sim'] usage, memory_mb, etc.)
-    # keeps working unchanged.
-    assert type(res_mps['sim']).__name__ == 'DenseSVSimulator'
-
-
-def test_dashboard_run_simulation_mps_matches_dense_entangling():
-    import dashboard_core as dc
-
-    n = 8
-    gates = ["h q[{}];".format(i) for i in range(n)]
-    gates += ["cx q[{}],q[{}];".format(i, i + 1) for i in range(0, n - 1, 2)]
-    gates += ["rz(0.7) q[{}];".format(i) for i in range(n)]
-    gates += ["cx q[{}],q[{}];".format(i, i + 1) for i in range(1, n - 1, 2)]
-    qasm = (f'OPENQASM 2.0; include "qelib1.inc"; qreg q[{n}]; creg c[{n}]; '
-            + " ".join(gates) + " measure q -> c;")
-
-    res_dense = dc.run_simulation(
-        'Custom Workspace', 'Custom Workspace', qasm,
-        'ideal', 0.0, 100, 42, use_float32=False, engine='dense',
-    )
-    res_mps = dc.run_simulation(
-        'Custom Workspace', 'Custom Workspace', qasm,
-        'ideal', 0.0, 100, 42, use_float32=False, engine='mps',
-    )
-    tvd = 0.5 * np.sum(np.abs(res_dense['prob'] - res_mps['prob']))
-    assert tvd < 1e-9
-
-
-def test_dashboard_run_simulation_mps_rejects_over_24_qubits():
-    import dashboard_core as dc
-
-    qasm = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[30]; creg c[30]; h q[0]; measure q -> c;'
-    with pytest.raises(ValueError, match="24 qubit"):
-        dc.run_simulation(
-            'Custom Workspace', 'Custom Workspace', qasm,
-            'ideal', 0.0, 100, 42, use_float32=True, engine='mps',
-        )
+# NOTE: the former "dashboard integration" tests here (dc.run_simulation
+# with engine='mps' vs 'dense') moved out with dashboard_core/ itself --
+# see feature/streamlit-dashboard and feature/ipywidgets-dash-panel.
 
 # ── get_top_k_probable_states (corrected greedy beam search) ─────────────
 
