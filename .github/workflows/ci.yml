@@ -45,7 +45,34 @@ jobs:
 
       - name: Run test suite
         run: |
-          pytest tests/ -v --tb=short --junitxml=pytest-results.xml --cov=. --cov-report=term-missing --cov-report=xml
+          pytest tests/ -v --tb=short --junitxml=pytest-results.xml --cov=. --cov-report=term-missing
+
+      - name: Run distributed-chunk tests (simulated multi-device)
+        # TestChunkDistributed (issue #1) needs >= 8 JAX devices to exercise
+        # anything beyond a skip -- JAX's device count is fixed at process
+        # start, so this needs its own pytest invocation with the env var
+        # set beforehand, not just a flag inside the test run above.
+        #
+        # --cov-append is the point: without it, this step's coverage data
+        # would just overwrite the main suite's instead of merging into it,
+        # and the multi-device-only code paths in chunk.py (the whole
+        # reason this step exists as a separate process) would go right
+        # back to looking untested in the report -- confirmed this was
+        # actually happening: chunk.py showed 95.9% in an earlier full
+        # local run that covered both, but only 69.2% from CI's coverage.xml
+        # once the 0%-coverage bug above was fixed and the real number
+        # could finally be read, because this step wasn't feeding into it.
+        env:
+          XLA_FLAGS: "--xla_force_host_platform_device_count=8"
+        run: |
+          pytest tests/test_chunk.py -k TestChunkDistributed -v --tb=short --junitxml=pytest-results-distributed.xml --cov=. --cov-append --cov-report=term-missing
+
+      - name: Generate combined coverage report
+        # Runs after both pytest invocations above so coverage.xml reflects
+        # their merged .coverage data (via --cov-append), not just whichever
+        # one happened to write the XML last.
+        run: |
+          coverage xml
 
       - name: Upload coverage report
         if: matrix.python-version == '3.12' && matrix.os == 'ubuntu-latest'
@@ -67,16 +94,6 @@ jobs:
         # have gone stale after a prior regeneration on Codecov's side
         # without updating this secret) -- ruling that specific mismatch
         # in/out too, now that both are confirmed to match.
-
-      - name: Run distributed-chunk tests (simulated multi-device)
-        # TestChunkDistributed (issue #1) needs >= 8 JAX devices to exercise
-        # anything beyond a skip -- JAX's device count is fixed at process
-        # start, so this needs its own pytest invocation with the env var
-        # set beforehand, not just a flag inside the test run above.
-        env:
-          XLA_FLAGS: "--xla_force_host_platform_device_count=8"
-        run: |
-          pytest tests/test_chunk.py -k TestChunkDistributed -v --tb=short --junitxml=pytest-results-distributed.xml
 
       - name: Upload test results on failure
         if: failure()
