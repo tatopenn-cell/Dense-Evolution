@@ -110,8 +110,29 @@ line-length = 100
 target-version = ['py39', 'py310', 'py311', 'py312']
 
 [tool.coverage.run]
-source = ["dense_evolution", "ia_utils", "dashboard_core"]
-omit = ["tests/*", "experiments/*"]
+# A single repo-root source (not three separate --cov=<pkg> roots): three
+# separate sources each became their own flattened "." package in
+# coverage.xml, so every file lost its directory prefix
+# (filename="autodiff.py" instead of "dense_evolution/autodiff.py") --
+# confirmed to actually collide for the three __init__.py files, which
+# all landed under one identical <class filename="__init__.py"> entry.
+# Codecov can't map a bare "autodiff.py" back to a real path in the git
+# tree, so the upload "succeeds" but attributes 0% despite local runs
+# reporting ~90%. The pytest invocation (.github/workflows/ci.yml) must
+# pass `--cov=.` to match this source=["."].
+#
+# `include` does NOT work here -- pytest-cov builds its own Coverage()
+# scope straight from `--cov=.` and ignores this key (confirmed: ui_pages
+# and app_dashboard.py still showed up in the report with it set) -- so
+# scoping to the three packages this project actually tracks has to go
+# through `omit` instead, which pytest-cov does honor regardless of how
+# `--cov` was passed.
+source = ["."]
+omit = [
+    "tests/*", "experiments/*", "app_dashboard.py", "ui_pages/*",
+    "legacy/*", "build/*", "dist/*", "notebooks/*",
+]
+relative_files = true
 
 [tool.coverage.report]
 exclude_lines = [

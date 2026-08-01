@@ -37,7 +37,7 @@ jobs:
 
       - name: Run test suite
         run: |
-          pytest tests/ -v --tb=short --junitxml=pytest-results.xml --cov=dense_evolution --cov=ia_utils --cov=dashboard_core --cov-report=term-missing --cov-report=xml
+          pytest tests/ -v --tb=short --junitxml=pytest-results.xml --cov=. --cov-report=term-missing --cov-report=xml
 
       - name: Upload coverage report
         if: matrix.python-version == '3.12' && matrix.os == 'ubuntu-latest'
