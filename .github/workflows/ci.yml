@@ -33,7 +33,15 @@ jobs:
           pip install setuptools pytest pytest-cov numpy scipy pandas matplotlib psutil ipython jax jaxlib seaborn plotly
           pip install qiskit pennylane
           pip install streamlit>=1.30.0 ipywidgets>=8.0.0
-          pip install . --no-deps # Installa il pacchetto locale
+          pip install -e . --no-deps # Installa il pacchetto locale in modalita' editable:
+          # con un'installazione normale (`pip install .`), i sorgenti finiscono
+          # copiati dentro site-packages e i test importano QUELLA copia, non i
+          # file nella working directory che coverage.py osserva con --cov=. --
+          # risultato: 0.0% anche con i test che passano davvero, perche' le
+          # righe eseguite e le righe misurate sono in due file fisicamente
+          # diversi. Confermato nel log della CI stessa: "TOTAL 4009 4009 0.0%"
+          # gia' nello step di test, prima ancora di generare coverage.xml --
+          # non era un bug di Codecov.
 
       - name: Run test suite
         run: |
