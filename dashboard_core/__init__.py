@@ -15,9 +15,13 @@ from .engine import SimulationResult, run_circuit_from_qasm
 from .visuals import (
     draw_circuit_figure, histogram_figure, qsphere_figure, bloch_multivector_figure,
 )
+from .graphical_builder import GATE_PALETTE, ops_to_qiskit_circuit
+from .circuit_builder_component import mount_circuit_builder
 
 __all__ = [
     'QASM_LIBRARY',
     'SimulationResult', 'run_circuit_from_qasm',
     'draw_circuit_figure', 'histogram_figure', 'qsphere_figure', 'bloch_multivector_figure',
+    'GATE_PALETTE', 'ops_to_qiskit_circuit',
+    'mount_circuit_builder',
 ]
