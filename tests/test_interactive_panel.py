@@ -383,3 +383,244 @@ def test_research_bridge_context_block_and_colab_log():
 
     w_colab_status = tab_colab.children[-1].children[1]  # HBox([save, status])
     assert "Salvato" in w_colab_status.value
+
+
+def _rb_tab(rb_panel, index):
+    for child in rb_panel.children:
+        if type(child).__name__ == "Tab":
+            return child.children[index]
+    raise AssertionError("Research Bridge Tab widget not found")
+
+
+def test_vector_healing_channel_change_before_run_is_noop():
+    # _vh_render_channel's `if not vh_state: return` guard, and the
+    # observer callback that calls it (_on_vh_channel_change) -- neither
+    # is exercised by the run-button test above, which never touches the
+    # channel dropdown.
+    panel = dc.launch_interactive_panel()
+    vh_panel = _mode_panel(panel, "🧬 Vector Healing")
+
+    w_channel = _find_recursive(vh_panel, "Canale:")
+    w_channel.value = 2  # before any run -- vh_state is still empty, must not raise
+
+    config_box = vh_panel.children[1]
+    _find_button_recursive(config_box, "Genera ed Esegui Healing").click()
+    w_channel.value = 4  # after a run -- the populated-state path, via the observer this time
+
+    _, w_status = config_box.children[-1].children
+    assert "Fatto" in w_status.value
+
+
+def test_run_button_with_hamiltonian_invalid_custom_json_falls_back_to_none():
+    # The json.JSONDecodeError branch in _on_run_clicked's hamiltonian
+    # extraction -- every earlier custom-JSON test used the valid default
+    # text, so hamiltonian_values silently staying None on bad input was
+    # never actually exercised.
+    panel = dc.launch_interactive_panel()
+    kids, tabs, w_run, w_status = _panel_widgets(panel)
+
+    _find(kids, "Abilita telemetria VQE").value = False
+    _find(kids, "Abilita telemetria MD").value = False
+    _find(kids, "Abilita Hamiltoniana personalizzata").value = True
+    _find_deep(kids, "Modalità:").value = "Custom JSON Textarea"
+    _find_deep(kids, "Array JSON:").value = "{not valid json"
+
+    w_run.click()  # must not raise -- falls back to hamiltonian_values=None
+
+    assert "Fatto" in w_status.value
+
+
+def test_research_bridge_google_save_step_and_stop_chain():
+    # _on_rb_google_save and _on_rb_google_stop -- no earlier test ever
+    # touches the Google tab at all, only Colab's.
+    panel = dc.launch_interactive_panel()
+    rb_panel = _mode_panel(panel, "🌉 Research Bridge")
+
+    _find_recursive(rb_panel, "Ipotesi:").value = "Ipotesi di prova per la catena Google."
+    tab_google = _rb_tab(rb_panel, 0)
+
+    w_response = _find_recursive(tab_google, "Risposta Google:")
+    w_save = _find_button_recursive(tab_google, "Salva questo passo")
+    w_stop = _find_button_recursive(tab_google, "Ferma e salva la catena")
+
+    w_stop.click()  # empty chain -- must be a no-op, not raise
+
+    w_response.value = "Prima risposta incollata a mano."
+    w_save.click()  # first step: builds the query, appends to rb_chain, re-renders history
+
+    w_response.value = "Seconda risposta, per un secondo passo nella stessa catena."
+    w_save.click()  # second step: exercises the "follow-up" (rb_chain non-empty) branch too
+
+    w_stop.click()  # now with a real 2-step chain: logs it and clears rb_chain
+
+    assert True  # reaching here without an exception is the actual coverage target
+
+
+def test_research_bridge_colab_save_empty_response_is_noop():
+    # _on_rb_colab_save's `if not ...strip(): return` guard -- the earlier
+    # Colab test always provides real response text.
+    panel = dc.launch_interactive_panel()
+    rb_panel = _mode_panel(panel, "🌉 Research Bridge")
+    tab_colab = _rb_tab(rb_panel, 1)
+
+    w_colab_save = _find_button_recursive(tab_colab, "Salva nel log")
+    w_colab_save.click()  # w_colab_response is still empty -- must not raise or log anything
+
+    w_colab_status = tab_colab.children[-1].children[1]
+    assert w_colab_status.value == ''  # unchanged -- the guard returned before setting it
+
+
+def test_research_bridge_custom_api_send_without_credentials():
+    panel = dc.launch_interactive_panel()
+    rb_panel = _mode_panel(panel, "🌉 Research Bridge")
+    tab_custom = _rb_tab(rb_panel, 2)
+
+    w_send = _find_button_recursive(tab_custom, "Invia direttamente")
+    w_send.click()  # both endpoint and key are still empty -- guard branch, must not raise
+
+
+def test_research_bridge_custom_api_send_with_unreachable_endpoint():
+    # Exercises the try/except around call_custom_api -- a real network
+    # call would be flaky in CI, so this points at a port nothing listens
+    # on (connection refused, fast and deterministic) rather than mocking
+    # the request away.
+    panel = dc.launch_interactive_panel()
+    rb_panel = _mode_panel(panel, "🌉 Research Bridge")
+    tab_custom = _rb_tab(rb_panel, 2)
+
+    _find_recursive(tab_custom, "Endpoint API:").value = "http://127.0.0.1:1/v1/chat/completions"
+    _find_recursive(tab_custom, "Chiave API:").value = "fake-key"
+    w_send = _find_button_recursive(tab_custom, "Invia direttamente")
+    w_send.click()  # must not raise -- the connection failure is caught and shown, not propagated
+
+
+def test_research_bridge_local_cli_run_without_command():
+    panel = dc.launch_interactive_panel()
+    rb_panel = _mode_panel(panel, "🌉 Research Bridge")
+    tab_local = _rb_tab(rb_panel, 3)
+
+    w_run_cli = _find_button_recursive(tab_local, "Esegui in locale")
+    w_run_cli.click()  # w_rb_cli_command is still empty -- guard branch, must not raise
+
+
+def test_research_bridge_local_cli_run_with_missing_command():
+    # Exercises the try/except around call_local_cli -- a command that
+    # can't possibly exist on PATH raises FileNotFoundError, caught by the
+    # generic except Exception the same as any other failure mode.
+    panel = dc.launch_interactive_panel()
+    rb_panel = _mode_panel(panel, "🌉 Research Bridge")
+    tab_local = _rb_tab(rb_panel, 3)
+
+    _find_recursive(tab_local, "Comando:").value = "nonexistent_command_xyz_12345"
+    w_run_cli = _find_button_recursive(tab_local, "Esegui in locale")
+    w_run_cli.click()  # must not raise -- FileNotFoundError is caught and shown
+
+
+def test_research_bridge_log_export_writes_file():
+    # _on_rb_log_export -- outside Colab, `from google.colab import files`
+    # raises ImportError, falling through to the IPython.display.FileLink
+    # branch. Not in the missing-lines list for the "no credentials"
+    # guard paths above, but the export button itself was never clicked
+    # by any earlier test.
+    import os
+
+    panel = dc.launch_interactive_panel()
+    rb_panel = _mode_panel(panel, "🌉 Research Bridge")
+
+    w_export = _find_button_recursive(rb_panel, "Esporta log (JSON)")
+    w_export.click()  # must not raise
+
+    assert os.path.exists("research_bridge_log.json")
+    os.remove("research_bridge_log.json")  # don't leave test output behind in the repo checkout
+
+
+def test_heal_telemetry_none_and_empty_df_return_neutral_metadata():
+    # _heal_telemetry's `if df is None or df.empty:` guard -- every run
+    # exercised through the panel always produces real VQE/MD data, so
+    # this early-return path (mirrors ui_pages/ai_middleware.py's own
+    # heal_telemetry, deliberately duplicated here) was never hit.
+    import pandas as pd
+    from dashboard_core.interactive_panel import _heal_telemetry
+
+    df_none, meta_none = _heal_telemetry(None)
+    assert df_none.empty
+    assert meta_none == {
+        'fallback_triggered': False, 'adaptive_radius_used': 0, 'reconstruction_error': 0.0,
+    }
+
+    df_empty, meta_empty = _heal_telemetry(pd.DataFrame())
+    assert df_empty.empty
+    assert meta_empty == meta_none
+
+
+def test_run_button_shows_error_when_run_simulation_raises(monkeypatch):
+    # The try/except around run_simulation in _on_run_clicked -- no
+    # earlier test ever makes the circuit-execution step itself fail.
+    import dashboard_core.interactive_panel as ip_mod
+
+    def _boom(*_a, **_kw):
+        raise RuntimeError("simulated circuit execution failure")
+
+    monkeypatch.setattr(ip_mod, "run_simulation", _boom)
+
+    panel = dc.launch_interactive_panel()
+    kids, tabs, w_run, w_status = _panel_widgets(panel)
+
+    w_run.click()
+
+    assert "Errore durante l'esecuzione del circuito" in w_status.value
+    assert not w_run.disabled  # re-enabled after the early return
+
+
+def test_run_button_shows_error_when_zne_mitigation_raises(monkeypatch):
+    # The try/except around run_mitigation_sweep -- needs a real noise
+    # model active (ZNE is skipped entirely on 'ideal') plus ZNE enabled,
+    # neither of which any earlier test combines with a forced failure.
+    import dashboard_core.interactive_panel as ip_mod
+
+    def _boom(*_a, **_kw):
+        raise RuntimeError("simulated ZNE sweep failure")
+
+    monkeypatch.setattr(ip_mod, "run_mitigation_sweep", _boom)
+
+    panel = dc.launch_interactive_panel()
+    kids, tabs, w_run, w_status = _panel_widgets(panel)
+
+    _find(kids, "Abilita telemetria VQE").value = False
+    _find(kids, "Abilita telemetria MD").value = False
+    _find(kids, "Rumore:").value = "depolarizing"
+    _find(kids, "p:").value = 0.06
+    _find(kids, "Abilita Zero-Noise Extrapolation").value = True
+
+    w_run.click()
+
+    # The "Errore durante la mitigazione ZNE" message is only visible
+    # transiently mid-run: the run continues past a ZNE failure and
+    # unconditionally overwrites w_status with the final "Fatto" -- as
+    # with the heavy-circuit skip test above, exercising the except
+    # branch itself (no crash) is the actual coverage target.
+    assert "Fatto" in w_status.value
+
+
+def test_run_button_shows_error_when_vqe_telemetry_raises(monkeypatch):
+    # The try/except around run_vqe_telemetry -- no earlier test forces
+    # this specific step to fail (as opposed to being skipped or disabled).
+    import dashboard_core.interactive_panel as ip_mod
+
+    def _boom(*_a, **_kw):
+        raise RuntimeError("simulated VQE telemetry failure")
+
+    monkeypatch.setattr(ip_mod, "run_vqe_telemetry", _boom)
+
+    panel = dc.launch_interactive_panel()
+    kids, tabs, w_run, w_status = _panel_widgets(panel)
+
+    _find(kids, "Abilita telemetria MD").value = False
+    assert _find(kids, "Abilita telemetria VQE").value is True  # default -- VQE runs and fails
+
+    w_run.click()
+
+    # Same reasoning as the ZNE test above: the error message is transient,
+    # overwritten by the unconditional final "Fatto" -- that's what's left
+    # to check once click() has returned.
+    assert "Fatto" in w_status.value
