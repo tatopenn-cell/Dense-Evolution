@@ -10,16 +10,22 @@ import jax.numpy as jnp
 HAS_JAX = True
 
 # ── Flexible import with stub fallback ──────────────────────────────────────
+# Both except-branches below are for deployment layouts other than the
+# installed package this test suite always runs against (a flat/Colab
+# notebook cell with no `dense_evolution.` prefix, or an incomplete
+# install missing simulator/compiler/gates entirely) -- genuinely
+# unreachable here without artificially breaking sys.path, so excluded
+# from coverage rather than chased with an artificial test.
 try:
     from simulator import DenseSVSimulator
-    from compiler import QuantumTranspiler
-    from gates import GATE_IDS
+    from compiler import QuantumTranspiler  # pragma: no cover
+    from gates import GATE_IDS  # pragma: no cover
 except ModuleNotFoundError:
     try:
         from dense_evolution.simulator import DenseSVSimulator
         from dense_evolution.compiler import QuantumTranspiler
         from dense_evolution.gates import GATE_IDS
-    except ModuleNotFoundError:
+    except ModuleNotFoundError:  # pragma: no cover
         class DenseSVSimulator:  # type: ignore[no-redef]
             def __init__(self, n_qubits, **kwargs):
                 self.n     = n_qubits

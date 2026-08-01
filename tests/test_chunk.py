@@ -38,6 +38,21 @@ class TestChunkPublicAPI:
         assert abs(probs.sum() - 1.0) < 1e-9
         assert np.allclose(probs, 1.0 / 64, atol=1e-9)  # uniform after H on all 6 qubits
 
+    def test_chunk_sv_setter_num_chunks_1_round_trips_through_inner_sim(self):
+        # sv's setter, num_chunks==1 branch (self._chunk_sims is None):
+        # writes straight through to the physical inner simulator instead of
+        # splitting across chunks -- never exercised by any existing test,
+        # which only ever reads sim.sv, never assigns to it.
+        sim = Chunk(6)
+        assert sim._chunk_sims is None  # confirms this test is on the branch it targets
+
+        new_sv = np.zeros(2 ** 6, dtype=sim.sv.dtype)
+        new_sv[5] = 1.0  # an arbitrary basis state, distinct from the |000000> default
+        sim.sv = new_sv
+
+        np.testing.assert_allclose(np.asarray(sim.sv), new_sv, atol=1e-12)
+        np.testing.assert_allclose(np.asarray(sim._inner_sim.sv), new_sv, atol=1e-12)
+
 
 class TestChunkMultiPiece:
     """Chunk(n_qubits) beyond the RAM-safe budget used to silently simulate

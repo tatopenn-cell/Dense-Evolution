@@ -71,8 +71,18 @@ jobs:
         # Runs after both pytest invocations above so coverage.xml reflects
         # their merged .coverage data (via --cov-append), not just whichever
         # one happened to write the XML last.
+        #
+        # --ignore-errors: test_docs_examples.py execs code blocks pulled
+        # straight out of docs/examples.md under a synthetic filename
+        # (e.g. "docs/examples.md::## Density-matrix ZNE healing") for
+        # coverage tracing -- there's no real file on disk at that path,
+        # so plain `coverage xml` aborts outright trying to re-read it
+        # ("No source for code"). This run failed silently on exactly
+        # that (confirmed in the job log) and the commit never reached
+        # Codecov at all, not even as a 0%-coverage upload -- worse than
+        # the original bug, not a regression in what was already fixed.
         run: |
-          coverage xml
+          coverage xml --ignore-errors
 
       - name: Upload coverage report
         if: matrix.python-version == '3.12' && matrix.os == 'ubuntu-latest'
