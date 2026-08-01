@@ -31,7 +31,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install pytest pytest-cov numpy scipy pandas matplotlib psutil ipython seaborn plotly
           pip install setuptools pytest pytest-cov numpy scipy pandas matplotlib psutil ipython jax jaxlib seaborn plotly
-          pip install qiskit pennylane
+          pip install qiskit pennylane pylatexenc
           pip install streamlit>=1.30.0 ipywidgets>=8.0.0
           pip install -e . --no-deps # Installa il pacchetto locale in modalita' editable:
           # con un'installazione normale (`pip install .`), i sorgenti finiscono
