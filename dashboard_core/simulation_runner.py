@@ -293,8 +293,6 @@ def _run_simulation_body(source_mode, circuit_name, qasm_text, noise_model, nois
     stato_dominante = format(idx_max, '0' + str(n_qubits) + 'b')
 
     fidelity_value = float(np.sum(np.sqrt(prob * prob_id)))
-    noise_factor_curve = np.array([fidelity_value * (1.0 - (i * float(noise_p) / 20.0)) for i in range(100)])
-    noise_factor_curve = np.clip(noise_factor_curve, 0.0, 1.0)
 
     # np.random.choice(len(prob), p=prob, ...) builds an internal cumulative
     # array over the full 2**n_qubits distribution -- another O(2**n) cost
@@ -313,7 +311,6 @@ def _run_simulation_body(source_mode, circuit_name, qasm_text, noise_model, nois
     return {
         'prob': prob,
         'prob_ideal': prob_ideal,
-        'noise_factor': noise_factor_curve,
         'fidelity': fidelity_value,
         'n_qubits': n_qubits,
         'entropy': shannon_entropy,
@@ -323,6 +320,7 @@ def _run_simulation_body(source_mode, circuit_name, qasm_text, noise_model, nois
         'ram': sim.memory_mb(),
         'nome': nome_circuito,
         'porte_count': len(comandi_beast_mode),
+        'circuit_ops': comandi_beast_mode,  # feeds dense_evolution.drawing.draw_circuit
         'shots_data': shots_data,
         'sim': sim,
         'parser': parser,

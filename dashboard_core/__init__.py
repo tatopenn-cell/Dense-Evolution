@@ -19,7 +19,11 @@ effects.
 """
 
 from .qasm_library import QASM_LIBRARY, infer_qubit_count_from_qasm
-from .hamiltonians import LIBRERIA_HAMILTONIANE, get_compatible_hamiltonians, save_custom_hamiltonian
+from .hamiltonians import (
+    LIBRERIA_HAMILTONIANE, get_compatible_hamiltonians, save_custom_hamiltonian,
+    MOLECULE_CATALOG, build_molecular_hamiltonian, get_compatible_molecules,
+    get_molecular_hamiltonian_matrix,
+)
 from .simulation_runner import run_simulation
 from .vqe_engine import QM_MM_HEAVY_QUBIT_THRESHOLD, run_vqe_telemetry
 from .md_telemetry import run_md_telemetry
@@ -28,6 +32,7 @@ from .panels import (
     build_panel_overview, build_panel_fisica, build_panel_mosaico,
     build_panel_vqe_results, build_panel_md_results,
     build_panel_performance, build_panel_hamiltonian,
+    build_panel_bloch_sphere, compute_bloch_vector,
 )
 from .helix_3d import build_3d_helix_patch
 from .provenance import run_benchmark_scan, build_provenance_json
@@ -38,6 +43,8 @@ from .interactive_panel import launch_interactive_panel
 __all__ = [
     'QASM_LIBRARY', 'infer_qubit_count_from_qasm',
     'LIBRERIA_HAMILTONIANE', 'get_compatible_hamiltonians', 'save_custom_hamiltonian',
+    'MOLECULE_CATALOG', 'build_molecular_hamiltonian', 'get_compatible_molecules',
+    'get_molecular_hamiltonian_matrix',
     'run_simulation',
     'QM_MM_HEAVY_QUBIT_THRESHOLD', 'run_vqe_telemetry',
     'run_md_telemetry',
@@ -45,6 +52,7 @@ __all__ = [
     'build_panel_overview', 'build_panel_fisica', 'build_panel_mosaico',
     'build_panel_vqe_results', 'build_panel_md_results',
     'build_panel_performance', 'build_panel_hamiltonian',
+    'build_panel_bloch_sphere', 'compute_bloch_vector',
     'build_3d_helix_patch',
     'run_benchmark_scan', 'build_provenance_json',
     'run_mitigation_sweep', 'build_panel_mitigation',

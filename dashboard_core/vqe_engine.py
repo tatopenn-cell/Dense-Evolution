@@ -20,7 +20,17 @@ QM_MM_HEAVY_QUBIT_THRESHOLD = 12
 
 
 class QMMMForceEngine:
-    """Hellmann-Feynman QM/MM force engine via JAX autodiff. Adapted from dash.py:1455."""
+    """Hellmann-Feynman QM/MM force engine via JAX autodiff. Adapted from
+    dash.py:1455 -- that version's generate_pauli_expectation_mpo docstring
+    admitted it was "Placeholder tracciabile... In produzione si
+    interfaccia con le stringhe generate da Jordan-Wigner". The mean-field
+    external-potential approximation here (single_orbital_v below) is
+    still a real simplification, not full electronic structure -- but as
+    of dashboard_core.hamiltonians.build_molecular_hamiltonian, h_pq_core
+    is now a genuine Jordan-Wigner-mapped molecular Hamiltonian when a
+    catalog molecule is selected, not a fake one, and the classical
+    positions/charges it's perturbed by (see _run_vqe_telemetry_body) are
+    that same molecule's real equilibrium geometry, not a fixed stand-in."""
 
     def __init__(self, simulator_instance):
         self.sim = simulator_instance
@@ -126,14 +136,30 @@ def _run_vqe_mock_simulation(epochs: int, lr: float, beta1: float, beta2: float,
 
 def run_vqe_telemetry(sim, parser, qasm_text, circuit_name, n_qubits, use_float32,
                        epochs, lr, beta1, beta2, seed, hamiltonian_values=None,
-                       on_epoch=None) -> pd.DataFrame:
+                       on_epoch=None, classical_geometry=None) -> pd.DataFrame:
     """Adapted from ottimizza_vqe (dash.py:3194, canonical/later definition).
 
     Runs real JAX-autodiff VQE (via QMMMForceEngine Hellmann-Feynman forces) if the
     circuit has parametric gates, else falls back to _run_vqe_mock_simulation — this
-    branch is unchanged from the original. `hamiltonian_values`, if given, must be an
-    array of length 2**n_qubits (custom Hamiltonian); otherwise a random one is used,
-    replacing the original's globals()-based custom-Hamiltonian widget lookup.
+    branch is unchanged from the original.
+
+    `hamiltonian_values`, if given, is either a flat array of length 2**n_qubits
+    (a diagonal Hamiltonian -- a toy model from LIBRERIA_HAMILTONIANE, or whatever a
+    user pastes into the Custom JSON textarea) or a dense (2**n_qubits, 2**n_qubits)
+    Hermitian matrix (a real molecular Hamiltonian from
+    dashboard_core.hamiltonians.get_molecular_hamiltonian_matrix -- Jordan-Wigner maps
+    electronic structure onto real X/Y/Z terms, so this is generally NOT diagonal).
+    If not given, a random diagonal spectrum is used, replacing the original's
+    globals()-based custom-Hamiltonian widget lookup.
+
+    `classical_geometry`, if given, is a dict with 'positions' ((n_atoms, 3) Å),
+    'charges' ((n_atoms,)) and optionally 'orbital_centers' -- the REAL geometry of
+    whatever molecule hamiltonian_values came from, fed to QMMMForceEngine instead of
+    a fixed placeholder. When None (a toy model or a Custom JSON Hamiltonian with no
+    known geometry is selected), QM/MM force computation is skipped entirely rather
+    than perturbed by a geometry that doesn't actually correspond to anything real —
+    engine stays None, norma_forze_mm stays 0.0, same as any other QMMMForceEngine
+    failure already handled below.
 
     `on_epoch`, if given, is called as `on_epoch(epoch: int, total_epochs: int, row: dict)`
     once per completed epoch — purely additive, default None, no behavior change for
@@ -147,6 +173,7 @@ def run_vqe_telemetry(sim, parser, qasm_text, circuit_name, n_qubits, use_float3
         return _run_vqe_telemetry_body(
             sim, parser, qasm_text, circuit_name, n_qubits, use_float32,
             epochs, lr, beta1, beta2, seed, hamiltonian_values, on_epoch,
+            classical_geometry,
         )
     finally:
         # `sim` was built under a precision fixed at its own creation (run_simulation);
@@ -157,7 +184,7 @@ def run_vqe_telemetry(sim, parser, qasm_text, circuit_name, n_qubits, use_float3
 
 def _run_vqe_telemetry_body(sim, parser, qasm_text, circuit_name, n_qubits, use_float32,
                              epochs, lr, beta1, beta2, seed, hamiltonian_values=None,
-                             on_epoch=None) -> pd.DataFrame:
+                             on_epoch=None, classical_geometry=None) -> pd.DataFrame:
     circ_obj = parser.parse(qasm_text)
     energy_fn, n_params = de.circuit_to_energy_fn(circ_obj, n_qubits)
 
@@ -175,21 +202,42 @@ def _run_vqe_telemetry_body(sim, parser, qasm_text, circuit_name, n_qubits, use_
 
     np.random.seed(seed)
     classical_dtype = jnp.float32 if use_float32 else jnp.float64
+    h_complex_dtype = jnp.complex64 if use_float32 else jnp.complex128
 
-    if hamiltonian_values is not None and len(hamiltonian_values) == 2 ** n_qubits:
-        valori_energetici = np.array(hamiltonian_values, dtype=classical_dtype)
+    ham_array = np.asarray(hamiltonian_values) if hamiltonian_values is not None else None
+    if ham_array is not None and ham_array.ndim == 2 and ham_array.shape == (2 ** n_qubits, 2 ** n_qubits):
+        # A real molecular Hamiltonian (dashboard_core.hamiltonians.
+        # get_molecular_hamiltonian_matrix) -- Jordan-Wigner maps onto X/Y/Z
+        # terms, so this is generally dense, not diagonal.
+        sim.H_matrix = jnp.array(ham_array, dtype=h_complex_dtype)
+    elif ham_array is not None and ham_array.ndim == 1 and len(ham_array) == 2 ** n_qubits:
+        valori_energetici = ham_array.astype(classical_dtype)
+        sim.H_matrix = jnp.diag(jnp.array(valori_energetici, dtype=classical_dtype)).astype(h_complex_dtype)
     else:
         valori_energetici = np.sort(np.random.uniform(-2.5, 2.5, 2 ** n_qubits)).astype(classical_dtype)
-
-    sim.H_matrix = jnp.diag(jnp.array(valori_energetici, dtype=classical_dtype))
+        sim.H_matrix = jnp.diag(jnp.array(valori_energetici, dtype=classical_dtype)).astype(h_complex_dtype)
 
     history = []
     stato_zero_dtype = jnp.complex64 if use_float32 else jnp.complex128
     stato_zero = jnp.zeros(2 ** n_qubits, dtype=stato_zero_dtype).at[0].set(1.0)
 
-    classical_positions = jnp.array([[0.0, 0.0, 0.0], [1.4, 0.0, 0.0]], dtype=classical_dtype)
-    classical_charges = jnp.array([1.0, -1.0], dtype=classical_dtype)
-    orbital_centers = jnp.array([[0.0, 0.0, 0.1]], dtype=classical_dtype)
+    if classical_geometry is not None:
+        # Real geometry (dashboard_core.hamiltonians.MOLECULE_CATALOG),
+        # matching whatever molecule hamiltonian_values above came from --
+        # not a fixed stand-in used for every circuit regardless of what
+        # it represents.
+        classical_positions = jnp.array(classical_geometry['positions'], dtype=classical_dtype)
+        classical_charges = jnp.array(classical_geometry['charges'], dtype=classical_dtype)
+        orbital_centers = jnp.array(
+            classical_geometry.get('orbital_centers', classical_geometry['positions']),
+            dtype=classical_dtype,
+        )
+    else:
+        # No known real geometry for the selected Hamiltonian (a toy model,
+        # or a Custom JSON array with no associated molecule) -- skip QM/MM
+        # force computation entirely below rather than perturb the energy
+        # with a geometry that doesn't correspond to anything real.
+        classical_positions = classical_charges = orbital_centers = None
 
     # Built once, reused every epoch — only theta changes, so this traces/
     # JIT-compiles a single time instead of rebuilding the circuit (and
@@ -211,7 +259,7 @@ def _run_vqe_telemetry_body(sim, parser, qasm_text, circuit_name, n_qubits, use_
         purita = float(np.sum(prob ** 2))
 
         norma_forze_mm = 0.0
-        if engine is not None:
+        if engine is not None and classical_positions is not None:
             try:
                 _, forze_mm = engine.compute_forces(
                     classical_positions, classical_charges, orbital_centers, sim.H_matrix, sv

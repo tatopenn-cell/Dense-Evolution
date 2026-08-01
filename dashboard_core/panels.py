@@ -293,7 +293,11 @@ def build_panel_fisica(res, seed: int = 42) -> plt.Figure:
 
     ax2 = fig.add_axes([0.52, 0.10, 0.45, 0.70], projection='3d')
     ax2.set_facecolor('#0d1117')
-    rng = np.random.default_rng(seed)
+    # `seed` (the parameter above) was only ever used to build an `rng` that
+    # this deterministic scatter (linspace/cos/sin below) never actually
+    # consumed -- dead code removed rather than wired up, since nothing here
+    # needs randomization. `seed` itself is left in the signature: callers
+    # already pass it, and dropping the parameter is a separate API change.
     angoli = np.linspace(0, 2 * np.pi, dim_vis)
     raggio = np.sqrt(range(dim_vis))
     x_c = raggio * np.cos(angoli)
@@ -548,4 +552,71 @@ def build_panel_performance(res: Dict, run_history: list) -> plt.Figure:
     fig.suptitle(f'Performance — {len(run_history)} run(s) in this session',
                  color=C['title'], fontsize=14, fontweight='bold', **MONO)
     plt.tight_layout(rect=[0, 0.03, 1, 0.93])
+    return fig
+
+
+_PAULI_X = np.array([[0, 1], [1, 0]], dtype=complex)
+_PAULI_Y = np.array([[0, -1j], [1j, 0]], dtype=complex)
+_PAULI_Z = np.array([[1, 0], [0, -1]], dtype=complex)
+
+
+def compute_bloch_vector(sv, n_qubits: int, qubit_index: int):
+    """The real Bloch vector (Tr(ρX), Tr(ρY), Tr(ρZ)) for one qubit's
+    reduced density matrix ρ, traced out of the full `sv` statevector --
+    standard single-qubit visualization in Qiskit (plot_bloch_vector) and
+    PennyLane/qsim demos, previously absent from this dashboard.
+
+    Qubit-index convention verified empirically against this simulator's
+    own measurement labeling (format(idx, '0{n}b'), qubit 0 = leftmost/
+    most-significant bit): reshaping the flat statevector into `n_qubits`
+    axes of size 2 puts axis `i` in exactly that same qubit-0-first order,
+    so no bit-reversal is needed here.
+
+    Returns (bx, by, bz), each a float in [-1, 1] (exactly on the unit
+    sphere surface for a pure, unentangled qubit; strictly inside it —
+    a real physical effect, not a bug — when qubit_index is entangled
+    with the rest of the register, e.g. (0,0,0) for either half of a
+    Bell pair)."""
+    sv = np.asarray(sv).reshape([2] * n_qubits)
+    sv = np.moveaxis(sv, qubit_index, 0).reshape(2, -1)
+    rho = sv @ sv.conj().T
+    return (
+        float(np.real(np.trace(rho @ _PAULI_X))),
+        float(np.real(np.trace(rho @ _PAULI_Y))),
+        float(np.real(np.trace(rho @ _PAULI_Z))),
+    )
+
+
+def build_panel_bloch_sphere(sv, n_qubits: int, qubit_index: int = 0) -> plt.Figure:
+    """Plots compute_bloch_vector's result on a 3D Bloch sphere -- a
+    wireframe sphere, the three real (X/Y/Z) axes, and an arrow from the
+    origin to the qubit's actual state. A short arrow (inside the sphere,
+    not reaching the surface) is the correct, honest rendering of a
+    genuinely mixed/entangled reduced state, not a rendering error."""
+    bx, by, bz = compute_bloch_vector(sv, n_qubits, qubit_index)
+
+    fig = plt.figure(figsize=(6, 6), facecolor=FIG_BG_DARK)
+    ax = fig.add_axes([0.05, 0.05, 0.9, 0.9], projection='3d')
+    ax.set_facecolor(C['panel'])
+
+    u, v = np.meshgrid(np.linspace(0, 2 * np.pi, 40), np.linspace(0, np.pi, 20))
+    xs, ys, zs = np.cos(u) * np.sin(v), np.sin(u) * np.sin(v), np.cos(v)
+    ax.plot_wireframe(xs, ys, zs, color=C['border'], linewidth=0.4, alpha=0.5)
+
+    axis_len = 1.3
+    for vec, label in (([axis_len, 0, 0], 'X'), ([0, axis_len, 0], 'Y'), ([0, 0, axis_len], 'Z')):
+        ax.plot([0, vec[0]], [0, vec[1]], [0, vec[2]], color=C['label'], lw=0.8)
+        ax.text(*vec, label, color=C['label'], fontsize=10, **MONO)
+
+    ax.quiver(0, 0, 0, bx, by, bz, color=C['accent'], linewidth=2.5, arrow_length_ratio=0.12)
+    ax.scatter([bx], [by], [bz], color=C['accent'], s=40)
+
+    ax.set_xlim(-1.3, 1.3); ax.set_ylim(-1.3, 1.3); ax.set_zlim(-1.3, 1.3)
+    ax.set_box_aspect((1, 1, 1))
+    ax.set_axis_off()
+    fig.suptitle(
+        f'Bloch Sphere — qubit {qubit_index}  '
+        f'(x={bx:.3f}, y={by:.3f}, z={bz:.3f}, |v|={(bx**2+by**2+bz**2)**0.5:.3f})',
+        color=C['title'], fontsize=12, fontweight='bold', **MONO,
+    )
     return fig

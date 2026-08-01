@@ -102,7 +102,7 @@ def _render_sidebar() -> dict:
         else:
             vqe_epochs, vqe_lr, vqe_beta1, vqe_beta2, confirm_heavy_vqe = 20, 0.05, 0.9, 0.999, False
 
-        hamiltonian_values, hamiltonian_name = None, None
+        hamiltonian_values, hamiltonian_name, classical_geometry = None, None, None
         if vqe_enabled:
             st.header("🧬 Hamiltoniana personalizzata")
             hamiltonian_enabled = st.checkbox("Abilita Hamiltoniana personalizzata", value=False, key="qs_ham_enabled")
@@ -112,17 +112,47 @@ def _render_sidebar() -> dict:
                 inferred_n_qubits = dc.infer_qubit_count_from_qasm(current_qasm)
                 compatible = dc.get_compatible_hamiltonians(inferred_n_qubits, ham_library)
 
-                ham_mode = st.radio("Modalità", ["Libreria Built-in", "Custom JSON Textarea"], key="qs_ham_mode")
-                if ham_mode == "Libreria Built-in":
+                ham_mode = st.radio(
+                    "Modalità", ["Molecole Reali", "Modelli Giocattolo", "Custom JSON Textarea"], key="qs_ham_mode",
+                )
+                if ham_mode == "Molecole Reali":
+                    compatible_molecules = dc.get_compatible_molecules(inferred_n_qubits)
+                    if compatible_molecules:
+                        hamiltonian_name = st.selectbox(
+                            f"Molecola ({inferred_n_qubits} qubit, dim={2**inferred_n_qubits if inferred_n_qubits else '?'}) "
+                            "— Hamiltoniana calcolata al volo via PennyLane qchem (Hartree-Fock, Jordan-Wigner), "
+                            "non un array di numeri fissi",
+                            options=list(compatible_molecules.keys()), key="qs_mol_sel",
+                        )
+                        spec = compatible_molecules[hamiltonian_name]
+                        geometry = spec["geometry"]() if callable(spec["geometry"]) else spec["geometry"]
+                        hamiltonian_values = dc.get_molecular_hamiltonian_matrix(hamiltonian_name)
+                        classical_geometry = {
+                            "positions": geometry,
+                            "charges": [1.0] * len(spec["symbols"]),
+                        }
+                        st.caption(
+                            f"Simboli: {', '.join(spec['symbols'])} — carica: {spec['charge']:+d} — "
+                            f"geometria reale (Å): {geometry.tolist()}"
+                        )
+                    else:
+                        st.caption(
+                            f"Nessuna molecola nel catalogo ha esattamente {inferred_n_qubits or '?'} qubit "
+                            "sotto Jordan-Wigner. Il catalogo resta piccolo apposta (H2, HeH+, H3+ ad anello) — "
+                            "molecole più grandi richiederebbero più qubit di quanti questo simulatore possa "
+                            "diagonalizzare esattamente."
+                        )
+                elif ham_mode == "Modelli Giocattolo":
                     if compatible:
                         hamiltonian_name = st.selectbox(
-                            f"Hamiltoniana ({inferred_n_qubits} qubit, dim={2**inferred_n_qubits if inferred_n_qubits else '?'})",
+                            f"Modello ({inferred_n_qubits} qubit, dim={2**inferred_n_qubits if inferred_n_qubits else '?'}) "
+                            "— spettro diagonale semplificato, non chimica reale",
                             options=list(compatible.keys()), key="qs_ham_sel",
                         )
                         hamiltonian_values = compatible[hamiltonian_name]
                     else:
                         st.caption(
-                            f"Nessuna Hamiltoniana in libreria è compatibile con {inferred_n_qubits or '?'} qubit "
+                            f"Nessun modello in libreria è compatibile con {inferred_n_qubits or '?'} qubit "
                             f"(serve un array di lunghezza 2^n = {2**inferred_n_qubits if inferred_n_qubits else '?'}). "
                             "Usa la modalità Custom JSON qui sotto."
                         )

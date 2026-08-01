@@ -59,7 +59,10 @@ def md_telemetry():
 
 def test_run_simulation_ideal_keys(bell_res):
     expected_keys = {
-        "prob", "prob_ideal", "noise_factor", "fidelity", "n_qubits", "entropy",
+        # noise_factor deliberately not here anymore: it was a fabricated
+        # decay curve (fidelity_value * linear formula), never consumed by
+        # any panel -- confirmed dead and removed, not a fake left in place.
+        "prob", "prob_ideal", "fidelity", "n_qubits", "entropy",
         "idx_max", "stato_dominante", "tempo", "ram", "nome", "porte_count",
         "shots_data", "sim", "parser",
     }
