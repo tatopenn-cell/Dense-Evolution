@@ -51,8 +51,15 @@ jobs:
         uses: codecov/codecov-action@v4
         with:
           files: coverage.xml
-          token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
+        # No token: Codecov's dashboard says this org no longer requires an
+        # upload token (tokenless upload via the GitHub App/OIDC instead).
+        # Coverage.xml itself was already confirmed correct (right package
+        # structure, right paths, right totals) but Codecov's dashboard
+        # still showed 0% hits everywhere for a token-based upload -- an
+        # internal inconsistency (its own line_coverage array disagreed
+        # with its own totals for the same report) that token removal is
+        # worth ruling in/out as the cause.
 
       - name: Run distributed-chunk tests (simulated multi-device)
         # TestChunkDistributed (issue #1) needs >= 8 JAX devices to exercise
