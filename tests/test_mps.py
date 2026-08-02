@@ -304,10 +304,59 @@ def test_contract_to_statevector_raises_above_24_qubits():
     with pytest.raises(MemoryError):
         mps.contract_to_statevector()
 
-# dashboard_core.run_simulation(..., engine='mps') integration tests moved
-# out with dashboard_core/ itself -- dashboard_core lives on WIP branches
-# only (feature/composer, feature/streamlit-dashboard), not main, so a
-# main-only test importing it is a guaranteed ModuleNotFoundError here.
+# ── dashboard integration: dashboard_core.engine.run_circuit_from_qasm ───
+# (real API, not the old dc.run_simulation(engine=...) these replaced --
+# that function no longer exists in the rebuilt dashboard_core)
+
+def test_dashboard_engine_mps_matches_dense_bell():
+    from dashboard_core.engine import run_circuit_from_qasm
+
+    qasm_bell = ('OPENQASM 2.0; include "qelib1.inc"; qreg q[2]; creg c[2]; '
+                 'h q[0]; cx q[0],q[1]; measure q -> c;')
+
+    res_dense = run_circuit_from_qasm(qasm_bell, n_shots=100, seed=42, backend='dense')
+    res_mps = run_circuit_from_qasm(qasm_bell, n_shots=100, seed=42, backend='mps')
+    assert np.allclose(res_dense.probabilities, res_mps.probabilities, atol=1e-9)
+    assert res_mps.backend == 'mps'
+    assert res_mps.mps_max_bond_used is not None
+
+
+def test_dashboard_engine_mps_matches_dense_entangling():
+    from dashboard_core.engine import run_circuit_from_qasm
+
+    n = 8
+    gates = ["h q[{}];".format(i) for i in range(n)]
+    gates += ["cx q[{}],q[{}];".format(i, i + 1) for i in range(0, n - 1, 2)]
+    gates += ["rz(0.7) q[{}];".format(i) for i in range(n)]
+    gates += ["cx q[{}],q[{}];".format(i, i + 1) for i in range(1, n - 1, 2)]
+    qasm = (f'OPENQASM 2.0; include "qelib1.inc"; qreg q[{n}]; creg c[{n}]; '
+            + " ".join(gates) + " measure q -> c;")
+
+    res_dense = run_circuit_from_qasm(qasm, n_shots=100, seed=42, backend='dense')
+    res_mps = run_circuit_from_qasm(qasm, n_shots=100, seed=42, backend='mps')
+    tvd = 0.5 * np.sum(np.abs(res_dense.probabilities - res_mps.probabilities))
+    assert tvd < 1e-9
+
+
+def test_dashboard_run_large_circuit_mps_beyond_dense_limit():
+    # Above MPS_DENSE_CONTRACTION_LIMIT (24 qubits) there's no dense
+    # (2**n,) array to build at all -- run_large_circuit_mps is the real
+    # path for that, returning exact top-k probable states instead
+    # (see dashboard_core.engine's own module docstring for why).
+    from dashboard_core.engine import run_large_circuit_mps, MPS_DENSE_CONTRACTION_LIMIT
+
+    n = MPS_DENSE_CONTRACTION_LIMIT + 6
+    gates = ["h q[0];"] + [f"cx q[0],q[{i}];" for i in range(1, n)]
+    qasm = (f'OPENQASM 2.0; include "qelib1.inc"; qreg q[{n}]; creg c[{n}]; '
+            + " ".join(gates) + " measure q -> c;")
+
+    result = run_large_circuit_mps(qasm, k=8, seed=42)
+    assert result.n_qubits == n
+    # GHZ state: only |00...0> and |11...1> have non-negligible probability,
+    # each exactly 0.5.
+    states = dict(result.top_k_states)
+    assert states['0' * n] == pytest.approx(0.5, abs=1e-6)
+    assert states['1' * n] == pytest.approx(0.5, abs=1e-6)
 
 # ── get_top_k_probable_states (corrected greedy beam search) ─────────────
 
