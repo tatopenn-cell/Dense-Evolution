@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dense-Evolution — Composer</title>
+<link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="logo">⚛</span>
+      <span class="brand">Dense-Evolution</span>
+      <nav class="toplinks">
+        <a href="../../docs/index.md" class="toplink">Docs</a>
+        <a href="https://github.com/tatopenn-cell/Dense-Evolution" class="toplink">GitHub</a>
+      </nav>
+    </div>
+    <div class="topbar-right">
+      <span class="pill pill-engine">Engine: dense_evolution.DenseSVSimulator</span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="toolbar">
+      <label>Preset
+        <select id="preset-select"></select>
+      </label>
+      <label>Qubits
+        <input id="n-qubits" type="number" min="1" max="8" value="2" />
+      </label>
+      <label>Shots
+        <input id="shots" type="number" min="1" max="100000" value="1000" step="100" />
+      </label>
+      <label>Seed
+        <input id="seed" type="number" min="0" value="42" />
+      </label>
+      <button id="run-btn" class="btn btn-primary">▶ Run</button>
+      <span id="status" class="status"></span>
+    </section>
+
+    <section class="row row-top">
+      <div class="panel panel-palette">
+        <h3>Operations</h3>
+        <div id="palette" class="palette"></div>
+      </div>
+
+      <div class="panel panel-canvas">
+        <div class="panel-head">
+          <h3>Circuit</h3>
+          <button id="clear-btn" class="btn btn-ghost">Clear grid</button>
+        </div>
+        <div id="grid" class="grid"></div>
+      </div>
+
+      <div class="panel panel-code">
+        <h3>OpenQASM 2.0</h3>
+        <textarea id="qasm" class="code" spellcheck="false"></textarea>
+      </div>
+    </section>
+
+    <section class="row row-bottom">
+      <div class="panel panel-probabilities">
+        <h3>Probabilities</h3>
+        <img id="histogram-img" class="figure" alt="Probabilities histogram" />
+      </div>
+      <div class="panel panel-qsphere">
+        <h3>Q-sphere</h3>
+        <img id="qsphere-img" class="figure" alt="Q-sphere" />
+      </div>
+    </section>
+
+    <section class="row row-extra">
+      <div class="panel panel-circuit-diagram">
+        <h3>Circuit diagram</h3>
+        <img id="circuit-img" class="figure" alt="Circuit diagram" />
+      </div>
+      <div class="panel panel-statevector">
+        <h3>Statevector</h3>
+        <table id="statevector-table" class="sv-table">
+          <thead><tr><th>state</th><th>re</th><th>im</th><th>|amp|</th><th>phase</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

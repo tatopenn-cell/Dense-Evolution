@@ -1,0 +1,315 @@
+/* Material for MkDocs caps its article column at ~810px for prose
+   readability (.md-content) and reserves a right-hand column for the
+   table-of-contents sidebar (.md-main__inner.md-grid, capped ~1342px)
+   -- both far too narrow for a 3-column circuit editor, which is why the
+   canvas panel collapsed to ~170px and the Clear-grid button overlapped
+   the panel title. Scoped with :has() so only the Composer page (the one
+   page containing #de-composer-root) gets the wider layout; every other
+   docs page keeps Material's normal reading width untouched. */
+.md-content:has(#de-composer-root),
+.md-content__inner:has(#de-composer-root) {
+  max-width: none;
+}
+.md-main__inner.md-grid:has(#de-composer-root) {
+  max-width: none;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Palette matches local_site/mkdocs.yml's Material theme config:
+   palette.primary = black, palette.accent = cyan. */
+:root {
+  --de-bg: #ffffff;
+  --de-bg-panel: #f5f5f5;
+  --de-border: #dcdcdc;
+  --de-text: #1c1c1c;
+  --de-text-dim: #5a5a5a;
+  --de-navbar: #1c1c1c;
+  --de-navbar-text: #ffffff;
+  --de-accent: #00bcd4;
+  --de-accent-dark: #00838f;
+  --de-red: #da1e28;
+  --de-navy: #3151d9;
+  --de-blue: #4589ff;
+  --de-purple: #8a3ffc;
+  --de-gray: #8d8d8d;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --de-bg: #101418;
+    --de-bg-panel: #181d23;
+    --de-border: #2b323a;
+    --de-text: #eef2f6;
+    --de-text-dim: #9aa5b1;
+    --de-navbar: #0c0f12;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: var(--de-bg);
+  color: var(--de-text);
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--de-navbar);
+  color: var(--de-navbar-text);
+  padding: 0.75rem 1.25rem;
+}
+.topbar-left { display: flex; align-items: center; gap: 1rem; }
+.logo { font-size: 1.4rem; }
+.brand { font-weight: 700; font-size: 1.1rem; }
+.toplinks { display: flex; gap: 1rem; margin-left: 1rem; }
+.toplink { color: var(--de-accent); text-decoration: none; font-size: 0.9rem; }
+.toplink:hover { text-decoration: underline; }
+
+.pill {
+  border-radius: 999px;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.8rem;
+  background: var(--de-accent-dark);
+  color: white;
+}
+
+.layout { padding: 1.25rem; max-width: 1500px; margin: 0 auto; }
+
+.toolbar {
+  display: flex;
+  align-items: end;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--de-bg-panel);
+  border: 1px solid var(--de-border);
+  border-radius: 8px;
+}
+.toolbar label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.75rem;
+  color: var(--de-text-dim);
+  gap: 0.25rem;
+}
+.toolbar input, .toolbar select {
+  font: inherit;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--de-border);
+  border-radius: 4px;
+  background: var(--de-bg);
+  color: var(--de-text);
+}
+
+.btn {
+  border: none;
+  border-radius: 6px;
+  padding: 0.5rem 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-primary { background: var(--de-accent); color: #00232a; }
+.btn-primary:hover { background: var(--de-accent-dark); color: white; }
+.btn-ghost { background: transparent; border: 1px solid var(--de-border); color: var(--de-text); font-weight: 500; padding: 0.3rem 0.7rem; }
+
+.status { font-size: 0.85rem; color: var(--de-text-dim); }
+.status.error { color: var(--de-red); }
+
+/* width:100% + minmax(0, 1fr) (not bare 1fr/1fr) -- a flexible grid track's
+   automatic minimum is its content's min-content size, which let the
+   circuit canvas panel refuse to shrink below ~900px of "free" space it
+   never actually had, collapsing to a sliver and pushing the Clear-grid
+   button out over the panel title. minmax(0, 1fr) removes that floor. */
+.row { display: grid; gap: 1rem; margin-bottom: 1rem; width: 100%; }
+.row-top { grid-template-columns: 200px minmax(0, 1fr) 340px; }
+.row-bottom { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.row-extra { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+
+/* Grid items default to min-width:auto, which stops them shrinking below
+   their content's intrinsic width -- on a narrower window that pushed
+   buttons/chips past their panel's edge instead of wrapping. min-width:0
+   lets every panel shrink properly; narrow viewports collapse the fixed
+   3-column layout to one column instead of overflowing it. */
+.row > * { min-width: 0; }
+@media (max-width: 900px) {
+  .row-top, .row-bottom, .row-extra { grid-template-columns: 1fr; }
+}
+
+.panel {
+  background: var(--de-bg-panel);
+  border: 1px solid var(--de-border);
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+  min-width: 0;
+  overflow-x: auto;
+}
+.panel h3 {
+  margin: 0 0 0.6rem 0;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--de-text-dim);
+}
+.panel-head { display: flex; align-items: center; justify-content: space-between; }
+.panel-head h3 { margin: 0; }
+
+.palette {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.4rem;
+}
+.chip {
+  aspect-ratio: 1 / 1;
+  border-radius: 8px;
+  color: white;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-weight: 700;
+  font-size: 0.8rem;
+  cursor: grab;
+  display: flex; align-items: center; justify-content: center;
+  text-align: center;
+  user-select: none;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+  transition: transform 0.08s ease;
+}
+.chip:hover { transform: translateY(-1px); }
+.chip:active { cursor: grabbing; transform: scale(0.96); }
+
+.element-palette {
+  grid-template-columns: repeat(auto-fill, minmax(2.6rem, 1fr));
+  max-height: 220px;
+  overflow-y: auto;
+}
+.element-palette .chip {
+  aspect-ratio: 1 / 1;
+  cursor: pointer;
+  background: var(--de-navy);
+  font-size: 0.72rem;
+}
+
+/* Circuit canvas: qubit wires with gate tiles sitting on top, not a
+   bordered spreadsheet grid -- matches how every real circuit editor
+   (IBM Composer included) draws a circuit. */
+.grid {
+  position: relative;
+  display: grid;
+  gap: 0;
+  overflow-x: auto;
+  padding: 0.5rem 0;
+}
+.qlabel {
+  font-size: 0.75rem;
+  color: var(--de-text-dim);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  text-align: right;
+  padding-right: 8px;
+  align-self: center;
+}
+.wire-row {
+  position: relative;
+  height: 38px;
+  display: flex;
+}
+.wire-row::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: 50%;
+  height: 2px;
+  background: var(--de-border);
+  transform: translateY(-1px);
+  z-index: 0;
+}
+.cell {
+  position: relative;
+  z-index: 1;
+  width: 38px; height: 38px;
+  flex: 0 0 38px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.72rem;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  cursor: pointer;
+}
+.cell.filled {
+  width: 28px; height: 28px;
+  margin: auto;
+  border-radius: 6px;
+  font-weight: 700;
+  color: white;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+}
+.cell.filled.kind-control, .cell.filled.kind-target { width: 22px; height: 22px; border-radius: 50%; }
+.cell.dragover { outline: 2px dashed var(--de-accent); border-radius: 6px; }
+
+.connector {
+  position: absolute;
+  width: 2px;
+  background: var(--de-navy);
+  z-index: 0;
+  pointer-events: none;
+}
+
+.code {
+  width: 100%;
+  min-height: 320px;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.8rem;
+  background: var(--de-bg);
+  color: var(--de-text);
+  border: 1px solid var(--de-border);
+  border-radius: 6px;
+  padding: 0.6rem;
+  resize: vertical;
+}
+
+.figure { width: 100%; height: auto; border-radius: 6px; background: white; }
+/* Before a real src is set (page just loaded, or large-scale mode hides
+   an image on purpose), the plain <img> would otherwise render as a
+   blank white box (from the background above) with a broken-image icon
+   -- neither is a real result, so hide it until an actual image exists. */
+.figure:not([src]), .figure[src=""] { display: none; }
+
+.sv-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; font-family: "SFMono-Regular", Consolas, monospace; }
+.sv-table th, .sv-table td { text-align: left; padding: 0.25rem 0.5rem; border-bottom: 1px solid var(--de-border); }
+
+.row-hamiltonian { grid-template-columns: minmax(0, 1fr); }
+.row-mitigation { grid-template-columns: minmax(0, 1fr); }
+.panel-hamiltonian .hint { font-size: 0.85rem; color: var(--de-text-dim); margin: 0 0 0.8rem 0; }
+.ham-row {
+  display: flex;
+  align-items: end;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.8rem;
+}
+.ham-row label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.75rem;
+  color: var(--de-text-dim);
+  gap: 0.25rem;
+}
+.ham-row select, .ham-row input {
+  font: inherit;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--de-border);
+  border-radius: 4px;
+  background: var(--de-bg);
+  color: var(--de-text);
+}
+.ham-geometry { min-height: 70px; width: 220px; font-size: 0.75rem; }
+.ham-result {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.85rem;
+  padding: 0.6rem 0.8rem;
+  background: var(--de-bg);
+  border: 1px solid var(--de-border);
+  border-radius: 6px;
+  min-height: 1.5rem;
+  white-space: pre-wrap;
+}
+.ham-result.error { color: var(--de-red); }

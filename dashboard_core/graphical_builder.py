@@ -23,7 +23,10 @@ GATE_PALETTE = [
     {"id": "y", "label": "Y", "kind": "single", "gate": "y"},
     {"id": "z", "label": "Z", "kind": "single", "gate": "z"},
     {"id": "s", "label": "S", "kind": "single", "gate": "s"},
+    {"id": "sdg", "label": "S†", "kind": "single", "gate": "sdg"},
     {"id": "t", "label": "T", "kind": "single", "gate": "t"},
+    {"id": "tdg", "label": "T†", "kind": "single", "gate": "tdg"},
+    {"id": "sx", "label": "√X", "kind": "single", "gate": "sx"},
     {"id": "rx", "label": "Rx(π/2)", "kind": "single", "gate": "rx"},
     {"id": "ry", "label": "Ry(π/2)", "kind": "single", "gate": "ry"},
     {"id": "rz", "label": "Rz(π/2)", "kind": "single", "gate": "rz"},
@@ -34,7 +37,7 @@ GATE_PALETTE = [
     {"id": "swap", "label": "×", "kind": "swap", "gate": None},
 ]
 
-_SINGLE_QUBIT_METHODS = {"h", "x", "y", "z", "s", "t"}
+_SINGLE_QUBIT_METHODS = {"h", "x", "y", "z", "s", "sdg", "t", "tdg", "sx"}
 _ROTATION_METHODS = {"rx", "ry", "rz"}
 
 # Fixed rotation angle for graphically-placed Rx/Ry/Rz -- the grid has no

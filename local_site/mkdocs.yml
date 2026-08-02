@@ -1,0 +1,107 @@
+site_name: Dense-Evolution
+site_description: High-performance NISQ statevector quantum circuit simulator, JAX XLA-accelerated.
+site_url: https://tatopenn-cell.github.io/Dense-Evolution/
+repo_url: https://github.com/tatopenn-cell/Dense-Evolution
+repo_name: tatopenn-cell/Dense-Evolution
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  custom_dir: overrides
+  palette:
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: cyan
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: black
+      accent: cyan
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.top
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+  icon:
+    repo: fontawesome/brands/github
+    logo: material/atom
+  favicon: assets/favicon.svg
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true
+
+extra_javascript:
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+
+plugins:
+  - search
+  - include-markdown
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: ["."]
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            merge_init_into_class: true
+            separate_signature: true
+            show_signature_annotations: true
+            members_order: source
+            heading_level: 2
+
+nav:
+  - Home: index.md
+  - Composer: composer.md
+  - Getting Started: getting-started.md
+  - Examples: examples.md
+  - Benchmarks: benchmarks.md
+  - API Reference:
+      - api/index.md
+      - Simulator: api/simulator.md
+      - MPS Simulator: api/mps.md
+      - Chunk (large-scale): api/chunk.md
+      - QASM Parser: api/parser.md
+      - Compiler: api/compiler.md
+      - Registry & Noise Models: api/registry.md
+      - Gates: api/gates.md
+      - Mitigation (ZNE / density-matrix healing): api/mitigation.md
+      - Healing (predictive primitives): api/healing.md
+      - Interop (Qiskit / PennyLane): api/interop.md
+      - Autodiff: api/autodiff.md
+      - Topology (entangling layers): api/topology.md
+      - States (GHZ, ...): api/states.md
+      - Observables (Pauli expectation): api/observables.md
+      - Measurement (sampling & fidelity): api/measurement.md
+      - QFT: api/qft.md
+      - Random Circuit: api/random_circuit.md
+      - Drawing (text diagrams): api/drawing.md
+  - Changelog: changelog.md
+  - Contributing: contributing.md
+  - License: LICENSE.md
