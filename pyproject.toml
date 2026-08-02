@@ -97,11 +97,12 @@ Repository = "https://github.com/tatopenn-cell/Dense-Evolution"
 "Bug Tracker" = "https://github.com/tatopenn-cell/Dense-Evolution/issues"
 
 [tool.setuptools]
-packages = ["dense_evolution", "ia_utils"]
+packages = ["dense_evolution", "ia_utils", "dashboard_core"]
 
 [tool.setuptools.package-data]
 "dense_evolution" = ["*.py"]
 "ia_utils" = ["*.py"]
+"dashboard_core" = ["*.py"]
 
 [tool.black]
 line-length = 100

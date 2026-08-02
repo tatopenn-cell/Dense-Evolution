@@ -1,0 +1,50 @@
+"""
+dashboard_core -- real compute + visualization layer for app_dashboard.py.
+
+Rebuilt from scratch on the structure of IBM Quantum Composer (circuit
+editor, statevector, probabilities, Q-sphere), wired to dense_evolution's
+actual DenseSVSimulator and to Qiskit's own real visualization functions
+-- no hand-rolled plotting, no synthetic data. The previous dashboard_core
+(VQE, molecular Hamiltonians, mitigation, AI vector-healing) lives intact
+on the feature/streamlit-dashboard and feature/ipywidgets-dash-panel
+branches and will be reintegrated selectively once this base is solid.
+"""
+
+from .qasm_library import QASM_LIBRARY
+from .engine import (
+    SimulationResult, run_circuit_from_qasm,
+    LargeScaleMPSResult, run_large_circuit_mps, MPS_DENSE_CONTRACTION_LIMIT,
+)
+from .visuals import (
+    draw_circuit_figure, histogram_figure, qsphere_figure, bloch_multivector_figure,
+)
+from .graphical_builder import GATE_PALETTE, ops_to_qiskit_circuit
+from .circuit_builder_component import mount_circuit_builder
+from .hamiltonians import (
+    MOLECULE_CATALOG, build_molecular_hamiltonian, get_compatible_molecules,
+    get_all_molecules, get_molecule_n_qubits,
+    get_molecular_hamiltonian_matrix, ground_state_energy,
+    linear_chain_geometry, ring_geometry, mix_hamiltonians,
+)
+from .mitigation import (
+    MitigationResult, run_zne_mitigation, DensityMatrixZNEResult, run_density_matrix_zne,
+)
+from .system_limits import max_safe_dense_qubits
+from .vqe import run_vqe
+
+__all__ = [
+    'QASM_LIBRARY',
+    'SimulationResult', 'run_circuit_from_qasm',
+    'LargeScaleMPSResult', 'run_large_circuit_mps', 'MPS_DENSE_CONTRACTION_LIMIT',
+    'draw_circuit_figure', 'histogram_figure', 'qsphere_figure', 'bloch_multivector_figure',
+    'GATE_PALETTE', 'ops_to_qiskit_circuit',
+    'mount_circuit_builder',
+    'MOLECULE_CATALOG', 'build_molecular_hamiltonian', 'get_compatible_molecules',
+    'get_all_molecules', 'get_molecule_n_qubits',
+    'get_molecular_hamiltonian_matrix', 'ground_state_energy',
+    'linear_chain_geometry', 'ring_geometry', 'mix_hamiltonians',
+    'MitigationResult', 'run_zne_mitigation',
+    'DensityMatrixZNEResult', 'run_density_matrix_zne',
+    'max_safe_dense_qubits',
+    'run_vqe',
+]
