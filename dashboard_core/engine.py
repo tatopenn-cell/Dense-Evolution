@@ -49,6 +49,7 @@ class SimulationResult:
     counts: dict                # Qiskit-style bitstring -> shot count
     noise_model: str = "ideal"
     noise_p: float = 0.0
+    fidelity_vs_ideal: Optional[float] = None
     backend: str = "dense"
     mps_max_bond_used: Optional[int] = None
     mps_memory_mb: Optional[float] = None
@@ -70,7 +71,13 @@ def run_circuit_from_qasm(
     ('ideal', 'depolarizing', 'bitflip', 'phaseflip', 'amplitude_damping',
     'combined') applied as a real stochastic Kraus channel to the
     statevector via NoiseModel.apply_to_sv -- not a fabricated decay
-    curve, the actual channel math. 'ideal'/p<=0 skips it entirely.
+    curve, the actual channel math. 'ideal'/p<=0 skips it entirely (and
+    leaves SimulationResult.fidelity_vs_ideal as None -- comparing a run
+    against itself is not a real quantity). Otherwise fidelity_vs_ideal
+    is the real dense_evolution.statevector_fidelity(|<ideal|noisy>|^2)
+    between this run's one noisy trajectory and the same circuit's ideal
+    statevector, both computed in this same call (not re-simulated by the
+    caller).
 
     backend: 'dense' (DenseSVSimulator, the default) or 'mps'
     (MPSSimulator -- adaptive SVD-truncated matrix product state, scales
@@ -119,8 +126,18 @@ def run_circuit_from_qasm(
         sv_native = np.asarray(sim.sv)
 
     rng = np.random.default_rng(seed)
+    fidelity_vs_ideal = None
     if noise_model != "ideal" and noise_p > 0:
+        # apply_to_sv mutates its numpy input in-place, so the pre-noise
+        # amplitudes have to be copied out first -- this is one stochastic
+        # Kraus-channel trajectory (a real single noisy realization, not a
+        # density matrix), so the result is still a valid pure state and
+        # dense_evolution.statevector_fidelity (the pure-state counterpart
+        # to the density-matrix uhlmann_fidelity already used by the ZNE
+        # panels below) is the right comparison against the ideal state.
+        sv_ideal = sv_native.copy()
         sv_native = de.NoiseModel.apply_to_sv(sv_native, n_qubits, noise_model, noise_p, rng=rng)
+        fidelity_vs_ideal = float(de.statevector_fidelity(sv_ideal, sv_native))
 
     statevector = _to_qiskit_bit_order(sv_native, n_qubits)
     probabilities = np.abs(statevector) ** 2
@@ -140,6 +157,7 @@ def run_circuit_from_qasm(
         counts=counts,
         noise_model=noise_model,
         noise_p=noise_p,
+        fidelity_vs_ideal=fidelity_vs_ideal,
         backend=backend,
         mps_max_bond_used=mps_max_bond_used,
         mps_memory_mb=mps_memory_mb,

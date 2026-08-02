@@ -127,7 +127,7 @@ body {
    button out over the panel title. minmax(0, 1fr) removes that floor. */
 .row { display: grid; gap: 1rem; margin-bottom: 1rem; width: 100%; }
 .row-top { grid-template-columns: 200px minmax(0, 1fr) 340px; }
-.row-bottom { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.row-bottom { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); }
 .row-extra { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 
 /* Grid items default to min-width:auto, which stops them shrinking below

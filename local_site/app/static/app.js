@@ -334,10 +334,15 @@ function renderLargeScaleResult(result) {
   $("qsphere-img").style.display = "none";
   $("qsphere-skip-msg").textContent =
     "Nessuno statevector denso a questa scala -- vedi gli stati piu probabili nella tabella Statevector qui sotto.";
+  $("bloch-img").style.display = "none";
+  $("bloch-skip-msg").textContent =
+    "Nessuno statevector denso a questa scala -- vedi gli stati piu probabili nella tabella Statevector qui sotto.";
   $("histogram-img").style.display = "none";
   $("histogram-img").removeAttribute("src");
   $("histogram-skip-msg").textContent =
     "Nessun istogramma denso a questa scala -- vedi gli stati piu probabili nella tabella Statevector qui sotto.";
+
+  $("fidelity-info").textContent = "";
 
   const backendInfo = $("backend-info");
   backendInfo.textContent =
@@ -391,6 +396,14 @@ async function runCircuit() {
       $("qsphere-img").style.display = "none";
       $("qsphere-skip-msg").textContent = result.qsphere_skipped_reason || "Q-sphere non disponibile.";
     }
+    if (result.bloch_png) {
+      $("bloch-img").style.display = "";
+      $("bloch-img").src = `data:image/png;base64,${result.bloch_png}`;
+      $("bloch-skip-msg").textContent = "";
+    } else {
+      $("bloch-img").style.display = "none";
+      $("bloch-skip-msg").textContent = result.bloch_skipped_reason || "Bloch spheres non disponibili.";
+    }
 
     const backendInfo = $("backend-info");
     if (result.backend === "mps") {
@@ -399,6 +412,15 @@ async function runCircuit() {
         `memoria stimata=${result.mps_memory_mb.toFixed(4)} MB, JSD medio=${result.mps_avg_jsd.toExponential(2)}`;
     } else {
       backendInfo.textContent = "Backend: Dense (statevector completo)";
+    }
+
+    const fidelityInfo = $("fidelity-info");
+    if (result.fidelity_vs_ideal !== null && result.fidelity_vs_ideal !== undefined) {
+      fidelityInfo.textContent =
+        `Fedelta vs stato ideale (dense_evolution.statevector_fidelity, questa traiettoria rumorosa) = ` +
+        `${result.fidelity_vs_ideal.toFixed(6)}`;
+    } else {
+      fidelityInfo.textContent = "";
     }
 
     const tbody = document.querySelector("#statevector-table tbody");

@@ -163,6 +163,23 @@ def run(req: RunRequest):
             f"{_QSPHERE_MAX_QUBITS} qubit (misurato: ~37s a 12 qubit)."
         )
 
+    # plot_bloch_multivector scales worse than the Q-sphere (it traces out
+    # every other qubit's reduced density matrix per sphere drawn): measured
+    # directly, 10 qubits renders in ~3.1s but 12 qubits took ~252s -- same
+    # honest-skip treatment as the Q-sphere, same cap since 10 qubits is
+    # already the practical ceiling for either panel.
+    _BLOCH_MAX_QUBITS = 10
+    bloch_png = None
+    bloch_skipped_reason = None
+    if result.n_qubits <= _BLOCH_MAX_QUBITS:
+        bloch_png = _figure_to_base64_png(dc.bloch_multivector_figure(result.statevector))
+    else:
+        bloch_skipped_reason = (
+            f"Bloch spheres saltate: {result.n_qubits} qubit -- "
+            f"qiskit.visualization.plot_bloch_multivector diventa troppo lento oltre "
+            f"{_BLOCH_MAX_QUBITS} qubit (misurato: ~252s a 12 qubit)."
+        )
+
     return {
         "large_scale": False,
         "n_qubits": result.n_qubits,
@@ -173,6 +190,9 @@ def run(req: RunRequest):
         "histogram_png": _figure_to_base64_png(dc.histogram_figure(result.counts)),
         "qsphere_png": qsphere_png,
         "qsphere_skipped_reason": qsphere_skipped_reason,
+        "bloch_png": bloch_png,
+        "bloch_skipped_reason": bloch_skipped_reason,
+        "fidelity_vs_ideal": result.fidelity_vs_ideal,
         "backend": result.backend,
         "mps_max_bond_used": result.mps_max_bond_used,
         "mps_memory_mb": result.mps_memory_mb,

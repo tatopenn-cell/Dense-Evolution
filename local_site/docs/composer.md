@@ -69,6 +69,11 @@ throughout the [API Reference](api/index.md), not a separate demo.
       <img id="qsphere-img" class="figure" alt="Q-sphere" />
       <div id="qsphere-skip-msg" class="hint"></div>
     </div>
+    <div class="panel panel-bloch">
+      <h3>Bloch spheres</h3>
+      <img id="bloch-img" class="figure" alt="Bloch spheres" />
+      <div id="bloch-skip-msg" class="hint"></div>
+    </div>
   </section>
 
   <section class="row row-extra">
@@ -79,6 +84,7 @@ throughout the [API Reference](api/index.md), not a separate demo.
     <div class="panel panel-statevector">
       <h3>Statevector</h3>
       <div id="backend-info" class="hint"></div>
+      <div id="fidelity-info" class="hint"></div>
       <table id="statevector-table" class="sv-table">
         <thead><tr><th>state</th><th>re</th><th>im</th><th>|amp|</th><th>phase</th></tr></thead>
         <tbody></tbody>
