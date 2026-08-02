@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
-from qiskit import QuantumCircuit
 
 import dense_evolution as de
 
@@ -58,14 +57,20 @@ def run_zne_mitigation(
     little-endian display convention used elsewhere on this page --
     this function never touches a Qiskit-ordered array.
     """
-    qiskit_circuit = QuantumCircuit.from_qasm_str(qasm_text)
-    n_qubits = qiskit_circuit.num_qubits
+    # Parsed with dense_evolution's own QASMParser, never Qiskit's --
+    # QuantumCircuit.__init__ itself segfaults on macOS CI/deployments
+    # (see dashboard_core/engine.py's module docstring for the full
+    # story); this function never needs a Qiskit circuit object at all,
+    # only the ideal statevector, so there's no reason to build one here.
+    parsed = de.QASMParser().parse(qasm_text)
+    n_qubits = parsed.n_qubits
     if len(pauli_string) != n_qubits:
         raise ValueError(f"pauli_string length {len(pauli_string)} != n_qubits {n_qubits}")
     if noise_model not in de.NoiseModel.MODELS:
         raise ValueError(f"unknown noise model {noise_model!r}, must be one of {de.NoiseModel.MODELS}")
 
-    sim, _ = de.run_qiskit_circuit(qiskit_circuit, use_float32=False)
+    sim = de.DenseSVSimulator(n_qubits, use_float32=False)
+    sim.run_circuit(parsed.to_tuples())
     sv_ideal = np.asarray(sim.sv)
     ideal_expectation = float(np.real(de.pauli_expectation(sv_ideal, pauli_string)))
 
@@ -123,12 +128,15 @@ def run_density_matrix_zne(
     zne_density_matrix's own docstring (experiments/matrix_healing_zne.py:
     raw ~0.865, corrected ~0.947 on a 2-qubit Bell state).
     """
-    qiskit_circuit = QuantumCircuit.from_qasm_str(qasm_text)
-    n_qubits = qiskit_circuit.num_qubits
+    # Same QASMParser-only parsing as run_zne_mitigation above -- see its
+    # comment for why a Qiskit circuit object is never built here.
+    parsed = de.QASMParser().parse(qasm_text)
+    n_qubits = parsed.n_qubits
     if noise_model not in de.NoiseModel.MODELS:
         raise ValueError(f"unknown noise model {noise_model!r}, must be one of {de.NoiseModel.MODELS}")
 
-    sim, _ = de.run_qiskit_circuit(qiskit_circuit, use_float32=False)
+    sim = de.DenseSVSimulator(n_qubits, use_float32=False)
+    sim.run_circuit(parsed.to_tuples())
     sv_ideal = np.asarray(sim.sv)
     rho_ideal = np.outer(sv_ideal, sv_ideal.conj())
 
