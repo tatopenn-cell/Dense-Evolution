@@ -824,12 +824,25 @@ async function loadSystemLimits() {
   }
 }
 
-function init() {
+async function init() {
   buildEmptyGrid();
   renderGrid();
   renderElementPalette();
-  loadPresetsAndPalette();
-  refreshHamiltonianCatalog();
+  // Sequenced, not fire-and-forget: loadPresetsAndPalette's own init sets
+  // a Bell-state baseline (#qasm, #preset-select) unconditionally at its
+  // end, and refreshHamiltonianCatalog's auto-load of the catalog's first
+  // molecule (loadMoleculeCircuit) sets #qasm/#preset-select/#n-qubits
+  // together, atomically, from one real Hartree-Fock computation. Firing
+  // both concurrently (as before) raced two independent network fetches
+  // against each other: whichever resolved last silently overwrote only
+  // *some* of the other's fields (loadPresetsAndPalette never touches
+  // #n-qubits at all), landing on a real, reproducible split state --
+  // confirmed directly: #n-qubits stuck at a molecule's real qubit count
+  // while #qasm/#preset-select showed the unrelated Bell-state default.
+  // Awaiting them in order makes the molecule auto-load always run last
+  // and set all three fields together, deterministically.
+  await loadPresetsAndPalette();
+  await refreshHamiltonianCatalog();
   loadNoiseModels();
   loadSystemLimits();
 
