@@ -44,8 +44,8 @@ class TestRunZneMitigation:
     def test_same_seed_is_deterministic(self):
         r1 = run_zne_mitigation(BELL_QASM, 'ZZ', 'depolarizing', 0.1, seed=7, n_trials=50)
         r2 = run_zne_mitigation(BELL_QASM, 'ZZ', 'depolarizing', 0.1, seed=7, n_trials=50)
-        assert r1.noisy_expectations == r2.noisy_expectations
-        assert r1.zne_extrapolated == r2.zne_extrapolated
+        assert r1.noisy_expectations == pytest.approx(r2.noisy_expectations, abs=1e-9)
+        assert r1.zne_extrapolated == pytest.approx(r2.zne_extrapolated, abs=1e-9)
 
     def test_pauli_string_length_mismatch_raises(self):
         with pytest.raises(ValueError, match="pauli_string length"):

@@ -69,7 +69,11 @@ class TestHardwareEfficientAnsatz:
                       n_layers=2, maxiter=20, seed=3)
         r2 = run_vqe(H2_SYMBOLS, H2_GEOMETRY, charge=0, ansatz_type='hardware_efficient',
                       n_layers=2, maxiter=20, seed=3)
-        assert r1['vqe_energy_hartree'] == r2['vqe_energy_hartree']
+        # Same starting point and optimizer trajectory -- not bit-for-bit
+        # (BLAS/threading can reorder floating-point summation slightly
+        # between runs/platforms), but agreeing far beyond any real
+        # optimization-noise scale.
+        assert r1['vqe_energy_hartree'] == pytest.approx(r2['vqe_energy_hartree'], abs=1e-9)
 
 
 class TestUccsdAnsatz:
