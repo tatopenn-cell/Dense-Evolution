@@ -69,6 +69,22 @@ class TestBuildMolecularHamiltonian:
         H, _ = build_molecular_hamiltonian(H2_SYMBOLS, H2_GEOMETRY, charge=0)
         assert np.allclose(H, H.conj().T)
 
+    def test_unsupported_element_raises_a_clear_error_not_pennylanes_own(self):
+        # PennyLane's own error for a missing STO-3G basis (e.g. Fe, Mo --
+        # heavier than Ne) is real but written for someone already inside
+        # its own codebase ("consider using load_data=True ..."). This
+        # should fail fast with a message naming the actual unsupported
+        # symbols and framing it as a basis-set gap, not a dense_evolution
+        # limitation -- and before any Hartree-Fock/densification work.
+        with pytest.raises(ValueError, match="No built-in STO-3G basis data for: Fe"):
+            build_molecular_hamiltonian(['Fe', 'Mo', 'S'], np.zeros((3, 3)), charge=0)
+
+    def test_light_supported_elements_are_unaffected(self):
+        # H2's own symbols (H, H) must still pass the new check -- guards
+        # against the STO3G membership check itself being wrong.
+        H, n_qubits = build_molecular_hamiltonian(H2_SYMBOLS, H2_GEOMETRY, charge=0)
+        assert n_qubits == 4
+
     def test_result_is_cached_identical_object_content(self):
         H1, _ = build_molecular_hamiltonian(H2_SYMBOLS, H2_GEOMETRY, charge=0)
         H2_again, _ = build_molecular_hamiltonian(H2_SYMBOLS, H2_GEOMETRY, charge=0)

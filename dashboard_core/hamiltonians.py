@@ -118,11 +118,30 @@ def _get_pennylane_hamiltonian(symbols, geometry, charge, mapping, active_electr
     a later "compute ground state" / VQE call on the same molecule share
     the one real HF computation instead of repeating it."""
     import pennylane as qml
+    from pennylane.qchem.basis_data import STO3G
 
     key = (tuple(symbols), tuple(map(tuple, np.asarray(geometry).round(10))), charge, mapping,
            active_electrons, active_orbitals)
     if key in _pennylane_hamiltonian_cache:
         return _pennylane_hamiltonian_cache[key]
+
+    # PennyLane's own error for an unsupported element (raised deep inside
+    # molecular_hamiltonian, e.g. requesting Fe/Mo/Xe) is real and honest
+    # but written for someone already inside PennyLane's own codebase --
+    # "consider using load_data=True ... basis-set-exchange". Checked
+    # against STO3G's real key set (not a hardcoded/guessed list, so this
+    # never goes stale against a future PennyLane version) and re-raised
+    # with the concrete supported set and which of the caller's own
+    # symbols are the problem, before paying for anything else.
+    unsupported = sorted({s for s in symbols if s not in STO3G})
+    if unsupported:
+        raise ValueError(
+            f"No built-in STO-3G basis data for: {', '.join(unsupported)}. "
+            f"This pipeline (PennyLane qchem, method='dhf') only ships minimal-basis "
+            f"parameters for {', '.join(sorted(STO3G))} -- heavier elements (transition "
+            f"metals, anything past Ne) need an external basis-set source PennyLane "
+            f"doesn't bundle, not a dense_evolution limitation."
+        )
 
     molecule = qml.qchem.Molecule(symbols, np.asarray(geometry), charge=charge, unit="angstrom")
     H, n_qubits = qml.qchem.molecular_hamiltonian(
