@@ -65,3 +65,32 @@ def test_zero_qubit_circuit_raises():
         run_circuit_from_qasm(
             'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[0];\ncreg c[0];\n', n_shots=10,
         )
+
+
+def test_ideal_run_has_no_fidelity_vs_ideal():
+    result = run_circuit_from_qasm(BELL_QASM, n_shots=10, seed=1)
+    assert result.fidelity_vs_ideal is None
+
+
+def test_zero_noise_probability_has_no_fidelity_vs_ideal():
+    result = run_circuit_from_qasm(BELL_QASM, n_shots=10, seed=1, noise_model="depolarizing", noise_p=0.0)
+    assert result.fidelity_vs_ideal is None
+
+
+def test_noisy_run_fidelity_vs_ideal_is_a_valid_probability():
+    result = run_circuit_from_qasm(BELL_QASM, n_shots=10, seed=1, noise_model="depolarizing", noise_p=0.3)
+    assert 0.0 <= result.fidelity_vs_ideal <= 1.0 + 1e-9
+
+
+def test_noisy_run_fidelity_vs_ideal_matches_direct_overlap_computation():
+    # Independent check, not just "some fidelity function ran": the ideal
+    # statevector doesn't depend on noise_p/rng at all, so a separate
+    # noise_model="ideal" call with the same seed must reproduce the exact
+    # pre-noise state the noisy run compared itself against -- then
+    # |<ideal|noisy>|^2 computed here from the two returned statevectors
+    # (same Qiskit bit-order convention, so a plain inner product is valid)
+    # must match what engine.py reported.
+    ideal = run_circuit_from_qasm(BELL_QASM, n_shots=10, seed=1)
+    noisy = run_circuit_from_qasm(BELL_QASM, n_shots=10, seed=1, noise_model="depolarizing", noise_p=0.3)
+    expected = abs(np.vdot(ideal.statevector, noisy.statevector)) ** 2
+    assert noisy.fidelity_vs_ideal == pytest.approx(expected, abs=1e-9)
