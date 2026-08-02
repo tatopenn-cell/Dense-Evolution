@@ -6,6 +6,8 @@ data actually coming out of dashboard_core.engine.
 
 import matplotlib
 matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import pytest
 
 from matplotlib.figure import Figure
 
@@ -20,6 +22,21 @@ BELL_QASM = (
     'h q[0];\ncx q[0],q[1];\n'
     'measure q -> c;\n'
 )
+
+
+@pytest.fixture(autouse=True)
+def _close_figures_after_each_test():
+    # visuals.py's functions never call plt.close() themselves (they
+    # return the Figure for the caller to use), so pyplot's global figure
+    # registry accumulates one live Figure per test in this file -- on a
+    # memory-constrained CI runner this was observed to precede an
+    # unrelated native segfault in Qiskit's Rust QASM parser a few tests
+    # later (real, reproduced crash: qiskit.qasm2.loads via
+    # QuantumCircuit.from_qasm_str, macOS CI only), consistent with
+    # accumulated matplotlib memory pressure destabilizing the next
+    # native allocation rather than a bug in the parser itself.
+    yield
+    plt.close('all')
 
 
 def _bell_result():
