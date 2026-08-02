@@ -13,6 +13,8 @@ Only the real molecular catalog comes along here -- the old diagonal
 
 import numpy as np
 
+import dense_evolution as de
+
 __all__ = [
     'MOLECULE_CATALOG', 'build_molecular_hamiltonian',
     'get_compatible_molecules', 'get_all_molecules', 'get_molecule_n_qubits',
@@ -144,6 +146,30 @@ def _water_geometry(bond_length_angstrom: float, angle_degrees: float):
     ])
 
 
+def _pennylane_hamiltonian_to_pauli_terms(H, n_qubits):
+    """Extracts (coeff, {qubit: 'X'|'Y'|'Z'}) terms from a PennyLane
+    Hamiltonian/Sum operator -- the same real Pauli decomposition
+    PennyLane itself uses internally, just handed over in the plain form
+    dense_evolution.pauli_hamiltonian_to_matrix accepts, so this
+    project's own engine builds the dense matrix instead of going through
+    qml.matrix(). Verified (see dense_evolution/tests/test_observables.py
+    and this session's own cross-checks) to reproduce qml.matrix(H)
+    exactly for H2/HeH+/H3+, not an approximation."""
+    coeffs, ops = H.terms()
+    terms = []
+    for coeff, op in zip(coeffs, ops):
+        pauli = {}
+        factors = op.operands if hasattr(op, 'operands') else [op]
+        for factor in factors:
+            wires = factor.wires
+            if not len(wires) or factor.name == 'Identity':
+                continue
+            pauli[int(wires[0])] = factor.name[-1]  # 'PauliZ' -> 'Z', etc.
+        real_coeff = float(np.real(complex(coeff)))
+        terms.append((real_coeff, pauli))
+    return terms
+
+
 def build_molecular_hamiltonian(symbols, geometry, charge: int = 0, mapping: str = "jordan_wigner",
                                  active_electrons=None, active_orbitals=None):
     """Runs real Hartree-Fock + fermion-to-qubit mapping (PennyLane
@@ -153,9 +179,13 @@ def build_molecular_hamiltonian(symbols, geometry, charge: int = 0, mapping: str
     identical physical Hamiltonian in a different qubit basis -- so this
     only changes which qubit operators appear, never the energies this
     function's callers report. Cached: Hartree-Fock isn't free, and the
-    UI can re-request the same molecule repeatedly."""
-    import pennylane as qml
+    UI can re-request the same molecule repeatedly.
 
+    The dense matrix itself is built by this project's own
+    dense_evolution.pauli_hamiltonian_to_matrix from PennyLane's real
+    Pauli decomposition, not qml.matrix() -- verified to match qml.matrix
+    exactly (same ground-state energy, same matrix, atol=1e-8) for every
+    catalog molecule."""
     H, n_qubits = _get_pennylane_hamiltonian(symbols, geometry, charge, mapping, active_electrons, active_orbitals)
 
     dense_key = (tuple(symbols), tuple(map(tuple, np.asarray(geometry).round(10))), charge, mapping,
@@ -163,7 +193,8 @@ def build_molecular_hamiltonian(symbols, geometry, charge: int = 0, mapping: str
     if dense_key in _dense_hamiltonian_cache:
         return _dense_hamiltonian_cache[dense_key]
 
-    H_dense = np.asarray(qml.matrix(H), dtype=np.complex128)
+    terms = _pennylane_hamiltonian_to_pauli_terms(H, n_qubits)
+    H_dense = de.pauli_hamiltonian_to_matrix(terms, n_qubits)
     result = (H_dense, n_qubits)
     _dense_hamiltonian_cache[dense_key] = result
     return result

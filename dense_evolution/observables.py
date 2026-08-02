@@ -20,7 +20,14 @@ of this internal bit-position detail.
 """
 import numpy as np
 
-__all__ = ['pauli_expectation', 'pauli_sum_expectation']
+__all__ = ['pauli_expectation', 'pauli_sum_expectation', 'pauli_hamiltonian_to_matrix']
+
+_PAULI_MATRICES = {
+    'I': np.eye(2, dtype=np.complex128),
+    'X': np.array([[0, 1], [1, 0]], dtype=np.complex128),
+    'Y': np.array([[0, -1j], [1j, 0]], dtype=np.complex128),
+    'Z': np.array([[1, 0], [0, -1]], dtype=np.complex128),
+}
 
 
 def _normalize_terms(pauli_terms, n_qubits=None):
@@ -168,3 +175,64 @@ def pauli_sum_expectation(statevector, terms, n_qubits=None):
     for coeff, pauli_terms in terms:
         total += coeff * pauli_expectation(statevector, pauli_terms, n_qubits=n_qubits)
     return total
+
+
+def pauli_hamiltonian_to_matrix(terms, n_qubits):
+    """
+    Builds the real, explicit dense Hermitian Hamiltonian matrix for a
+    weighted sum of Pauli strings, H = sum_i coeff_i * P_i -- the
+    (2**n_qubits, 2**n_qubits) matrix pauli_sum_expectation deliberately
+    avoids building. Use this when something downstream genuinely needs
+    the matrix itself (exact diagonalization for a ground-state energy,
+    a VQE cost function computed as ``<psi| H @ psi>`` instead of a
+    Pauli-by-Pauli sum, ...), not just an expectation value.
+
+    Same qubit-0-is-MSB convention as the rest of this module (see the
+    module docstring): each term's matrix is the Kronecker product of
+    per-qubit 2x2 Pauli matrices in qubit order 0..n_qubits-1, so this
+    matrix's basis-state index lines up exactly with the one
+    pauli_expectation/pauli_sum_expectation use -- H @ statevector and
+    pauli_sum_expectation(statevector, terms) agree to floating-point
+    precision for the same terms.
+
+    Parameters
+    ----------
+    terms : iterable of (coeff, pauli_terms)
+        Same format pauli_sum_expectation accepts: coeff is a real or
+        complex weight, pauli_terms is a string/dict/pair-iterable in any
+        form _normalize_terms accepts.
+    n_qubits : int
+        Total number of qubits the matrix spans (every term's qubits must
+        be < n_qubits).
+
+    Returns
+    -------
+    numpy.ndarray, shape (2**n_qubits, 2**n_qubits), dtype complex128
+        Hermitian by construction (a real-weighted sum of Hermitian
+        Pauli-string matrices, each a Kronecker product of Hermitian 2x2
+        Pauli matrices -- Hermiticity is closed under both operations).
+
+    Examples
+    --------
+    >>> H = pauli_hamiltonian_to_matrix([(1.0, 'ZZ'), (0.5, {0: 'X'})], n_qubits=2)
+    >>> H.shape
+    (4, 4)
+    """
+    if n_qubits < 1:
+        raise ValueError(f"n_qubits must be >= 1, got {n_qubits}")
+    dim = 1 << n_qubits
+    H = np.zeros((dim, dim), dtype=np.complex128)
+
+    for coeff, pauli_terms in terms:
+        normalized = _normalize_terms(pauli_terms, n_qubits)
+        if normalized and max(normalized) >= n_qubits:
+            raise ValueError(
+                f"term references qubit {max(normalized)}, but n_qubits={n_qubits}"
+            )
+        term_matrix = np.array([[1.0]], dtype=np.complex128)
+        for q in range(n_qubits):
+            letter = normalized.get(q, 'I')
+            term_matrix = np.kron(term_matrix, _PAULI_MATRICES[letter])
+        H += coeff * term_matrix
+
+    return H
