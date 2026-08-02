@@ -4,11 +4,24 @@ real wiring (QASM -> Qiskit circuit -> dense_evolution.DenseSVSimulator)
 against known-exact circuits, not against a mock.
 """
 
+import sys
+
 import numpy as np
 import pytest
 from qiskit.quantum_info import Statevector
 
 from dashboard_core.engine import run_circuit_from_qasm
+
+# Same known upstream Qiskit bug as test_interop.py::TestQiskitInterop
+# and test_dashboard_visuals.py (see either for the full story):
+# QuantumCircuit.__init__ segfaults on macOS CI runners on its own,
+# independent of Dense-Evolution/dashboard_core. run_circuit_from_qasm
+# always builds one (for the Circuit-diagram panel), so every test here
+# hits it.
+pytestmark = pytest.mark.skipif(
+    sys.platform == 'darwin',
+    reason="qiskit.circuit.QuantumCircuit.__init__ segfaults on macOS CI -- see test_interop.py::TestQiskitInterop",
+)
 
 BELL_QASM = (
     'OPENQASM 2.0;\ninclude "qelib1.inc";\n'

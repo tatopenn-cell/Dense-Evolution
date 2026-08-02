@@ -5,6 +5,8 @@ into a real, correctly-wired QuantumCircuit that runs on the same engine
 as typed OpenQASM.
 """
 
+import sys
+
 import numpy as np
 import pytest
 from qiskit.quantum_info import Statevector
@@ -12,6 +14,16 @@ from qiskit.quantum_info import Statevector
 from dashboard_core.engine import run_circuit_from_qasm
 from dashboard_core.graphical_builder import ops_to_qiskit_circuit
 from qiskit import qasm2
+
+# Same known upstream Qiskit bug as test_interop.py::TestQiskitInterop
+# and test_dashboard_visuals.py (see either for the full story):
+# QuantumCircuit.__init__ segfaults on macOS CI runners on its own,
+# independent of Dense-Evolution/dashboard_core. ops_to_qiskit_circuit
+# and run_circuit_from_qasm both build one, so every test here hits it.
+pytestmark = pytest.mark.skipif(
+    sys.platform == 'darwin',
+    reason="qiskit.circuit.QuantumCircuit.__init__ segfaults on macOS CI -- see test_interop.py::TestQiskitInterop",
+)
 
 
 def test_bell_state_ops_match_bell_qasm():
