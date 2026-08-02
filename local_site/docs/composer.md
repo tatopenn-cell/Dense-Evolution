@@ -230,15 +230,24 @@ throughout the [API Reference](api/index.md), not a separate demo.
       <h3>Mitigation — Zero-Noise Extrapolation (real, dense_evolution.zero_noise_extrapolation)</h3>
       <p class="hint">
         Measures a Pauli expectation value on the ideal state and on the
-        real noise channel above (1×/2×/3× its "Noise p", each an
-        ensemble average over many stochastic Kraus draws), then
-        Richardson-extrapolates back to zero noise. Pauli string uses
-        dense_evolution's own qubit ordering (position 0 = qubit 0),
-        length must match the circuit's qubit count.
+        real noise channel above (each an ensemble average over many
+        stochastic Kraus draws), then extrapolates back to zero noise.
+        Richardson: exact interpolation through 1×/2×/3× "Noise p".
+        Polynomial (degree 2): least-squares fit through 1×..5×, trades a
+        little interpolation bias for averaging down statistical noise
+        across more scales. Pauli string uses dense_evolution's own qubit
+        ordering (position 0 = qubit 0), length must match the circuit's
+        qubit count.
       </p>
       <div class="ham-row">
         <label>Pauli string (e.g. ZZ)
           <input id="zne-pauli" type="text" value="ZZ" style="width: 6rem;" />
+        </label>
+        <label>Extrapolation
+          <select id="zne-method-select">
+            <option value="richardson">Richardson (3 scale, esatta)</option>
+            <option value="polynomial">Polynomial deg. 2 (5 scale, fit)</option>
+          </select>
         </label>
         <button id="zne-btn" class="btn btn-ghost">Run ZNE</button>
       </div>

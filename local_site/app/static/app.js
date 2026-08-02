@@ -759,10 +759,12 @@ async function runZne() {
         noise_model: $("noise-model-select").value || "ideal",
         noise_p: parseFloat($("noise-p").value) || 0,
         seed: parseInt($("seed").value, 10),
+        extrapolation_method: $("zne-method-select").value || "richardson",
       }),
     });
     const factors = data.noise_factors.map((f, i) => `${f}x: ${data.noisy_expectations[i].toFixed(4)}`).join("  |  ");
     el.textContent =
+      `Metodo: ${data.extrapolation_method}\n` +
       `<${data.pauli_string}> ideale       = ${data.ideal_expectation.toFixed(4)}\n` +
       `<${data.pauli_string}> con rumore   = ${factors}\n` +
       `<${data.pauli_string}> ZNE estrapolato = ${data.zne_extrapolated.toFixed(4)}\n` +

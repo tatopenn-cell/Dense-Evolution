@@ -394,17 +394,21 @@ class MitigateRequest(BaseModel):
     noise_model: str
     noise_p: float
     seed: int = 42
+    extrapolation_method: str = "richardson"
 
 
 @app.post("/api/mitigate")
 def mitigate(req: MitigateRequest):
     """Real Zero-Noise Extrapolation: <pauli_string> measured on the ideal
-    state and on the real noise channel at 1x/2x/3x noise_p (each an
-    ensemble average over many stochastic Kraus draws), Richardson-
-    extrapolated back to zero noise."""
+    state and on the real noise channel at each noise scale (each an
+    ensemble average over many stochastic Kraus draws), extrapolated back
+    to zero noise -- Richardson (exact, through 1x/2x/3x noise_p) or a
+    degree-2 least-squares polynomial fit through 5 scales (1x..5x, trades
+    a little interpolation bias for averaging down statistical noise)."""
     try:
         result = dc.run_zne_mitigation(
             req.qasm, req.pauli_string, req.noise_model, req.noise_p, seed=req.seed,
+            extrapolation_method=req.extrapolation_method,
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -415,6 +419,7 @@ def mitigate(req: MitigateRequest):
         "noise_factors": result.noise_factors,
         "noisy_expectations": result.noisy_expectations,
         "zne_extrapolated": result.zne_extrapolated,
+        "extrapolation_method": result.extrapolation_method,
     }
 
 

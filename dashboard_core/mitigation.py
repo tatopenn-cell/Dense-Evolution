@@ -18,6 +18,14 @@ import dense_evolution as de
 __all__ = ['MitigationResult', 'run_zne_mitigation', 'DensityMatrixZNEResult', 'run_density_matrix_zne']
 
 _DEFAULT_NOISE_FACTORS = (1.0, 2.0, 3.0)
+# polynomial_extrapolate's own docstring: with exactly degree+1 points the
+# fit is the unique interpolating polynomial, IDENTICAL to
+# richardson_extrapolate -- the extra 2 points here (4x, 5x) are what
+# actually changes anything, trading a bit of interpolation bias for
+# averaging down statistical noise across more measured scales (verified
+# in that docstring against a real 5-seed sweep, not asserted here).
+_POLYNOMIAL_NOISE_FACTORS = (1.0, 2.0, 3.0, 4.0, 5.0)
+_POLYNOMIAL_DEGREE = 2
 
 
 @dataclass
@@ -28,6 +36,7 @@ class MitigationResult:
     noise_factors: list
     noisy_expectations: list
     zne_extrapolated: float
+    extrapolation_method: str = "richardson"
 
 
 def run_zne_mitigation(
@@ -36,12 +45,19 @@ def run_zne_mitigation(
     noise_model: str,
     noise_p: float,
     seed: Optional[int] = None,
-    noise_factors=_DEFAULT_NOISE_FACTORS,
+    noise_factors=None,
     n_trials: int = 200,
+    extrapolation_method: str = "richardson",
 ) -> MitigationResult:
     """Real ZNE: <P> is measured at the real ideal state and at the real
-    channel applied at noise_p * each factor, then Richardson-
-    extrapolated to zero noise.
+    channel applied at noise_p * each factor, then extrapolated to zero
+    noise -- either Richardson (dense_evolution.zero_noise_extrapolation,
+    the exact interpolating polynomial through 3 points, the default) or
+    a degree-2 least-squares polynomial fit through 5 points
+    (dense_evolution.polynomial_extrapolate) -- caller's choice, not
+    silently picked: noise_factors defaults to the 3- or 5-point set that
+    matches whichever method was requested, unless the caller overrides
+    it explicitly.
 
     NoiseModel.apply_to_sv is a *stochastic single-shot* Kraus draw (one
     random outcome per call, not the channel's averaged/ensemble
@@ -58,6 +74,15 @@ def run_zne_mitigation(
     little-endian display convention used elsewhere on this page --
     this function never touches a Qiskit-ordered array.
     """
+    if extrapolation_method not in ("richardson", "polynomial"):
+        raise ValueError(
+            f"unknown extrapolation_method {extrapolation_method!r}, must be 'richardson' or 'polynomial'"
+        )
+    if noise_factors is None:
+        noise_factors = (
+            _POLYNOMIAL_NOISE_FACTORS if extrapolation_method == "polynomial" else _DEFAULT_NOISE_FACTORS
+        )
+
     qiskit_circuit = QuantumCircuit.from_qasm_str(qasm_text)
     n_qubits = qiskit_circuit.num_qubits
     if len(pauli_string) != n_qubits:
@@ -81,7 +106,10 @@ def run_zne_mitigation(
             trial_values[i] = np.real(de.pauli_expectation(sv_noisy, pauli_string))
         noisy_expectations.append(float(trial_values.mean()))
 
-    zne_value = float(de.zero_noise_extrapolation(noisy_expectations, list(noise_factors)))
+    if extrapolation_method == "polynomial":
+        zne_value = float(de.polynomial_extrapolate(noisy_expectations, list(noise_factors), degree=_POLYNOMIAL_DEGREE))
+    else:
+        zne_value = float(de.zero_noise_extrapolation(noisy_expectations, list(noise_factors)))
 
     return MitigationResult(
         n_qubits=n_qubits,
@@ -90,6 +118,7 @@ def run_zne_mitigation(
         noise_factors=list(noise_factors),
         noisy_expectations=noisy_expectations,
         zne_extrapolated=zne_value,
+        extrapolation_method=extrapolation_method,
     )
 
 
