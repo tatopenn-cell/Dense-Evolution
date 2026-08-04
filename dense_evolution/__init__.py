@@ -23,4 +23,4 @@ from .qft import qft
 from .random_circuit import random_circuit
 from .drawing import draw_circuit
 
-__version__ = "8.1.45"
+__version__ = "8.1.46"
