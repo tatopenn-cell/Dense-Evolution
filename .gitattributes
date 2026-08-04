@@ -1,0 +1,8 @@
+# The .sh scripts' shebang (#!/usr/bin/env bash) must survive a Windows
+# checkout byte-for-byte -- a CRLF-converted shebang line fails on
+# macOS/Linux with "bad interpreter: .../bash^M: no such file or directory",
+# silently breaking the installer for exactly the platform it targets.
+installer/install-composer.sh text eol=lf
+installer/uninstall-composer.sh text eol=lf
+installer/install-composer.bat text eol=crlf
+installer/uninstall-composer.bat text eol=crlf

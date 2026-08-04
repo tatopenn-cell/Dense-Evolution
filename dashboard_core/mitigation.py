@@ -94,6 +94,13 @@ def run_zne_mitigation(
     if noise_model not in de.NoiseModel.MODELS:
         raise ValueError(f"unknown noise model {noise_model!r}, must be one of {de.NoiseModel.MODELS}")
 
+    # Same real anti-OOM guard as dashboard_core.engine.run_circuit_from_qasm
+    # -- this kernel now runs on whatever machine a Composer visitor has,
+    # not just a dev laptop, and this function was the one real gap that
+    # never checked before allocating (engine.py's own functions always did).
+    required_mb = (2 ** n_qubits) * 16 / 1e6
+    de.chunk.SafeMemoryGuard().check_allocation(required_mb, context=f"{n_qubits}-qubit statevector")
+
     sim = de.DenseSVSimulator(n_qubits, use_float32=False)
     sim.run_circuit(parsed.to_tuples())
     sv_ideal = np.asarray(sim.sv)
@@ -164,13 +171,25 @@ def run_density_matrix_zne(
     if noise_model not in de.NoiseModel.MODELS:
         raise ValueError(f"unknown noise model {noise_model!r}, must be one of {de.NoiseModel.MODELS}")
 
+    # Density matrices are dim x dim (dim = 2**n_qubits), not just dim --
+    # this holds rho_ideal, one rho per noise factor (rhos_at_scales, kept
+    # alive simultaneously so zne_density_matrix can extrapolate across all
+    # of them at once) and rho_corrected: (len(noise_factors) + 2) separate
+    # dim*dim complex128 arrays, quadratically worse than a plain
+    # statevector at the same qubit count. Same real anti-OOM guard as
+    # dashboard_core.engine.run_circuit_from_qasm, sized for what this
+    # function actually allocates -- this was the one real gap that never
+    # checked before allocating.
+    dim = 2 ** n_qubits
+    required_mb = dim * dim * 16 / 1e6 * (len(noise_factors) + 2)
+    de.chunk.SafeMemoryGuard().check_allocation(required_mb, context=f"{n_qubits}-qubit density matrix ZNE")
+
     sim = de.DenseSVSimulator(n_qubits, use_float32=False)
     sim.run_circuit(parsed.to_tuples())
     sv_ideal = np.asarray(sim.sv)
     rho_ideal = np.outer(sv_ideal, sv_ideal.conj())
 
     rng = np.random.default_rng(seed)
-    dim = 2 ** n_qubits
     rhos_at_scales = []
     for factor in noise_factors:
         scaled_p = min(noise_p * factor, 1.0)

@@ -124,7 +124,11 @@ async function checkKernel() {
     banner.innerHTML =
       `<strong>Kernel locale non rilevato.</strong> Questa pagina esegue i circuiti sul motore ` +
       `reale (dense_evolution + JAX) in esecuzione sul tuo PC &mdash; nessun server condiviso, ` +
-      `nessun dato inviato altrove. Per sbloccare:<br>` +
+      `nessun dato inviato altrove. Scarica lo script di installazione (scarica ed esegui: nessun sito ` +
+      `puo' installare o avviare programmi sul tuo PC da solo, va lanciato da te):<br>` +
+      `<a href="https://raw.githubusercontent.com/tatopenn-cell/Dense-Evolution/main/installer/install-composer.bat" download class="btn btn-ghost">Windows (.bat)</a> ` +
+      `<a href="https://raw.githubusercontent.com/tatopenn-cell/Dense-Evolution/main/installer/install-composer.sh" download class="btn btn-ghost">macOS / Linux (.sh)</a><br><br>` +
+      `Oppure a mano, in un terminale:<br>` +
       `<code>pip install dense-evolution[composer]</code><br>` +
       `<code>dense-evolution serve</code><br>` +
       `<button id="de-kernel-retry" class="btn btn-primary">Riprova</button>`;

@@ -212,6 +212,21 @@ def build_molecular_hamiltonian(symbols, geometry, charge: int = 0, mapping: str
     if dense_key in _dense_hamiltonian_cache:
         return _dense_hamiltonian_cache[dense_key]
 
+    # H_dense is dim x dim (dim = 2**n_qubits), not just dim, and its only
+    # consumer (ground_state_energy) runs a full dense np.linalg.eigvalsh
+    # on it -- LAPACK's own eigh workspace needs comparable scratch memory
+    # on top of the matrix itself, and the geometry generators in the
+    # Composer's UI (linear_chain_geometry/ring_geometry) let a visitor
+    # build an arbitrarily long chain, with no smaller natural ceiling than
+    # whatever PennyLane's own Hartree-Fock step tolerates. Same real
+    # anti-OOM guard as dashboard_core.engine.run_circuit_from_qasm and
+    # mitigation.py's ZNE panels, sized for what this actually allocates
+    # (the x3 covers the matrix + its eigh scratch space + the cached copy
+    # this function stores in _dense_hamiltonian_cache).
+    dim = 2 ** n_qubits
+    required_mb = dim * dim * 16 / 1e6 * 3
+    de.chunk.SafeMemoryGuard().check_allocation(required_mb, context=f"{n_qubits}-qubit molecular Hamiltonian")
+
     terms = _pennylane_hamiltonian_to_pauli_terms(H, n_qubits)
     H_dense = de.pauli_hamiltonian_to_matrix(terms, n_qubits)
     result = (H_dense, n_qubits)

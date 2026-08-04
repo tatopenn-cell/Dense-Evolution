@@ -280,7 +280,19 @@ throughout the [API Reference](api/index.md), not a separate demo.
     This page is static — every circuit runs on a real local kernel
     (`dense_evolution`'s own `DenseSVSimulator`, driven by `local_site/app/server.py`)
     that you run on your own PC. Nothing here is precomputed or mocked, and
-    nothing you run is sent anywhere else. Install with
-    `pip install dense-evolution[composer]`, start it with
-    `dense-evolution serve`, then reload this page — the banner above turns
-    green the moment it detects your kernel.
+    nothing you run is sent anywhere else. Grab the installer for your OS
+    and run it yourself (no site can install or launch anything on your
+    machine on its own) — it walks you through what it's about to do
+    (install the package, optionally download an offline copy of this
+    page, optionally add Desktop/Start Menu/startup shortcuts) before
+    doing any of it:
+    [Windows (.bat)](https://raw.githubusercontent.com/tatopenn-cell/Dense-Evolution/main/installer/install-composer.bat){ download }
+    &middot;
+    [macOS / Linux (.sh)](https://raw.githubusercontent.com/tatopenn-cell/Dense-Evolution/main/installer/install-composer.sh){ download }
+    — or by hand: `pip install dense-evolution[composer]` then
+    `dense-evolution serve`. Either way, reload this page once it's
+    running — the banner above turns green the moment it detects your
+    kernel. To remove everything the installer created, run
+    [uninstall-composer.bat](https://raw.githubusercontent.com/tatopenn-cell/Dense-Evolution/main/installer/uninstall-composer.bat){ download }
+    or
+    [uninstall-composer.sh](https://raw.githubusercontent.com/tatopenn-cell/Dense-Evolution/main/installer/uninstall-composer.sh){ download }.
