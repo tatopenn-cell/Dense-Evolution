@@ -19,8 +19,6 @@ OpenQASM -- no separate/fake execution path for graphically-built
 circuits.
 """
 
-import streamlit as st
-
 from .graphical_builder import GATE_PALETTE
 
 __all__ = ['mount_circuit_builder']
@@ -216,7 +214,14 @@ def mount_circuit_builder(n_qubits: int, n_columns: int = 12, key: str = "circui
     `key` should change whenever `n_qubits` changes (e.g. include it in the
     caller's key) so Streamlit mounts a fresh grid instead of reusing a
     stale one sized for a different qubit count.
+
+    Streamlit is imported here, not at module level: this component only
+    means anything inside a Streamlit app (app_dashboard.py) -- the
+    Composer kernel (local_site/app/server.py) imports dashboard_core too
+    but never calls this function, and shouldn't need streamlit installed
+    just to start.
     """
+    import streamlit as st
     builder = st.components.v2.component(_COMPONENT_NAME, html=_HTML, css=_CSS, js=_JS)
     result = builder(
         key=key,

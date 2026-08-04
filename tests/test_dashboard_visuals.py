@@ -1,13 +1,14 @@
 """
-Tests for dashboard_core.visuals. draw_circuit_figure is native matplotlib
-(dashboard_core.circuit_diagram, never a Qiskit QuantumCircuit -- see that
-module's docstring for why that matters on macOS); the other three
-wrappers return a real matplotlib Figure produced by Qiskit's own
-visualization functions (which only ever take a statevector array or
-counts dict, not a QuantumCircuit). All for data actually coming out of
-dashboard_core.engine.
+Tests for dashboard_core.visuals -- every panel (circuit diagram,
+histogram, Q-sphere, Bloch spheres) is native matplotlib/numpy, no Qiskit
+anywhere (see dashboard_core/circuit_diagram.py and state_visuals.py's
+own docstrings for why that mattered on macOS). Beyond "returns a real
+Figure", the state_visuals tests below check the actual physics: a Bell
+pair's reduced single-qubit states must come back maximally mixed (a
+known analytic fact about maximal entanglement), not just "no exception".
 """
 
+import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -19,6 +20,7 @@ from dashboard_core.engine import run_circuit_from_qasm
 from dashboard_core.visuals import (
     bloch_multivector_figure, draw_circuit_figure, histogram_figure, qsphere_figure,
 )
+from dashboard_core.state_visuals import _reduced_density_matrix, _bloch_vector
 
 BELL_QASM = (
     'OPENQASM 2.0;\ninclude "qelib1.inc";\n'
@@ -65,3 +67,41 @@ def test_bloch_multivector_figure_returns_a_figure():
     result = _bell_result()
     fig = bloch_multivector_figure(result.statevector)
     assert isinstance(fig, Figure)
+
+
+class TestReducedDensityMatrixAndBlochVector:
+    """dashboard_core.state_visuals' own partial-trace math, checked
+    against known analytic states -- the same real-physics standard the
+    rest of this project holds every other function to."""
+
+    def test_pure_zero_state_bloch_vector_is_north_pole(self):
+        sv = np.array([1, 0], dtype=complex)
+        rho = _reduced_density_matrix(sv, 1, 0)
+        assert np.allclose(_bloch_vector(rho), [0, 0, 1], atol=1e-9)
+
+    def test_pure_one_state_bloch_vector_is_south_pole(self):
+        sv = np.array([0, 1], dtype=complex)
+        rho = _reduced_density_matrix(sv, 1, 0)
+        assert np.allclose(_bloch_vector(rho), [0, 0, -1], atol=1e-9)
+
+    def test_plus_state_bloch_vector_is_on_the_equator(self):
+        sv = np.array([1, 1], dtype=complex) / np.sqrt(2)
+        rho = _reduced_density_matrix(sv, 1, 0)
+        assert np.allclose(_bloch_vector(rho), [1, 0, 0], atol=1e-9)
+
+    def test_bell_pair_each_qubit_is_maximally_mixed(self):
+        # The defining feature of maximal entanglement: neither qubit has
+        # a well-defined individual state, so its reduced density matrix
+        # is exactly I/2 and its Bloch vector has zero length.
+        sv = np.array([1, 0, 0, 1], dtype=complex) / np.sqrt(2)
+        for qubit in (0, 1):
+            rho = _reduced_density_matrix(sv, 2, qubit)
+            assert np.allclose(rho, np.eye(2) / 2, atol=1e-9)
+            assert np.linalg.norm(_bloch_vector(rho)) == pytest.approx(0.0, abs=1e-9)
+
+    def test_ghz3_each_qubit_is_maximally_mixed(self):
+        sv = np.zeros(8, dtype=complex)
+        sv[0] = sv[7] = 1 / np.sqrt(2)
+        for qubit in (0, 1, 2):
+            rho = _reduced_density_matrix(sv, 3, qubit)
+            assert np.allclose(rho, np.eye(2) / 2, atol=1e-9)

@@ -74,6 +74,21 @@ app.add_middleware(
 )
 
 
+def _has_qiskit() -> bool:
+    """qiskit is an optional dependency of this kernel (see pyproject.toml's
+    composer extra comment for why: it's the same library independently
+    described as destabilizing the process on macOS CI runners, so it's
+    opt-in, not required just to start). Histogram/Q-sphere/Bloch are the
+    only three panels that need it (the circuit diagram is native) -- this
+    lets /api/run skip exactly those three with an honest reason instead of
+    the whole endpoint failing with a raw 500 when it isn't installed."""
+    try:
+        import qiskit  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 @app.get("/api/health")
 def health():
     """Presence probe for the published Composer page: if this responds,
@@ -177,42 +192,17 @@ def run(req: RunRequest):
         if abs(amp) > 1e-10
     ]
 
-    # qiskit.visualization.plot_state_qsphere does not scale gracefully:
-    # measured directly, 10 qubits (1024 states) renders in ~2.6s but 12
-    # qubits (4096 states) takes ~37s -- a real bottleneck in Qiskit's own
-    # plotting code, not in dense_evolution or the MPS backend (which ran
-    # the same 12-qubit circuit in 3.7s). Skipping it above this size is
-    # honest (no fake plot) and keeps the endpoint from hanging; every
-    # other panel (Probabilities, Circuit, Statevector table) still works
-    # at any qubit count the engine itself can handle.
-    _QSPHERE_MAX_QUBITS = 10
-    qsphere_png = None
+    # Both native (dashboard_core.state_visuals, no Qiskit): measured
+    # directly at the dense backend's own practical qubit ceiling (24,
+    # MPS_DENSE_CONTRACTION_LIMIT), Q-sphere takes ~1.4s and Bloch ~7s --
+    # slow at the extreme edge but nowhere near the qiskit.visualization
+    # bottleneck this replaced (~37s/~252s at just 12 qubits), so no skip
+    # threshold is needed at all; every panel works at any qubit count the
+    # engine itself can produce a statevector for.
+    qsphere_png = _figure_to_base64_png(dc.qsphere_figure(result.statevector))
     qsphere_skipped_reason = None
-    if result.n_qubits <= _QSPHERE_MAX_QUBITS:
-        qsphere_png = _figure_to_base64_png(dc.qsphere_figure(result.statevector))
-    else:
-        qsphere_skipped_reason = (
-            f"Q-sphere saltata: {result.n_qubits} qubit ({2**result.n_qubits} stati) -- "
-            f"qiskit.visualization.plot_state_qsphere diventa troppo lento oltre "
-            f"{_QSPHERE_MAX_QUBITS} qubit (misurato: ~37s a 12 qubit)."
-        )
-
-    # plot_bloch_multivector scales worse than the Q-sphere (it traces out
-    # every other qubit's reduced density matrix per sphere drawn): measured
-    # directly, 10 qubits renders in ~3.1s but 12 qubits took ~252s -- same
-    # honest-skip treatment as the Q-sphere, same cap since 10 qubits is
-    # already the practical ceiling for either panel.
-    _BLOCH_MAX_QUBITS = 10
-    bloch_png = None
+    bloch_png = _figure_to_base64_png(dc.bloch_multivector_figure(result.statevector))
     bloch_skipped_reason = None
-    if result.n_qubits <= _BLOCH_MAX_QUBITS:
-        bloch_png = _figure_to_base64_png(dc.bloch_multivector_figure(result.statevector))
-    else:
-        bloch_skipped_reason = (
-            f"Bloch spheres saltate: {result.n_qubits} qubit -- "
-            f"qiskit.visualization.plot_bloch_multivector diventa troppo lento oltre "
-            f"{_BLOCH_MAX_QUBITS} qubit (misurato: ~252s a 12 qubit)."
-        )
 
     return {
         "large_scale": False,

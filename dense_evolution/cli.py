@@ -77,7 +77,14 @@ def _cmd_offline_composer(dest: str):
 
         def handle_starttag(self, tag, attrs):
             attrs = dict(attrs)
-            if tag == "link" and attrs.get("href"):
+            # mkdocs Material's <head> has plenty of other <link> rels
+            # (canonical, prev, next, preconnect, ...) that point at other
+            # *pages* (directories, not files) or aren't fetchable assets
+            # at all -- verified directly against the real page: following
+            # rel="prev"/"next" tried to write a file at a directory-shaped
+            # path and failed with a permission error. Only stylesheet/icon
+            # links are real same-origin files worth mirroring.
+            if tag == "link" and attrs.get("href") and attrs.get("rel") in ("stylesheet", "icon"):
                 self.assets.append(attrs["href"])
             elif tag == "script" and attrs.get("src"):
                 self.assets.append(attrs["src"])
