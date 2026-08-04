@@ -1,14 +1,24 @@
 """
 Tests for dashboard_core.engine.run_circuit_from_qasm -- verifies the
-real wiring (QASM -> Qiskit circuit -> dense_evolution.DenseSVSimulator)
-against known-exact circuits, not against a mock.
+real wiring (QASM -> dense_evolution's own QASMParser ->
+dense_evolution.DenseSVSimulator) against known-exact circuits, not
+against a mock.
+
+Reference statevectors below are the textbook analytic results (Bell/GHZ
+are symmetric under bit-order, so Qiskit's little-endian convention and
+dense_evolution's native MSB-first convention agree here without needing
+a Qiskit Statevector cross-check) -- no Qiskit involved in this file at
+all, matching run_circuit_from_qasm itself never constructing a
+qiskit.circuit.QuantumCircuit (see dashboard_core/engine.py's module
+docstring for why that matters on macOS).
 """
 
 import numpy as np
 import pytest
-from qiskit.quantum_info import Statevector
 
 from dashboard_core.engine import run_circuit_from_qasm
+
+_INV_SQRT2 = 1 / np.sqrt(2)
 
 BELL_QASM = (
     'OPENQASM 2.0;\ninclude "qelib1.inc";\n'
@@ -25,10 +35,9 @@ GHZ_QASM = (
 )
 
 
-def test_bell_state_statevector_matches_qiskit_reference():
+def test_bell_state_statevector_matches_analytic_reference():
     result = run_circuit_from_qasm(BELL_QASM, n_shots=10, seed=1)
-    circuit_without_measurements = result.qiskit_circuit.remove_final_measurements(inplace=False)
-    expected = Statevector(circuit_without_measurements).data
+    expected = np.array([_INV_SQRT2, 0, 0, _INV_SQRT2], dtype=complex)
     assert np.allclose(result.statevector, expected, atol=1e-9)
 
 
@@ -46,10 +55,11 @@ def test_bell_state_counts_only_contain_00_and_11():
     assert set(result.counts.keys()) <= {"00", "11"}
 
 
-def test_ghz_state_matches_qiskit_reference():
+def test_ghz_state_matches_analytic_reference():
     result = run_circuit_from_qasm(GHZ_QASM, n_shots=10, seed=3)
-    circuit_without_measurements = result.qiskit_circuit.remove_final_measurements(inplace=False)
-    expected = Statevector(circuit_without_measurements).data
+    expected = np.zeros(8, dtype=complex)
+    expected[0] = _INV_SQRT2
+    expected[7] = _INV_SQRT2
     assert np.allclose(result.statevector, expected, atol=1e-9)
     assert result.n_qubits == 3
 

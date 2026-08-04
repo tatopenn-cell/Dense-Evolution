@@ -28,7 +28,6 @@ matplotlib.use('Agg')
 import numpy as np
 import dense_evolution
 import streamlit as st
-from qiskit import qasm2
 
 import dashboard_core as dc
 
@@ -91,9 +90,9 @@ with tab_builder:
         if not builder_ops:
             st.warning("Nessuna porta piazzata sulla griglia.")
         else:
-            qc_from_grid = dc.ops_to_qiskit_circuit(int(n_qubits_builder), builder_ops)
+            native_ops = dc.ops_to_native_tuples(int(n_qubits_builder), builder_ops)
             st.session_state["preset_select"] = "Custom"
-            st.session_state["qasm_text__Custom"] = qasm2.dumps(qc_from_grid)
+            st.session_state["qasm_text__Custom"] = dc.gate_tuples_to_qasm(native_ops, int(n_qubits_builder))
             st.rerun()
 
 with tab_circuit:
@@ -102,7 +101,7 @@ with tab_circuit:
     elif error:
         st.error(f"Errore nell'esecuzione del circuito: {error}")
     else:
-        st.pyplot(dc.draw_circuit_figure(result.qiskit_circuit))
+        st.pyplot(dc.draw_circuit_figure(result.ops, result.n_qubits))
 
 with tab_statevector:
     if result is None:

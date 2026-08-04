@@ -1,10 +1,12 @@
 """
-Tests for dashboard_core.visuals -- each wrapper must return a real
-matplotlib Figure produced by Qiskit's own visualization functions, for
-data actually coming out of dashboard_core.engine.
+Tests for dashboard_core.visuals. draw_circuit_figure is native matplotlib
+(dashboard_core.circuit_diagram, never a Qiskit QuantumCircuit -- see that
+module's docstring for why that matters on macOS); the other three
+wrappers return a real matplotlib Figure produced by Qiskit's own
+visualization functions (which only ever take a statevector array or
+counts dict, not a QuantumCircuit). All for data actually coming out of
+dashboard_core.engine.
 """
-
-import sys
 
 import matplotlib
 matplotlib.use('Agg')
@@ -16,31 +18,6 @@ from matplotlib.figure import Figure
 from dashboard_core.engine import run_circuit_from_qasm
 from dashboard_core.visuals import (
     bloch_multivector_figure, draw_circuit_figure, histogram_figure, qsphere_figure,
-)
-
-# Same known, already-documented upstream Qiskit bug as
-# tests/test_interop.py::TestQiskitInterop (see that skip for the full
-# story): qiskit.circuit.QuantumCircuit.__init__ segfaults on macOS CI
-# runners on the simplest possible call, QuantumCircuit(3) alone --
-# reproduced identically here (run_circuit_from_qasm builds a
-# QuantumCircuit for the Circuit-diagram panel) regardless of whether
-# that circuit comes from qiskit.qasm2.loads or plain QuantumCircuit()
-# + method calls, and regardless of matplotlib figure cleanup between
-# calls (both were tried and both still crashed on the same
-# QuantumCircuit.__init__ call). Not a Dense-Evolution or dashboard_core
-# bug -- skipped here for the same reason test_interop.py skips
-# TestQiskitInterop: a segfault kills the whole pytest process, not just
-# one test, so the rest of the suite needs this skipped to run at all on
-# macOS.
-pytestmark = pytest.mark.skipif(
-    sys.platform == 'darwin',
-    reason=(
-        "qiskit.circuit.QuantumCircuit.__init__ segfaults (SIGSEGV) on "
-        "macOS CI runners -- same upstream bug as "
-        "test_interop.py::TestQiskitInterop, hit here via "
-        "dashboard_core.engine.run_circuit_from_qasm building a "
-        "QuantumCircuit for the Circuit-diagram panel."
-    ),
 )
 
 BELL_QASM = (
@@ -68,7 +45,7 @@ def _bell_result():
 
 def test_draw_circuit_figure_returns_a_figure():
     result = _bell_result()
-    fig = draw_circuit_figure(result.qiskit_circuit)
+    fig = draw_circuit_figure(result.ops, result.n_qubits)
     assert isinstance(fig, Figure)
 
 

@@ -1,11 +1,22 @@
 """
 Real simulation engine for the dashboard.
 
-OpenQASM text -> a Qiskit QuantumCircuit -> executed on dense_evolution's
-actual DenseSVSimulator (not Qiskit's own simulator) -> statevector,
+OpenQASM text -> dense_evolution's own QASMParser -> executed on
+dense_evolution's actual DenseSVSimulator/MPSSimulator (not Qiskit's own
+simulator, and not Qiskit's QASM parser either) -> statevector,
 probabilities and shot counts, all reordered into Qiskit's little-endian
 qubit convention so they line up with the Circuit tab's qubit labels and
 with qiskit.visualization's functions (which assume that convention).
+
+No Qiskit QuantumCircuit is ever constructed here, not even for the
+Circuit-diagram panel: qiskit.circuit.QuantumCircuit.__init__ itself
+segfaults (SIGSEGV, inside qiskit's own compiled extension) on macOS,
+independent of *how* the circuit is built or what's done with it
+afterwards -- see tests/test_interop.py::TestQiskitInterop for the full
+reproduction story (QuantumCircuit(3) alone, no QASM, no method calls,
+still crashes there). SimulationResult/LargeScaleMPSResult below carry
+the plain gate tuples instead, and dashboard_core.circuit_diagram draws
+the diagram directly from those with plain matplotlib.
 
 No synthetic/placeholder data anywhere here: every quantity returned is
 computed from a real run of the real engine.
@@ -15,11 +26,19 @@ from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
-from qiskit import QuantumCircuit
 
 import dense_evolution as de
 
 __all__ = ['SimulationResult', 'run_circuit_from_qasm', 'LargeScaleMPSResult', 'run_large_circuit_mps']
+
+
+def _qasm_to_tuples(qasm_text: str):
+    """Parses qasm_text with dense_evolution's own QASMParser (never
+    Qiskit's) and returns (n_qubits, ops) where ops is the same
+    (name, *qubits[, param]) tuple format every other dense_evolution
+    entry point (run_circuit, QuantumTranspiler.transpile, ...) accepts."""
+    parsed = de.QASMParser().parse(qasm_text)
+    return parsed.n_qubits, parsed.to_tuples()
 
 # MPSSimulator.contract_to_statevector's own hard ceiling (RAM-independent
 # -- it refuses above this regardless of available memory, since a dense
@@ -42,7 +61,7 @@ def _to_qiskit_bit_order(values: np.ndarray, n_qubits: int) -> np.ndarray:
 
 @dataclass
 class SimulationResult:
-    qiskit_circuit: QuantumCircuit
+    ops: list  # dense_evolution gate tuples -- feeds dashboard_core.circuit_diagram for the Circuit tab
     n_qubits: int
     statevector: np.ndarray    # complex128, Qiskit bit order
     probabilities: np.ndarray  # Qiskit bit order
@@ -88,8 +107,7 @@ def run_circuit_from_qasm(
     preset in QASM_LIBRARY, and to run a 12-qubit GHZ state in ~2.5s
     (max_bond=2) where 'dense' would need 2**12 complex amplitudes.
     """
-    qiskit_circuit = QuantumCircuit.from_qasm_str(qasm_text)
-    n_qubits = qiskit_circuit.num_qubits
+    n_qubits, ops = _qasm_to_tuples(qasm_text)
     if n_qubits < 1:
         raise ValueError("circuit must declare at least 1 qubit")
     if backend not in ("dense", "mps"):
@@ -113,16 +131,16 @@ def run_circuit_from_qasm(
         # first or it raises on 'swap' not being in its native GATE_IDS
         # (verified directly: the QFT preset's trailing swap fails here
         # without this step).
-        parsed = de.from_qiskit(qiskit_circuit)
-        ops = de.QuantumTranspiler.transpile(parsed.to_tuples())
+        transpiled = de.QuantumTranspiler.transpile(ops)
         mps = de.MPSSimulator(n_qubits)
-        mps.run_circuit_jit(ops)
+        mps.run_circuit_jit(transpiled)
         sv_native = np.asarray(mps.contract_to_statevector())
         mps_max_bond_used = mps.max_bond_used()
         mps_memory_mb = mps.memory_mb()
         mps_avg_jsd = mps.avg_jsd()
     else:
-        sim, _ = de.run_qiskit_circuit(qiskit_circuit, use_float32=False)
+        sim = de.DenseSVSimulator(n_qubits, use_float32=False)
+        sim.run_circuit(ops)
         sv_native = np.asarray(sim.sv)
 
     rng = np.random.default_rng(seed)
@@ -150,7 +168,7 @@ def run_circuit_from_qasm(
     counts = {key[::-1]: n for key, n in counts_native.items()}
 
     return SimulationResult(
-        qiskit_circuit=qiskit_circuit,
+        ops=ops,
         n_qubits=n_qubits,
         statevector=statevector,
         probabilities=probabilities,
@@ -167,7 +185,7 @@ def run_circuit_from_qasm(
 
 @dataclass
 class LargeScaleMPSResult:
-    qiskit_circuit: QuantumCircuit
+    ops: list  # dense_evolution gate tuples -- feeds dashboard_core.circuit_diagram for the Circuit tab
     n_qubits: int
     top_k_states: list  # [(bitstring, probability), ...] Qiskit bit order, sorted descending
     k_requested: int
@@ -194,13 +212,11 @@ def run_large_circuit_mps(qasm_text: str, k: int = 32, seed: Optional[int] = Non
     30/50/100 qubits (grows with n -- roughly O(n_samples * n_qubits)),
     while get_top_k_probable_states stays under 2s even at 100 qubits.
     """
-    qiskit_circuit = QuantumCircuit.from_qasm_str(qasm_text)
-    n_qubits = qiskit_circuit.num_qubits
+    n_qubits, raw_ops = _qasm_to_tuples(qasm_text)
     if n_qubits < 1:
         raise ValueError("circuit must declare at least 1 qubit")
 
-    parsed = de.from_qiskit(qiskit_circuit)
-    ops = de.QuantumTranspiler.transpile(parsed.to_tuples())
+    ops = de.QuantumTranspiler.transpile(raw_ops)
     mps = de.MPSSimulator(n_qubits)
     mps.run_circuit_jit(ops)
 
@@ -214,7 +230,7 @@ def run_large_circuit_mps(qasm_text: str, k: int = 32, seed: Optional[int] = Non
     top_k_states.sort(key=lambda t: t[1], reverse=True)
 
     return LargeScaleMPSResult(
-        qiskit_circuit=qiskit_circuit,
+        ops=raw_ops,
         n_qubits=n_qubits,
         top_k_states=top_k_states,
         k_requested=k,

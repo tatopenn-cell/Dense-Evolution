@@ -7,9 +7,11 @@ da PC"): `python server.py`, then open http://127.0.0.1:8800/.
 
 Every endpoint below is a thin wrapper around the real, already-tested
 dashboard_core functions (engine.run_circuit_from_qasm, visuals.*,
-graphical_builder.ops_to_qiskit_circuit) -- dense_evolution's actual
-DenseSVSimulator does the computation, Qiskit's own visualization
-functions render the figures. No mock data anywhere here.
+graphical_builder.ops_to_native_tuples) -- dense_evolution's actual
+DenseSVSimulator does the computation; the circuit diagram is drawn
+natively (dashboard_core.circuit_diagram, no Qiskit), the other three
+panels by Qiskit's own visualization functions. No mock data anywhere
+here.
 """
 
 import base64
@@ -32,7 +34,6 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from qiskit import QuantumCircuit, qasm2
 
 # dashboard_core / dense_evolution live at the repo root, two levels up
 # from this file (local_site/app/server.py -> local_site/ -> repo root).
@@ -82,8 +83,8 @@ class BuildRequest(BaseModel):
 def build_from_ops(req: BuildRequest):
     """Convert the graphical builder's op list into real OpenQASM text."""
     try:
-        qc = dc.ops_to_qiskit_circuit(req.n_qubits, req.ops)
-        return {"qasm": qasm2.dumps(qc)}
+        native_ops = dc.ops_to_native_tuples(req.n_qubits, req.ops)
+        return {"qasm": dc.gate_tuples_to_qasm(native_ops, req.n_qubits)}
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -101,7 +102,14 @@ def run(req: RunRequest):
     "large_scale" response instead of pretending a full statevector/
     histogram/Q-sphere exist at that size."""
     try:
-        req_n_qubits = QuantumCircuit.from_qasm_str(req.qasm).num_qubits
+        # Never QuantumCircuit.from_qasm_str -- qiskit.circuit.QuantumCircuit
+        # itself segfaults on macOS regardless of how it's built (see
+        # dashboard_core/engine.py's module docstring), and this endpoint's
+        # repeated-same-process shape is exactly what triggers it. The
+        # qubit count is read via dense_evolution's own QASMParser instead,
+        # never through qiskit at all.
+        import dense_evolution as _de
+        req_n_qubits = _de.QASMParser().parse(req.qasm).n_qubits
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -115,7 +123,7 @@ def run(req: RunRequest):
             "n_qubits": large_result.n_qubits,
             "k_requested": large_result.k_requested,
             "top_k_states": [{"state": s, "probability": p} for s, p in large_result.top_k_states],
-            "circuit_png": _figure_to_base64_png(dc.draw_circuit_figure(large_result.qiskit_circuit)),
+            "circuit_png": _figure_to_base64_png(dc.draw_circuit_figure(large_result.ops, large_result.n_qubits)),
             "backend": "mps",
             "mps_max_bond_used": large_result.mps_max_bond_used,
             "mps_memory_mb": large_result.mps_memory_mb,
@@ -186,7 +194,7 @@ def run(req: RunRequest):
         "counts": result.counts,
         "probabilities": result.probabilities.tolist(),
         "statevector": statevector_rows,
-        "circuit_png": _figure_to_base64_png(dc.draw_circuit_figure(result.qiskit_circuit)),
+        "circuit_png": _figure_to_base64_png(dc.draw_circuit_figure(result.ops, result.n_qubits)),
         "histogram_png": _figure_to_base64_png(dc.histogram_figure(result.counts)),
         "qsphere_png": qsphere_png,
         "qsphere_skipped_reason": qsphere_skipped_reason,

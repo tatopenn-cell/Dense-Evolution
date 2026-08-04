@@ -13,9 +13,10 @@ setStateValue, so Streamlit always has the real current state of what's
 on the canvas.
 
 The ops list this emits is consumed by dashboard_core.graphical_builder.
-ops_to_qiskit_circuit, which builds a real QuantumCircuit executed by the
-exact same dense_evolution engine as typed OpenQASM -- no separate/fake
-execution path for graphically-built circuits.
+ops_to_native_tuples, which builds dense_evolution's own gate tuples
+(no Qiskit) executed by the exact same dense_evolution engine as typed
+OpenQASM -- no separate/fake execution path for graphically-built
+circuits.
 """
 
 import streamlit as st

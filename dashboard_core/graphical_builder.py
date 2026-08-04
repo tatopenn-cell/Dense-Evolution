@@ -1,15 +1,16 @@
 """
 Turns the ops list produced by the graphical (drag-and-drop) circuit
-builder component into a real Qiskit QuantumCircuit -- the same object
-type dashboard_core.engine already runs on the real dense_evolution
-DenseSVSimulator. No separate execution path for graphically-built
-circuits: they go through the exact same engine as typed OpenQASM.
+builder component into dense_evolution's own (name, *qubits[, param])
+gate tuples -- the same format dashboard_core.engine already runs on the
+real dense_evolution DenseSVSimulator (via dashboard_core.qasm_library.
+gate_tuples_to_qasm for the QASM round-trip). No separate execution path
+for graphically-built circuits, and no Qiskit QuantumCircuit ever built
+here: they go through the exact same engine as typed OpenQASM.
 """
 
 import numpy as np
-from qiskit import QuantumCircuit
 
-__all__ = ['GATE_PALETTE', 'ops_to_qiskit_circuit']
+__all__ = ['GATE_PALETTE', 'ops_to_native_tuples']
 
 # Palette offered by the drag-and-drop grid (dashboard_core.circuit_builder_component).
 # kind:
@@ -46,8 +47,13 @@ _ROTATION_METHODS = {"rx", "ry", "rz"}
 _DEFAULT_ROTATION_ANGLE = np.pi / 2
 
 
-def ops_to_qiskit_circuit(n_qubits: int, ops: list) -> QuantumCircuit:
-    """Build a real QuantumCircuit from the builder's op list.
+def ops_to_native_tuples(n_qubits: int, ops: list) -> list:
+    """Build dense_evolution's own (name, *qubits[, param]) gate tuples
+    from the builder's op list -- the same shape dashboard_core.engine's
+    QASMParser-based pipeline and qasm_library.gate_tuples_to_qasm both
+    already accept, and the same validation the old QuantumCircuit-based
+    version did (qubit range, unknown gate name), just performed by hand
+    instead of relying on Qiskit's own checks.
 
     Parameters
     ----------
@@ -58,13 +64,15 @@ def ops_to_qiskit_circuit(n_qubits: int, ops: list) -> QuantumCircuit:
 
     Returns
     -------
-    QuantumCircuit
-        Ends with measure_all(), matching the QASM presets' convention.
+    list[tuple]
+        Pass to qasm_library.gate_tuples_to_qasm(tuples, n_qubits) for the
+        QASM text the rest of the Composer already runs on (measure_all
+        equivalent included there by default).
     """
     if n_qubits < 1:
         raise ValueError("circuit must have at least 1 qubit")
 
-    qc = QuantumCircuit(n_qubits)
+    tuples = []
     for op in ops:
         gate = op.get("gate")
         qubits = op.get("qubits", [])
@@ -74,18 +82,17 @@ def ops_to_qiskit_circuit(n_qubits: int, ops: list) -> QuantumCircuit:
 
         if gate in _SINGLE_QUBIT_METHODS:
             (q,) = qubits
-            getattr(qc, gate)(q)
+            tuples.append((gate, q))
         elif gate in _ROTATION_METHODS:
             (q,) = qubits
-            getattr(qc, gate)(_DEFAULT_ROTATION_ANGLE, q)
+            tuples.append((gate, q, _DEFAULT_ROTATION_ANGLE))
         elif gate == "swap":
             a, b = qubits
-            qc.swap(a, b)
+            tuples.append(("swap", a, b))
         elif gate in ("cx", "cy", "cz"):
             control, target = qubits
-            getattr(qc, gate)(control, target)
+            tuples.append((gate, control, target))
         else:
             raise ValueError(f"unknown gate from circuit builder: {gate!r}")
 
-    qc.measure_all()
-    return qc
+    return tuples

@@ -1,16 +1,18 @@
 """
-Thin wrappers around Qiskit's own real visualization functions -- no
-hand-rolled circuit drawing or Bloch-sphere plotting here. Every function
-below just adapts our data (a Qiskit QuantumCircuit, a statevector array,
-a counts dict, all produced by dashboard_core.engine) into the shape
-qiskit.visualization already expects, and returns the resulting
-matplotlib Figure unchanged.
+Circuit-diagram drawing is native (dashboard_core.circuit_diagram, plain
+matplotlib, never a Qiskit QuantumCircuit -- see that module's docstring
+for why). The other three panels are thin wrappers around Qiskit's own
+real visualization functions, which only ever take a statevector array or
+counts dict, never a QuantumCircuit -- every function below adapts our
+data (produced by dashboard_core.engine) into the shape each expects and
+returns the resulting matplotlib Figure unchanged.
 """
 
 import matplotlib.pyplot as plt
-from qiskit import QuantumCircuit
 from qiskit.quantum_info import Statevector
 from qiskit.visualization import plot_bloch_multivector, plot_histogram, plot_state_qsphere
+
+from .circuit_diagram import draw_native_circuit_diagram
 
 __all__ = ['draw_circuit_figure', 'histogram_figure', 'qsphere_figure', 'bloch_multivector_figure']
 
@@ -25,10 +27,11 @@ __all__ = ['draw_circuit_figure', 'histogram_figure', 'qsphere_figure', 'bloch_m
 _LIGHT_STYLE = 'default'
 
 
-def draw_circuit_figure(circuit: QuantumCircuit):
-    """Qiskit's own matplotlib circuit diagram (circuit.draw(output='mpl'))."""
+def draw_circuit_figure(ops, n_qubits: int):
+    """Native matplotlib circuit diagram (dashboard_core.circuit_diagram) --
+    never builds a Qiskit QuantumCircuit."""
     with plt.style.context(_LIGHT_STYLE):
-        return circuit.draw(output='mpl')
+        return draw_native_circuit_diagram(ops, n_qubits)
 
 
 def histogram_figure(counts: dict):
