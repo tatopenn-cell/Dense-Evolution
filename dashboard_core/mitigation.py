@@ -17,6 +17,14 @@ import dense_evolution as de
 __all__ = ['MitigationResult', 'run_zne_mitigation', 'DensityMatrixZNEResult', 'run_density_matrix_zne']
 
 _DEFAULT_NOISE_FACTORS = (1.0, 2.0, 3.0)
+# polynomial_extrapolate's own docstring: with exactly degree+1 points the
+# fit is the unique interpolating polynomial, IDENTICAL to
+# richardson_extrapolate -- the extra 2 points here (4x, 5x) are what
+# actually changes anything, trading a bit of interpolation bias for
+# averaging down statistical noise across more measured scales (verified
+# in that docstring against a real 5-seed sweep, not asserted here).
+_POLYNOMIAL_NOISE_FACTORS = (1.0, 2.0, 3.0, 4.0, 5.0)
+_POLYNOMIAL_DEGREE = 2
 
 
 @dataclass
@@ -27,6 +35,7 @@ class MitigationResult:
     noise_factors: list
     noisy_expectations: list
     zne_extrapolated: float
+    extrapolation_method: str = "richardson"
 
 
 def run_zne_mitigation(
@@ -35,12 +44,19 @@ def run_zne_mitigation(
     noise_model: str,
     noise_p: float,
     seed: Optional[int] = None,
-    noise_factors=_DEFAULT_NOISE_FACTORS,
+    noise_factors=None,
     n_trials: int = 200,
+    extrapolation_method: str = "richardson",
 ) -> MitigationResult:
     """Real ZNE: <P> is measured at the real ideal state and at the real
-    channel applied at noise_p * each factor, then Richardson-
-    extrapolated to zero noise.
+    channel applied at noise_p * each factor, then extrapolated to zero
+    noise -- either Richardson (dense_evolution.zero_noise_extrapolation,
+    the exact interpolating polynomial through 3 points, the default) or
+    a degree-2 least-squares polynomial fit through 5 points
+    (dense_evolution.polynomial_extrapolate) -- caller's choice, not
+    silently picked: noise_factors defaults to the 3- or 5-point set that
+    matches whichever method was requested, unless the caller overrides
+    it explicitly.
 
     NoiseModel.apply_to_sv is a *stochastic single-shot* Kraus draw (one
     random outcome per call, not the channel's averaged/ensemble
@@ -57,17 +73,33 @@ def run_zne_mitigation(
     little-endian display convention used elsewhere on this page --
     this function never touches a Qiskit-ordered array.
     """
+    if extrapolation_method not in ("richardson", "polynomial"):
+        raise ValueError(
+            f"unknown extrapolation_method {extrapolation_method!r}, must be 'richardson' or 'polynomial'"
+        )
+    if noise_factors is None:
+        noise_factors = (
+            _POLYNOMIAL_NOISE_FACTORS if extrapolation_method == "polynomial" else _DEFAULT_NOISE_FACTORS
+        )
+
     # Parsed with dense_evolution's own QASMParser, never Qiskit's --
-    # QuantumCircuit.__init__ itself segfaults on macOS CI/deployments
-    # (see dashboard_core/engine.py's module docstring for the full
-    # story); this function never needs a Qiskit circuit object at all,
-    # only the ideal statevector, so there's no reason to build one here.
+    # QuantumCircuit.from_qasm_str itself segfaults on macOS (see
+    # dashboard_core/engine.py's module docstring for the full story);
+    # this function never needs a Qiskit circuit object at all, only the
+    # ideal statevector, so there's no reason to build one here.
     parsed = de.QASMParser().parse(qasm_text)
     n_qubits = parsed.n_qubits
     if len(pauli_string) != n_qubits:
         raise ValueError(f"pauli_string length {len(pauli_string)} != n_qubits {n_qubits}")
     if noise_model not in de.NoiseModel.MODELS:
         raise ValueError(f"unknown noise model {noise_model!r}, must be one of {de.NoiseModel.MODELS}")
+
+    # Same real anti-OOM guard as dashboard_core.engine.run_circuit_from_qasm
+    # -- this kernel now runs on whatever machine a Composer visitor has,
+    # not just a dev laptop, and this function was the one real gap that
+    # never checked before allocating (engine.py's own functions always did).
+    required_mb = (2 ** n_qubits) * 16 / 1e6
+    de.chunk.SafeMemoryGuard().check_allocation(required_mb, context=f"{n_qubits}-qubit statevector")
 
     sim = de.DenseSVSimulator(n_qubits, use_float32=False)
     sim.run_circuit(parsed.to_tuples())
@@ -86,7 +118,10 @@ def run_zne_mitigation(
             trial_values[i] = np.real(de.pauli_expectation(sv_noisy, pauli_string))
         noisy_expectations.append(float(trial_values.mean()))
 
-    zne_value = float(de.zero_noise_extrapolation(noisy_expectations, list(noise_factors)))
+    if extrapolation_method == "polynomial":
+        zne_value = float(de.polynomial_extrapolate(noisy_expectations, list(noise_factors), degree=_POLYNOMIAL_DEGREE))
+    else:
+        zne_value = float(de.zero_noise_extrapolation(noisy_expectations, list(noise_factors)))
 
     return MitigationResult(
         n_qubits=n_qubits,
@@ -95,6 +130,7 @@ def run_zne_mitigation(
         noise_factors=list(noise_factors),
         noisy_expectations=noisy_expectations,
         zne_extrapolated=zne_value,
+        extrapolation_method=extrapolation_method,
     )
 
 
@@ -135,13 +171,25 @@ def run_density_matrix_zne(
     if noise_model not in de.NoiseModel.MODELS:
         raise ValueError(f"unknown noise model {noise_model!r}, must be one of {de.NoiseModel.MODELS}")
 
+    # Density matrices are dim x dim (dim = 2**n_qubits), not just dim --
+    # this holds rho_ideal, one rho per noise factor (rhos_at_scales, kept
+    # alive simultaneously so zne_density_matrix can extrapolate across all
+    # of them at once) and rho_corrected: (len(noise_factors) + 2) separate
+    # dim*dim complex128 arrays, quadratically worse than a plain
+    # statevector at the same qubit count. Same real anti-OOM guard as
+    # dashboard_core.engine.run_circuit_from_qasm, sized for what this
+    # function actually allocates -- this was the one real gap that never
+    # checked before allocating.
+    dim = 2 ** n_qubits
+    required_mb = dim * dim * 16 / 1e6 * (len(noise_factors) + 2)
+    de.chunk.SafeMemoryGuard().check_allocation(required_mb, context=f"{n_qubits}-qubit density matrix ZNE")
+
     sim = de.DenseSVSimulator(n_qubits, use_float32=False)
     sim.run_circuit(parsed.to_tuples())
     sv_ideal = np.asarray(sim.sv)
     rho_ideal = np.outer(sv_ideal, sv_ideal.conj())
 
     rng = np.random.default_rng(seed)
-    dim = 2 ** n_qubits
     rhos_at_scales = []
     for factor in noise_factors:
         scaled_p = min(noise_p * factor, 1.0)

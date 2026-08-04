@@ -1,27 +1,24 @@
 """
 Tests for dashboard_core.engine.run_circuit_from_qasm -- verifies the
-real wiring (QASM -> Qiskit circuit -> dense_evolution.DenseSVSimulator)
-against known-exact circuits, not against a mock.
-"""
+real wiring (QASM -> dense_evolution's own QASMParser ->
+dense_evolution.DenseSVSimulator) against known-exact circuits, not
+against a mock.
 
-import sys
+Reference statevectors below are the textbook analytic results (Bell/GHZ
+are symmetric under bit-order, so Qiskit's little-endian convention and
+dense_evolution's native MSB-first convention agree here without needing
+a Qiskit Statevector cross-check) -- no Qiskit involved in this file at
+all, matching run_circuit_from_qasm itself never constructing a
+qiskit.circuit.QuantumCircuit (see dashboard_core/engine.py's module
+docstring for why that matters on macOS).
+"""
 
 import numpy as np
 import pytest
-from qiskit.quantum_info import Statevector
 
 from dashboard_core.engine import run_circuit_from_qasm
 
-# Same known upstream Qiskit bug as test_interop.py::TestQiskitInterop
-# and test_dashboard_visuals.py (see either for the full story):
-# QuantumCircuit.__init__ segfaults on macOS CI runners on its own,
-# independent of Dense-Evolution/dashboard_core. run_circuit_from_qasm
-# always builds one (for the Circuit-diagram panel), so every test here
-# hits it.
-pytestmark = pytest.mark.skipif(
-    sys.platform == 'darwin',
-    reason="qiskit.circuit.QuantumCircuit.__init__ segfaults on macOS CI -- see test_interop.py::TestQiskitInterop",
-)
+_INV_SQRT2 = 1 / np.sqrt(2)
 
 BELL_QASM = (
     'OPENQASM 2.0;\ninclude "qelib1.inc";\n'
@@ -38,10 +35,9 @@ GHZ_QASM = (
 )
 
 
-def test_bell_state_statevector_matches_qiskit_reference():
+def test_bell_state_statevector_matches_analytic_reference():
     result = run_circuit_from_qasm(BELL_QASM, n_shots=10, seed=1)
-    circuit_without_measurements = result.qiskit_circuit.remove_final_measurements(inplace=False)
-    expected = Statevector(circuit_without_measurements).data
+    expected = np.array([_INV_SQRT2, 0, 0, _INV_SQRT2], dtype=complex)
     assert np.allclose(result.statevector, expected, atol=1e-9)
 
 
@@ -59,10 +55,11 @@ def test_bell_state_counts_only_contain_00_and_11():
     assert set(result.counts.keys()) <= {"00", "11"}
 
 
-def test_ghz_state_matches_qiskit_reference():
+def test_ghz_state_matches_analytic_reference():
     result = run_circuit_from_qasm(GHZ_QASM, n_shots=10, seed=3)
-    circuit_without_measurements = result.qiskit_circuit.remove_final_measurements(inplace=False)
-    expected = Statevector(circuit_without_measurements).data
+    expected = np.zeros(8, dtype=complex)
+    expected[0] = _INV_SQRT2
+    expected[7] = _INV_SQRT2
     assert np.allclose(result.statevector, expected, atol=1e-9)
     assert result.n_qubits == 3
 
@@ -78,3 +75,32 @@ def test_zero_qubit_circuit_raises():
         run_circuit_from_qasm(
             'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[0];\ncreg c[0];\n', n_shots=10,
         )
+
+
+def test_ideal_run_has_no_fidelity_vs_ideal():
+    result = run_circuit_from_qasm(BELL_QASM, n_shots=10, seed=1)
+    assert result.fidelity_vs_ideal is None
+
+
+def test_zero_noise_probability_has_no_fidelity_vs_ideal():
+    result = run_circuit_from_qasm(BELL_QASM, n_shots=10, seed=1, noise_model="depolarizing", noise_p=0.0)
+    assert result.fidelity_vs_ideal is None
+
+
+def test_noisy_run_fidelity_vs_ideal_is_a_valid_probability():
+    result = run_circuit_from_qasm(BELL_QASM, n_shots=10, seed=1, noise_model="depolarizing", noise_p=0.3)
+    assert 0.0 <= result.fidelity_vs_ideal <= 1.0 + 1e-9
+
+
+def test_noisy_run_fidelity_vs_ideal_matches_direct_overlap_computation():
+    # Independent check, not just "some fidelity function ran": the ideal
+    # statevector doesn't depend on noise_p/rng at all, so a separate
+    # noise_model="ideal" call with the same seed must reproduce the exact
+    # pre-noise state the noisy run compared itself against -- then
+    # |<ideal|noisy>|^2 computed here from the two returned statevectors
+    # (same Qiskit bit-order convention, so a plain inner product is valid)
+    # must match what engine.py reported.
+    ideal = run_circuit_from_qasm(BELL_QASM, n_shots=10, seed=1)
+    noisy = run_circuit_from_qasm(BELL_QASM, n_shots=10, seed=1, noise_model="depolarizing", noise_p=0.3)
+    expected = abs(np.vdot(ideal.statevector, noisy.statevector)) ** 2
+    assert noisy.fidelity_vs_ideal == pytest.approx(expected, abs=1e-9)

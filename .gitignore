@@ -15,6 +15,7 @@ htmlcov/
 Thumbs.db
 desktop.ini
 dist/
+build/
 *.egg-info/
 
 # MkDocs build output (rebuilt by CI on every deploy, never committed)

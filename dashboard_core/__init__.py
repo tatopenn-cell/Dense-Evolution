@@ -10,7 +10,7 @@ on the feature/streamlit-dashboard and feature/ipywidgets-dash-panel
 branches and will be reintegrated selectively once this base is solid.
 """
 
-from .qasm_library import QASM_LIBRARY
+from .qasm_library import QASM_LIBRARY, gate_tuples_to_qasm
 from .engine import (
     SimulationResult, run_circuit_from_qasm,
     LargeScaleMPSResult, run_large_circuit_mps, MPS_DENSE_CONTRACTION_LIMIT,
@@ -18,7 +18,7 @@ from .engine import (
 from .visuals import (
     draw_circuit_figure, histogram_figure, qsphere_figure, bloch_multivector_figure,
 )
-from .graphical_builder import GATE_PALETTE, ops_to_qiskit_circuit
+from .graphical_builder import GATE_PALETTE, ops_to_native_tuples
 from .circuit_builder_component import mount_circuit_builder
 from .hamiltonians import (
     MOLECULE_CATALOG, build_molecular_hamiltonian, get_compatible_molecules,
@@ -33,11 +33,11 @@ from .system_limits import max_safe_dense_qubits
 from .vqe import run_vqe
 
 __all__ = [
-    'QASM_LIBRARY',
+    'QASM_LIBRARY', 'gate_tuples_to_qasm',
     'SimulationResult', 'run_circuit_from_qasm',
     'LargeScaleMPSResult', 'run_large_circuit_mps', 'MPS_DENSE_CONTRACTION_LIMIT',
     'draw_circuit_figure', 'histogram_figure', 'qsphere_figure', 'bloch_multivector_figure',
-    'GATE_PALETTE', 'ops_to_qiskit_circuit',
+    'GATE_PALETTE', 'ops_to_native_tuples',
     'mount_circuit_builder',
     'MOLECULE_CATALOG', 'build_molecular_hamiltonian', 'get_compatible_molecules',
     'get_all_molecules', 'get_molecule_n_qubits',

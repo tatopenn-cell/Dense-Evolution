@@ -58,10 +58,8 @@ gpu = [
 ]
 dashboard = [
     "streamlit>=1.30.0",
-    "plotly>=5.0.0",
-    "pandas>=1.5.0",
-    "seaborn>=0.12.0",
-    "ipywidgets>=8.0.0"
+    "qiskit>=1.0.0",
+    "pylatexenc>=2.10"
 ]
 qiskit = [
     "qiskit>=1.0.0"
@@ -69,14 +67,20 @@ qiskit = [
 pennylane = [
     "pennylane>=0.35.0"
 ]
+composer = [
+    "fastapi>=0.110.0",
+    "uvicorn>=0.29.0",
+    "pydantic>=2.0.0"
+]
 full = [
     "cupy-cuda12x>=12.0.0",
     "streamlit>=1.30.0",
-    "plotly>=5.0.0",
-    "pandas>=1.5.0",
-    "seaborn>=0.12.0",
     "qiskit>=1.0.0",
-    "pennylane>=0.35.0"
+    "pylatexenc>=2.10",
+    "pennylane>=0.35.0",
+    "fastapi>=0.110.0",
+    "uvicorn>=0.29.0",
+    "pydantic>=2.0.0"
 ]
 dev = [
     "pytest>=7.0.0",
@@ -96,8 +100,11 @@ Documentation = "https://github.com/tatopenn-cell/Dense-Evolution/blob/main/READ
 Repository = "https://github.com/tatopenn-cell/Dense-Evolution"
 "Bug Tracker" = "https://github.com/tatopenn-cell/Dense-Evolution/issues"
 
+[project.scripts]
+dense-evolution = "dense_evolution.cli:main"
+
 [tool.setuptools]
-packages = ["dense_evolution", "ia_utils", "dashboard_core"]
+packages = ["dense_evolution", "ia_utils", "dashboard_core", "local_site", "local_site.app"]
 
 [tool.setuptools.package-data]
 "dense_evolution" = ["*.py"]
@@ -128,7 +135,7 @@ target-version = ['py39', 'py310', 'py311', 'py312']
 # `--cov` was passed.
 source = ["."]
 omit = [
-    "tests/*", "experiments/*", "app_dashboard.py", "ui_pages/*",
+    "tests/*", "experiments/*", "app_dashboard.py",
     "legacy/*", "build/*", "dist/*", "notebooks/*",
 ]
 relative_files = true

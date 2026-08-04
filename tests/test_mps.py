@@ -9,8 +9,6 @@ Cross-checks against the real DenseSVSimulator on entangling circuits are
 the primary correctness signal here, not just internal self-consistency.
 """
 
-import sys
-
 import numpy as np
 import pytest
 
@@ -310,19 +308,14 @@ def test_contract_to_statevector_raises_above_24_qubits():
 # (real API, not the old dc.run_simulation(engine=...) these replaced --
 # that function no longer exists in the rebuilt dashboard_core)
 #
-# Skipped on macOS for the same known upstream Qiskit bug as
-# test_interop.py::TestQiskitInterop: run_circuit_from_qasm /
-# run_large_circuit_mps both build a QuantumCircuit for the Circuit-
-# diagram panel, and QuantumCircuit.__init__ itself segfaults there --
-# every other test in this file (pure dense_evolution, no Qiskit) is
-# unaffected and keeps running on macOS.
-_macos_qiskit_segfault = pytest.mark.skipif(
-    sys.platform == 'darwin',
-    reason="qiskit.circuit.QuantumCircuit.__init__ segfaults on macOS CI -- see test_interop.py::TestQiskitInterop",
-)
+# No macOS skip needed here (unlike the old Composer engine): neither
+# run_circuit_from_qasm nor run_large_circuit_mps ever constructs a
+# qiskit.circuit.QuantumCircuit -- the Circuit-diagram panel is drawn
+# natively (dashboard_core.circuit_diagram), so the known upstream
+# QuantumCircuit.__init__ segfault (test_interop.py::TestQiskitInterop)
+# doesn't apply to this path at all.
 
 
-@_macos_qiskit_segfault
 def test_dashboard_engine_mps_matches_dense_bell():
     from dashboard_core.engine import run_circuit_from_qasm
 
@@ -336,7 +329,6 @@ def test_dashboard_engine_mps_matches_dense_bell():
     assert res_mps.mps_max_bond_used is not None
 
 
-@_macos_qiskit_segfault
 def test_dashboard_engine_mps_matches_dense_entangling():
     from dashboard_core.engine import run_circuit_from_qasm
 
@@ -354,7 +346,6 @@ def test_dashboard_engine_mps_matches_dense_entangling():
     assert tvd < 1e-9
 
 
-@_macos_qiskit_segfault
 def test_dashboard_run_large_circuit_mps_beyond_dense_limit():
     # Above MPS_DENSE_CONTRACTION_LIMIT (24 qubits) there's no dense
     # (2**n,) array to build at all -- run_large_circuit_mps is the real

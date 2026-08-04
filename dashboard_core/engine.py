@@ -3,25 +3,20 @@ Real simulation engine for the dashboard.
 
 OpenQASM text -> dense_evolution's own QASMParser -> executed on
 dense_evolution's actual DenseSVSimulator/MPSSimulator (not Qiskit's own
-simulator, and not Qiskit's QASM parser either -- see the note on
-QuantumCircuit.from_qasm_str below) -> statevector, probabilities and
-shot counts, all reordered into Qiskit's little-endian qubit convention
-so they line up with the Circuit tab's qubit labels and with
-qiskit.visualization's functions (which assume that convention).
+simulator, and not Qiskit's QASM parser either) -> statevector,
+probabilities and shot counts, all reordered into Qiskit's little-endian
+qubit convention so they line up with the Circuit tab's qubit labels and
+with qiskit.visualization's functions (which assume that convention).
 
-QuantumCircuit.from_qasm_str / qiskit.qasm2.loads is deliberately never
-called on the hot path here: reproduced directly, it segfaults
-(SIGSEGV, native crash inside qiskit's Rust QASM2 extension) on macOS CI
-after a handful of repeated calls in the same process -- the crash is
-inside qiskit's own compiled extension, not this codebase's Python, and
-persisted across an unrelated attempted fix (closing matplotlib figures
-between calls). The pre-rebuild dashboard_core never had this problem
-for the same reason it's avoided here: it used dense_evolution's own
-QASMParser and never touched qiskit.qasm2 at all. A qiskit QuantumCircuit
-is still built for the Circuit-diagram panel (Qiskit's drawer needs a
-real QuantumCircuit), but from the already-parsed gate tuples via plain
-qiskit method calls (qc.h(0), qc.cx(0,1), ...), which don't go through
-qasm2 and haven't reproduced the crash.
+No Qiskit QuantumCircuit is ever constructed here, not even for the
+Circuit-diagram panel: qiskit.circuit.QuantumCircuit.__init__ itself
+segfaults (SIGSEGV, inside qiskit's own compiled extension) on macOS,
+independent of *how* the circuit is built or what's done with it
+afterwards -- see tests/test_interop.py::TestQiskitInterop for the full
+reproduction story (QuantumCircuit(3) alone, no QASM, no method calls,
+still crashes there). SimulationResult/LargeScaleMPSResult below carry
+the plain gate tuples instead, and dashboard_core.circuit_diagram draws
+the diagram directly from those with plain matplotlib.
 
 No synthetic/placeholder data anywhere here: every quantity returned is
 computed from a real run of the real engine.
@@ -31,21 +26,10 @@ from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
-from qiskit import QuantumCircuit
 
 import dense_evolution as de
 
 __all__ = ['SimulationResult', 'run_circuit_from_qasm', 'LargeScaleMPSResult', 'run_large_circuit_mps']
-
-# Mirrors dense_evolution/compiler.py's own gate categories (same split
-# dashboard_core/qasm_library.py's gate_tuples_to_qasm uses) -- needed
-# here to dispatch each (name, *args) tuple to the matching QuantumCircuit
-# method with the parameter/qubit argument order Qiskit expects.
-_ONE_QUBIT_STATIC = {"h", "x", "y", "z", "s", "sdg", "t", "tdg", "sx", "id"}
-_ONE_QUBIT_PARAM = {"rx", "ry", "rz", "p"}
-_TWO_QUBIT_STATIC = {"cx", "cz", "cy", "swap"}
-_TWO_QUBIT_PARAM = {"cp", "crz"}
-_THREE_QUBIT_STATIC = {"ccx"}
 
 
 def _qasm_to_tuples(qasm_text: str):
@@ -55,29 +39,6 @@ def _qasm_to_tuples(qasm_text: str):
     entry point (run_circuit, QuantumTranspiler.transpile, ...) accepts."""
     parsed = de.QASMParser().parse(qasm_text)
     return parsed.n_qubits, parsed.to_tuples()
-
-
-def _tuples_to_qiskit_circuit(ops, n_qubits: int) -> QuantumCircuit:
-    """Builds a real QuantumCircuit from dense_evolution gate tuples via
-    plain QuantumCircuit method calls -- for the Circuit-diagram panel
-    only, never re-parsed as QASM, so this never touches qiskit.qasm2."""
-    qc = QuantumCircuit(n_qubits)
-    for op in ops:
-        name = op[0]
-        if name in _ONE_QUBIT_STATIC:
-            getattr(qc, name)(op[1])
-        elif name in _ONE_QUBIT_PARAM:
-            getattr(qc, name)(op[2], op[1])
-        elif name in _TWO_QUBIT_STATIC:
-            getattr(qc, name)(op[1], op[2])
-        elif name in _TWO_QUBIT_PARAM:
-            getattr(qc, name)(op[3], op[1], op[2])
-        elif name in _THREE_QUBIT_STATIC:
-            getattr(qc, name)(op[1], op[2], op[3])
-        else:
-            raise ValueError(f"unsupported gate for circuit-diagram reconstruction: {name!r}")
-    qc.measure_all()
-    return qc
 
 # MPSSimulator.contract_to_statevector's own hard ceiling (RAM-independent
 # -- it refuses above this regardless of available memory, since a dense
@@ -100,13 +61,14 @@ def _to_qiskit_bit_order(values: np.ndarray, n_qubits: int) -> np.ndarray:
 
 @dataclass
 class SimulationResult:
-    qiskit_circuit: QuantumCircuit
+    ops: list  # dense_evolution gate tuples -- feeds dashboard_core.circuit_diagram for the Circuit tab
     n_qubits: int
     statevector: np.ndarray    # complex128, Qiskit bit order
     probabilities: np.ndarray  # Qiskit bit order
     counts: dict                # Qiskit-style bitstring -> shot count
     noise_model: str = "ideal"
     noise_p: float = 0.0
+    fidelity_vs_ideal: Optional[float] = None
     backend: str = "dense"
     mps_max_bond_used: Optional[int] = None
     mps_memory_mb: Optional[float] = None
@@ -128,7 +90,13 @@ def run_circuit_from_qasm(
     ('ideal', 'depolarizing', 'bitflip', 'phaseflip', 'amplitude_damping',
     'combined') applied as a real stochastic Kraus channel to the
     statevector via NoiseModel.apply_to_sv -- not a fabricated decay
-    curve, the actual channel math. 'ideal'/p<=0 skips it entirely.
+    curve, the actual channel math. 'ideal'/p<=0 skips it entirely (and
+    leaves SimulationResult.fidelity_vs_ideal as None -- comparing a run
+    against itself is not a real quantity). Otherwise fidelity_vs_ideal
+    is the real dense_evolution.statevector_fidelity(|<ideal|noisy>|^2)
+    between this run's one noisy trajectory and the same circuit's ideal
+    statevector, both computed in this same call (not re-simulated by the
+    caller).
 
     backend: 'dense' (DenseSVSimulator, the default) or 'mps'
     (MPSSimulator -- adaptive SVD-truncated matrix product state, scales
@@ -144,7 +112,6 @@ def run_circuit_from_qasm(
         raise ValueError("circuit must declare at least 1 qubit")
     if backend not in ("dense", "mps"):
         raise ValueError(f"unknown backend {backend!r}, must be 'dense' or 'mps'")
-    qiskit_circuit = _tuples_to_qiskit_circuit(ops, n_qubits)
 
     # Both backends end up holding a real 2**n_qubits complex128 dense
     # statevector (Dense always; MPS after contract_to_statevector() for
@@ -177,8 +144,18 @@ def run_circuit_from_qasm(
         sv_native = np.asarray(sim.sv)
 
     rng = np.random.default_rng(seed)
+    fidelity_vs_ideal = None
     if noise_model != "ideal" and noise_p > 0:
+        # apply_to_sv mutates its numpy input in-place, so the pre-noise
+        # amplitudes have to be copied out first -- this is one stochastic
+        # Kraus-channel trajectory (a real single noisy realization, not a
+        # density matrix), so the result is still a valid pure state and
+        # dense_evolution.statevector_fidelity (the pure-state counterpart
+        # to the density-matrix uhlmann_fidelity already used by the ZNE
+        # panels below) is the right comparison against the ideal state.
+        sv_ideal = sv_native.copy()
         sv_native = de.NoiseModel.apply_to_sv(sv_native, n_qubits, noise_model, noise_p, rng=rng)
+        fidelity_vs_ideal = float(de.statevector_fidelity(sv_ideal, sv_native))
 
     statevector = _to_qiskit_bit_order(sv_native, n_qubits)
     probabilities = np.abs(statevector) ** 2
@@ -191,13 +168,14 @@ def run_circuit_from_qasm(
     counts = {key[::-1]: n for key, n in counts_native.items()}
 
     return SimulationResult(
-        qiskit_circuit=qiskit_circuit,
+        ops=ops,
         n_qubits=n_qubits,
         statevector=statevector,
         probabilities=probabilities,
         counts=counts,
         noise_model=noise_model,
         noise_p=noise_p,
+        fidelity_vs_ideal=fidelity_vs_ideal,
         backend=backend,
         mps_max_bond_used=mps_max_bond_used,
         mps_memory_mb=mps_memory_mb,
@@ -207,7 +185,7 @@ def run_circuit_from_qasm(
 
 @dataclass
 class LargeScaleMPSResult:
-    qiskit_circuit: QuantumCircuit
+    ops: list  # dense_evolution gate tuples -- feeds dashboard_core.circuit_diagram for the Circuit tab
     n_qubits: int
     top_k_states: list  # [(bitstring, probability), ...] Qiskit bit order, sorted descending
     k_requested: int
@@ -237,7 +215,6 @@ def run_large_circuit_mps(qasm_text: str, k: int = 32, seed: Optional[int] = Non
     n_qubits, raw_ops = _qasm_to_tuples(qasm_text)
     if n_qubits < 1:
         raise ValueError("circuit must declare at least 1 qubit")
-    qiskit_circuit = _tuples_to_qiskit_circuit(raw_ops, n_qubits)
 
     ops = de.QuantumTranspiler.transpile(raw_ops)
     mps = de.MPSSimulator(n_qubits)
@@ -253,7 +230,7 @@ def run_large_circuit_mps(qasm_text: str, k: int = 32, seed: Optional[int] = Non
     top_k_states.sort(key=lambda t: t[1], reverse=True)
 
     return LargeScaleMPSResult(
-        qiskit_circuit=qiskit_circuit,
+        ops=raw_ops,
         n_qubits=n_qubits,
         top_k_states=top_k_states,
         k_requested=k,

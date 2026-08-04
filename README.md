@@ -55,6 +55,9 @@ pip install dense-evolution[full]
 pip install dense-evolution[qiskit]
 pip install dense-evolution[pennylane]
 
+# Composer's local kernel (see "Composer" below)
+pip install dense-evolution[composer]
+
 # development
 git clone https://github.com/tatopenn-cell/Dense-Evolution.git
 cd Dense-Evolution && pip install -e .[full]
@@ -559,6 +562,46 @@ Requires `jax.device_count() >= num_chunks`; raises `RuntimeError` with the exac
 | Gate throughput after warm-up | `> 10⁶ gates/s` (CPU) |
 | Maximum tested qubits (Colab Free) | `24q` stable · `33q` high-RAM runtime |
 | Anti-OOM latency reduction (static JIT cache) | `−86.47%` |
+
+---
+
+## ▍ Composer — Interactive Web UI
+
+A real circuit editor (graphical drag-and-drop or OpenQASM 2.0), running
+every circuit on the actual `DenseSVSimulator` — statevector,
+probabilities, Q-sphere, Bloch spheres, a native circuit diagram (plain
+matplotlib, no Qiskit `QuantumCircuit` ever constructed), plus real
+molecular Hamiltonians (PennyLane Hartree-Fock), VQE, and ZNE mitigation.
+No mocked data anywhere: every number on the page comes from a real run.
+
+**The page is public, the compute is yours.** [tatopenn-cell.github.io/Dense-Evolution/composer](https://tatopenn-cell.github.io/Dense-Evolution/composer/)
+is static — it talks to a local kernel that runs on your own machine, not
+a shared server. Get the kernel running with the installer for your OS
+(walks you through what it does before doing anything, no silent steps):
+
+- Windows: [`installer/install-composer.bat`](installer/install-composer.bat)
+- macOS / Linux: [`installer/install-composer.sh`](installer/install-composer.sh)
+- Uninstall: [`installer/uninstall-composer.bat`](installer/uninstall-composer.bat) / [`installer/uninstall-composer.sh`](installer/uninstall-composer.sh)
+
+The installer's only real job is `pip install dense-evolution[composer]`
+plus some optional shortcuts — the kernel itself is one plain console
+command, install it by hand instead if you'd rather skip the installer
+(works the same from PowerShell, cmd, bash, or zsh — it's a normal Python
+entry point, not a shell script):
+
+```bash
+pip install dense-evolution[composer]
+
+dense-evolution serve                        # starts the kernel at http://127.0.0.1:8800
+dense-evolution offline-composer [DEST]      # downloads the real Composer page for use with no internet
+                                              # (DEST defaults to ./composer-offline)
+```
+
+`serve` is what the published page's banner is waiting for — reload the
+page once it's running and the banner turns from "kernel not found" to
+connected. `offline-composer` downloads the actual live page (not a
+separate hand-maintained copy) plus every asset it references, keeping
+the same relative layout so it opens correctly via `file://`.
 
 ---
 
