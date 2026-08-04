@@ -80,6 +80,7 @@ plugins:
 nav:
   - Home: index.md
   - Composer: composer.md
+  - Ising-Tests: ising-tests.md
   - Getting Started: getting-started.md
   - Examples: examples.md
   - Benchmarks: benchmarks.md
