@@ -323,7 +323,7 @@ if HAS_JAX:
         return final_sv
 
     #: Plain (non-donating) wrapper. Required by callers that reuse the
-    #: same state_vector buffer across multiple calls — run_parametric_batch_jit
+    #: same state_vector buffer across multiple calls — run_batch_jit
     #: (simulator.py), where it's a vmap-broadcast closure variable shared
     #: across every batch lane, and circuit_to_energy_fn's energy_fn
     #: (autodiff.py), where the caller's VQE loop passes the same stato_zero
@@ -335,7 +335,7 @@ if HAS_JAX:
 
     #: Donating wrapper — safe ONLY where the caller immediately rebinds its
     #: reference to the input buffer and never reads the old one again.
-    #: Currently just DenseSVSimulator.run_circuit_jit_beast_mode's
+    #: Currently just DenseSVSimulator.run_circuit_jit's
     #: `self.sv = ...` pattern (verified: no code path anywhere keeps a
     #: stale reference to self.sv across that call, including chunked/
     #: repeated invocations via run_circuit_with_chunking, and separate

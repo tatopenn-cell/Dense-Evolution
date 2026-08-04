@@ -36,7 +36,7 @@ class TestQASMRangeSyntax:
     def test_range_syntax_produces_correct_superposition(self, sim4):
         qasm = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[4]; h q[0:3];'
         circ = QASMParser().parse(qasm)
-        sim4.run_circuit_jit_beast_mode([[op['name'], op['qubits'][0], -1] for op in circ.ops])
+        sim4.run_circuit_jit([[op['name'], op['qubits'][0], -1] for op in circ.ops])
         p = probs(sim4)
         # q0,q1,q2 uniform superposition, q3 untouched -> 8 equally likely states
         nonzero = np.where(p > 1e-9)[0]

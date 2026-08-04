@@ -1,3 +1,4 @@
+import warnings
 import numpy as np
 from typing import List, Tuple, Optional
 from .registry import HAS_JAX
@@ -141,7 +142,7 @@ class DenseSVSimulator:
 
     def _check_qubit_range(self, qubit: float, context: str) -> None:
         """Validate a qubit index before it reaches the JIT-compiled fast
-        paths (run_circuit_jit_beast_mode / run_parametric_batch_jit).
+        paths (run_circuit_jit / run_batch_jit).
 
         Those paths encode qubit indices as bit-shift amounts inside
         jax.lax.scan/switch and never call apply_gate_1q/apply_gate_2q
@@ -355,8 +356,8 @@ class DenseSVSimulator:
 
 
 
-    def run_circuit_jit_beast_mode(self, circuit: List):
-       
+    def run_circuit_jit(self, circuit: List):
+
         if not HAS_JAX:
             return self.run_circuit(circuit)
 
@@ -414,6 +415,17 @@ class DenseSVSimulator:
             # see _compile_and_run_circuit_jit_donated's docstring).
             self.sv  = _compile_and_run_circuit_jit_donated(self.sv, ops_jnp)
 
+    def run_circuit_jit_beast_mode(self, circuit: List):
+        """Deprecated alias for run_circuit_jit -- kept so code written
+        against any pre-8.1.46 release keeps working. Will be removed in
+        a future major version; switch to run_circuit_jit."""
+        warnings.warn(
+            "run_circuit_jit_beast_mode is deprecated, use run_circuit_jit instead "
+            "(same behavior, shorter name). This alias will be removed in a future release.",
+            DeprecationWarning, stacklevel=2,
+        )
+        return self.run_circuit_jit(circuit)
+
     def run_circuit_with_chunking(self, circuit: List, chunk_size: int = 500):
         """
         Execute a circuit in chunks to avoid JIT recompilation on
@@ -424,14 +436,14 @@ class DenseSVSimulator:
         """
         target = QuantumTranspiler.transpile(circuit)
         for i in range(0, len(target), chunk_size):
-            self.run_circuit_jit_beast_mode(target[i: i + chunk_size])
+            self.run_circuit_jit(target[i: i + chunk_size])
 
-    def run_parametric_batch_jit(self,
-                                  base_circuit:    List,
-                                  parameter_batch: np.ndarray) -> "jnp.ndarray":
-      
+    def run_batch_jit(self,
+                       base_circuit:    List,
+                       parameter_batch: np.ndarray) -> "jnp.ndarray":
+
         if not HAS_JAX:
-            raise RuntimeError("run_parametric_batch_jit requires JAX")
+            raise RuntimeError("run_batch_jit requires JAX")
 
         target       = QuantumTranspiler.transpile(base_circuit)
         compiled_ops = []
@@ -509,6 +521,17 @@ class DenseSVSimulator:
         return jax.jit(jax.vmap(simulate_single_instance, in_axes=(0,)))(
             jnp.asarray(parameter_batch, dtype=jnp.float64)
         )
+
+    def run_parametric_batch_jit(self, base_circuit: List, parameter_batch: np.ndarray) -> "jnp.ndarray":
+        """Deprecated alias for run_batch_jit -- kept so code written
+        against any pre-8.1.46 release keeps working. Will be removed in
+        a future major version; switch to run_batch_jit."""
+        warnings.warn(
+            "run_parametric_batch_jit is deprecated, use run_batch_jit instead "
+            "(same behavior, shorter name). This alias will be removed in a future release.",
+            DeprecationWarning, stacklevel=2,
+        )
+        return self.run_batch_jit(base_circuit, parameter_batch)
 
     # ── observables ───────────────────────────────────────────────────
 

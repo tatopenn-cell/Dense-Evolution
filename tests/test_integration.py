@@ -43,17 +43,17 @@ class TestFullPipelineIntegration:
         assert len(tuples) == 9  # 1 h + 5 cx + 3 rotations
 
         sim_ideale = DenseSVSimulator(n_qubits)
-        sim_ideale.run_circuit_jit_beast_mode(tuples)
+        sim_ideale.run_circuit_jit(tuples)
         prob_ideale = sim_ideale.get_probabilities()
         assert abs(float(np.sum(prob_ideale)) - 1.0) < 1e-9
 
         sim_noisy1 = DenseSVSimulator(n_qubits)
-        sim_noisy1.run_circuit_jit_beast_mode(tuples)
+        sim_noisy1.run_circuit_jit(tuples)
         sim_noisy1.sv = NoiseModel.apply_to_sv(sim_noisy1.sv, n_qubits, model='amplitude_damping', p=0.15)
         prob_noisy1 = sim_noisy1.get_probabilities()
 
         sim_noisy2 = DenseSVSimulator(n_qubits)
-        sim_noisy2.run_circuit_jit_beast_mode(tuples)
+        sim_noisy2.run_circuit_jit(tuples)
         sim_noisy2.sv = NoiseModel.apply_to_sv(sim_noisy2.sv, n_qubits, model='amplitude_damping', p=0.15)
         prob_noisy2 = sim_noisy2.get_probabilities()
 

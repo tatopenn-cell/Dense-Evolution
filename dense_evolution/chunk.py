@@ -33,7 +33,7 @@ except ModuleNotFoundError:
                 self.dtype = np.complex128
                 self.sv    = np.zeros(self.dim, dtype=self.dtype)
                 self.sv[0] = 1.0
-            def run_circuit_jit_beast_mode(self, circuit_slice): pass
+            def run_circuit_jit(self, circuit_slice): pass
             def memory_mb(self) -> float:
                 return (self.dim * np.dtype(self.dtype).itemsize) / 1_000_000
 
@@ -784,7 +784,7 @@ class CircuitChunker:
         for idx, i in enumerate(range(0, len(target), chunk_size)):
             # ── Anti-OOM check before every slice ───────────────────────────
             self._guard.check(f"slice {idx + 1}/{n_slices}")
-            self.sim.run_circuit_jit_beast_mode(target[i : i + chunk_size])
+            self.sim.run_circuit_jit(target[i : i + chunk_size])
 
 
 # ─────────────────────────────────────────────────────────────────────────────

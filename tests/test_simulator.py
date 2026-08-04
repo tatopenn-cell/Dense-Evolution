@@ -1,7 +1,7 @@
 """
 Unit tests for dense_evolution/simulator.py -- DenseSVSimulator's core
 statevector mechanics: initialization, single/two-qubit gates, parametric
-gates, measurement, the run_circuit_jit_beast_mode fast path, and
+gates, measurement, the run_circuit_jit fast path, and
 donate_argnums buffer reuse.
 
 Split out of the original monolithic test_dense_evolution.py (which mixed
@@ -133,7 +133,7 @@ class TestSingleQubitGates:
 
 
 class TestQubitRangeValidationBypassesJIT:
-    """run_circuit_jit_beast_mode / run_parametric_batch_jit build their own
+    """run_circuit_jit / run_batch_jit build their own
     compiled_ops and never call apply_gate_1q/apply_gate_2q (which already
     validate) — an out-of-range qubit index there used to silently corrupt
     the entire statevector to zero instead of raising, because the fast
@@ -144,25 +144,25 @@ class TestQubitRangeValidationBypassesJIT:
 
     def test_beast_mode_1q_gate_out_of_range_raises(self, sim4):
         with pytest.raises(ValueError):
-            sim4.run_circuit_jit_beast_mode([['x', 5, -1]])
+            sim4.run_circuit_jit([['x', 5, -1]])
 
     def test_beast_mode_2q_gate_out_of_range_raises(self, sim4):
         with pytest.raises(ValueError):
-            sim4.run_circuit_jit_beast_mode([['cx', 0, 5]])
+            sim4.run_circuit_jit([['cx', 0, 5]])
 
     def test_beast_mode_valid_circuit_unaffected(self, sim4):
         # the validation must not reject in-range circuits
-        sim4.run_circuit_jit_beast_mode([['h', 0, -1], ['cx', 0, 1]])
+        sim4.run_circuit_jit([['h', 0, -1], ['cx', 0, 1]])
         p = probs(sim4)
         assert abs(p.sum() - 1.0) < 1e-9
 
     def test_parametric_batch_qubit_out_of_range_raises(self, sim4):
         with pytest.raises(ValueError):
-            sim4.run_parametric_batch_jit([['rx', 5]], np.zeros((1, 1)))
+            sim4.run_batch_jit([['rx', 5]], np.zeros((1, 1)))
 
 
 class TestBeastModeGateDispatchGaps:
-    """run_circuit_jit_beast_mode used to silently DROP cy/cp/crz/u1/p/sx —
+    """run_circuit_jit used to silently DROP cy/cp/crz/u1/p/sx —
     they weren't in GATE_IDS, so `if name not in GATE_IDS: continue` skipped
     them with no error (verified: h(0);h(1);crz(0,1,1.2) produced the exact
     same output as h(0);h(1) alone — the crz vanished). Fixed by adding the
@@ -184,10 +184,10 @@ class TestBeastModeGateDispatchGaps:
         ]
         for name, circuit in cases:
             sim_with = DenseSVSimulator(n_qubits=2)
-            sim_with.run_circuit_jit_beast_mode(circuit)
+            sim_with.run_circuit_jit(circuit)
             without = [c for c in circuit if c[0] != name]
             sim_without = DenseSVSimulator(n_qubits=2)
-            sim_without.run_circuit_jit_beast_mode(without)
+            sim_without.run_circuit_jit(without)
             assert not np.allclose(
                 np.asarray(sim_with.get_statevector()),
                 np.asarray(sim_without.get_statevector()), atol=1e-9,
@@ -204,7 +204,7 @@ class TestBeastModeGateDispatchGaps:
         ("cp_and_crz_and_cy_and_rx", [('rx', 0, 0.3), ('cx', 0, 1), ('cy', 1, 0), ('crz', 0, 1, 0.8), ('p', 1, 0.4)]),
     ])
     def test_matches_run_circuit(self, name, circuit):
-        # run_circuit_jit_beast_mode used to disagree with run_circuit() on
+        # run_circuit_jit used to disagree with run_circuit() on
         # qubit ordering (LSB-first vs the documented MSB-first) — now fixed
         # (see TestBeastModeQubitOrdering below), so a direct comparison
         # with no relabeling is the real correctness bar.
@@ -212,7 +212,7 @@ class TestBeastModeGateDispatchGaps:
         ref = DenseSVSimulator(n_qubits=n)
         ref.run_circuit(circuit)
         fast = DenseSVSimulator(n_qubits=n)
-        fast.run_circuit_jit_beast_mode(circuit)
+        fast.run_circuit_jit(circuit)
         np.testing.assert_allclose(
             np.asarray(ref.get_statevector()), np.asarray(fast.get_statevector()), atol=1e-9,
         )
@@ -224,9 +224,9 @@ class TestBeastModeGateDispatchGaps:
         # (CRZ phases based on the target's own bit, regardless of the
         # other bit's value)
         sim_cp = DenseSVSimulator(n_qubits=2)
-        sim_cp.run_circuit_jit_beast_mode([('x', 1), ('cp', 1, 0, 1.5)])  # ctrl=1(set), tgt=0(unset) -> CP no-op
+        sim_cp.run_circuit_jit([('x', 1), ('cp', 1, 0, 1.5)])  # ctrl=1(set), tgt=0(unset) -> CP no-op
         sim_crz = DenseSVSimulator(n_qubits=2)
-        sim_crz.run_circuit_jit_beast_mode([('x', 1), ('crz', 1, 0, 1.5)])
+        sim_crz.run_circuit_jit([('x', 1), ('crz', 1, 0, 1.5)])
         assert not np.allclose(
             np.asarray(sim_cp.get_statevector()), np.asarray(sim_crz.get_statevector()), atol=1e-9,
         )
@@ -234,14 +234,14 @@ class TestBeastModeGateDispatchGaps:
     def test_sx_squared_is_x(self):
         # convention-independent algebraic identity: SX*SX = X
         sim = DenseSVSimulator(n_qubits=1)
-        sim.run_circuit_jit_beast_mode([('sx', 0), ('sx', 0)])
+        sim.run_circuit_jit([('sx', 0), ('sx', 0)])
         p = probs(sim)
         assert p[1] > 0.999   # |0> -> |1>, same as a single X
 
     def test_previously_working_gates_unaffected(self, sim2):
         # h/cx/rz/s/sdg/t/tdg already worked before this fix -- confirm the
         # is_1q boundary change (12 -> 13, needed for sx) didn't misroute them
-        sim2.run_circuit_jit_beast_mode([('h', 0), ('cx', 0, 1), ('rz', 1, 0.6)])
+        sim2.run_circuit_jit([('h', 0), ('cx', 0, 1), ('rz', 1, 0.6)])
         p = probs(sim2)
         assert abs(p.sum() - 1.0) < 1e-9
 
@@ -260,12 +260,12 @@ class TestUnknownGateRaises:
     def test_beast_mode_raises_on_unknown_gate(self):
         sim = DenseSVSimulator(n_qubits=2)
         with pytest.raises(ValueError, match="unknown gate"):
-            sim.run_circuit_jit_beast_mode([('h', 0), ('ch', 0, 1)])
+            sim.run_circuit_jit([('h', 0), ('ch', 0, 1)])
 
     def test_parametric_batch_raises_on_unknown_gate(self):
         sim = DenseSVSimulator(n_qubits=2)
         with pytest.raises(ValueError, match="unknown gate"):
-            sim.run_parametric_batch_jit(
+            sim.run_batch_jit(
                 [('h', 0), ('ch', 0, 1)], np.zeros((3, 0))
             )
 
@@ -278,7 +278,7 @@ class TestUnknownGateRaises:
 
 
 class TestParametricBatchColumnMismatchRaises:
-    """Issue #6: run_parametric_batch_jit assigns one parameter_batch
+    """Issue #6: run_batch_jit assigns one parameter_batch
     column per parametric gate, in gate-appearance order -- including
     literal-float rotation gates, which silently ignored their literal
     and consumed a column anyway. A column-count mismatch used to be
@@ -291,13 +291,13 @@ class TestParametricBatchColumnMismatchRaises:
         sim = DenseSVSimulator(n_qubits=2)
         circuit = [('rx', 0, None), ('ry', 1, None)]
         with pytest.raises(ValueError, match="parameter_batch"):
-            sim.run_parametric_batch_jit(circuit, np.zeros((5, 1)))
+            sim.run_batch_jit(circuit, np.zeros((5, 1)))
 
     def test_too_many_columns_raises(self):
         sim = DenseSVSimulator(n_qubits=2)
         circuit = [('rx', 0, None)]
         with pytest.raises(ValueError, match="parameter_batch"):
-            sim.run_parametric_batch_jit(circuit, np.zeros((5, 2)))
+            sim.run_batch_jit(circuit, np.zeros((5, 2)))
 
     def test_literal_float_rotation_still_consumes_a_column(self):
         # the exact footgun from issue #6: a literal float on a rotation
@@ -305,17 +305,17 @@ class TestParametricBatchColumnMismatchRaises:
         sim = DenseSVSimulator(n_qubits=2)
         circuit = [('rx', 0, 0.5), ('ry', 1, None)]
         with pytest.raises(ValueError, match="parameter_batch"):
-            sim.run_parametric_batch_jit(circuit, np.zeros((5, 1)))  # needs 2 columns, not 1
+            sim.run_batch_jit(circuit, np.zeros((5, 1)))  # needs 2 columns, not 1
 
     def test_matching_column_count_runs_correctly(self):
         sim = DenseSVSimulator(n_qubits=2)
         circuit = [('rx', 0, None), ('ry', 1, None)]
-        out = sim.run_parametric_batch_jit(circuit, np.zeros((3, 2)))
+        out = sim.run_batch_jit(circuit, np.zeros((3, 2)))
         assert out.shape == (3, 4)
 
 
 class TestBeastModeQubitOrdering:
-    """run_circuit_jit_beast_mode used raw qubit index as bit position
+    """run_circuit_jit used raw qubit index as bit position
     (LSB-first: qubit 0 = least significant bit) inside _apply_gate_fast_step
     (do_1q/do_2q), while the rest of the simulator — run_circuit(),
     apply_gate_1q(), apply_gate_2q(), measure() — uses the documented
@@ -333,7 +333,7 @@ class TestBeastModeQubitOrdering:
         # flip the MOST significant bit (|000> -> |100>, index 4), not the
         # least significant one (index 1)
         sim = DenseSVSimulator(n_qubits=3)
-        sim.run_circuit_jit_beast_mode([('x', 0)])
+        sim.run_circuit_jit([('x', 0)])
         p = probs(sim)
         assert p[4] > 0.999
         assert p[1] < 1e-9
@@ -352,22 +352,22 @@ class TestBeastModeQubitOrdering:
         ref = DenseSVSimulator(n_qubits=n)
         ref.run_circuit(circuit)
         fast = DenseSVSimulator(n_qubits=n)
-        fast.run_circuit_jit_beast_mode(circuit)
+        fast.run_circuit_jit(circuit)
         np.testing.assert_allclose(
             np.asarray(ref.get_statevector()), np.asarray(fast.get_statevector()), atol=1e-9,
         )
 
-    def test_run_parametric_batch_jit_matches_run_circuit(self):
+    def test_run_batch_jit_matches_run_circuit(self):
         # same _apply_gate_fast_step kernel, must inherit the fix
         sim = DenseSVSimulator(n_qubits=3)
-        batch = sim.run_parametric_batch_jit([('rx', 0, None), ('cx', 0, 2)], np.array([[0.5]]))
+        batch = sim.run_batch_jit([('rx', 0, None), ('cx', 0, 2)], np.array([[0.5]]))
         ref = DenseSVSimulator(n_qubits=3)
         ref.run_circuit([('rx', 0, 0.5), ('cx', 0, 2)])
         np.testing.assert_allclose(np.asarray(batch[0]), ref.get_statevector(), atol=1e-9)
 
 
 class TestBeastModeFloat32:
-    """use_float32=True used to crash unconditionally in run_circuit_jit_beast_mode
+    """use_float32=True used to crash unconditionally in run_circuit_jit
     (the JIT fast path) — not just for circuits with 2-qubit gates, even a
     circuit with only 1-qubit gates hit it, because jax.lax.cond traces
     every branch of _apply_gate_fast_step's dispatch (do_1q AND do_2q)
@@ -381,13 +381,13 @@ class TestBeastModeFloat32:
 
     def test_1q_only_circuit_runs_under_float32(self):
         sim = DenseSVSimulator(n_qubits=3, use_float32=True)
-        sim.run_circuit_jit_beast_mode([['h', 0, -1], ['x', 1, -1]])
+        sim.run_circuit_jit([['h', 0, -1], ['x', 1, -1]])
         assert sim.sv.dtype == np.complex64
         assert abs(float(np.sum(np.abs(np.asarray(sim.sv)) ** 2)) - 1.0) < 1e-6
 
     def test_2q_gates_run_under_float32(self):
         sim = DenseSVSimulator(n_qubits=4, use_float32=True)
-        sim.run_circuit_jit_beast_mode(
+        sim.run_circuit_jit(
             [['h', 0, -1], ['cx', 0, 1, 0], ['cz', 1, 2, 0], ['cp', 2, 3, 0.7]]
         )
         assert sim.sv.dtype == np.complex64
@@ -399,21 +399,21 @@ class TestBeastModeFloat32:
             ['cx', 0, 1, 0], ['cz', 1, 2, 0], ['cp', 2, 3, 0.7], ['crz', 0, 3, 1.3],
         ]
         sim32 = DenseSVSimulator(n_qubits=4, use_float32=True)
-        sim32.run_circuit_jit_beast_mode(circuit)
+        sim32.run_circuit_jit(circuit)
         sim64 = DenseSVSimulator(n_qubits=4, use_float32=False)
-        sim64.run_circuit_jit_beast_mode(circuit)
+        sim64.run_circuit_jit(circuit)
         np.testing.assert_allclose(probs(sim32), probs(sim64), atol=1e-6)
 
 
 class TestBeastModeDonateArgnums:
-    """run_circuit_jit_beast_mode's self.sv = ... call used to allocate a
+    """run_circuit_jit's self.sv = ... call used to allocate a
     fresh statevector buffer on every call instead of letting XLA reuse the
     memory of the one it's replacing — zero donate_argnums anywhere in the
     codebase, confirmed via audit. Only THIS call site is safe to donate:
     self.sv is always rebound immediately after, and no code path anywhere
     (including run_circuit_with_chunking's repeated calls, or separate
     DenseSVSimulator instances) keeps a stale reference to the old buffer
-    across the call. run_parametric_batch_jit (vmap-broadcasts its init_sv
+    across the call. run_batch_jit (vmap-broadcasts its init_sv
     closure across the whole batch) and circuit_to_energy_fn's energy_fn
     (the VQE loop reuses the same stato_zero every epoch) are NOT safe to
     donate — verified by tracing every call site of the shared
@@ -423,12 +423,12 @@ class TestBeastModeDonateArgnums:
     def test_result_unchanged_by_donation(self):
         circuit = [['h', 0, -1], ['cx', 0, 1, 0], ['rz', 1, 0.6]]
         sim = DenseSVSimulator(n_qubits=3, use_float32=False)
-        sim.run_circuit_jit_beast_mode(circuit)
+        sim.run_circuit_jit(circuit)
         expected = probs(sim)
 
         # independent instance, same circuit, confirms determinism/parity
         sim2 = DenseSVSimulator(n_qubits=3, use_float32=False)
-        sim2.run_circuit_jit_beast_mode(circuit)
+        sim2.run_circuit_jit(circuit)
         np.testing.assert_allclose(probs(sim2), expected, atol=1e-12)
         assert abs(expected.sum() - 1.0) < 1e-9
 
@@ -441,12 +441,12 @@ class TestBeastModeDonateArgnums:
         import jax
         sim = DenseSVSimulator(n_qubits=3, use_float32=False)
         old_sv = sim.sv
-        sim.run_circuit_jit_beast_mode([['h', 0, -1]])
+        sim.run_circuit_jit([['h', 0, -1]])
         with pytest.raises(RuntimeError, match="deleted"):
             jax.block_until_ready(old_sv)
 
     def test_chunked_repeated_calls_stay_correct(self):
-        # run_circuit_with_chunking calls run_circuit_jit_beast_mode
+        # run_circuit_with_chunking calls run_circuit_jit
         # repeatedly in a loop -- each call donates and rebinds self.sv;
         # confirms that repeated donation across many calls doesn't
         # accumulate any corruption.
@@ -646,14 +646,14 @@ class TestParametricGates:
         sim2.run_circuit([('u3', 0, np.pi, 0.3, 0.7)], transpile=True)
         assert abs(norm(sim2) - 1.0) < 1e-12
 
-    def test_run_parametric_batch_jit_cp_gate(self):
-        # run_parametric_batch_jit's cp/crz/cphase branch -- a 2-qubit
+    def test_run_batch_jit_cp_gate(self):
+        # run_batch_jit's cp/crz/cphase branch -- a 2-qubit
         # parametric gate, distinct from the 1-qubit rx/ry/rz/p/u1 and
         # non-parametric cx/cz/swap/cy branches exercised elsewhere.
         sim = DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
         sim.apply_gate_1q(GATES['h'], 0)
         sim.apply_gate_1q(GATES['h'], 1)
-        out = sim.run_parametric_batch_jit([('cp', 0, 1, None)], np.array([[0.5]]))
+        out = sim.run_batch_jit([('cp', 0, 1, None)], np.array([[0.5]]))
         out_np = np.asarray(out)
         assert out_np.shape == (1, 4)
         np.testing.assert_allclose(np.sum(np.abs(out_np) ** 2, axis=1), 1.0, atol=1e-6)
@@ -734,3 +734,46 @@ class TestMemory:
         mb = sim.memory_mb()
         expected = (2**12 * 8) / 1e6
         assert abs(mb - expected) < 0.01
+
+# ─────────────────────────────────────────────────────────────
+# 10. DEPRECATED ALIASES (renamed in 8.1.46: run_circuit_jit_beast_mode ->
+# run_circuit_jit, run_parametric_batch_jit -> run_batch_jit -- both names
+# were real, documented public API across many prior PyPI releases, so
+# the old names stay callable and behaviorally identical, just warning,
+# rather than breaking anyone's existing code silently)
+# ─────────────────────────────────────────────────────────────
+
+class TestDeprecatedAliases:
+
+    def test_run_circuit_jit_beast_mode_still_works_and_warns(self):
+        sim = DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
+        with pytest.deprecated_call():
+            sim.run_circuit_jit_beast_mode([('h', 0), ('cx', 0, 1)])
+        p = probs(sim)
+        assert p[0] == pytest.approx(0.5, abs=1e-9)
+        assert p[3] == pytest.approx(0.5, abs=1e-9)
+
+    def test_run_circuit_jit_beast_mode_matches_new_name(self):
+        circuit = [('h', 0), ('cx', 0, 1), ('rz', 1, 0.6)]
+        old = DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
+        new = DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
+        with pytest.deprecated_call():
+            old.run_circuit_jit_beast_mode(circuit)
+        new.run_circuit_jit(circuit)
+        assert probs(old) == pytest.approx(probs(new), abs=1e-9)
+
+    def test_run_parametric_batch_jit_still_works_and_warns(self):
+        sim = DenseSVSimulator(n_qubits=1, use_gpu=False, use_float32=False)
+        with pytest.deprecated_call():
+            out = sim.run_parametric_batch_jit([('rx', 0, None)], np.array([[0.0]]))
+        assert np.asarray(out).shape == (1, 2)
+
+    def test_run_parametric_batch_jit_matches_new_name(self):
+        circuit = [('rx', 0, None), ('cx', 0, 2)]
+        batch = np.array([[0.5]])
+        sim_old = DenseSVSimulator(n_qubits=3, use_gpu=False, use_float32=False)
+        sim_new = DenseSVSimulator(n_qubits=3, use_gpu=False, use_float32=False)
+        with pytest.deprecated_call():
+            out_old = sim_old.run_parametric_batch_jit(circuit, batch)
+        out_new = sim_new.run_batch_jit(circuit, batch)
+        assert np.allclose(np.asarray(out_old), np.asarray(out_new), atol=1e-9)

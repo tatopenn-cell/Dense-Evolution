@@ -142,7 +142,7 @@ class TestChunkMultiPiece:
         np.testing.assert_allclose(sv_chunk, sv_ref, atol=1e-9)
 
     def test_parametric_2q_gates_all_four_locations(self, force_chunk_bits):
-        # cp/crz aren't in GATE_IDS (run_circuit_jit_beast_mode's table) —
+        # cp/crz aren't in GATE_IDS (run_circuit_jit's table) —
         # canary for silently dropping them via the wrong dispatch table
         force_chunk_bits(4)
         cases = [
@@ -266,7 +266,7 @@ class TestChunkMultiPieceJIT:
     """dense_evolution.chunk's multi-chunk dispatch (num_chunks>1) used to
     apply gates one at a time via a Python loop calling
     sim.apply_gate_1q/apply_gate_2q (neither @jax.jit'd, no jax.lax.scan) —
-    6x slower than run_circuit_jit_beast_mode on an identical workload
+    6x slower than run_circuit_jit on an identical workload
     (10 qubits/200 gates/4 forced chunks: 2.2s vs 0.37s). Replaced with a
     single jax.lax.scan over the whole circuit, operating on the stacked
     (num_chunks, chunk_dim) representation directly (never materializing a

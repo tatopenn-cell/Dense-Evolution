@@ -92,7 +92,7 @@ parser = QASMParser()
 circuit = parser.parse(qasm)
 
 sim = DenseSVSimulator(n_qubits=3)
-sim.run_circuit_jit_beast_mode(circuit.to_tuples())
+sim.run_circuit_jit(circuit.to_tuples())
 
 probs = sim.get_probabilities()
 sv    = sim.get_statevector()
@@ -127,7 +127,7 @@ dense_evolution/
 ├── parser.py       QASMParser · QASMCircuit · OpenQASM 2.0 / 3.0
 ├── compiler.py     QuantumTranspiler · _apply_gate_fast_step (jit) · gate decomposition
 ├── chunk.py        SafeMemoryGuard · MemoryChunker · CircuitChunker · Chunk (Anti-OOM)
-└── simulator.py    DenseSVSimulator · run_parametric_batch_jit · vmap batch VQE
+└── simulator.py    DenseSVSimulator · run_batch_jit · vmap batch VQE
 
 ia_utils/
 └── vector_healing.py   median_healing · enhanced_dense_healing_hybrid (NaN/Inf-safe, lazy JAX import)
@@ -153,7 +153,7 @@ legacy/dash.py                                     original Colab notebook, refe
 | Feature | Detail |
 |---|---|
 | **Linear Kernel Fusion** | Stride-sliced tensor ops via JAX XLA — zero Kronecker matrices |
-| **Parametric Batch JIT** | `run_parametric_batch_jit()` evaluates full parameter grids in one `jax.vmap` + `jax.jit` call |
+| **Parametric Batch JIT** | `run_batch_jit()` evaluates full parameter grids in one `jax.vmap` + `jax.jit` call |
 | **Circuit Chunking** | Fixed-size JIT blocks eliminate tracer overhead on 1000+ gate circuits |
 | **Kraus Noise Channels** | `depolarizing` `amplitude_damping` `phase_damping` `bitflip` `combined` — stochastic, O(2ⁿ) cost |
 | **VQE + ADAM** | Hellmann-Feynman gradient · positional parameter injection into any OpenQASM 2.0 circuit |
@@ -216,9 +216,9 @@ sim = DenseSVSimulator(
 |---|---|
 | `set_initial_state(state=None)` | Reset to `\|0⟩ⁿ` or inject custom statevector |
 | `run_circuit(circuit, transpile=True)` | Plain (non-JIT) gate execution — takes the tuple format below |
-| `run_circuit_jit_beast_mode(circuit)` | JIT-compiled gate execution — primary execution path |
+| `run_circuit_jit(circuit)` | JIT-compiled gate execution — primary execution path (renamed from `run_circuit_jit_beast_mode` in 8.1.46; old name still works, deprecated) |
 | `run_circuit_with_chunking(circuit, chunk_size=500)` | Chunked execution for long circuits |
-| `run_parametric_batch_jit(base_circuit, parameter_batch)` | `vmap` over parameter grid — returns full batch of statevectors |
+| `run_batch_jit(base_circuit, parameter_batch)` | `vmap` over parameter grid — returns full batch of statevectors (renamed from `run_parametric_batch_jit` in 8.1.46; old name still works, deprecated) |
 | `get_probabilities()` → `np.ndarray` | `\|ψ_i\|²` for all basis states |
 | `get_statevector()` → `np.ndarray` | Full complex statevector |
 | `measure(qubit_idx)` → `int` | Projective measurement with state collapse |
@@ -237,8 +237,8 @@ valid, msg = parser.validate(circuit)
 `QASMCircuit` fields: `n_qubits`, `n_cbits`, `ops` (list of gate dicts, e.g.
 `{'name': 'h', 'qubits': [0], 'params': []}`). Use `circuit.to_tuples()` to
 convert `ops` to the `(name, qubit0[, qubit1, ...][, param0, ...])` tuple
-format that `run_circuit` / `run_circuit_jit_beast_mode` expect — don't
-build that format by hand.
+format that `run_circuit` / `run_circuit_jit` expect — don't build that
+format by hand.
 
 ### `NoiseModel`
 

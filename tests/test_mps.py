@@ -35,7 +35,7 @@ def _entangling_circuit_probs_dense(n, seed=7, layers=4):
             ops.append(["rz", q, float(rng.uniform(0.1, 1.5))])
         for q in range(1, n - 1, 2):
             ops.append(["cx", q + 1, q])
-    sim.run_circuit_jit_beast_mode(ops)
+    sim.run_circuit_jit(ops)
     return np.array(sim.get_probabilities())
 
 
@@ -161,7 +161,7 @@ def test_nonlocal_2q_gate_ctrl_greater_than_tgt_matches_dense_simulator():
            ["cx", 3, 1],   # non-adjacent, ctrl > tgt -- again
            ["cx", 0, 4]]   # non-adjacent, ctrl < tgt, for contrast
     sim = de.DenseSVSimulator(n_qubits=n, use_gpu=False, use_float32=False)
-    sim.run_circuit_jit_beast_mode(ops)
+    sim.run_circuit_jit(ops)
     prob_dense = np.array(sim.get_probabilities())
 
     mps = MPSSimulator(n_qubits=n, max_bond=16)
@@ -650,7 +650,7 @@ def test_run_circuit_jit_matches_dense_simulator(n_qubits, max_bond, jsd_budget,
             ops.append(["cx", q + 1, q])
 
     sim_dense = de.DenseSVSimulator(n_qubits=n_qubits, use_gpu=False, use_float32=False)
-    sim_dense.run_circuit_jit_beast_mode(ops)
+    sim_dense.run_circuit_jit(ops)
     prob_dense = np.array(sim_dense.get_probabilities())
 
     mps = MPSSimulator(n_qubits=n_qubits, max_bond=max_bond, jsd_budget=jsd_budget)
