@@ -5,7 +5,7 @@ Build a circuit graphically or in OpenQASM, run it on the real
 probabilities, Q-sphere and circuit diagram — the same engine documented
 throughout the [API Reference](api/index.md), not a separate demo.
 
-<link rel="stylesheet" href="../static/style.css" />
+<link rel="stylesheet" href="../assets/composer/style.css" />
 
 <div id="de-composer-root">
   <section class="toolbar">
@@ -274,10 +274,13 @@ throughout the [API Reference](api/index.md), not a separate demo.
   </section>
 </div>
 
-<script src="../static/app.js"></script>
+<script src="../assets/composer/app.js"></script>
 
-!!! note "Runs from this machine"
-    This page calls a local API (`/api/run`, `/api/build_from_ops`) served
-    by `local_site/app/server.py`, which runs `python server.py` on your
-    own PC and executes every circuit on the real simulator — nothing here
-    is precomputed or mocked.
+!!! note "Runs on your own machine, not a shared server"
+    This page is static — every circuit runs on a real local kernel
+    (`dense_evolution`'s own `DenseSVSimulator`, driven by `local_site/app/server.py`)
+    that you run on your own PC. Nothing here is precomputed or mocked, and
+    nothing you run is sent anywhere else. Install with
+    `pip install dense-evolution[composer]`, start it with
+    `dense-evolution serve`, then reload this page — the banner above turns
+    green the moment it detects your kernel.

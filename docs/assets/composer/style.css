@@ -312,4 +312,48 @@ body {
   min-height: 1.5rem;
   white-space: pre-wrap;
 }
+
+/* #de-composer-root.locked dims and disables the whole panel (published
+   page, no local kernel answering yet) while #de-kernel-banner above it
+   stays fully interactive -- the banner is a sibling, inserted just
+   before the root, never a child, precisely so .locked's pointer-events:
+   none can't also swallow clicks on its own Riprova button. */
+#de-kernel-banner {
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+#de-kernel-banner code {
+  display: inline-block;
+  margin: 0.15rem 0;
+  padding: 0.1rem 0.5rem;
+  border-radius: 4px;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.8rem;
+}
+#de-kernel-banner .btn { margin-top: 0.5rem; padding: 0.35rem 0.9rem; font-size: 0.85rem; }
+
+.de-kernel-locked {
+  background: color-mix(in srgb, var(--de-red) 10%, var(--de-bg));
+  border: 1px solid color-mix(in srgb, var(--de-red) 35%, var(--de-border));
+  color: var(--de-text);
+}
+.de-kernel-locked code {
+  background: color-mix(in srgb, var(--de-red) 14%, var(--de-bg));
+  border: 1px solid color-mix(in srgb, var(--de-red) 30%, var(--de-border));
+}
+
+.de-kernel-ok {
+  background: color-mix(in srgb, var(--de-accent) 10%, var(--de-bg));
+  border: 1px solid color-mix(in srgb, var(--de-accent) 35%, var(--de-border));
+  color: var(--de-text-dim);
+}
+
+#de-composer-root.locked {
+  opacity: 0.4;
+  pointer-events: none;
+  filter: grayscale(0.3);
+}
 .ham-result.error { color: var(--de-red); }

@@ -1,9 +1,12 @@
 """
-Real local web app for Dense-Evolution -- plain FastAPI + HTML/CSS/JS
-(no Streamlit), styled to match the project's existing MkDocs Material
-docs site (same palette: primary black, accent cyan -- see
-local_site/mkdocs.yml). Runs entirely from this machine ("l'app parte
-da PC"): `python server.py`, then open http://127.0.0.1:8800/.
+The real local compute kernel behind the published Composer page
+(docs/composer.md, part of the main site -- not a separate docs project
+anymore). This process is the only thing that runs on your own machine:
+`pip install dense-evolution[composer]` then `dense-evolution serve` (or
+directly `python -m local_site.app.server`), and the public page's
+JavaScript talks to it at http://127.0.0.1:8800 as its execution backend.
+It serves no HTML of its own -- the UI lives in the real published docs
+site, this is API-only.
 
 Every endpoint below is a thin wrapper around the real, already-tested
 dashboard_core functions (engine.run_circuit_from_qasm, visuals.*,
@@ -32,7 +35,7 @@ matplotlib.use("Agg")
 import numpy as np
 import uvicorn
 from fastapi import FastAPI, HTTPException
-from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 # dashboard_core / dense_evolution live at the repo root, two levels up
@@ -41,21 +44,44 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
 import dashboard_core as dc  # noqa: E402
+import dense_evolution  # noqa: E402
 
-STATIC_DIR = Path(__file__).resolve().parent / "static"
-# The real docs site, built from local_site/docs + local_site/mkdocs.yml via
-# `mkdocs build -f local_site/mkdocs.yml -d local_site/site` -- same content
-# as the live GitHub Pages site, plus the Composer page added to its nav.
-# Nothing here replaces the docs; this server just serves the built copy so
-# the Composer page and the rest of the site are reachable from one place.
-SITE_DIR = Path(__file__).resolve().parents[1] / "site"
+app = FastAPI(title="Dense-Evolution Composer Kernel")
 
-app = FastAPI(title="Dense-Evolution Composer")
+# The Composer page (docs/composer.md, part of the main site, published on
+# GitHub Pages at tatopenn-cell.github.io) calls this local server as its
+# compute kernel: the page itself is served from GitHub's origin (or opened
+# straight from a downloaded copy on disk, origin "null"), this server from
+# 127.0.0.1, so the browser treats every /api/* call as cross-origin and
+# blocks it without this. localhost:8000 is `mkdocs serve`'s own dev server,
+# included so the docs site can be developed against a locally-running
+# kernel too, not just the published one. "null" is what browsers send as
+# Origin for a page opened via file:// (the offline-downloaded copy) -- not
+# a wildcard: this API executes real code (arbitrary OpenQASM), so only
+# these known, intended origins are allowed rather than any page on the
+# internet that happens to guess the port.
+ALLOWED_ORIGINS = [
+    "https://tatopenn-cell.github.io",
+    "http://127.0.0.1:8000",
+    "http://localhost:8000",
+    "null",
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
 
-# Specific routes/mounts first -- the full-site mount is registered last
-# (below, after the API routes) so it acts as the catch-all without
-# shadowing /api or /static.
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+@app.get("/api/health")
+def health():
+    """Presence probe for the published Composer page: if this responds,
+    a real local kernel is installed and running on this machine, so the
+    page can unlock live execution instead of showing install instructions.
+    version is dense_evolution's own, not this API's -- lets the page warn
+    if the installed kernel is old enough to be missing an endpoint it needs."""
+    return {"status": "ok", "dense_evolution_version": dense_evolution.__version__}
 
 
 def _figure_to_base64_png(fig) -> str:
@@ -456,10 +482,11 @@ def mitigate_matrix(req: MitigateMatrixRequest):
     }
 
 
-# Catch-all: the real built docs site (Home, Getting Started, API Reference,
-# Composer, ...), registered last so it never shadows /api or /static above.
-app.mount("/", StaticFiles(directory=str(SITE_DIR), html=True), name="site")
+def main():
+    """Console-script entry point (`dense-evolution serve`, see
+    dense_evolution/cli.py) -- identical to running this file directly."""
+    uvicorn.run(app, host="127.0.0.1", port=8800)
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8800)
+    main()

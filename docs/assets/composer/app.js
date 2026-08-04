@@ -80,13 +80,57 @@ function renderElementPalette() {
   });
 }
 
+// This page is static -- served from GitHub Pages, from `mkdocs serve`'s
+// own preview, or opened straight off disk as a downloaded copy (origin
+// "null"). The local kernel (local_site/app/server.py) never binds
+// anywhere but 127.0.0.1:8800 (see its own __main__ block), so that's
+// always the real address, regardless of where this script itself came
+// from -- there's no case anymore where the page and the kernel share an
+// origin (see server.py's own module docstring: it serves no HTML at all).
+const API_BASE = "http://127.0.0.1:8800";
+
 async function api(path, opts) {
-  const res = await fetch(path, opts);
+  const res = await fetch(API_BASE + path, opts);
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(body.detail || res.statusText);
   }
   return res.json();
+}
+
+// Presence probe for the local kernel (server.py running on this machine).
+// Published pages start locked -- the interactive panels are real, running
+// code the moment they're used, so nothing runs until a real kernel answers.
+async function checkKernel() {
+  const root = $("de-composer-root");
+  let banner = document.getElementById("de-kernel-banner");
+  if (!banner) {
+    banner = document.createElement("div");
+    banner.id = "de-kernel-banner";
+    root.parentNode.insertBefore(banner, root);
+  }
+
+  try {
+    const health = await api("/api/health");
+    root.classList.remove("locked");
+    banner.className = "de-kernel-banner de-kernel-ok";
+    banner.innerHTML =
+      `Kernel locale connesso &mdash; dense_evolution v${health.dense_evolution_version}. ` +
+      `I circuiti girano per davvero sul tuo PC, nessun dato lascia questa macchina.`;
+    return true;
+  } catch (err) {
+    root.classList.add("locked");
+    banner.className = "de-kernel-banner de-kernel-locked";
+    banner.innerHTML =
+      `<strong>Kernel locale non rilevato.</strong> Questa pagina esegue i circuiti sul motore ` +
+      `reale (dense_evolution + JAX) in esecuzione sul tuo PC &mdash; nessun server condiviso, ` +
+      `nessun dato inviato altrove. Per sbloccare:<br>` +
+      `<code>pip install dense-evolution[composer]</code><br>` +
+      `<code>dense-evolution serve</code><br>` +
+      `<button id="de-kernel-retry" class="btn btn-primary">Riprova</button>`;
+    document.getElementById("de-kernel-retry").addEventListener("click", () => { void loadEverything(); });
+    return false;
+  }
 }
 
 function setStatus(text, isError) {
@@ -824,10 +868,15 @@ async function loadSystemLimits() {
   }
 }
 
-async function init() {
-  buildEmptyGrid();
-  renderGrid();
-  renderElementPalette();
+// Everything here needs a real kernel to answer, so it's gated behind
+// checkKernel() rather than fired unconditionally -- on a published page
+// with no kernel installed yet, this would otherwise be five doomed
+// fetches on every load instead of one clear locked state. Re-callable
+// from the banner's Riprova button once the visitor starts the kernel,
+// without re-registering any of init()'s event listeners.
+async function loadEverything() {
+  const connected = await checkKernel();
+  if (!connected) return;
   // Sequenced, not fire-and-forget: loadPresetsAndPalette's own init sets
   // a Bell-state baseline (#qasm, #preset-select) unconditionally at its
   // end, and refreshHamiltonianCatalog's auto-load of the catalog's first
@@ -845,6 +894,13 @@ async function init() {
   await refreshHamiltonianCatalog();
   loadNoiseModels();
   loadSystemLimits();
+}
+
+async function init() {
+  buildEmptyGrid();
+  renderGrid();
+  renderElementPalette();
+  await loadEverything();
 
   $("n-qubits").addEventListener("change", (e) => {
     nQubits = Math.max(1, Math.min(maxQubits, parseInt(e.target.value, 10) || 1));
