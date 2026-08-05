@@ -33,7 +33,7 @@ jobs:
           pip install setuptools pytest pytest-cov numpy scipy pandas matplotlib psutil ipython jax jaxlib seaborn plotly
           pip install qiskit pennylane pylatexenc
           pip install streamlit>=1.30.0 ipywidgets>=8.0.0
-          pip install fastapi uvicorn pydantic # composer extra -- local_site/app/server.py + tests/test_local_site_server.py
+          pip install fastapi uvicorn pydantic httpx2 # composer extra -- local_site/app/server.py + tests/test_local_site_server.py (httpx2: starlette.testclient's current required client)
           pip install -e . --no-deps # Installa il pacchetto locale in modalita' editable:
           # con un'installazione normale (`pip install .`), i sorgenti finiscono
           # copiati dentro site-packages e i test importano QUELLA copia, non i
