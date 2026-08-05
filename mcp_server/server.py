@@ -41,9 +41,14 @@ from typing import Optional
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
-from mcp.server.fastmcp import FastMCP
+# mcp>=2.0.0 renamed FastMCP -> MCPServer and moved it from
+# mcp.server.fastmcp to mcp.server.mcpserver (re-exported at mcp.server
+# directly). Everything else -- @mcp.tool(name=..., annotations={...}) with
+# a plain dict, Pydantic model params, mcp.run() -- is unchanged between
+# the two; this was the only line that needed to move.
+from mcp.server import MCPServer
 
-mcp = FastMCP("dense_evolution_mcp")
+mcp = MCPServer("dense_evolution_mcp")
 
 KERNEL_URL = os.environ.get("DENSE_EVOLUTION_KERNEL_URL", "http://127.0.0.1:8800").rstrip("/")
 IMAGE_OUTPUT_DIR = Path(
