@@ -25,7 +25,12 @@ It listens on `http://127.0.0.1:8800` by default. Leave it running.
 
 ## 2. Install this server's dependencies
 
+Now part of the package as an extra, so either works:
+
 ```bash
+pip install -e ".[mcp]"           # if you have the repo checked out
+pip install "dense-evolution[mcp]"  # from PyPI, once published
+# or, standalone without the extras mechanism:
 pip install -r mcp_server/requirements.txt
 ```
 
@@ -34,8 +39,13 @@ pip install -r mcp_server/requirements.txt
 **Claude Code:**
 
 ```bash
-claude mcp add dense_evolution -- python /absolute/path/to/mcp_server/server.py
+claude mcp add dense_evolution -- dense-evolution mcp
 ```
+
+`dense-evolution mcp` is the console-script entry point (added in
+`dense_evolution/cli.py`, mirrors `dense-evolution serve`); it just calls
+this file's `main()`. Running `python /absolute/path/to/mcp_server/server.py`
+directly still works too, e.g. if you haven't installed the package.
 
 **Manual `.mcp.json` / `claude_desktop_config.json` entry:**
 

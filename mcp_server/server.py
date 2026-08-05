@@ -613,5 +613,14 @@ async def dense_evolution_mitigate_density_matrix(params: MitigateDensityMatrixI
         return _handle_error(e)
 
 
-if __name__ == "__main__":
+def main():
+    """Console-script entry point (`dense-evolution mcp`, see
+    dense_evolution/cli.py) -- identical to running this file directly.
+    stdio transport: this process is meant to be launched by an MCP
+    client (Claude Code, Claude Desktop, ...) as a subprocess, not run
+    standalone in a terminal."""
     mcp.run()
+
+
+if __name__ == "__main__":
+    main()

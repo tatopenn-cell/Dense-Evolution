@@ -1,7 +1,7 @@
 """
 `dense-evolution` console script (see pyproject.toml [project.scripts]).
 
-Two real subcommands:
+Three real subcommands:
   serve             starts the local Composer kernel (local_site.app.server)
                     that the published Composer page (docs/composer.md)
                     talks to.
@@ -10,10 +10,16 @@ Two real subcommands:
                     the same-origin assets it references, into a local
                     folder -- so it opens via file:// with no internet at
                     all, while still talking to the local kernel above.
+  mcp               starts the dense_evolution_mcp MCP server (mcp_server/),
+                    a thin adapter that exposes the same Composer kernel
+                    endpoints as MCP tools for an agent to call directly.
+                    Requires `serve` running separately -- this process
+                    talks to that kernel over HTTP, it doesn't embed it.
 
-fastapi/uvicorn/pydantic are the `dense-evolution[composer]` extra, not
-core dependencies -- imported here, inside the serve branch, not at
-module level, so `import dense_evolution` itself never requires them.
+fastapi/uvicorn/pydantic (composer) and mcp/httpx (mcp) are optional
+extras, not core dependencies -- imported here, inside their own command
+branch, not at module level, so `import dense_evolution` itself never
+requires them.
 """
 
 import sys
@@ -27,8 +33,14 @@ commands:
   offline-composer [DEST]  Download the real published Composer page and its
                            assets into DEST (default: ./composer-offline) so
                            it works via file:// with no internet.
+  mcp                      Start the dense_evolution_mcp MCP server (stdio
+                           transport) so an agent can call the Composer
+                           kernel's endpoints directly. Requires `serve`
+                           running separately (default http://127.0.0.1:8800,
+                           override with DENSE_EVOLUTION_KERNEL_URL).
 
 Requires the composer extra: pip install dense-evolution[composer]
+The mcp command requires the mcp extra: pip install dense-evolution[mcp]
 """
 
 COMPOSER_PAGE_URL = "https://tatopenn-cell.github.io/Dense-Evolution/composer/"
@@ -51,6 +63,25 @@ def _cmd_serve():
     _require_composer_extra()
     from local_site.app.server import main as serve_main
     serve_main()
+
+
+def _require_mcp_extra():
+    try:
+        import mcp, httpx  # noqa: F401
+    except ImportError as exc:
+        print(
+            "dense-evolution needs the mcp extra:\n"
+            "  pip install dense-evolution[mcp]\n"
+            f"(missing: {exc.name})",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
+def _cmd_mcp():
+    _require_mcp_extra()
+    from mcp_server.server import main as mcp_main
+    mcp_main()
 
 
 def _cmd_offline_composer(dest: str):
@@ -155,6 +186,9 @@ def main(argv=None):
     if args and args[0] == "offline-composer":
         dest = args[1] if len(args) > 1 else "composer-offline"
         _cmd_offline_composer(dest)
+        return
+    if args == ["mcp"]:
+        _cmd_mcp()
         return
 
     print(USAGE, file=sys.stderr if args else sys.stdout)

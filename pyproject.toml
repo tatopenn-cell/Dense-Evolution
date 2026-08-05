@@ -80,6 +80,16 @@ composer = [
     # on it here at all, not to make it merely optional.
     "pennylane>=0.35.0"
 ]
+mcp = [
+    "mcp>=1.0.0",
+    "httpx>=0.27",
+    "pydantic>=2.0.0",
+    # This extra only needs an HTTP client to talk to a kernel -- it doesn't
+    # import dense_evolution/dashboard_core itself and can run on a
+    # different machine than the one running `dense-evolution serve`, so it
+    # deliberately doesn't pull in fastapi/uvicorn/pennylane the way the
+    # composer extra does.
+]
 full = [
     "cupy-cuda12x>=12.0.0",
     "streamlit>=1.30.0",
@@ -88,7 +98,9 @@ full = [
     "pennylane>=0.35.0",
     "fastapi>=0.110.0",
     "uvicorn>=0.29.0",
-    "pydantic>=2.0.0"
+    "pydantic>=2.0.0",
+    "mcp>=1.0.0",
+    "httpx>=0.27"
 ]
 dev = [
     "pytest>=7.0.0",
@@ -112,7 +124,7 @@ Repository = "https://github.com/tatopenn-cell/Dense-Evolution"
 dense-evolution = "dense_evolution.cli:main"
 
 [tool.setuptools]
-packages = ["dense_evolution", "ia_utils", "dashboard_core", "local_site", "local_site.app"]
+packages = ["dense_evolution", "ia_utils", "dashboard_core", "local_site", "local_site.app", "mcp_server"]
 
 [tool.setuptools.package-data]
 "dense_evolution" = ["*.py"]
