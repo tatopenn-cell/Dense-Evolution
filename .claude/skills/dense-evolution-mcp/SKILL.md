@@ -31,8 +31,16 @@ start it.
 If tackling something at the edge of what this machine can handle (many
 qubits, a long MD trajectory, UCCSD-ansatz VQE), call
 `dense_evolution_system_limits` and check `dense_evolution_health`'s RAM
-figures first -- the kernel will refuse and explain why rather than
-hang, but it's faster to size the request correctly up front.
+figures first. Note that this only protects against a dense statevector
+that literally won't fit in RAM -- it does *not* mean a request will be
+fast. Measured directly: `dense_evolution_run_vqe` on H2 (4 qubits, 150
+hardware-efficient iterations) took ~3s; the same ansatz on LiH (12
+qubits) didn't finish even 10 iterations within this adapter's 180s
+timeout. VQE cost scales steeply with qubit count, not just RAM -- for
+anything beyond the smallest catalog molecules (H2, HeH+, H3+), start
+with a very small `maxiter` (2-5) to see how long one iteration actually
+takes on this machine before committing to a real run, rather than
+assuming a size that worked for a small molecule will scale.
 
 ## Tool map
 
@@ -43,6 +51,7 @@ hang, but it's faster to size the request correctly up front.
 | Build QASM from a gate list instead of hand-writing it | `dense_evolution_build_circuit` |
 | Run a circuit (counts, probabilities, statevector) | `dense_evolution_run_circuit` |
 | Ground-state energy of a known/custom molecule | `dense_evolution_molecule_energy`, `_custom_molecule_energy` |
+| Energy at several geometries (e.g. a dissociation curve) | `dense_evolution_energy_scan` -- one call, not one per point |
 | Combine two molecular Hamiltonians | `dense_evolution_mix_molecules` |
 | Optimize a variational ground state | `dense_evolution_run_vqe` |
 | Nuclear forces / a dynamics trajectory | `dense_evolution_qmmm_forces`, `_md_trajectory` |

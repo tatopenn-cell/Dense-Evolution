@@ -31,6 +31,7 @@ their most significant entries rather than dumped in full -- the kernel's
 own response can be tens of thousands of floats for a 20+ qubit circuit.
 """
 
+import asyncio
 import base64
 import json
 import os
@@ -135,6 +136,54 @@ def _truncate_probabilities(probs: list, top_k: int = 25) -> dict:
 
 
 # --------------------------------------------------------------------------
+# Molecule name resolution: short ids <-> the kernel's full catalog keys
+# --------------------------------------------------------------------------
+#
+# The kernel's own catalog keys are long, human-readable strings, e.g.
+# "H2 (Idrogeno) - R = 0.7414 A [equilibrio reale]" -- fine for a web page
+# label, error-prone for an agent to reproduce verbatim across several tool
+# calls (exact punctuation, accented characters, etc.). Rather than change
+# the kernel's catalog (that key is also what the published Composer page
+# uses), this adapter derives a short id from each key's leading token
+# (e.g. "H2", "LiH", "HeH+") and accepts either form everywhere a molecule
+# `name` is expected. Derived from the live catalog, not hardcoded, so it
+# stays correct if the catalog grows.
+
+_molecule_alias_cache: dict | None = None  # short id (lowercased) -> full catalog key
+
+
+def _short_id(full_key: str) -> str:
+    return full_key.split(" (")[0].split(" -")[0].strip()
+
+
+async def _get_annotated_molecule_catalog(mapping: str) -> list:
+    """Catalog entries with a short `id` field added, and refreshes the
+    alias cache used by _resolve_molecule_name."""
+    global _molecule_alias_cache
+    catalog = await _request("GET", "/api/hamiltonians", params={"mapping": mapping})
+    _molecule_alias_cache = {}
+    annotated = []
+    for full_key, spec in catalog.items():
+        short = _short_id(full_key)
+        _molecule_alias_cache[short.lower()] = full_key
+        annotated.append({"id": short, "full_name": full_key, **spec})
+    return annotated
+
+
+async def _resolve_molecule_name(name: str) -> str:
+    """Accept either a short id ('H2') or the full catalog key and return
+    the full catalog key the kernel expects. Falls back to returning the
+    input unchanged if it's neither -- the kernel's own 404 (with the name
+    as given) is a clearer error than silently guessing."""
+    global _molecule_alias_cache
+    if _molecule_alias_cache is None:
+        await _get_annotated_molecule_catalog("jordan_wigner")
+    if name in _molecule_alias_cache.values():
+        return name
+    return _molecule_alias_cache.get(name.lower(), name)
+
+
+# --------------------------------------------------------------------------
 # Tools: kernel status
 # --------------------------------------------------------------------------
 
@@ -235,16 +284,22 @@ async def dense_evolution_list_molecules(params: ListMoleculesInput) -> str:
     """List every molecule in the built-in Hartree-Fock catalog, each with
     its real qubit count under the requested mapping. Use this to find valid
     `name` values for `dense_evolution_molecule_energy`, `_mix_molecules`,
-    `_run_vqe`, `_qmmm_forces`, and `_md_trajectory`.
+    `_run_vqe`, `_qmmm_forces`, `_md_trajectory`, and `_energy_scan`.
+
+    Each entry includes a short `id` (e.g. "H2", "LiH", "HeH+") derived from
+    the catalog's full descriptive name -- pass either form to any tool that
+    takes a molecule `name`; the short id is easier to copy exactly across
+    multiple tool calls than the full "H2 (Idrogeno) - R = 0.7414 A
+    [equilibrio reale]"-style string.
 
     Args:
         params (ListMoleculesInput): mapping -- 'jordan_wigner' (default) or 'bravyi_kitaev'.
 
     Returns:
-        str: JSON list of catalog molecules with their qubit counts.
+        str: JSON list of {id, full_name, symbols, geometry, charge, n_qubits} per molecule.
     """
     try:
-        return json.dumps(await _request("GET", "/api/hamiltonians", params={"mapping": params.mapping}), indent=2)
+        return json.dumps(await _get_annotated_molecule_catalog(params.mapping), indent=2)
     except Exception as e:
         return _handle_error(e)
 
@@ -357,7 +412,10 @@ async def dense_evolution_run_circuit(params: RunCircuitInput) -> str:
 
 class MoleculeEnergyInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    name: str = Field(..., description="Catalog molecule name -- see dense_evolution_list_molecules.")
+    name: str = Field(
+        ..., description="Catalog molecule -- short id (e.g. 'H2', 'LiH', 'HeH+') or the full catalog "
+        "name. See dense_evolution_list_molecules."
+    )
     mapping: str = Field(default="jordan_wigner", description="'jordan_wigner' or 'bravyi_kitaev'.")
 
 
@@ -368,23 +426,26 @@ async def dense_evolution_molecule_energy(params: MoleculeEnergyInput) -> str:
     exact dense diagonalization.
 
     Args:
-        params (MoleculeEnergyInput): name, mapping.
+        params (MoleculeEnergyInput): name (short id or full catalog name), mapping.
 
     Returns:
         str: JSON with n_qubits, symbols, geometry, charge, ground_state_energy_hartree.
         "Error: ..." with a 404-style message if `name` is not in the catalog
-        (call dense_evolution_list_molecules to see valid names).
+        (call dense_evolution_list_molecules to see valid names/ids).
     """
     try:
-        return json.dumps(await _request("POST", "/api/hamiltonian/molecule", json=params.model_dump()), indent=2)
+        resolved = await _resolve_molecule_name(params.name)
+        payload = {**params.model_dump(), "name": resolved}
+        return json.dumps(await _request("POST", "/api/hamiltonian/molecule", json=payload), indent=2)
     except Exception as e:
         return _handle_error(e)
 
 
 class MixMoleculesInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    name_a: str = Field(..., description="First catalog molecule name.")
-    name_b: str = Field(..., description="Second catalog molecule name. Must have the same qubit count as name_a.")
+    name_a: str = Field(..., description="First catalog molecule -- short id or full catalog name.")
+    name_b: str = Field(..., description="Second catalog molecule -- short id or full catalog name. "
+                         "Must have the same qubit count as name_a.")
     weight_a: float = Field(default=0.5, description="Weight of the first Hamiltonian in the mix.")
     weight_b: float = Field(default=0.5, description="Weight of the second Hamiltonian in the mix.")
     mapping: str = Field(default="jordan_wigner", description="'jordan_wigner' or 'bravyi_kitaev'.")
@@ -399,13 +460,16 @@ async def dense_evolution_mix_molecules(params: MixMoleculesInput) -> str:
     rejected with a clear error.
 
     Args:
-        params (MixMoleculesInput): name_a, name_b, weight_a, weight_b, mapping.
+        params (MixMoleculesInput): name_a, name_b (short id or full catalog name), weight_a, weight_b, mapping.
 
     Returns:
         str: JSON with n_qubits, energy_a, energy_b, energy_mixed (all in Hartree).
     """
     try:
-        return json.dumps(await _request("POST", "/api/hamiltonian/mix", json=params.model_dump()), indent=2)
+        name_a = await _resolve_molecule_name(params.name_a)
+        name_b = await _resolve_molecule_name(params.name_b)
+        payload = {**params.model_dump(), "name_a": name_a, "name_b": name_b}
+        return json.dumps(await _request("POST", "/api/hamiltonian/mix", json=payload), indent=2)
     except Exception as e:
         return _handle_error(e)
 
@@ -440,13 +504,78 @@ async def dense_evolution_custom_molecule_energy(params: CustomMoleculeInput) ->
         return _handle_error(e)
 
 
+class EnergyScanInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    symbols: list = Field(..., min_length=1, description="Atomic symbols shared by every point in the scan, e.g. ['H', 'H'].")
+    geometries: list = Field(
+        ..., min_length=1, max_length=50,
+        description="List of [[x,y,z], ...] geometries (Angstrom) to evaluate, one per scan point -- "
+        "e.g. a bond-length or angle sweep. Each geometry must have the same number of rows as `symbols`. "
+        "Capped at 50 points per call to keep one request's kernel load bounded.",
+    )
+    charge: int = Field(default=0, description="Molecular charge, shared by every point.")
+    mapping: str = Field(default="jordan_wigner", description="'jordan_wigner' or 'bravyi_kitaev'.")
+    labels: Optional[list] = Field(
+        default=None,
+        description="Optional label per point (e.g. bond lengths in Angstrom: [0.4, 0.5, ...]) shown "
+        "alongside each result. Defaults to the point's index (0, 1, 2, ...) if omitted. Must be the "
+        "same length as `geometries` if given.",
+    )
+
+
+@mcp.tool(name="dense_evolution_energy_scan", annotations={"title": "Scan ground-state energy over several geometries", **COMPUTE})
+async def dense_evolution_energy_scan(params: EnergyScanInput) -> str:
+    """Compute the ground-state energy at each of several geometries in one
+    call -- e.g. a bond-length dissociation curve or a bond-angle sweep --
+    instead of calling dense_evolution_custom_molecule_energy once per
+    point. Points are evaluated concurrently against the kernel. A point
+    that fails (e.g. too many qubits for exact diagonalization) is reported
+    with its own error and does not abort the rest of the scan.
+
+    Args:
+        params (EnergyScanInput): symbols, geometries (list of points, max 50),
+            charge, mapping, labels (optional, one per point).
+
+    Returns:
+        str: JSON with:
+        {
+            "n_points": int,
+            "results": [{"label": ..., "n_qubits": int, "ground_state_energy_hartree": float} | {"label": ..., "error": str}, ...],
+            "minimum": {"label": ..., "ground_state_energy_hartree": float} | null  # over successful points only
+        }
+    """
+    if params.labels is not None and len(params.labels) != len(params.geometries):
+        return _handle_error(ValueError(
+            f"{len(params.labels)} labels but {len(params.geometries)} geometries -- must match."
+        ))
+    labels = params.labels if params.labels is not None else list(range(len(params.geometries)))
+
+    async def _one_point(label, geometry):
+        if len(params.symbols) != len(geometry):
+            return {"label": label, "error": f"{len(params.symbols)} symbols but {len(geometry)} geometry rows"}
+        try:
+            data = await _request(
+                "POST", "/api/hamiltonian/custom",
+                json={"symbols": params.symbols, "geometry": geometry, "charge": params.charge, "mapping": params.mapping},
+            )
+            return {"label": label, "n_qubits": data["n_qubits"], "ground_state_energy_hartree": data["ground_state_energy_hartree"]}
+        except Exception as e:
+            return {"label": label, "error": str(e)}
+
+    results = await asyncio.gather(*(_one_point(l, g) for l, g in zip(labels, params.geometries)))
+    successful = [r for r in results if "ground_state_energy_hartree" in r]
+    minimum = min(successful, key=lambda r: r["ground_state_energy_hartree"]) if successful else None
+    return json.dumps({"n_points": len(results), "results": results, "minimum": minimum}, indent=2)
+
+
 # --------------------------------------------------------------------------
 # Tools: VQE
 # --------------------------------------------------------------------------
 
 class RunVqeInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    name: Optional[str] = Field(default=None, description="Catalog molecule name. Provide this OR symbols+geometry, not both.")
+    name: Optional[str] = Field(default=None, description="Catalog molecule -- short id or full catalog name. "
+                                 "Provide this OR symbols+geometry, not both.")
     symbols: Optional[list] = Field(default=None, description="Atomic symbols for a custom molecule.")
     geometry: Optional[list] = Field(default=None, description="[[x, y, z], ...] in Angstrom for a custom molecule.")
     charge: int = Field(default=0, description="Molecular charge (custom molecule only).")
@@ -472,9 +601,9 @@ async def dense_evolution_run_vqe(params: RunVqeInput) -> str:
     RAM figures and start with a small maxiter/n_layers to gauge cost first.
 
     Args:
-        params (RunVqeInput): either `name` (catalog) or `symbols`+`geometry`
-            (custom) must be given, plus ansatz_type, n_layers, maxiter,
-            step_size, beta1, beta2, seed.
+        params (RunVqeInput): either `name` (short id or full catalog name)
+            or `symbols`+`geometry` (custom) must be given, plus
+            ansatz_type, n_layers, maxiter, step_size, beta1, beta2, seed.
 
     Returns:
         str: JSON with the optimized energy, convergence history, and
@@ -482,7 +611,10 @@ async def dense_evolution_run_vqe(params: RunVqeInput) -> str:
         symbols+geometry is provided, or the molecule is unknown.
     """
     try:
-        return json.dumps(await _request("POST", "/api/vqe", json=params.model_dump()), indent=2)
+        payload = params.model_dump()
+        if params.name:
+            payload["name"] = await _resolve_molecule_name(params.name)
+        return json.dumps(await _request("POST", "/api/vqe", json=payload), indent=2)
     except Exception as e:
         return _handle_error(e)
 
@@ -493,7 +625,7 @@ async def dense_evolution_run_vqe(params: RunVqeInput) -> str:
 
 class QmmmForcesInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    name: str = Field(..., description="Catalog molecule name -- see dense_evolution_list_molecules.")
+    name: str = Field(..., description="Catalog molecule -- short id or full catalog name. See dense_evolution_list_molecules.")
     mapping: str = Field(default="jordan_wigner", description="'jordan_wigner' or 'bravyi_kitaev'.")
 
 
@@ -504,20 +636,22 @@ async def dense_evolution_qmmm_forces(params: QmmmForcesInput) -> str:
     real Hartree-Fock ground state.
 
     Args:
-        params (QmmmForcesInput): name, mapping.
+        params (QmmmForcesInput): name (short id or full catalog name), mapping.
 
     Returns:
         str: JSON with per-atom force vectors and related energetics.
     """
     try:
-        return json.dumps(await _request("POST", "/api/qmmm_forces", json=params.model_dump()), indent=2)
+        resolved = await _resolve_molecule_name(params.name)
+        payload = {**params.model_dump(), "name": resolved}
+        return json.dumps(await _request("POST", "/api/qmmm_forces", json=payload), indent=2)
     except Exception as e:
         return _handle_error(e)
 
 
 class MdTrajectoryInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    name: str = Field(..., description="Catalog molecule name -- see dense_evolution_list_molecules.")
+    name: str = Field(..., description="Catalog molecule -- short id or full catalog name. See dense_evolution_list_molecules.")
     n_steps: int = Field(default=20, ge=1, le=200, description="Number of MD steps (capped at 200 to bound request cost).")
     dt_fs: float = Field(default=0.5, gt=0, description="Timestep in femtoseconds.")
     mapping: str = Field(default="jordan_wigner", description="'jordan_wigner' or 'bravyi_kitaev'.")
@@ -535,16 +669,19 @@ async def dense_evolution_md_trajectory(params: MdTrajectoryInput) -> str:
     forces at every step, for a catalog molecule.
 
     Args:
-        params (MdTrajectoryInput): name, n_steps, dt_fs, mapping,
-            recompute_electronic_state (true = true ab-initio MD, capped at
-            30 steps; false = fixed electronic state, capped at 200 steps).
+        params (MdTrajectoryInput): name (short id or full catalog name),
+            n_steps, dt_fs, mapping, recompute_electronic_state (true = true
+            ab-initio MD, capped at 30 steps; false = fixed electronic
+            state, capped at 200 steps).
 
     Returns:
         str: JSON with the trajectory (positions/energies per step).
         "Error: ..." if n_steps is out of range for the chosen mode.
     """
     try:
-        return json.dumps(await _request("POST", "/api/md_trajectory", json=params.model_dump()), indent=2)
+        resolved = await _resolve_molecule_name(params.name)
+        payload = {**params.model_dump(), "name": resolved}
+        return json.dumps(await _request("POST", "/api/md_trajectory", json=payload), indent=2)
     except Exception as e:
         return _handle_error(e)
 

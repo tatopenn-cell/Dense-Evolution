@@ -66,7 +66,7 @@ server's environment.
 
 ## Tools
 
-16 tools, one per Composer kernel endpoint:
+17 tools -- one per Composer kernel endpoint, plus a batch scan:
 
 | Tool | What it does |
 |---|---|
@@ -75,17 +75,24 @@ server's environment.
 | `dense_evolution_list_presets` | Built-in example OpenQASM circuits |
 | `dense_evolution_list_gates` | Gate palette for the graphical builder |
 | `dense_evolution_list_noise_models` | Available Kraus noise channels |
-| `dense_evolution_list_molecules` | Catalog molecules + qubit counts |
+| `dense_evolution_list_molecules` | Catalog molecules + qubit counts, each with a short `id` |
 | `dense_evolution_build_circuit` | Gate-op list -> OpenQASM |
 | `dense_evolution_run_circuit` | Run OpenQASM (dense or MPS backend) |
-| `dense_evolution_molecule_energy` | Ground-state energy, catalog molecule |
+| `dense_evolution_molecule_energy` | Ground-state energy, catalog molecule (short id or full name) |
 | `dense_evolution_mix_molecules` | Weighted mix of two catalog Hamiltonians |
 | `dense_evolution_custom_molecule_energy` | Ground-state energy, arbitrary molecule (<=12 qubits) |
+| `dense_evolution_energy_scan` | Ground-state energy at several geometries in one call (e.g. a dissociation curve) |
 | `dense_evolution_run_vqe` | Real VQE optimization (hardware-efficient or UCCSD) |
 | `dense_evolution_qmmm_forces` | Hellmann-Feynman nuclear forces |
 | `dense_evolution_md_trajectory` | Velocity-Verlet MD trajectory |
 | `dense_evolution_mitigate_zne` | Zero-noise extrapolation, scalar observable |
 | `dense_evolution_mitigate_density_matrix` | Zero-noise extrapolation, full density matrix |
+
+**Molecule names**: every tool that takes a catalog molecule accepts either
+its short `id` (e.g. `"H2"`, `"LiH"`, `"HeH+"`) or the kernel's full
+descriptive name (e.g. `"H2 (Idrogeno) - R = 0.7414 A [equilibrio reale]"`).
+The short id is derived from the live catalog at first use, not hardcoded,
+so it can't drift out of sync -- see `dense_evolution_list_molecules`.
 
 ## Design notes
 
