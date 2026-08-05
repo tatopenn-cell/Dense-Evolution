@@ -17,3 +17,5 @@ it can't drift out of sync with the code.
 | [Healing](healing.md) | Predictive-healing primitives |
 | [Interop](interop.md) | Qiskit / PennyLane bridges |
 | [Autodiff](autodiff.md) | Differentiable circuit-to-energy pipeline for VQE |
+| [Harrison Tight-Binding](harrison_tb.md) | Universal (materials-independent) sp3 tight-binding Hamiltonians |
+| [VHD Tight-Binding](vhd_tb.md) | Material-specific sp3s* tight-binding, validated against real GaAs/Si/Ge gaps |
