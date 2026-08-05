@@ -278,6 +278,75 @@ def test_vqe_on_custom_symbols_and_geometry():
     assert resp.json()
 
 
+def test_vqe_accepts_real_adam_hyperparameters():
+    """step_size/beta1/beta2 used to be hardcoded inside run_vqe with no
+    way to set them from any request -- confirms the API actually forwards
+    them (a wrong/unused value here wouldn't error, so this checks the
+    energy actually differs from the default hyperparameters, not just
+    that the request succeeds)."""
+    default_resp = client.post("/api/vqe", json={
+        "name": SMALL_MOLECULE, "n_layers": 1, "maxiter": 5, "seed": 0,
+    })
+    tuned_resp = client.post("/api/vqe", json={
+        "name": SMALL_MOLECULE, "n_layers": 1, "maxiter": 5, "seed": 0,
+        "step_size": 0.5, "beta1": 0.5, "beta2": 0.9,
+    })
+    assert default_resp.status_code == 200
+    assert tuned_resp.status_code == 200
+    assert default_resp.json()["vqe_energy_hartree"] != pytest.approx(
+        tuned_resp.json()["vqe_energy_hartree"])
+
+
+def test_qmmm_forces_on_catalog_molecule():
+    resp = client.post("/api/qmmm_forces", json={"name": SMALL_MOLECULE})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["symbols"] == ["H", "H"]
+    assert len(body["forces_hartree_per_angstrom"]) == 2
+    assert body["force_norm"] > 0
+
+
+def test_qmmm_forces_unknown_molecule_returns_400():
+    resp = client.post("/api/qmmm_forces", json={"name": "not-a-real-molecule"})
+    assert resp.status_code == 400
+
+
+def test_md_trajectory_on_catalog_molecule():
+    resp = client.post("/api/md_trajectory", json={
+        "name": SMALL_MOLECULE, "n_steps": 3, "dt_fs": 0.5,
+    })
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body["step"]) == 3
+    assert body["time_fs"] == [0.0, 0.5, 1.0]
+
+
+def test_md_trajectory_with_ab_initio_recompute():
+    """recompute_electronic_state=True re-solves real Hartree-Fock every
+    step -- the more expensive, more accurate path; kept to a couple of
+    steps here since each one is a real SCF solve."""
+    resp = client.post("/api/md_trajectory", json={
+        "name": SMALL_MOLECULE, "n_steps": 2, "dt_fs": 0.5,
+        "recompute_electronic_state": True,
+    })
+    assert resp.status_code == 200
+    assert len(resp.json()["step"]) == 2
+
+
+def test_md_trajectory_n_steps_out_of_range_returns_400():
+    resp = client.post("/api/md_trajectory", json={"name": SMALL_MOLECULE, "n_steps": 0})
+    assert resp.status_code == 400
+    resp = client.post("/api/md_trajectory", json={"name": SMALL_MOLECULE, "n_steps": 500})
+    assert resp.status_code == 400
+
+
+def test_md_trajectory_ab_initio_over_step_cap_returns_400():
+    resp = client.post("/api/md_trajectory", json={
+        "name": SMALL_MOLECULE, "n_steps": 31, "recompute_electronic_state": True,
+    })
+    assert resp.status_code == 400
+
+
 def test_mitigate():
     resp = client.post("/api/mitigate", json={
         "qasm": BELL_QASM, "pauli_string": "ZZ", "noise_model": "depolarizing",
