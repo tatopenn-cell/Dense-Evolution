@@ -9,6 +9,12 @@ request/response shapes, and error handling -- no mocked physics.
 import dashboard_core as dc
 import numpy as np
 import pytest
+
+# fastapi/uvicorn/pydantic are the `dense-evolution[composer]` extra, not
+# core dependencies (see dense_evolution/cli.py's module docstring) --
+# skip this whole module cleanly wherever they aren't installed, instead
+# of an import-time collection error that would abort the entire suite.
+pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
 from local_site.app import server

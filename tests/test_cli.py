@@ -57,6 +57,7 @@ def test_main_offline_composer_uses_given_dest(monkeypatch):
 
 
 def test_cmd_serve_calls_local_site_server_main(monkeypatch):
+    pytest.importorskip("fastapi")  # local_site.app.server imports it at module level
     monkeypatch.setattr(cli, "_require_composer_extra", lambda: None)
     called = []
     import local_site.app.server as server_module
@@ -66,8 +67,11 @@ def test_cmd_serve_calls_local_site_server_main(monkeypatch):
 
 
 def test_require_composer_extra_passes_when_deps_are_installed():
-    # fastapi/uvicorn/pydantic are installed in this dev environment
-    # (the `composer` extra) -- must not raise or exit.
+    pytest.importorskip("fastapi")
+    pytest.importorskip("uvicorn")
+    pytest.importorskip("pydantic")
+    # fastapi/uvicorn/pydantic are the `composer` extra -- only meaningful
+    # to assert this succeeds where they're actually installed.
     cli._require_composer_extra()
 
 
