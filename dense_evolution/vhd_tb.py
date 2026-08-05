@@ -38,7 +38,8 @@ Harrison's one-table-fits-all approach.
 import numpy as np
 from collections import namedtuple
 
-__all__ = ['Material', 'MATERIALS', 'sp3s_star_hamiltonian', 'direct_gap_at_gamma']
+__all__ = ['Material', 'MATERIALS', 'sp3s_star_hamiltonian', 'direct_gap_at_gamma',
+           'band_extrema_along_path']
 
 Material = namedtuple('Material', [
     'name', 'Esa', 'Epa', 'Esc', 'Epc', 'Essa', 'Essc',
@@ -145,3 +146,42 @@ def direct_gap_at_gamma(material):
     H = sp3s_star_hamiltonian((0.0, 0.0, 0.0), material)
     eig = np.sort(np.linalg.eigvalsh(H).real)
     return eig[4] - eig[3]
+
+
+def band_extrema_along_path(material, k_start, k_end, n_points=501):
+    """
+    Scans the valence-band maximum and conduction-band minimum (bands 3
+    and 4 of the 10, 0-indexed, sorted) along the straight line from
+    k_start to k_end (both in the same 2*pi/a cubic-axis units as
+    sp3s_star_hamiltonian), and returns
+    (vbm, vbm_k, cbm, cbm_k, gap) where vbm_k/cbm_k are the k-points
+    (same units) where each extremum was found.
+
+    Needed for indirect-gap materials (e.g. Si, Ge): the true
+    fundamental gap is not at Gamma, so direct_gap_at_gamma alone gives
+    the wrong (too-large) number for them. Example: Si's conduction
+    band minimum sits off-Gamma along Gamma->X (the Delta line), not
+    at Gamma itself.
+    """
+    if isinstance(material, str):
+        if material not in MATERIALS:
+            raise ValueError(f"no VHD parameters for {material!r}; available: {sorted(MATERIALS)}")
+        material = MATERIALS[material]
+
+    k_start = np.asarray(k_start, dtype=float)
+    k_end = np.asarray(k_end, dtype=float)
+    t = np.linspace(0.0, 1.0, n_points)
+    ks = k_start[None, :] + t[:, None] * (k_end - k_start)[None, :]
+
+    vbm_per_k = np.empty(n_points)
+    cbm_per_k = np.empty(n_points)
+    for i, k in enumerate(ks):
+        eig = np.sort(np.linalg.eigvalsh(sp3s_star_hamiltonian(k, material)).real)
+        vbm_per_k[i] = eig[3]
+        cbm_per_k[i] = eig[4]
+
+    vbm_idx = vbm_per_k.argmax()
+    cbm_idx = cbm_per_k.argmin()
+    vbm, vbm_k = vbm_per_k[vbm_idx], ks[vbm_idx]
+    cbm, cbm_k = cbm_per_k[cbm_idx], ks[cbm_idx]
+    return vbm, vbm_k, cbm, cbm_k, cbm - vbm
