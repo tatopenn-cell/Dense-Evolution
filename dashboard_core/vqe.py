@@ -201,11 +201,15 @@ def _uccsd_native_expansion(n_qubits, s_wires, d_wires, hf_occupation, n_params)
 
 
 def run_vqe(symbols, geometry, charge=0, ansatz_type="hardware_efficient", n_layers=8, maxiter=200,
-            step_size=0.1, active_electrons=None, active_orbitals=None, seed=0):
+            step_size=0.1, beta1=0.9, beta2=0.999, active_electrons=None, active_orbitals=None, seed=0):
     """Runs a real VQE optimization (hand-rolled Adam over
     dense_evolution's own JAX-differentiable circuit_to_energy_fn, no
     PennyLane optimizer/device involved) for the molecule's
-    Jordan-Wigner qubit Hamiltonian. ansatz_type is
+    Jordan-Wigner qubit Hamiltonian. step_size/beta1/beta2 are Adam's own
+    real hyperparameters (learning rate and first/second moment decay),
+    not cosmetic -- they change the real optimization trajectory computed
+    below, the same way they would in any other Adam implementation.
+    ansatz_type is
     "hardware_efficient" (generic, n_layers deep) or "uccsd" (chemically
     motivated, real fermionic single/double excitations -- n_layers is
     ignored, the parameter count comes from the molecule's own occupied/
@@ -286,7 +290,7 @@ def run_vqe(symbols, geometry, charge=0, ansatz_type="hardware_efficient", n_lay
         theta = jnp.array(rng.uniform(-0.1, 0.1, size=n_params))
         m_moment = jnp.zeros(n_params)
         v_moment = jnp.zeros(n_params)
-        beta1, beta2, eps = 0.9, 0.999, 1e-8
+        eps = 1e-8
         energy_and_grad = jax.jit(jax.value_and_grad(real_energy_fn, argnums=0, has_aux=True))
 
         energy_history = []
@@ -319,7 +323,7 @@ def run_vqe(symbols, geometry, charge=0, ansatz_type="hardware_efficient", n_lay
         theta = jnp.array(rng.uniform(-0.1, 0.1, size=n_params))
         m_moment = jnp.zeros(n_params)
         v_moment = jnp.zeros(n_params)
-        beta1, beta2, eps = 0.9, 0.999, 1e-8
+        eps = 1e-8
         energy_and_grad = jax.jit(jax.value_and_grad(energy_fn, argnums=0, has_aux=True))
 
         energy_history = []

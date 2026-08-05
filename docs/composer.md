@@ -38,60 +38,6 @@ throughout the [API Reference](api/index.md), not a separate demo.
     <span id="status" class="status"></span>
   </section>
 
-  <section class="row row-top">
-    <div class="panel panel-palette">
-      <h3>Operations</h3>
-      <div id="palette" class="palette"></div>
-    </div>
-
-    <div class="panel panel-canvas">
-      <div class="panel-head">
-        <h3>Circuit</h3>
-        <button id="clear-btn" class="btn btn-ghost">Clear grid</button>
-      </div>
-      <div id="grid" class="grid"></div>
-    </div>
-
-    <div class="panel panel-code">
-      <h3>OpenQASM 2.0</h3>
-      <textarea id="qasm" class="code" spellcheck="false"></textarea>
-    </div>
-  </section>
-
-  <section class="row row-bottom">
-    <div class="panel panel-probabilities">
-      <h3>Probabilities</h3>
-      <img id="histogram-img" class="figure" alt="Probabilities histogram" />
-      <div id="histogram-skip-msg" class="hint"></div>
-    </div>
-    <div class="panel panel-qsphere">
-      <h3>Q-sphere</h3>
-      <img id="qsphere-img" class="figure" alt="Q-sphere" />
-      <div id="qsphere-skip-msg" class="hint"></div>
-    </div>
-    <div class="panel panel-bloch">
-      <h3>Bloch spheres</h3>
-      <img id="bloch-img" class="figure" alt="Bloch spheres" />
-      <div id="bloch-skip-msg" class="hint"></div>
-    </div>
-  </section>
-
-  <section class="row row-extra">
-    <div class="panel panel-circuit-diagram">
-      <h3>Circuit diagram</h3>
-      <img id="circuit-img" class="figure" alt="Circuit diagram" />
-    </div>
-    <div class="panel panel-statevector">
-      <h3>Statevector</h3>
-      <div id="backend-info" class="hint"></div>
-      <div id="fidelity-info" class="hint"></div>
-      <table id="statevector-table" class="sv-table">
-        <thead><tr><th>state</th><th>re</th><th>im</th><th>|amp|</th><th>phase</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-  </section>
-
   <section class="row row-hamiltonian">
     <div class="panel panel-hamiltonian">
       <h3>Materiali (tavola periodica, elementi reali Z=1..54 + Au, Pb)</h3>
@@ -216,12 +162,111 @@ throughout the [API Reference](api/index.md), not a separate demo.
         <label>Layer ansatz (solo hardware-efficient)
           <input id="vqe-layers" type="number" min="1" max="20" value="8" style="width: 4rem;" />
         </label>
-        <label>Iterazioni Adam
+        <label>Iterazioni Adam (epoche)
           <input id="vqe-maxiter" type="number" min="10" max="1000" value="200" style="width: 5rem;" />
+        </label>
+      </div>
+      <div class="ham-row">
+        <label>Adam — Learning rate
+          <input id="vqe-step-size" type="number" min="0.0001" max="1" step="0.0001" value="0.1" style="width: 6rem;" />
+        </label>
+        <label>Adam — beta1
+          <input id="vqe-beta1" type="number" min="0" max="0.999" step="0.001" value="0.9" style="width: 5.5rem;" />
+        </label>
+        <label>Adam — beta2
+          <input id="vqe-beta2" type="number" min="0" max="0.9999" step="0.0001" value="0.999" style="width: 6rem;" />
         </label>
         <button id="vqe-btn" class="btn btn-ghost">Genera circuito VQE</button>
       </div>
       <div id="vqe-result" class="ham-result"></div>
+    </div>
+  </section>
+
+  <section class="row row-hamiltonian">
+    <div class="panel panel-hamiltonian">
+      <h3>Forze &amp; MD — Hellmann-Feynman reale (dashboard_core.qmmm)</h3>
+      <p class="hint">
+        Forze nucleari reali sulla molecola scelta sopra:
+        F = -d&lt;&psi;|H(R)|&psi;&gt;/dR, con H(R) l'Hamiltoniana
+        molecolare reale e differenziabile di PennyLane (metodo "dhf") e
+        &psi; lo stato elettronico tenuto fisso (teorema di
+        Hellmann-Feynman esatto, non differenze finite). La traiettoria
+        MD integra queste forze reali con Velocity-Verlet classico
+        (masse atomiche reali, costante di conversione derivata dalle
+        costanti CODATA) — "Ricalcola stato elettronico" risolve un vero
+        Hartree-Fock ad ogni passo (MD ab-initio vero, molto più
+        costoso) invece di tenere fisso lo stato iniziale (approssimazione
+        reale e dichiarata, valida vicino alla geometria di partenza).
+      </p>
+      <div class="ham-row">
+        <button id="qmmm-forces-btn" class="btn btn-ghost">Calcola forze (stato attuale)</button>
+        <label>Passi MD
+          <input id="md-steps" type="number" min="1" max="200" value="20" style="width: 4.5rem;" />
+        </label>
+        <label>dt (fs)
+          <input id="md-dt" type="number" min="0.01" max="5" step="0.01" value="0.5" style="width: 4.5rem;" />
+        </label>
+        <label>
+          <input id="md-recompute" type="checkbox" style="width: auto;" />
+          Ricalcola stato elettronico ad ogni passo (ab-initio vero, lento)
+        </label>
+        <button id="md-trajectory-btn" class="btn btn-ghost">Esegui traiettoria MD</button>
+      </div>
+      <div id="qmmm-result" class="ham-result"></div>
+    </div>
+  </section>
+
+  <section class="row row-top">
+    <div class="panel panel-palette">
+      <h3>Operations</h3>
+      <div id="palette" class="palette"></div>
+    </div>
+
+    <div class="panel panel-canvas">
+      <div class="panel-head">
+        <h3>Circuit</h3>
+        <button id="clear-btn" class="btn btn-ghost">Clear grid</button>
+      </div>
+      <div id="grid" class="grid"></div>
+    </div>
+
+    <div class="panel panel-code">
+      <h3>OpenQASM 2.0</h3>
+      <textarea id="qasm" class="code" spellcheck="false"></textarea>
+    </div>
+  </section>
+
+  <section class="row row-bottom">
+    <div class="panel panel-probabilities">
+      <h3>Probabilities</h3>
+      <img id="histogram-img" class="figure" alt="Probabilities histogram" />
+      <div id="histogram-skip-msg" class="hint"></div>
+    </div>
+    <div class="panel panel-qsphere">
+      <h3>Q-sphere</h3>
+      <img id="qsphere-img" class="figure" alt="Q-sphere" />
+      <div id="qsphere-skip-msg" class="hint"></div>
+    </div>
+    <div class="panel panel-bloch">
+      <h3>Bloch spheres</h3>
+      <img id="bloch-img" class="figure" alt="Bloch spheres" />
+      <div id="bloch-skip-msg" class="hint"></div>
+    </div>
+  </section>
+
+  <section class="row row-extra">
+    <div class="panel panel-circuit-diagram">
+      <h3>Circuit diagram</h3>
+      <img id="circuit-img" class="figure" alt="Circuit diagram" />
+    </div>
+    <div class="panel panel-statevector">
+      <h3>Statevector</h3>
+      <div id="backend-info" class="hint"></div>
+      <div id="fidelity-info" class="hint"></div>
+      <table id="statevector-table" class="sv-table">
+        <thead><tr><th>state</th><th>re</th><th>im</th><th>|amp|</th><th>phase</th></tr></thead>
+        <tbody></tbody>
+      </table>
     </div>
   </section>
 

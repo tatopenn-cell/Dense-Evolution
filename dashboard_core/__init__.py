@@ -31,6 +31,10 @@ from .mitigation import (
 )
 from .system_limits import max_safe_dense_qubits
 from .vqe import run_vqe
+from .qmmm import (
+    ATOMIC_MASSES_AMU,
+    compute_hellmann_feynman_forces, md_step, run_md_trajectory,
+)
 
 __all__ = [
     'QASM_LIBRARY', 'gate_tuples_to_qasm',
@@ -47,4 +51,6 @@ __all__ = [
     'DensityMatrixZNEResult', 'run_density_matrix_zne',
     'max_safe_dense_qubits',
     'run_vqe',
+    'ATOMIC_MASSES_AMU',
+    'compute_hellmann_feynman_forces', 'md_step', 'run_md_trajectory',
 ]

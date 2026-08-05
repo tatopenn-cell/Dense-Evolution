@@ -17,6 +17,14 @@ let grid = [];       // grid[row][col] = {kind, gate} | null
 let palette = [];
 let presets = {};
 let maxQubits = 20;  // replaced with the real per-machine limit at init(), see loadSystemLimits()
+let maxQubitsDense = 20;  // the dense-backend (RAM-based) figure loadSystemLimits() fetches
+// MPS above this many qubits never materializes a dense (2**n,) array (server.py's
+// large-scale path, dashboard_core.run_large_circuit_mps) -- so it isn't bounded by
+// maxQubitsDense at all. 100 isn't a hard ceiling of the engine itself (MPSSimulator's
+// memory scales with bond dimension, not qubit count) -- it's the largest figure that
+// function's own docstring reports actually measuring (30/50/100 qubits, "stays under 2s
+// even at 100 qubits"), so it's what's honestly claimable as tested rather than a guess.
+const MAX_QUBITS_MPS_LARGE_SCALE = 100;
 
 const $ = (id) => document.getElementById(id);
 
@@ -316,21 +324,14 @@ async function loadPresetsAndPalette() {
   customOpt.textContent = "Custom";
   sel.appendChild(customOpt);
 
-  const circuitGroup = document.createElement("optgroup");
-  circuitGroup.label = "Circuiti";
-  Object.keys(presets).forEach((name) => {
-    const opt = document.createElement("option");
-    opt.value = name;
-    opt.textContent = name;
-    circuitGroup.appendChild(opt);
-  });
-  sel.appendChild(circuitGroup);
-
-  // Real molecular Hartree-Fock reference circuits, in the SAME preset
-  // library the rest of the circuits live in -- not just reachable
-  // through the separate Hamiltonian panel below. Picking one here uses
-  // the same real, instant fast path (dashboard_core.vqe.run_vqe with
-  // n_layers=0) as picking it there.
+  // Real molecular Hartree-Fock reference circuits (LiH etc.) come FIRST,
+  // before the ~18 generic textbook circuits -- this is meant to be where
+  // a molecule -> ansatz -> VQE chain starts, and a real molecule buried
+  // after 18 unrelated entries in a plain <select> is easy to miss
+  // entirely (reported directly: looked in this exact dropdown, only saw
+  // the generic circuits). Picking one here uses the same real, instant
+  // fast path (dashboard_core.vqe.run_vqe with n_layers=0) as picking it
+  // in the Hamiltonian panel below.
   try {
     const mapping = $("ham-mapping-select") ? $("ham-mapping-select").value || "jordan_wigner" : "jordan_wigner";
     moleculeCatalog = await api(`/api/hamiltonians?mapping=${mapping}`);
@@ -347,6 +348,16 @@ async function loadPresetsAndPalette() {
     setStatus(`Errore caricamento molecole: ${err.message}`, true);
   }
 
+  const circuitGroup = document.createElement("optgroup");
+  circuitGroup.label = "Circuiti generici";
+  Object.keys(presets).forEach((name) => {
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = name;
+    circuitGroup.appendChild(opt);
+  });
+  sel.appendChild(circuitGroup);
+
   sel.addEventListener("change", () => {
     if (sel.value === "__custom__") return;
     if (sel.value.startsWith(MOLECULE_PRESET_PREFIX)) {
@@ -354,9 +365,30 @@ async function loadPresetsAndPalette() {
       return;
     }
     $("qasm").value = presets[sel.value];
+    syncQubitCountFromQasm(presets[sel.value]);
   });
   $("qasm").value = presets["Bell state (2 qubit)"] || "";
+  syncQubitCountFromQasm($("qasm").value);
   renderPalette();
+}
+
+// Each QASM_LIBRARY preset is a fixed circuit for a fixed qubit count
+// (e.g. "Bell state" is a real 2-qubit concept, not something that scales) --
+// but the #n-qubits field previously kept whatever value it had *before* the
+// preset was picked, so it could show a number with no relationship to what
+// would actually run (execution always uses the QASM text's own qreg count,
+// never the field). Reading the real qreg size out of the QASM text and
+// syncing the field to it means the field always tells the truth about what
+// a Run click will actually execute, instead of silently disagreeing with it.
+function syncQubitCountFromQasm(qasmText) {
+  const match = /qreg\s+\w+\s*\[\s*(\d+)\s*\]/.exec(qasmText || "");
+  if (!match) return;
+  const n = parseInt(match[1], 10);
+  if (!Number.isFinite(n) || n < 1) return;
+  nQubits = n;
+  $("n-qubits").value = String(n);
+  buildEmptyGrid();
+  renderGrid();
 }
 
 // Real Kraus-channel noise models (dense_evolution.NoiseModel) -- applied
@@ -720,8 +752,16 @@ async function runVqe() {
   const ansatzType = $("vqe-ansatz-select").value || "hardware_efficient";
   const nLayers = parseInt($("vqe-layers").value, 10) || 8;
   const maxiter = parseInt($("vqe-maxiter").value, 10) || 200;
+  const stepSize = parseFloat($("vqe-step-size").value) || 0.1;
+  const beta1 = parseFloat($("vqe-beta1").value);
+  const beta2 = parseFloat($("vqe-beta2").value);
 
-  const body = { ansatz_type: ansatzType, n_layers: nLayers, maxiter };
+  const body = {
+    ansatz_type: ansatzType, n_layers: nLayers, maxiter,
+    step_size: stepSize,
+    beta1: Number.isFinite(beta1) ? beta1 : 0.9,
+    beta2: Number.isFinite(beta2) ? beta2 : 0.999,
+  };
   if (useCustom) {
     body.symbols = $("ham-symbols").value.split(",").map((s) => s.trim()).filter(Boolean);
     body.geometry = $("ham-geometry").value.split("\n").map((line) => line.trim()).filter(Boolean)
@@ -784,6 +824,72 @@ async function runVqe() {
     opt.textContent = vqeLabel;
     vqeGroup.appendChild(opt);
     $("preset-select").value = vqeLabel;
+  } catch (err) {
+    el.classList.add("error");
+    el.textContent = `Errore: ${err.message}`;
+  }
+}
+
+// Real Hellmann-Feynman forces / MD (dashboard_core.qmmm) -- both reuse
+// whichever catalog molecule is selected above (#ham-catalog-select),
+// the same molecule VQE uses. Custom (non-catalog) molecules aren't
+// supported here: the real molecule catalog is what qmmm.py's real
+// mass/geometry/Hamiltonian pipeline is built against.
+function _selectedCatalogMoleculeName() {
+  const name = $("ham-catalog-select").value;
+  if (!name) {
+    throw new Error("Nessuna molecola di catalogo selezionata -- scegli una molecola sopra (Hamiltonian panel).");
+  }
+  return name;
+}
+
+async function runQmmmForces() {
+  const el = $("qmmm-result");
+  el.classList.remove("error");
+  try {
+    const name = _selectedCatalogMoleculeName();
+    el.textContent = "Calcolo forze Hellmann-Feynman reali (differenziazione PennyLane)...";
+    const data = await api("/api/qmmm_forces", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const forceLines = data.symbols.map((s, i) =>
+      `  ${s}${i}: [${data.forces_hartree_per_angstrom[i].map((x) => x.toFixed(6)).join(", ")}] Hartree/A`
+    ).join("\n");
+    el.textContent =
+      `Energia = ${data.energy_hartree.toFixed(6)} Hartree\n` +
+      `Forze per nucleo (Hartree/Angstrom):\n${forceLines}\n` +
+      `Norma totale = ${data.force_norm.toFixed(6)} Hartree/Angstrom`;
+  } catch (err) {
+    el.classList.add("error");
+    el.textContent = `Errore: ${err.message}`;
+  }
+}
+
+async function runMdTrajectory() {
+  const el = $("qmmm-result");
+  el.classList.remove("error");
+  try {
+    const name = _selectedCatalogMoleculeName();
+    const nSteps = parseInt($("md-steps").value, 10) || 20;
+    const dtFs = parseFloat($("md-dt").value) || 0.5;
+    const recompute = $("md-recompute").checked;
+    el.textContent = recompute
+      ? `Traiettoria MD ab-initio (Hartree-Fock reale ad ogni passo, ${nSteps} passi) -- puo' richiedere qualche minuto...`
+      : `Traiettoria MD (stato elettronico iniziale fisso, ${nSteps} passi)...`;
+    const data = await api("/api/md_trajectory", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, n_steps: nSteps, dt_fs: dtFs, recompute_electronic_state: recompute }),
+    });
+    const last = data.step.length - 1;
+    el.textContent =
+      `${data.step.length} passi, ${data.time_fs[last].toFixed(2)} fs totali.\n` +
+      `Energia: ${data.energy_hartree[0].toFixed(6)} -> ${data.energy_hartree[last].toFixed(6)} Hartree\n` +
+      `Norma forza: ${data.force_norm[0].toFixed(6)} -> ${data.force_norm[last].toFixed(6)} Hartree/Angstrom\n` +
+      `Posizione finale (Angstrom):\n` +
+      data.positions_angstrom[last].map((p, i) => `  atomo ${i}: [${p.map((x) => x.toFixed(6)).join(", ")}]`).join("\n");
   } catch (err) {
     el.classList.add("error");
     el.textContent = `Errore: ${err.message}`;
@@ -857,18 +963,50 @@ async function runZneMatrix() {
 
 // Real, per-machine RAM check (dense_evolution.chunk.SafeMemoryGuard via
 // /api/system_limits) -- replaces a fixed qubit cap with whatever this
-// specific machine can actually hold safely right now.
+// specific machine can actually hold safely right now. Dense-backend-only:
+// applyQubitLimitForBackend() is what actually sets the input's live max,
+// since MPS above MPS_DENSE_CONTRACTION_LIMIT (24) isn't RAM-bound this way
+// at all (see MAX_QUBITS_MPS_LARGE_SCALE above) -- using this dense figure
+// for MPS too used to make the UI's own large-scale MPS mode unreachable
+// whenever this machine's free RAM pushed max_qubits_dense below 24.
 async function loadSystemLimits() {
   try {
     const limits = await api("/api/system_limits");
-    maxQubits = limits.max_qubits_dense;
-    const input = $("n-qubits");
-    input.max = String(maxQubits);
-    if (parseInt(input.value, 10) > maxQubits) input.value = String(maxQubits);
+    maxQubitsDense = limits.max_qubits_dense;
     $("qubits-limit-info").textContent =
-      `max ${maxQubits} qubit su questo PC (${(limits.available_mb / 1024).toFixed(1)} GB liberi di ${(limits.total_mb / 1024).toFixed(1)} GB, soglia anti-OOM ${(limits.threshold_pct * 100).toFixed(0)}%)`;
+      `max ${maxQubitsDense} qubit (denso) su questo PC (${(limits.available_mb / 1024).toFixed(1)} GB liberi di ${(limits.total_mb / 1024).toFixed(1)} GB, soglia anti-OOM ${(limits.threshold_pct * 100).toFixed(0)}%) ` +
+      `-- MPS large-scale (>24 qubit) non e' limitato dalla RAM allo stesso modo, fino a ${MAX_QUBITS_MPS_LARGE_SCALE} qubit testati.`;
+    applyQubitLimitForBackend();
   } catch (err) {
     $("qubits-limit-info").textContent = `impossibile rilevare la RAM: ${err.message}`;
+  }
+}
+
+// Sets the qubit input's live max from whichever backend is currently
+// selected -- dense (and MPS at or below MPS_DENSE_CONTRACTION_LIMIT, which
+// still contracts to a dense array internally) is bounded by this machine's
+// real free RAM; MPS above that isn't, so it gets the much higher, engine-
+// tested figure instead. Called on init and every time #backend-select
+// changes.
+function applyQubitLimitForBackend() {
+  const backend = $("backend-select").value || "dense";
+  maxQubits = backend === "mps"
+    ? Math.max(maxQubitsDense, MAX_QUBITS_MPS_LARGE_SCALE)
+    : maxQubitsDense;
+  const input = $("n-qubits");
+  input.max = String(maxQubits);
+  // Clamping the displayed field without also updating nQubits/the grid
+  // would recreate the exact bug this function exists to avoid elsewhere
+  // (the field showing one qubit count while the grid/nQubits still reflect
+  // another) -- so every place that changes what the field shows keeps all
+  // three (field, nQubits, grid) in the same state, the same way the QASM
+  // preset sync (syncQubitCountFromQasm) and the #n-qubits change handler
+  // both already do.
+  if (parseInt(input.value, 10) > maxQubits) {
+    input.value = String(maxQubits);
+    nQubits = maxQubits;
+    buildEmptyGrid();
+    renderGrid();
   }
 }
 
@@ -908,9 +1046,29 @@ async function init() {
 
   $("n-qubits").addEventListener("change", (e) => {
     nQubits = Math.max(1, Math.min(maxQubits, parseInt(e.target.value, 10) || 1));
+    e.target.value = String(nQubits);
     buildEmptyGrid();
     renderGrid();
+    // Keep the QASM text's own qreg/creg declarations in step with the
+    // field the same way syncQubitCountFromQasm() keeps the field in step
+    // with a picked preset's QASM -- otherwise editing this field after a
+    // preset is loaded silently changes nothing about what Run actually
+    // executes (the QASM text, not this field, is what's sent), recreating
+    // the exact "field disagrees with what really runs" bug from the other
+    // direction. Existing gate lines are left alone; only the two
+    // declaration lines change, so a preset's real gates survive the edit
+    // (they may now reference qubit indices outside the new range if N
+    // shrank -- that's a real circuit error the backend will report, not
+    // something to silently paper over here).
+    const qasmField = $("qasm");
+    if (qasmField.value) {
+      qasmField.value = qasmField.value
+        .replace(/qreg\s+(\w+)\s*\[\s*\d+\s*\]/, `qreg $1[${nQubits}]`)
+        .replace(/creg\s+(\w+)\s*\[\s*\d+\s*\]/, `creg $1[${nQubits}]`);
+    }
+    if ($("preset-select").value !== "__custom__") $("preset-select").value = "__custom__";
   });
+  $("backend-select").addEventListener("change", applyQubitLimitForBackend);
   $("clear-btn").addEventListener("click", () => {
     buildEmptyGrid();
     renderGrid();
@@ -939,6 +1097,8 @@ async function init() {
     loadMoleculeCircuit({ symbols, geometry, charge });
   });
   $("vqe-btn").addEventListener("click", runVqe);
+  $("qmmm-forces-btn").addEventListener("click", runQmmmForces);
+  $("md-trajectory-btn").addEventListener("click", runMdTrajectory);
   $("vqe-ansatz-select").addEventListener("change", () => {
     // UCCSD converges in far fewer iterations than hardware-efficient,
     // which matters because each of its iterations is much more

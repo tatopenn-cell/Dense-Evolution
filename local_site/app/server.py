@@ -436,6 +436,9 @@ class VqeRequest(BaseModel):
     ansatz_type: str = "hardware_efficient"  # or "uccsd"
     n_layers: int = 8
     maxiter: int = 200
+    step_size: float = 0.1
+    beta1: float = 0.9
+    beta2: float = 0.999
     seed: int = 0
 
 
@@ -478,7 +481,64 @@ def vqe(req: VqeRequest):
         result = dc.run_vqe(
             symbols, geometry, charge=charge, ansatz_type=req.ansatz_type,
             n_layers=req.n_layers, maxiter=req.maxiter,
+            step_size=req.step_size, beta1=req.beta1, beta2=req.beta2,
             active_electrons=active_electrons, active_orbitals=active_orbitals, seed=req.seed,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return result
+
+
+class QmmmForcesRequest(BaseModel):
+    name: str
+    mapping: str = "jordan_wigner"
+
+
+@app.post("/api/qmmm_forces")
+def qmmm_forces(req: QmmmForcesRequest):
+    """Real Hellmann-Feynman nuclear forces (dashboard_core.qmmm) on the
+    catalog molecule's real Hartree-Fock ground state -- see qmmm.py's
+    module docstring for the real differentiable-Hamiltonian derivation
+    (F = -d<psi|H(R)|psi>/dR via PennyLane's own autodiff, not a
+    finite-difference approximation or a fabricated classical-embedding
+    perturbation)."""
+    try:
+        result = dc.compute_hellmann_feynman_forces(req.name, mapping=req.mapping)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return result
+
+
+class MdTrajectoryRequest(BaseModel):
+    name: str
+    n_steps: int = 20
+    dt_fs: float = 0.5
+    mapping: str = "jordan_wigner"
+    recompute_electronic_state: bool = False
+
+
+@app.post("/api/md_trajectory")
+def md_trajectory(req: MdTrajectoryRequest):
+    """Real Velocity-Verlet MD trajectory (dashboard_core.qmmm) driven by
+    real Hellmann-Feynman forces at every step. recompute_electronic_state
+    re-solves real Hartree-Fock at each step's new geometry (true ab-initio
+    MD, substantially more expensive per step) instead of holding the
+    initial electronic state fixed throughout (the default, real but only
+    accurate close to the starting geometry -- see qmmm.run_md_trajectory's
+    docstring). n_steps is capped to keep a single request bounded on
+    this kernel's real, often RAM/CPU-constrained host machine."""
+    if req.n_steps < 1 or req.n_steps > 200:
+        raise HTTPException(status_code=400, detail="n_steps must be between 1 and 200")
+    if req.recompute_electronic_state and req.n_steps > 30:
+        raise HTTPException(
+            status_code=400,
+            detail="recompute_electronic_state re-solves real Hartree-Fock every step -- "
+                   "capped at 30 steps to keep a single request's real cost bounded",
+        )
+    try:
+        result = dc.run_md_trajectory(
+            req.name, req.n_steps, dt_fs=req.dt_fs, mapping=req.mapping,
+            recompute_electronic_state=req.recompute_electronic_state,
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
