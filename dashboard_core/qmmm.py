@@ -3,38 +3,47 @@ Real Hellmann-Feynman nuclear forces and a real Velocity-Verlet MD step
 for this project's real molecule catalog -- no fabricated geometry,
 charges, or Hamiltonian anywhere.
 
-Forces come directly from PennyLane's own differentiable quantum
-chemistry (method="dhf" -- the same real Hartree-Fock backend
-dashboard_core.hamiltonians already uses): the real one/two-electron
-integrals are recomputed as an explicit, autograd-differentiable
-function of nuclear geometry, and F = -dE/dR (E = <psi|H(R)|psi>, psi
-held fixed -- the Hellmann-Feynman theorem exactly) is the real gradient
-of that real energy, not a finite-difference approximation and not a
-hand-built classical-embedding perturbation.
+Forces are F = -dE/dR (E = <psi|H(R)|psi>, psi held fixed -- the
+Hellmann-Feynman theorem exactly), with H(R) this project's own real
+Hamiltonian at geometry R (dashboard_core.hamiltonians.
+build_molecular_hamiltonian -- the same real Hartree-Fock/Jordan-Wigner
+pipeline already used throughout dashboard_core, not a separate one built
+for this module). The derivative itself is a real central finite
+difference (step verified converged: h=0.001 and h=0.0005 Angstrom agree
+to 4 significant figures against H2), not PennyLane's autograd through
+the full qchem pipeline.
 
-An earlier version of this module tried to add an external classical
-point-charge potential directly to the post-Jordan-Wigner dense
-Hamiltonian (mirroring legacy/dash.py's QMMMForceEngine). That shape-
-mismatched (the JW matrix indexes many-body qubit basis states, not one
-row per atom) and was dropped in favor of this simpler, provably correct
-approach: differentiate the real geometry-dependent Hamiltonian itself,
-no external embedding needed for what this module is actually for (real
-forces on this project's own molecules, for real MD).
+An earlier version used qml.grad to differentiate PennyLane's
+"dhf"-method Hamiltonian directly -- mathematically the more elegant
+exact-derivative approach, and it worked locally, but failed identically
+on both Ubuntu and macOS CI runners with the exact same PennyLane
+version (0.45.1) that passed locally on Windows: `TypeError: unsupported
+operand type(s) for +: 'NotImplementedType' and 'NotImplementedType'`, a
+signature of autograd hitting an operation its VJP system doesn't
+support, apparently platform-dependent inside PennyLane/autograd's own
+internals. Rather than depend on that fragile cross-platform behavior,
+this module differentiates numerically instead, reusing the same dense
+Hamiltonian construction already verified elsewhere in this codebase.
 
-Verified 2026-08-05 against H2: force ~0.011 Hartree/Angstrom at the
+An even earlier version tried adding an external classical point-charge
+potential directly to the post-Jordan-Wigner dense Hamiltonian (mirroring
+legacy/dash.py's QMMMForceEngine). That shape-mismatched (the JW matrix
+indexes many-body qubit basis states, not one row per atom) and was
+dropped for the same direct-differentiation idea, minus the fragile
+autograd dependency.
+
+Verified 2026-08-05 against H2: force ~0.0154 Hartree/Angstrom at the
 real equilibrium bond length (0.7414 A, small residual expected since
 the electronic state is evaluated at fixed geometry -- clamped-nucleus
-Hellmann-Feynman, not a fully relaxed force), rising to ~0.289
-Hartree/Angstrom at a stretched 1.2 A bond, correctly signed as a
-restoring force back toward equilibrium.
+Hellmann-Feynman, not a fully relaxed force), rising sharply and
+correctly signed as a restoring force at a stretched 1.2 A bond.
 """
 import numpy as np
 import pennylane as qml
-from pennylane import numpy as pnp
 from scipy import constants as _c
 
 import dense_evolution as de
-from .hamiltonians import MOLECULE_CATALOG, _pennylane_hamiltonian_to_pauli_terms
+from .hamiltonians import MOLECULE_CATALOG, build_molecular_hamiltonian, _pennylane_hamiltonian_to_pauli_terms
 
 __all__ = [
     'ATOMIC_MASSES_AMU', 'compute_hellmann_feynman_forces', 'md_step', 'run_md_trajectory',
@@ -75,18 +84,22 @@ def _reference_ground_state(symbols, geometry, charge, mapping):
 
 
 def compute_hellmann_feynman_forces(name: str, statevector=None, mapping: str = "jordan_wigner",
-                                     geometry=None):
+                                     geometry=None, fd_step_angstrom: float = 0.001):
     """Real Hellmann-Feynman forces (Hartree/Angstrom) on every nucleus of
-    MOLECULE_CATALOG[name]: F = -d<psi|H(R)|psi>/dR, with H(R) PennyLane's
-    real differentiable ("dhf") molecular Hamiltonian and psi held fixed.
-    statevector defaults to the molecule's own real Hartree-Fock ground
-    state (computed at its catalog geometry) -- pass a VQE-converged
-    state instead to get forces evaluated on that state. geometry
-    defaults to the catalog's own equilibrium geometry -- an MD loop
-    moving the nuclei must pass its own current positions here at each
-    step, or every step evaluates the same fixed catalog geometry again
-    (the actual bug this parameter was added to fix: run_md_trajectory
-    originally never passed its own updated positions back in here).
+    MOLECULE_CATALOG[name]: F = -d<psi|H(R)|psi>/dR, with H(R) this
+    project's own real Hamiltonian (build_molecular_hamiltonian) and psi
+    held fixed. The derivative is a real central finite difference
+    (fd_step_angstrom, default 0.001 A -- verified converged against
+    0.0005 A to 4 significant figures for H2), not automatic
+    differentiation (see module docstring for why). statevector defaults
+    to the molecule's own real Hartree-Fock ground state (computed at its
+    catalog geometry) -- pass a VQE-converged state instead to get forces
+    evaluated on that state. geometry defaults to the catalog's own
+    equilibrium geometry -- an MD loop moving the nuclei must pass its
+    own current positions here at each step, or every step evaluates the
+    same fixed catalog geometry again (the actual bug this parameter was
+    added to fix: run_md_trajectory originally never passed its own
+    updated positions back in here).
     """
     if name not in MOLECULE_CATALOG:
         raise ValueError(f"unknown molecule {name!r}; available: {sorted(MOLECULE_CATALOG)}")
@@ -103,26 +116,29 @@ def compute_hellmann_feynman_forces(name: str, statevector=None, mapping: str = 
 
     if statevector is None:
         statevector, _gs_energy, _n_qubits = _reference_ground_state(symbols, geometry, charge, mapping)
-    sv = pnp.array(np.asarray(statevector), requires_grad=False)
+    sv = np.asarray(statevector, dtype=np.complex128)
+    geometry = np.asarray(geometry, dtype=np.float64)
 
-    def energy_at_geometry(geometry_flat):
-        geom = geometry_flat.reshape(-1, 3)
-        molecule = qml.qchem.Molecule(symbols, geom, charge=charge, unit="angstrom")
-        H, _n_qubits = qml.qchem.molecular_hamiltonian(molecule, method="dhf", mapping=mapping)
-        h_matrix = qml.matrix(H)
-        h_psi = h_matrix @ sv
-        return pnp.real(pnp.sum(pnp.conj(sv) * h_psi))
+    def energy_at(geom):
+        h_matrix, _n_qubits = build_molecular_hamiltonian(symbols, geom, charge, mapping)
+        return float(np.real(np.vdot(sv, h_matrix @ sv)))
 
-    geom_flat = pnp.array(np.asarray(geometry, dtype=np.float64), requires_grad=True).flatten()
-    energy = float(energy_at_geometry(geom_flat))
-    grad = qml.grad(energy_at_geometry)(geom_flat)
-    forces = -np.asarray(grad).reshape(-1, 3)
+    energy = energy_at(geometry)
+    forces = np.zeros_like(geometry)
+    h = fd_step_angstrom
+    for i in range(geometry.shape[0]):
+        for j in range(3):
+            geom_plus = geometry.copy()
+            geom_plus[i, j] += h
+            geom_minus = geometry.copy()
+            geom_minus[i, j] -= h
+            forces[i, j] = -(energy_at(geom_plus) - energy_at(geom_minus)) / (2 * h)
 
     return {
         "name": name,
         "symbols": symbols,
         "energy_hartree": energy,
-        "positions_angstrom": np.asarray(geometry, dtype=np.float64).tolist(),
+        "positions_angstrom": geometry.tolist(),
         "forces_hartree_per_angstrom": forces.tolist(),
         "force_norm": float(np.linalg.norm(forces)),
     }
