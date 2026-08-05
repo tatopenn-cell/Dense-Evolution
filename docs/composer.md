@@ -286,13 +286,13 @@ throughout the [API Reference](api/index.md), not a separate demo.
     (install the package, optionally download an offline copy of this
     page, optionally add Desktop/Start Menu/startup shortcuts) before
     doing any of it:
-    [Windows (.bat)](https://raw.githubusercontent.com/tatopenn-cell/Dense-Evolution/main/installer/install-composer.bat){ download }
+    [Windows (.bat)](assets/installer/install-composer.bat){ download }
     &middot;
-    [macOS / Linux (.sh)](https://raw.githubusercontent.com/tatopenn-cell/Dense-Evolution/main/installer/install-composer.sh){ download }
+    [macOS / Linux (.sh)](assets/installer/install-composer.sh){ download }
     — or by hand: `pip install dense-evolution[composer]` then
     `dense-evolution serve`. Either way, reload this page once it's
     running — the banner above turns green the moment it detects your
     kernel. To remove everything the installer created, run
-    [uninstall-composer.bat](https://raw.githubusercontent.com/tatopenn-cell/Dense-Evolution/main/installer/uninstall-composer.bat){ download }
+    [uninstall-composer.bat](assets/installer/uninstall-composer.bat){ download }
     or
-    [uninstall-composer.sh](https://raw.githubusercontent.com/tatopenn-cell/Dense-Evolution/main/installer/uninstall-composer.sh){ download }.
+    [uninstall-composer.sh](assets/installer/uninstall-composer.sh){ download }.

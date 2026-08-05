@@ -1,8 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
+chcp 65001 >nul
 rem Dense-Evolution Composer -- local kernel installer (Windows).
-rem No chcp 65001 -- it breaks set /p input reading; the script text is
-rem plain ASCII on purpose so it does not need it.
 rem See uninstall-composer.bat to undo everything this creates.
 
 set "COMPOSER_URL=https://tatopenn-cell.github.io/Dense-Evolution/composer/"
