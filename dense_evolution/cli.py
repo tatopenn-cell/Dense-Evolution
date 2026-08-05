@@ -147,8 +147,8 @@ def _cmd_offline_composer(dest: str):
     return page_local_path
 
 
-def main():
-    args = sys.argv[1:]
+def main(argv=None):
+    args = argv if argv is not None else sys.argv[1:]
     if args == ["serve"]:
         _cmd_serve()
         return
