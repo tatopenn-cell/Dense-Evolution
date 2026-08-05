@@ -128,6 +128,41 @@ throughout the [API Reference](api/index.md), not a separate demo.
 
   <section class="row row-hamiltonian">
     <div class="panel panel-hamiltonian">
+      <h3>Scan energia — curva vs lunghezza di legame (diagonalizzazione esatta)</h3>
+      <p class="hint">
+        Ricalcola l'energia di stato fondamentale della molecola custom (i
+        simboli inseriti sopra) a più lunghezze di legame in una sola
+        richiesta — utile per vedere una curva di dissociazione senza
+        rifare "Compute ground state" a mano punto per punto. Ogni punto è
+        una diagonalizzazione esatta reale, non un'interpolazione; la forma
+        è la stessa usata da "Genera geometria" sopra (lineare, triangolare
+        o ad anello), riscalata alla lunghezza di legame di ciascun punto.
+      </p>
+      <div class="ham-row">
+        <label>Forma
+          <select id="scan-shape-select">
+            <option value="linear">Lineare (catena)</option>
+            <option value="triangular">Triangolare (3 atomi, D3h)</option>
+            <option value="ring">Anello (poligono regolare)</option>
+          </select>
+        </label>
+        <label>Legame da (Å)
+          <input id="scan-bond-from" type="number" value="0.4" step="0.01" style="width: 5rem;" />
+        </label>
+        <label>Legame a (Å)
+          <input id="scan-bond-to" type="number" value="3.0" step="0.01" style="width: 5rem;" />
+        </label>
+        <label>Punti
+          <input id="scan-points" type="number" min="2" max="30" value="9" style="width: 4rem;" />
+        </label>
+        <button id="scan-btn" class="btn btn-ghost">Calcola curva</button>
+      </div>
+      <div id="scan-result" class="ham-result"></div>
+    </div>
+  </section>
+
+  <section class="row row-hamiltonian">
+    <div class="panel panel-hamiltonian">
       <h3>VQE — ansatz variazionale reale (dense_evolution.vqe)</h3>
       <p class="hint">
         Genera e ottimizza un vero circuito VQE per la molecola scelta sopra

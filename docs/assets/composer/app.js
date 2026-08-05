@@ -97,13 +97,38 @@ function renderElementPalette() {
 // origin (see server.py's own module docstring: it serves no HTML at all).
 const API_BASE = "http://127.0.0.1:8800";
 
-async function api(path, opts) {
-  const res = await fetch(API_BASE + path, opts);
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(body.detail || res.statusText);
+// timeoutMs defaults to 30s, enough for any single-point calculation this
+// kernel does (circuit runs, a Hamiltonian's exact diagonalization, ZNE).
+// VQE and MD-trajectory calls pass a much longer override below -- those
+// are real optimizations/ab-initio dynamics that can legitimately take
+// minutes, not requests that are merely slow. Without this, a request
+// that really does hang (e.g. an unusually large molecule on a slow
+// machine) left the "... in corso" message on screen forever with no way
+// to tell a genuine hang apart from "still working" -- AbortController
+// turns that into a clear, actionable error instead.
+async function api(path, opts, timeoutMs = 30000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(API_BASE + path, { ...opts, signal: controller.signal });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(body.detail || res.statusText);
+    }
+    return await res.json();
+  } catch (err) {
+    if (err.name === "AbortError") {
+      throw new Error(
+        `Richiesta al kernel scaduta dopo ${Math.round(timeoutMs / 1000)}s -- il calcolo e' ` +
+        `probabilmente troppo lento per queste impostazioni (piu' qubit, layer o iterazioni ` +
+        `lo rallentano molto). Riduci la richiesta (meno iterazioni/layer, molecola piu' ` +
+        `piccola) e riprova.`
+      );
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  return res.json();
 }
 
 // Presence probe for the local kernel (server.py running on this machine).
@@ -740,6 +765,80 @@ async function runCustomHamiltonian() {
   }
 }
 
+// Ground-state energy at several bond lengths in one click, e.g. a
+// dissociation curve -- reuses generateGeometryTemplate (same math as the
+// "Genera geometria" button above) to build each point's geometry, then
+// fires all the exact-diagonalization calls concurrently. Each point is
+// wrapped in its own try/catch so one failing point (e.g. too many qubits)
+// doesn't lose the rest of the curve.
+async function runEnergyScan() {
+  const el = $("scan-result");
+  el.classList.remove("error");
+
+  const symbols = $("ham-symbols").value.split(",").map((s) => s.trim()).filter(Boolean);
+  const shape = $("scan-shape-select").value;
+  const from = parseFloat($("scan-bond-from").value);
+  const to = parseFloat($("scan-bond-to").value);
+  const nPoints = Math.min(30, Math.max(2, parseInt($("scan-points").value, 10) || 9));
+  const charge = parseInt($("ham-charge").value, 10) || 0;
+  const mapping = $("ham-mapping-select").value || "jordan_wigner";
+
+  if (!symbols.length) {
+    el.classList.add("error");
+    el.textContent = "Inserisci prima i simboli della molecola custom qui sopra (es. H, H).";
+    return;
+  }
+  if (!Number.isFinite(from) || !Number.isFinite(to)) {
+    el.classList.add("error");
+    el.textContent = "Intervallo di lunghezza legame non valido.";
+    return;
+  }
+
+  const btn = $("scan-btn");
+  btn.disabled = true;
+  el.textContent = `Calcolo ${nPoints} punti (${shape}, da ${from} a ${to} Å)...`;
+
+  try {
+    const bondLengths = Array.from(
+      { length: nPoints },
+      (_, i) => from + (i * (to - from)) / (nPoints - 1)
+    );
+    const results = await Promise.all(bondLengths.map(async (bondLength) => {
+      try {
+        const geometry = generateGeometryTemplate(shape, symbols.length, bondLength);
+        const data = await api("/api/hamiltonian/custom", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ symbols, geometry, charge, mapping }),
+        });
+        return { bondLength, energy: data.ground_state_energy_hartree };
+      } catch (err) {
+        return { bondLength, error: err.message };
+      }
+    }));
+
+    const lines = results.map((r) => r.error
+      ? `  R=${r.bondLength.toFixed(4)} Å  ->  errore: ${r.error}`
+      : `  R=${r.bondLength.toFixed(4)} Å  ->  E=${r.energy.toFixed(6)} Hartree`);
+    const successful = results.filter((r) => !r.error);
+    const minPoint = successful.length
+      ? successful.reduce((a, b) => (b.energy < a.energy ? b : a))
+      : null;
+
+    el.classList.remove("error");
+    el.textContent =
+      `${lines.join("\n")}\n\n` +
+      (minPoint
+        ? `Minimo su questa griglia: R=${minPoint.bondLength.toFixed(4)} Å, E=${minPoint.energy.toFixed(6)} Hartree`
+        : "Nessun punto calcolato con successo -- controlla i simboli/la forma scelti.");
+  } catch (err) {
+    el.classList.add("error");
+    el.textContent = `Errore: ${err.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 // Real VQE (dense_evolution.vqe.run_vqe via /api/vqe) -- hardware-
 // efficient ansatz, real Adam optimization against the molecule's real
 // Hamiltonian, no fixed/precomputed angles. Loads the resulting QASM
@@ -782,11 +881,15 @@ async function runVqe() {
     : `hardware-efficient, ${nLayers} layer -- fino a ~2 minuti per molecole a 12 qubit`;
   el.textContent = `Ottimizzazione VQE in corso (Adam, ${ansatzNote}, fino a ${maxiter} iterazioni)...`;
   try {
+    // 10 minutes, not the 30s default: a real optimization run, not a
+    // single-point calculation -- the note above already sets the user's
+    // expectation that this can take minutes, so the timeout has to be
+    // generous enough not to cut off a run that's genuinely still working.
     const data = await api("/api/vqe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-    });
+    }, 600000);
     const exactLine = data.exact_energy_hartree !== null
       ? `Energia esatta (diagonalizzazione densa) = ${data.exact_energy_hartree.toFixed(6)} Hartree\n` +
         `Errore |VQE - esatta| = ${Math.abs(data.vqe_energy_hartree - data.exact_energy_hartree).toFixed(6)} Hartree\n`
@@ -878,11 +981,15 @@ async function runMdTrajectory() {
     el.textContent = recompute
       ? `Traiettoria MD ab-initio (Hartree-Fock reale ad ogni passo, ${nSteps} passi) -- puo' richiedere qualche minuto...`
       : `Traiettoria MD (stato elettronico iniziale fisso, ${nSteps} passi)...`;
+    // Same 10-minute allowance as VQE -- recompute_electronic_state=true
+    // re-solves real Hartree-Fock at every step (true ab-initio MD), which
+    // can genuinely take minutes for a longer trajectory. The non-recompute
+    // path is fast and will simply finish well under this.
     const data = await api("/api/md_trajectory", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, n_steps: nSteps, dt_fs: dtFs, recompute_electronic_state: recompute }),
-    });
+    }, 600000);
     const last = data.step.length - 1;
     el.textContent =
       `${data.step.length} passi, ${data.time_fs[last].toFixed(2)} fs totali.\n` +
@@ -1086,6 +1193,7 @@ async function init() {
   $("ham-catalog-btn").addEventListener("click", runCatalogHamiltonian);
   $("ham-custom-btn").addEventListener("click", runCustomHamiltonian);
   $("ham-mix-btn").addEventListener("click", runMixHamiltonians);
+  $("scan-btn").addEventListener("click", runEnergyScan);
   $("ham-mapping-select").addEventListener("change", refreshHamiltonianCatalog);
   $("geom-generate-btn").addEventListener("click", runGenerateGeometry);
   $("element-clear-btn").addEventListener("click", () => { $("ham-symbols").value = ""; });
