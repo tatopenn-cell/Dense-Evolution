@@ -27,4 +27,4 @@ from .harrison_tb import (ELEMENTS as HARRISON_ELEMENTS, ETA as HARRISON_ETA,
 from .vhd_tb import (MATERIALS as VHD_MATERIALS, sp3s_star_hamiltonian,
                       direct_gap_at_gamma, band_extrema_along_path)
 
-__version__ = "8.1.47"
+__version__ = "8.1.48"
