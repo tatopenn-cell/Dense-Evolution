@@ -73,11 +73,21 @@ COMPUTE = {
 # Shared utilities
 # --------------------------------------------------------------------------
 
+# Set by tests to route through httpx.ASGITransport straight into the real,
+# in-process local_site.app.server.app (see tests/test_mcp_server.py) --
+# None here means "use a real TCP connection to KERNEL_URL", unchanged from
+# before this existed. This is the one seam in the whole adapter: it lets
+# tests exercise every tool function against the real FastAPI kernel (real
+# DenseSVSimulator, real PennyLane Hamiltonians -- no mocked physics) without
+# a live subprocess bound to a real port in CI.
+_TEST_TRANSPORT = None
+
+
 async def _request(method: str, path: str, **kwargs) -> dict:
     """Reusable request helper for every tool below."""
-    async with httpx.AsyncClient(timeout=180.0) as client:
+    async with httpx.AsyncClient(base_url=KERNEL_URL, transport=_TEST_TRANSPORT, timeout=180.0) as client:
         try:
-            resp = await client.request(method, f"{KERNEL_URL}{path}", **kwargs)
+            resp = await client.request(method, path, **kwargs)
         except httpx.ConnectError:
             raise RuntimeError(
                 f"Dense Evolution kernel not reachable at {KERNEL_URL}. Start it with "
