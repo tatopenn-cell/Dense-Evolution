@@ -1,0 +1,617 @@
+#!/usr/bin/env python3
+"""
+MCP server for Dense-Evolution's Composer API (dense_evolution_mcp).
+
+This is a thin adapter, not a reimplementation: every tool here calls the
+same local FastAPI kernel the published Composer web page talks to
+(local_site/app/server.py, started with `dense-evolution serve`, listening
+on http://127.0.0.1:8800 by default). All computation -- circuit
+simulation, VQE, molecular Hamiltonians, QM/MM forces, ZNE mitigation --
+happens inside dense_evolution/dashboard_core exactly as it does for the
+web UI; this file only exposes those same endpoints as MCP tools so an
+agent can drive them directly instead of a browser.
+
+Requires the kernel to be running separately:
+    pip install dense-evolution[composer]
+    dense-evolution serve
+(or `python -m local_site.app.server` from the repo root)
+
+Override the kernel URL with the DENSE_EVOLUTION_KERNEL_URL env var if it's
+not on the default host/port.
+
+Images (circuit diagrams, histograms, Q-sphere, Bloch vectors) come back
+from the kernel as base64 PNGs meant for a browser <img> tag -- inlining
+that into a tool's text response would flood an agent's context with a
+wall of base64 for a picture it can't even see inline. Instead this
+adapter decodes and writes each one to DENSE_EVOLUTION_MCP_IMAGE_DIR
+(default ~/.dense_evolution_mcp/images) and returns the file path, which
+Claude Code (or any agent with file access) can open directly. Large
+numeric arrays (statevector, probabilities) are similarly truncated to
+their most significant entries rather than dumped in full -- the kernel's
+own response can be tens of thousands of floats for a 20+ qubit circuit.
+"""
+
+import base64
+import json
+import os
+import time
+from pathlib import Path
+from typing import Optional
+
+import httpx
+from pydantic import BaseModel, ConfigDict, Field
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP("dense_evolution_mcp")
+
+KERNEL_URL = os.environ.get("DENSE_EVOLUTION_KERNEL_URL", "http://127.0.0.1:8800").rstrip("/")
+IMAGE_OUTPUT_DIR = Path(
+    os.environ.get("DENSE_EVOLUTION_MCP_IMAGE_DIR", str(Path.home() / ".dense_evolution_mcp" / "images"))
+)
+
+READ_ONLY_IDEMPOTENT = {
+    "readOnlyHint": True,
+    "destructiveHint": False,
+    "idempotentHint": True,
+    "openWorldHint": False,
+}
+# Circuit/VQE/MD runs don't mutate any stored resource -- nothing server-side
+# persists between calls -- so they're "read-only" in the MCP sense too, but
+# re-running with the same seed can differ slightly run-to-run (floating
+# point reduction order in the linear-algebra backend), so idempotentHint
+# is left False for anything that actually executes a simulation.
+COMPUTE = {
+    "readOnlyHint": True,
+    "destructiveHint": False,
+    "idempotentHint": False,
+    "openWorldHint": False,
+}
+
+
+# --------------------------------------------------------------------------
+# Shared utilities
+# --------------------------------------------------------------------------
+
+async def _request(method: str, path: str, **kwargs) -> dict:
+    """Reusable request helper for every tool below."""
+    async with httpx.AsyncClient(timeout=180.0) as client:
+        try:
+            resp = await client.request(method, f"{KERNEL_URL}{path}", **kwargs)
+        except httpx.ConnectError:
+            raise RuntimeError(
+                f"Dense Evolution kernel not reachable at {KERNEL_URL}. Start it with "
+                "`dense-evolution serve` (or `python -m local_site.app.server` from the "
+                "repo root), then retry. Use dense_evolution_health to check connectivity."
+            )
+        except httpx.TimeoutException:
+            raise RuntimeError(
+                "Request to the Dense Evolution kernel timed out -- the simulation may be "
+                "too large or slow for this request (e.g. high qubit count, many VQE "
+                "iterations, or a long MD trajectory). Try reducing its size."
+            )
+        if resp.status_code >= 400:
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text
+            raise RuntimeError(f"Dense Evolution kernel returned HTTP {resp.status_code}: {detail}")
+        return resp.json()
+
+
+def _handle_error(e: Exception) -> str:
+    """Consistent error formatting across all tools."""
+    return f"Error: {e}"
+
+
+def _save_png(b64_png: Optional[str], name: str) -> Optional[str]:
+    """Decode a base64 PNG from the kernel and write it to disk, returning
+    the path instead of the raw base64 -- see module docstring."""
+    if not b64_png:
+        return None
+    IMAGE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    path = IMAGE_OUTPUT_DIR / f"{name}_{int(time.time() * 1000)}.png"
+    path.write_bytes(base64.b64decode(b64_png))
+    return str(path)
+
+
+def _truncate_statevector(rows: list, top_k: int = 25) -> dict:
+    """Full statevectors can be thousands of entries; agents almost always
+    care about the dominant amplitudes, not the full dense array."""
+    sorted_rows = sorted(rows, key=lambda r: -r["abs"])
+    return {
+        "total_nonzero_amplitudes": len(rows),
+        "shown": min(top_k, len(rows)),
+        "top_amplitudes_by_magnitude": sorted_rows[:top_k],
+    }
+
+
+def _truncate_probabilities(probs: list, top_k: int = 25) -> dict:
+    indexed = sorted(enumerate(probs), key=lambda t: -t[1])[:top_k]
+    return {
+        "total_basis_states": len(probs),
+        "shown": min(top_k, len(probs)),
+        "top_states_by_probability": [{"index": i, "probability": p} for i, p in indexed],
+    }
+
+
+# --------------------------------------------------------------------------
+# Tools: kernel status
+# --------------------------------------------------------------------------
+
+@mcp.tool(name="dense_evolution_health", annotations={"title": "Check Dense Evolution kernel status", **READ_ONLY_IDEMPOTENT})
+async def dense_evolution_health() -> str:
+    """Check whether the local Dense Evolution Composer kernel is running and reachable.
+
+    Always call this first if unsure whether the kernel is up -- every other
+    tool in this server depends on it. Returns the kernel's dense_evolution
+    version, hostname, and free/total RAM (useful to sanity-check qubit-count
+    limits before requesting a large simulation).
+
+    Returns:
+        str: JSON with {status, dense_evolution_version, hostname,
+        total_ram_gb, available_ram_gb, ram_percent_free}, or an
+        "Error: ..." string if the kernel is not running.
+    """
+    try:
+        return json.dumps(await _request("GET", "/api/health"), indent=2)
+    except Exception as e:
+        return _handle_error(e)
+
+
+@mcp.tool(name="dense_evolution_system_limits", annotations={"title": "Get max safe qubit count", **READ_ONLY_IDEMPOTENT})
+async def dense_evolution_system_limits() -> str:
+    """Get the maximum qubit count this machine can currently simulate with
+    a dense statevector, computed from actual free RAM right now (not a
+    fixed constant) -- call before requesting a large `dense_evolution_run_circuit`.
+
+    Returns:
+        str: JSON describing the current safe qubit ceiling for the dense backend.
+    """
+    try:
+        return json.dumps(await _request("GET", "/api/system_limits"), indent=2)
+    except Exception as e:
+        return _handle_error(e)
+
+
+# --------------------------------------------------------------------------
+# Tools: catalogs (presets, gates, noise models, molecules)
+# --------------------------------------------------------------------------
+
+@mcp.tool(name="dense_evolution_list_presets", annotations={"title": "List preset OpenQASM circuits", **READ_ONLY_IDEMPOTENT})
+async def dense_evolution_list_presets() -> str:
+    """List the built-in example OpenQASM circuits bundled with the Composer
+    (e.g. Bell state, GHZ, QFT) -- useful as ready-made input for
+    `dense_evolution_run_circuit` without writing QASM by hand.
+
+    Returns:
+        str: JSON mapping preset names to their OpenQASM source text.
+    """
+    try:
+        return json.dumps(await _request("GET", "/api/presets"), indent=2)
+    except Exception as e:
+        return _handle_error(e)
+
+
+@mcp.tool(name="dense_evolution_list_gates", annotations={"title": "List available quantum gates", **READ_ONLY_IDEMPOTENT})
+async def dense_evolution_list_gates() -> str:
+    """List every gate the graphical circuit builder (and therefore
+    `dense_evolution_build_circuit`) supports, with their display metadata.
+
+    Returns:
+        str: JSON gate palette (name, symbol, qubit arity, etc. per gate).
+    """
+    try:
+        return json.dumps(await _request("GET", "/api/palette"), indent=2)
+    except Exception as e:
+        return _handle_error(e)
+
+
+@mcp.tool(name="dense_evolution_list_noise_models", annotations={"title": "List available noise models", **READ_ONLY_IDEMPOTENT})
+async def dense_evolution_list_noise_models() -> str:
+    """List the real Kraus-channel noise models available for
+    `dense_evolution_run_circuit` and the mitigation tools (e.g.
+    depolarizing, amplitude damping, bit-flip).
+
+    Returns:
+        str: JSON mapping noise model names to their parameters/description.
+    """
+    try:
+        return json.dumps(await _request("GET", "/api/noise_models"), indent=2)
+    except Exception as e:
+        return _handle_error(e)
+
+
+class ListMoleculesInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mapping: str = Field(
+        default="jordan_wigner",
+        description="Fermion-to-qubit mapping: 'jordan_wigner' or 'bravyi_kitaev'. Both represent "
+        "the identical physical Hamiltonian (same spectrum) in a different qubit basis.",
+    )
+
+
+@mcp.tool(name="dense_evolution_list_molecules", annotations={"title": "List catalog molecules", **READ_ONLY_IDEMPOTENT})
+async def dense_evolution_list_molecules(params: ListMoleculesInput) -> str:
+    """List every molecule in the built-in Hartree-Fock catalog, each with
+    its real qubit count under the requested mapping. Use this to find valid
+    `name` values for `dense_evolution_molecule_energy`, `_mix_molecules`,
+    `_run_vqe`, `_qmmm_forces`, and `_md_trajectory`.
+
+    Args:
+        params (ListMoleculesInput): mapping -- 'jordan_wigner' (default) or 'bravyi_kitaev'.
+
+    Returns:
+        str: JSON list of catalog molecules with their qubit counts.
+    """
+    try:
+        return json.dumps(await _request("GET", "/api/hamiltonians", params={"mapping": params.mapping}), indent=2)
+    except Exception as e:
+        return _handle_error(e)
+
+
+# --------------------------------------------------------------------------
+# Tools: circuit building and execution
+# --------------------------------------------------------------------------
+
+class BuildCircuitInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    n_qubits: int = Field(..., ge=1, description="Number of qubits in the circuit.")
+    ops: list = Field(
+        ..., description="List of graphical-builder gate operations to convert into OpenQASM. "
+        "Get valid gate names from dense_evolution_list_gates first."
+    )
+
+
+@mcp.tool(name="dense_evolution_build_circuit", annotations={"title": "Build OpenQASM from gate operations", **READ_ONLY_IDEMPOTENT})
+async def dense_evolution_build_circuit(params: BuildCircuitInput) -> str:
+    """Convert a list of gate operations (as used by the graphical circuit
+    builder) into real OpenQASM text, ready to pass to `dense_evolution_run_circuit`.
+
+    Args:
+        params (BuildCircuitInput): n_qubits, ops (see dense_evolution_list_gates for valid gate names).
+
+    Returns:
+        str: JSON {"qasm": "..."} on success, or "Error: ..." if the op list is invalid.
+    """
+    try:
+        data = await _request("POST", "/api/build_from_ops", json=params.model_dump())
+        return json.dumps(data, indent=2)
+    except Exception as e:
+        return _handle_error(e)
+
+
+class RunCircuitInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    qasm: str = Field(..., min_length=1, description="OpenQASM 2.0 circuit source to simulate.")
+    shots: int = Field(default=1000, ge=1, le=1_000_000, description="Number of measurement shots for the counts histogram.")
+    seed: int = Field(default=42, description="Random seed for sampling/noise reproducibility.")
+    noise_model: str = Field(default="ideal", description="Noise model name from dense_evolution_list_noise_models, or 'ideal'.")
+    noise_p: float = Field(default=0.0, ge=0.0, le=1.0, description="Noise channel error probability (ignored if noise_model='ideal').")
+    backend: str = Field(default="dense", description="'dense' (exact statevector, up to the safe qubit ceiling) or 'mps' "
+                         "(matrix-product-state, approximate top-k states, for larger circuits).")
+    include_visualizations: bool = Field(
+        default=False,
+        description="If true, also render and save circuit/histogram/Q-sphere/Bloch PNGs to disk and "
+        "return their file paths. Leave false unless you actually need to view an image -- "
+        "rendering costs extra time and the paths are not useful without viewing them.",
+    )
+
+
+@mcp.tool(name="dense_evolution_run_circuit", annotations={"title": "Run an OpenQASM circuit", **COMPUTE})
+async def dense_evolution_run_circuit(params: RunCircuitInput) -> str:
+    """Run real OpenQASM on dense_evolution's DenseSVSimulator (or the MPS
+    backend for large circuits) and return measurement counts, probabilities,
+    and statevector amplitudes. Above the dense backend's safe qubit ceiling
+    (see dense_evolution_system_limits), automatically switches to an MPS
+    top-k-states approximation instead of failing.
+
+    Large statevectors/probability arrays are truncated to their most
+    significant entries (see 'shown' vs 'total_*' fields) to keep the
+    response usable in an agent's context -- the full histogram is always
+    returned in 'counts' since it's naturally bounded by `shots`.
+
+    Args:
+        params (RunCircuitInput): qasm, shots, seed, noise_model, noise_p, backend,
+            include_visualizations (see field descriptions).
+
+    Returns:
+        str: JSON with n_qubits, backend, counts, truncated probabilities/statevector,
+        fidelity_vs_ideal, and (if include_visualizations) paths to saved PNG files.
+        For circuits above the dense limit on the 'mps' backend, returns a
+        differently-shaped {"large_scale": true, "top_k_states": [...], ...} response.
+    """
+    try:
+        payload = params.model_dump(exclude={"include_visualizations"})
+        data = await _request("POST", "/api/run", json=payload)
+    except Exception as e:
+        return _handle_error(e)
+
+    if data.get("large_scale"):
+        result = {k: v for k, v in data.items() if k != "circuit_png"}
+        if params.include_visualizations:
+            result["circuit_png_path"] = _save_png(data.get("circuit_png"), "circuit_large_scale")
+        return json.dumps(result, indent=2)
+
+    result = {
+        "n_qubits": data["n_qubits"],
+        "backend": data["backend"],
+        "counts": data["counts"],
+        "probabilities": _truncate_probabilities(data["probabilities"]),
+        "statevector": _truncate_statevector(data["statevector"]),
+        "fidelity_vs_ideal": data.get("fidelity_vs_ideal"),
+        "mps_max_bond_used": data.get("mps_max_bond_used"),
+        "mps_memory_mb": data.get("mps_memory_mb"),
+        "mps_avg_jsd": data.get("mps_avg_jsd"),
+    }
+    if params.include_visualizations:
+        result["circuit_png_path"] = _save_png(data.get("circuit_png"), "circuit")
+        result["histogram_png_path"] = _save_png(data.get("histogram_png"), "histogram")
+        result["qsphere_png_path"] = _save_png(data.get("qsphere_png"), "qsphere")
+        result["bloch_png_path"] = _save_png(data.get("bloch_png"), "bloch")
+    return json.dumps(result, indent=2)
+
+
+# --------------------------------------------------------------------------
+# Tools: molecular Hamiltonians
+# --------------------------------------------------------------------------
+
+class MoleculeEnergyInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(..., description="Catalog molecule name -- see dense_evolution_list_molecules.")
+    mapping: str = Field(default="jordan_wigner", description="'jordan_wigner' or 'bravyi_kitaev'.")
+
+
+@mcp.tool(name="dense_evolution_molecule_energy", annotations={"title": "Get catalog molecule ground-state energy", **COMPUTE})
+async def dense_evolution_molecule_energy(params: MoleculeEnergyInput) -> str:
+    """Compute the exact ground-state energy of a catalog molecule via real
+    Hartree-Fock + Jordan-Wigner/Bravyi-Kitaev Hamiltonian construction and
+    exact dense diagonalization.
+
+    Args:
+        params (MoleculeEnergyInput): name, mapping.
+
+    Returns:
+        str: JSON with n_qubits, symbols, geometry, charge, ground_state_energy_hartree.
+        "Error: ..." with a 404-style message if `name` is not in the catalog
+        (call dense_evolution_list_molecules to see valid names).
+    """
+    try:
+        return json.dumps(await _request("POST", "/api/hamiltonian/molecule", json=params.model_dump()), indent=2)
+    except Exception as e:
+        return _handle_error(e)
+
+
+class MixMoleculesInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name_a: str = Field(..., description="First catalog molecule name.")
+    name_b: str = Field(..., description="Second catalog molecule name. Must have the same qubit count as name_a.")
+    weight_a: float = Field(default=0.5, description="Weight of the first Hamiltonian in the mix.")
+    weight_b: float = Field(default=0.5, description="Weight of the second Hamiltonian in the mix.")
+    mapping: str = Field(default="jordan_wigner", description="'jordan_wigner' or 'bravyi_kitaev'.")
+
+
+@mcp.tool(name="dense_evolution_mix_molecules", annotations={"title": "Mix two catalog Hamiltonians", **COMPUTE})
+async def dense_evolution_mix_molecules(params: MixMoleculesInput) -> str:
+    """Compute H_mix = weight_a*H_a + weight_b*H_b for two catalog molecules
+    that share the same qubit count (same electron space), and diagonalize
+    all three (H_a, H_b, H_mix) for their ground-state energies. Mixing
+    molecules with different qubit counts is physically meaningless and is
+    rejected with a clear error.
+
+    Args:
+        params (MixMoleculesInput): name_a, name_b, weight_a, weight_b, mapping.
+
+    Returns:
+        str: JSON with n_qubits, energy_a, energy_b, energy_mixed (all in Hartree).
+    """
+    try:
+        return json.dumps(await _request("POST", "/api/hamiltonian/mix", json=params.model_dump()), indent=2)
+    except Exception as e:
+        return _handle_error(e)
+
+
+class CustomMoleculeInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    symbols: list = Field(..., min_length=1, description="Atomic symbols, e.g. ['H', 'H', 'O'].")
+    geometry: list = Field(..., min_length=1, description="[[x, y, z], ...] coordinates in Angstrom, one row per symbol.")
+    charge: int = Field(default=0, description="Total molecular charge.")
+    mapping: str = Field(default="jordan_wigner", description="'jordan_wigner' or 'bravyi_kitaev'.")
+
+
+@mcp.tool(name="dense_evolution_custom_molecule_energy", annotations={"title": "Get custom molecule ground-state energy", **COMPUTE})
+async def dense_evolution_custom_molecule_energy(params: CustomMoleculeInput) -> str:
+    """Compute the ground-state energy of an arbitrary molecule (not in the
+    catalog) from its atomic symbols and geometry, via the same Hartree-Fock
+    pipeline as the catalog. Small molecules only -- exact dense
+    diagonalization caps out at 12 qubits, rejected before PennyLane runs if
+    the electron/orbital count would exceed that.
+
+    Args:
+        params (CustomMoleculeInput): symbols, geometry, charge, mapping.
+            len(symbols) must equal len(geometry).
+
+    Returns:
+        str: JSON with n_qubits, ground_state_energy_hartree, or "Error: ..."
+        if the molecule needs more than 12 qubits.
+    """
+    try:
+        return json.dumps(await _request("POST", "/api/hamiltonian/custom", json=params.model_dump()), indent=2)
+    except Exception as e:
+        return _handle_error(e)
+
+
+# --------------------------------------------------------------------------
+# Tools: VQE
+# --------------------------------------------------------------------------
+
+class RunVqeInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: Optional[str] = Field(default=None, description="Catalog molecule name. Provide this OR symbols+geometry, not both.")
+    symbols: Optional[list] = Field(default=None, description="Atomic symbols for a custom molecule.")
+    geometry: Optional[list] = Field(default=None, description="[[x, y, z], ...] in Angstrom for a custom molecule.")
+    charge: int = Field(default=0, description="Molecular charge (custom molecule only).")
+    ansatz_type: str = Field(
+        default="hardware_efficient",
+        description="'hardware_efficient' (generic n_layers-deep RY+CNOT template) or 'uccsd' "
+        "(chemically-motivated, fewer parameters but much deeper circuits per iteration).",
+    )
+    n_layers: int = Field(default=8, ge=1, description="Ansatz depth (hardware_efficient only).")
+    maxiter: int = Field(default=200, ge=1, le=5000, description="Maximum Adam optimizer iterations.")
+    step_size: float = Field(default=0.1, gt=0, description="Adam optimizer learning rate.")
+    beta1: float = Field(default=0.9, description="Adam optimizer beta1.")
+    beta2: float = Field(default=0.999, description="Adam optimizer beta2.")
+    seed: int = Field(default=0, description="Random seed for the initial variational parameters.")
+
+
+@mcp.tool(name="dense_evolution_run_vqe", annotations={"title": "Run VQE ground-state optimization", **COMPUTE})
+async def dense_evolution_run_vqe(params: RunVqeInput) -> str:
+    """Run real VQE (Adam gradient descent with adjoint differentiation)
+    against a molecule's Jordan-Wigner Hamiltonian, from a fresh random
+    start every call -- not a cached/precomputed result. Can take a while
+    for 'uccsd' ansatz or high maxiter; consider dense_evolution_health's
+    RAM figures and start with a small maxiter/n_layers to gauge cost first.
+
+    Args:
+        params (RunVqeInput): either `name` (catalog) or `symbols`+`geometry`
+            (custom) must be given, plus ansatz_type, n_layers, maxiter,
+            step_size, beta1, beta2, seed.
+
+    Returns:
+        str: JSON with the optimized energy, convergence history, and
+        optimized parameters. "Error: ..." if neither name nor
+        symbols+geometry is provided, or the molecule is unknown.
+    """
+    try:
+        return json.dumps(await _request("POST", "/api/vqe", json=params.model_dump()), indent=2)
+    except Exception as e:
+        return _handle_error(e)
+
+
+# --------------------------------------------------------------------------
+# Tools: QM/MM forces and molecular dynamics
+# --------------------------------------------------------------------------
+
+class QmmmForcesInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(..., description="Catalog molecule name -- see dense_evolution_list_molecules.")
+    mapping: str = Field(default="jordan_wigner", description="'jordan_wigner' or 'bravyi_kitaev'.")
+
+
+@mcp.tool(name="dense_evolution_qmmm_forces", annotations={"title": "Compute Hellmann-Feynman nuclear forces", **COMPUTE})
+async def dense_evolution_qmmm_forces(params: QmmmForcesInput) -> str:
+    """Compute real Hellmann-Feynman nuclear forces (F = -d<psi|H(R)|psi>/dR
+    via PennyLane autodiff, not finite differences) on a catalog molecule's
+    real Hartree-Fock ground state.
+
+    Args:
+        params (QmmmForcesInput): name, mapping.
+
+    Returns:
+        str: JSON with per-atom force vectors and related energetics.
+    """
+    try:
+        return json.dumps(await _request("POST", "/api/qmmm_forces", json=params.model_dump()), indent=2)
+    except Exception as e:
+        return _handle_error(e)
+
+
+class MdTrajectoryInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(..., description="Catalog molecule name -- see dense_evolution_list_molecules.")
+    n_steps: int = Field(default=20, ge=1, le=200, description="Number of MD steps (capped at 200 to bound request cost).")
+    dt_fs: float = Field(default=0.5, gt=0, description="Timestep in femtoseconds.")
+    mapping: str = Field(default="jordan_wigner", description="'jordan_wigner' or 'bravyi_kitaev'.")
+    recompute_electronic_state: bool = Field(
+        default=False,
+        description="If true, re-solves real Hartree-Fock at every step (true ab-initio MD, much more "
+        "expensive; n_steps capped at 30 in that case). If false, holds the initial "
+        "electronic state fixed throughout (accurate only close to the starting geometry).",
+    )
+
+
+@mcp.tool(name="dense_evolution_md_trajectory", annotations={"title": "Run a molecular dynamics trajectory", **COMPUTE})
+async def dense_evolution_md_trajectory(params: MdTrajectoryInput) -> str:
+    """Run a real Velocity-Verlet MD trajectory driven by Hellmann-Feynman
+    forces at every step, for a catalog molecule.
+
+    Args:
+        params (MdTrajectoryInput): name, n_steps, dt_fs, mapping,
+            recompute_electronic_state (true = true ab-initio MD, capped at
+            30 steps; false = fixed electronic state, capped at 200 steps).
+
+    Returns:
+        str: JSON with the trajectory (positions/energies per step).
+        "Error: ..." if n_steps is out of range for the chosen mode.
+    """
+    try:
+        return json.dumps(await _request("POST", "/api/md_trajectory", json=params.model_dump()), indent=2)
+    except Exception as e:
+        return _handle_error(e)
+
+
+# --------------------------------------------------------------------------
+# Tools: error mitigation
+# --------------------------------------------------------------------------
+
+class MitigateZneInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    qasm: str = Field(..., min_length=1, description="OpenQASM circuit to run under noise and mitigate.")
+    pauli_string: str = Field(..., description="Pauli observable to measure and mitigate, e.g. 'ZZI'.")
+    noise_model: str = Field(..., description="Noise model name -- see dense_evolution_list_noise_models.")
+    noise_p: float = Field(..., ge=0.0, le=1.0, description="Base noise channel error probability.")
+    seed: int = Field(default=42, description="Random seed for the stochastic Kraus draws.")
+    extrapolation_method: str = Field(
+        default="richardson",
+        description="'richardson' (exact, through 1x/2x/3x noise_p) or 'polynomial' "
+        "(degree-2 least-squares fit through 5 noise scales).",
+    )
+
+
+@mcp.tool(name="dense_evolution_mitigate_zne", annotations={"title": "Zero-Noise Extrapolation on an expectation value", **COMPUTE})
+async def dense_evolution_mitigate_zne(params: MitigateZneInput) -> str:
+    """Run real Zero-Noise Extrapolation: measure a Pauli expectation value
+    at several noise scales under a real Kraus noise channel, then
+    extrapolate back to zero noise.
+
+    Args:
+        params (MitigateZneInput): qasm, pauli_string, noise_model, noise_p,
+            seed, extrapolation_method.
+
+    Returns:
+        str: JSON with n_qubits, ideal_expectation, noise_factors,
+        noisy_expectations, zne_extrapolated, extrapolation_method.
+    """
+    try:
+        return json.dumps(await _request("POST", "/api/mitigate", json=params.model_dump()), indent=2)
+    except Exception as e:
+        return _handle_error(e)
+
+
+class MitigateDensityMatrixInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    qasm: str = Field(..., min_length=1, description="OpenQASM circuit to run under noise and mitigate.")
+    noise_model: str = Field(..., description="Noise model name -- see dense_evolution_list_noise_models.")
+    noise_p: float = Field(..., ge=0.0, le=1.0, description="Base noise channel error probability.")
+    seed: int = Field(default=42, description="Random seed for the Monte-Carlo density-matrix estimate.")
+
+
+@mcp.tool(name="dense_evolution_mitigate_density_matrix", annotations={"title": "Density-matrix Zero-Noise Extrapolation", **COMPUTE})
+async def dense_evolution_mitigate_density_matrix(params: MitigateDensityMatrixInput) -> str:
+    """Run real density-matrix ZNE: Monte-Carlo density-matrix estimate at
+    1x/2x/3x noise_p, extrapolated and projected onto the nearest physical
+    state, graded by Uhlmann fidelity against the true ideal state.
+
+    Args:
+        params (MitigateDensityMatrixInput): qasm, noise_model, noise_p, seed.
+
+    Returns:
+        str: JSON with n_qubits, noise_factors, fidelity_raw, fidelity_corrected.
+    """
+    try:
+        return json.dumps(await _request("POST", "/api/mitigate_matrix", json=params.model_dump()), indent=2)
+    except Exception as e:
+        return _handle_error(e)
+
+
+if __name__ == "__main__":
+    mcp.run()
