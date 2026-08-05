@@ -22,5 +22,7 @@ from .measurement import sample_counts, statevector_fidelity
 from .qft import qft
 from .random_circuit import random_circuit
 from .drawing import draw_circuit
+from .harrison_tb import (ELEMENTS as HARRISON_ELEMENTS, ETA as HARRISON_ETA,
+                           sp3_dimer_hamiltonian, zincblende_hamiltonian)
 
 __version__ = "8.1.46"
