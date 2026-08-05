@@ -74,6 +74,62 @@ app.add_middleware(
 )
 
 
+class PrivateNetworkAccessMiddleware:
+    """Chromium (and anything built on it, including VS Code's Simple
+    Browser) treats a page loaded from a public HTTPS origin talking to
+    127.0.0.1 as a "Private Network Access" request: on the CORS preflight
+    it adds `Access-Control-Request-Private-Network: true` and requires
+    the response to answer `Access-Control-Allow-Private-Network: true`,
+    on top of ordinary CORS -- Starlette's CORSMiddleware doesn't know
+    about this (newer, Chromium-specific) header at all and instead
+    rejects the preflight outright with 400 "Disallowed CORS
+    private-network" (verified directly: curl'd the exact preflight the
+    real browser sends and got that 400). Without this, the Composer
+    page's "detect the local kernel" banner never turns green in Chrome/
+    Edge/VS Code, even though the kernel is up and every plain curl
+    request succeeds -- curl never sends that header, so it doesn't hit
+    this path, which is why the failure wasn't visible from the command
+    line alone.
+
+    Installed as ASGI middleware (added after CORSMiddleware, so it runs
+    first on the request / last on the response) rather than routed
+    through CORSMiddleware itself: only intercepts the specific preflight
+    shape this needs (OPTIONS + that header, from an already-allowed
+    origin), so it can't accidentally relax CORS for anything else --
+    every other request still goes through CORSMiddleware unchanged."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers = dict(scope.get("headers", []))
+        is_preflight = scope["method"] == "OPTIONS"
+        wants_private_network = headers.get(b"access-control-request-private-network") == b"true"
+        origin = headers.get(b"origin", b"").decode("latin-1")
+
+        if is_preflight and wants_private_network and origin in ALLOWED_ORIGINS:
+            response_headers = [
+                (b"access-control-allow-origin", origin.encode("latin-1")),
+                (b"access-control-allow-private-network", b"true"),
+                (b"access-control-allow-methods", b"GET, POST"),
+                (b"access-control-allow-headers", b"*"),
+                (b"vary", b"Origin"),
+                (b"content-length", b"0"),
+            ]
+            await send({"type": "http.response.start", "status": 200, "headers": response_headers})
+            await send({"type": "http.response.body", "body": b""})
+            return
+
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(PrivateNetworkAccessMiddleware)
+
+
 def _has_qiskit() -> bool:
     """qiskit is an optional dependency of this kernel (see pyproject.toml's
     composer extra comment for why: it's the same library independently
@@ -95,8 +151,25 @@ def health():
     a real local kernel is installed and running on this machine, so the
     page can unlock live execution instead of showing install instructions.
     version is dense_evolution's own, not this API's -- lets the page warn
-    if the installed kernel is old enough to be missing an endpoint it needs."""
-    return {"status": "ok", "dense_evolution_version": dense_evolution.__version__}
+    if the installed kernel is old enough to be missing an endpoint it needs.
+
+    hostname/total_ram_gb are returned so the page can show concrete,
+    checkable proof of which real machine answered ("connected to
+    DESKTOP-ABC123, 16.0 GB RAM") instead of an unverifiable claim like
+    "circuits really run on your PC" -- a visitor can open Task Manager/
+    a terminal and confirm this hostname and RAM figure are their own
+    machine's, which a generic sentence gives them no way to check."""
+    import socket
+    import psutil
+    mem = psutil.virtual_memory()
+    return {
+        "status": "ok",
+        "dense_evolution_version": dense_evolution.__version__,
+        "hostname": socket.gethostname(),
+        "total_ram_gb": round(mem.total / 1e9, 1),
+        "available_ram_gb": round(mem.available / 1e9, 1),
+        "ram_percent_free": round(100 - mem.percent, 1),
+    }
 
 
 def _figure_to_base64_png(fig) -> str:

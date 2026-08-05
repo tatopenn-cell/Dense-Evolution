@@ -42,6 +42,54 @@ def test_cors_allows_the_published_page_origin():
     assert resp.headers.get("access-control-allow-origin") == "https://tatopenn-cell.github.io"
 
 
+def test_health_reports_real_hostname_and_ram():
+    """The Composer page shows this instead of an unverifiable "circuits
+    really run on your PC" claim -- a visitor can check hostname/RAM
+    themselves, so these need to be the machine's real values, not
+    placeholders."""
+    import socket
+    resp = client.get("/api/health")
+    body = resp.json()
+    assert body["hostname"] == socket.gethostname()
+    assert body["total_ram_gb"] > 0
+    assert 0 <= body["ram_percent_free"] <= 100
+    assert 0 <= body["available_ram_gb"] <= body["total_ram_gb"]
+
+
+def test_private_network_access_preflight_succeeds_for_allowed_origin():
+    """Chromium (incl. VS Code's Simple Browser) sends this extra preflight
+    header when a page loaded from a public HTTPS origin talks to
+    127.0.0.1, and requires this exact response header back -- without it,
+    the real browser silently blocks the request even though plain CORS
+    looks fine (verified directly: curl doesn't send this header, so this
+    failure is invisible to curl-only testing)."""
+    resp = client.options(
+        "/api/health",
+        headers={
+            "Origin": "https://tatopenn-cell.github.io",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Private-Network": "true",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.headers.get("access-control-allow-private-network") == "true"
+    assert resp.headers.get("access-control-allow-origin") == "https://tatopenn-cell.github.io"
+
+
+def test_private_network_access_preflight_rejected_for_disallowed_origin():
+    """The PNA shortcut must not become a way to bypass the origin
+    allowlist -- an origin not in ALLOWED_ORIGINS gets no PNA grant."""
+    resp = client.options(
+        "/api/health",
+        headers={
+            "Origin": "https://evil.example.com",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Private-Network": "true",
+        },
+    )
+    assert resp.headers.get("access-control-allow-private-network") is None
+
+
 def test_build_from_ops():
     resp = client.post("/api/build_from_ops", json={
         "n_qubits": 2,

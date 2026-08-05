@@ -149,9 +149,11 @@ class SafeMemoryGuard:
         free_frac_after = available_after_mb / self._total_mb if self._total_mb > 0 else 0.0
 
         if available_after_mb < 0 or free_frac_after < self.threshold_pct:
+            import socket
             raise MemoryPressureError(
                 f"\n{'─'*60}\n"
                 f"  {tag}MEMORIA INSUFFICIENTE per l'allocazione richiesta\n"
+                f"  Macchina     : {socket.gethostname()} ({self._total_mb / 1024:.1f} GB RAM totali)\n"
                 f"  Richiesti    : {required_mb:.0f} MB\n"
                 f"  Disponibile  : {s['available_mb']:.0f} MB ({s['free_pct']:.1f}% libera)\n"
                 f"  Dopo alloc.  : {available_after_mb:.0f} MB ({free_frac_after * 100:.1f}% libera)\n"
