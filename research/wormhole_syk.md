@@ -74,23 +74,49 @@ consistent across ten straight sweep points, before crossing back near
 the edge of the sweep. See `wormhole_syk.py --help`'s module docstring
 and its `__main__` output for the actual numbers.
 
-## Deliberate simplification
+## Two evolution backends — and the real gate circuit survives the check
 
-Real-time evolution here is exact matrix exponentiation applied directly
-to the statevector (`scipy`/`numpy` eigendecomposition), not a
-Trotterized gate circuit. The paper needed gates because that's what
-real IBM hardware executes; we have exact statevector access, and the
-paper's own hardware run is validated against exactly this kind of exact
-baseline. A gate-circuit (Trotterized) version — closer to what real
-hardware would run, and a candidate for a future Composer/MCP feature —
-is an explicit, separate follow-on, not attempted here.
+`run_wormhole_protocol` uses exact matrix exponentiation applied directly
+to the statevector (`scipy`/`numpy` eigendecomposition) — the paper
+needed gates because that's what real IBM hardware executes, but we have
+exact statevector access, and the paper's own hardware run is validated
+against exactly this kind of exact baseline.
+
+`run_wormhole_protocol_trotter` is the follow-on originally left open:
+a real gate circuit, closer to what hardware would run. Every
+Hamiltonian/coupling term becomes an actual `pauli_rotation_ops` circuit
+(basis-change + CNOT-staircase + RZ + inverse), verified to fidelity
+**1.0** against exact `expm` for 1-, 2-, 3-, and 4-qubit mixed Pauli
+strings (including a 4-qubit case matching a real SYK term), composed
+via first-order Trotterization — verified to converge smoothly to exact
+evolution as step count increases (infidelity drops ~4x per doubling of
+steps, consistent with the expected quadratic scaling, checked directly
+against the real N=8 SYK Hamiltonian rather than a toy example).
+
+At the known peak (seed 61, t0=0.3, t1=0.60, a ~6300-gate real circuit),
+the Trotterized version reproduces the exact result closely:
+
+| | I(mu=+12) | I(mu=-12) | delta |
+|---|---|---|---|
+| exact | 0.01326 | 0.01793 | +0.00468 |
+| Trotter (real gates) | 0.01301 | 0.01821 | +0.00520 |
+
+And across a reduced sweep (t1 = 0.10 to 1.00), the Trotterized delta
+tracks the exact curve's shape point-for-point — same sign everywhere,
+same rise-then-fall structure peaking around t1≈0.6-0.7. **The
+sign-dependent asymmetry is not an artifact of the exact-evolution
+shortcut — it survives when computed the way real hardware would have
+to compute it.**
 
 ## Status
 
 This is a research reproduction living in `research/`, not a shipped
 package feature. Nothing in `dense_evolution`, `dashboard_core`, the
 Composer, or the MCP server was touched. If this line of work continues,
-the most obviously reusable pieces are the Majorana JW mapping and the
-partial-trace/von-Neumann-entropy/mutual-information utilities — neither
-existed in the package before, and both are generically useful beyond
-this one experiment.
+the most obviously reusable pieces are the Majorana JW mapping, the
+partial-trace/von-Neumann-entropy/mutual-information utilities, and the
+generic `pauli_rotation_ops`/`trotter_evolve_ops` pair (real-time
+Hamiltonian evolution as a gate circuit didn't exist anywhere in the
+package before this file, and none of these four are specific to SYK/
+wormhole physics — the rotation and Trotter builders in particular would
+drop straight into any future feature needing exp(-iHt) as real gates).
