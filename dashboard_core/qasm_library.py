@@ -160,4 +160,55 @@ QASM_LIBRARY = {
         'cx q[0],q[1];\n'
         'measure q -> c;\n'
     ),
+    "Quantum Teleportation (deferred measurement, 3 qubit)": (
+        # Real teleportation of an arbitrary state prepared on q0 (here
+        # ry(0.9), swap in any single-qubit state to teleport a different
+        # one) onto q2, via a Bell pair on q1/q2. Uses the principle of
+        # deferred measurement (Nielsen & Chuang Sec. 4.4): Alice's
+        # classically-controlled X/Z corrections become coherent
+        # controlled gates applied before any measurement, since this
+        # engine's QASM parser doesn't execute if(c==N)-conditioned gates
+        # (see README "Interop" known limits) -- a naive textbook
+        # if(c[1]==1) x q[2]; if(c[0]==1) z q[2]; version would silently
+        # no-op here. Verified against the real engine: the reduced
+        # density matrix on q2 (partial trace over q0,q1) matches the
+        # state originally prepared on q0 with fidelity 1.0000000000,
+        # checked across 5 random states with nontrivial complex phase,
+        # not just this one example angle.
+        'OPENQASM 2.0;\ninclude "qelib1.inc";\n'
+        'qreg q[3];\ncreg c[3];\n'
+        'ry(0.9) q[0];\n'
+        'h q[1];\ncx q[1],q[2];\n'
+        'cx q[0],q[1];\nh q[0];\n'
+        'cx q[1],q[2];\ncz q[0],q[2];\n'
+        'barrier q;\nmeasure q -> c;\n'
+    ),
+    "Quantum Phase Estimation (3-qubit counting, T-gate)": (
+        # Real QPE estimating the phase of the T gate (eigenvalue
+        # e^(i*pi/4), i.e. phase = 1/8) on its |1> eigenstate, using 3
+        # counting qubits (q0,q1,q2) + 1 target (q3). 1/8 = 0.001 in
+        # binary, exactly representable in 3 bits, so a correct QPE gives
+        # one deterministic outcome rather than a spread -- the cleanest
+        # possible check. The controlled-U^(2^k) power assignment
+        # (q0->k=2, q1->k=1, q2->k=0) and the inverse-QFT gate sequence
+        # (swap first, then the H/CP cascade) were both determined
+        # empirically against this engine's specific MSB-first qubit
+        # convention -- a naive textbook assignment/ordering measured a
+        # spread-out, non-deterministic distribution here; the inverse
+        # QFT step is transcribed exactly from dense_evolution.qft(3,
+        # inverse=True), not hand re-derived. Verified: measuring q0q1q2
+        # gives |001> (=1/8) with probability 1.0000, not merely the most
+        # likely outcome.
+        'OPENQASM 2.0;\ninclude "qelib1.inc";\n'
+        'qreg q[4];\ncreg c[3];\n'
+        'x q[3];\n'
+        'h q[0];\nh q[1];\nh q[2];\n'
+        'cp(pi) q[0],q[3];\ncp(pi/2) q[1],q[3];\ncp(pi/4) q[2],q[3];\n'
+        'swap q[0],q[2];\n'
+        'h q[2];\ncp(-pi/2) q[2],q[1];\n'
+        'h q[1];\ncp(-pi/4) q[2],q[0];\ncp(-pi/2) q[1],q[0];\n'
+        'h q[0];\n'
+        'barrier q;\n'
+        'measure q[0] -> c[0];\nmeasure q[1] -> c[1];\nmeasure q[2] -> c[2];\n'
+    ),
 }

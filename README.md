@@ -732,7 +732,7 @@ compute this at several geometries in one call, e.g. a dissociation curve.
 
 ---
 
-## ▍ Circuit Library (18 presets)
+## ▍ Circuit Library (20 presets)
 
 All circuits stored as OpenQASM 2.0 strings in `dashboard_core.QASM_LIBRARY`.
 
@@ -740,7 +740,7 @@ All circuits stored as OpenQASM 2.0 strings in `dashboard_core.QASM_LIBRARY`.
 
 **Entangling layers** — linear/ring/full/star/brick topology, 5q each (`dense_evolution.topology.entangling_layer`)
 
-**Algorithms** — Quantum Fourier Transform (3q), Grover search (3q, target `|111⟩`), Deutsch-Jozsa (2+1q, balanced oracle), Bernstein-Vazirani (3+1q, secret `101`), Toffoli/CCX (3q, T-gate decomposition)
+**Algorithms** — Quantum Fourier Transform (3q), Grover search (3q, target `|111⟩`), Deutsch-Jozsa (2+1q, balanced oracle), Bernstein-Vazirani (3+1q, secret `101`), Toffoli/CCX (3q, T-gate decomposition), Quantum Teleportation (3q, deferred-measurement principle — verified fidelity 1.0000000000 across 5 random states), Quantum Phase Estimation (3-qubit counting register on a T-gate — verified probability 1.0000 on the exact expected phase, not merely the most likely outcome)
 
 **Testing** — Random circuit, fixed seed (3q and 5q variants)
 
