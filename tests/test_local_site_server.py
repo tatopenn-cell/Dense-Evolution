@@ -381,3 +381,82 @@ def test_mitigate_matrix_invalid_qasm_returns_400():
         "qasm": "not qasm", "noise_model": "depolarizing", "noise_p": 0.05,
     })
     assert resp.status_code == 400
+
+
+def test_wormhole_select_instance_finds_the_known_seed_61():
+    """n_majorana=8/k_terms=10/target_commuting=34 is the exact
+    configuration whose known-good seed (61, matching arXiv:2604.10090's
+    own 34-commuting/11-anticommuting selection criterion) was verified
+    repeatedly throughout this project's own research reproduction --
+    the kernel endpoint must reproduce that exact same match."""
+    resp = client.post("/api/wormhole_select_instance", json={
+        "n_majorana": 8, "k_terms": 10, "J": 2 ** 0.5,
+        "n_candidates": 200, "target_commuting": 34,
+    })
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["seed"] == 61
+    assert body["commuting"] == 34
+    assert body["anticommuting"] == 11
+
+
+def test_wormhole_select_instance_rejects_odd_n_majorana():
+    resp = client.post("/api/wormhole_select_instance", json={"n_majorana": 7})
+    assert resp.status_code == 400
+
+
+def test_wormhole_select_instance_rejects_too_many_k_terms():
+    # C(4,4) = 1 possible quad for n_majorana=4
+    resp = client.post("/api/wormhole_select_instance", json={"n_majorana": 4, "k_terms": 5})
+    assert resp.status_code == 400
+
+
+def test_wormhole_teleportation_exact_backend_matches_known_reference_values():
+    """seed=61, t0=0.3, t1=0.60 is the known signal peak, verified
+    repeatedly during the research reproduction: I(mu=+12)=0.01326,
+    I(mu=-12)=0.01793 (exact backend) -- pinned here so a future change
+    to the protocol/dashboard_core.wormhole plumbing can't silently
+    change the physics without a test noticing."""
+    resp_pos = client.post("/api/wormhole_teleportation", json={
+        "n_majorana": 8, "k_terms": 10, "J": 2 ** 0.5, "mu": 12.0,
+        "t0": 0.3, "t1": 0.6, "seed": 61, "with_message": True, "backend": "exact",
+    })
+    resp_neg = client.post("/api/wormhole_teleportation", json={
+        "n_majorana": 8, "k_terms": 10, "J": 2 ** 0.5, "mu": -12.0,
+        "t0": 0.3, "t1": 0.6, "seed": 61, "with_message": True, "backend": "exact",
+    })
+    assert resp_pos.status_code == 200 and resp_neg.status_code == 200
+    assert resp_pos.json()["mutual_information_pt"] == pytest.approx(0.01326, abs=1e-5)
+    assert resp_neg.json()["mutual_information_pt"] == pytest.approx(0.01793, abs=1e-5)
+
+
+def test_wormhole_teleportation_trotter_backend_matches_known_reference_values():
+    """Same known peak, Trotterized (real gate circuit) backend --
+    verified in research/wormhole_syk.py to reproduce the exact backend's
+    result closely: I(mu=+12)=0.01301, I(mu=-12)=0.01821."""
+    resp_pos = client.post("/api/wormhole_teleportation", json={
+        "n_majorana": 8, "k_terms": 10, "J": 2 ** 0.5, "mu": 12.0,
+        "t0": 0.3, "t1": 0.6, "seed": 61, "with_message": True, "backend": "trotter",
+    })
+    resp_neg = client.post("/api/wormhole_teleportation", json={
+        "n_majorana": 8, "k_terms": 10, "J": 2 ** 0.5, "mu": -12.0,
+        "t0": 0.3, "t1": 0.6, "seed": 61, "with_message": True, "backend": "trotter",
+    })
+    assert resp_pos.status_code == 200 and resp_neg.status_code == 200
+    assert resp_pos.json()["mutual_information_pt"] == pytest.approx(0.01301, abs=1e-5)
+    assert resp_neg.json()["mutual_information_pt"] == pytest.approx(0.01821, abs=1e-5)
+
+
+def test_wormhole_teleportation_rejects_invalid_backend():
+    resp = client.post("/api/wormhole_teleportation", json={"backend": "not-a-backend"})
+    assert resp.status_code == 400
+
+
+def test_wormhole_teleportation_rejects_odd_n_majorana():
+    resp = client.post("/api/wormhole_teleportation", json={"n_majorana": 5})
+    assert resp.status_code == 400
+
+
+def test_wormhole_teleportation_rejects_too_large_n_majorana():
+    resp = client.post("/api/wormhole_teleportation", json={"n_majorana": 200})
+    assert resp.status_code == 400

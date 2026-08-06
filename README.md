@@ -140,6 +140,9 @@ dense_evolution/
 ├── states.py          common state-preparation circuits (Bell, GHZ, W, ...) as gate tuples
 ├── topology.py        entangling_layer — linear/circular/full/star/brick patterns
 ├── qft.py             Quantum Fourier Transform circuit builder
+├── fermions.py        majorana_pauli_terms — Majorana-fermion → qubit (Jordan-Wigner) mapping
+├── entropy.py         partial_trace · von_neumann_entropy · mutual_information (multi-qubit, MSB-first)
+├── trotter.py         pauli_rotation_ops · trotter_evolve_ops — real-time Hamiltonian evolution as gates
 ├── random_circuit.py  random circuit generation for benchmarking/fuzz-testing
 ├── drawing.py         plain-text circuit diagrams (ASCII, console-safe)
 ├── harrison_tb.py     sp3 tight-binding Hamiltonians, Harrison universal parameter table
@@ -150,8 +153,10 @@ ia_utils/
 └── vector_healing.py   median_healing · enhanced_dense_healing_hybrid (NaN/Inf-safe, lazy JAX import)
 
 dashboard_core/ + app_dashboard.py + ui_pages/     Streamlit dashboard — VQE engine · QM/MM · MD simulation · 3D wavefunction
+dashboard_core/wormhole.py                          binary sparse SYK model — traversable-wormhole-inspired teleportation (see "MCP Server" below)
 local_site/app/server.py                           Composer's local FastAPI compute kernel (see "Composer" below)
 mcp_server/server.py                                dense_evolution_mcp — MCP adapter over the Composer kernel (see "MCP Server" below)
+research/wormhole_syk.py                            the original wormhole research reproduction + its own verification suite, reference only (not installed as a module — see research/wormhole_syk.md)
 legacy/dash.py                                      original Colab notebook, reference only (not installed as a module)
 ```
 
@@ -632,13 +637,16 @@ the same relative layout so it opens correctly via `file://`.
 ## ▍ MCP Server — drive the Composer kernel from an agent
 
 `dense_evolution_mcp` (`mcp_server/`) is an MCP ([Model Context
-Protocol](https://modelcontextprotocol.io)) server: 17 tools, one per
-Composer kernel endpoint plus a batch energy scan, letting an MCP-aware
-agent (Claude Code, Claude Desktop, ...) run circuits, compute molecular
-ground-state energies, run VQE, get QM/MM forces, run MD trajectories,
-and apply ZNE mitigation directly — without a browser. A thin adapter,
-not a reimplementation: every tool calls the same kernel `serve` starts
-above; `local_site/app/server.py` itself is untouched.
+Protocol](https://modelcontextprotocol.io)) server: 20 tools, one per
+Composer kernel endpoint plus a batch energy scan and a batch wormhole
+sweep, letting an MCP-aware agent (Claude Code, Claude Desktop, ...) run
+circuits, compute molecular ground-state energies, run VQE, get QM/MM
+forces, run MD trajectories, apply ZNE mitigation, and run traversable-
+wormhole-inspired quantum teleportation directly — without a browser. A
+thin adapter, not a reimplementation: every tool calls the same kernel
+`serve` starts above; `local_site/app/server.py` itself gained two new
+endpoints for the wormhole tools (`/api/wormhole_select_instance`,
+`/api/wormhole_teleportation`) but no existing endpoint changed.
 
 ```bash
 pip install dense-evolution[mcp]
@@ -659,6 +667,14 @@ claude mcp add dense_evolution -- dense-evolution mcp
 - `dense_evolution_energy_scan` computes the ground-state energy at
   several geometries in one call (the same capability the Composer page's
   "Scan energia" panel gives a human).
+- `dense_evolution_wormhole_select_instance` / `_wormhole_teleportation` /
+  `_wormhole_scan` run a real traversable-wormhole-inspired quantum
+  teleportation protocol (Gao-Jafferis-Wall theory, arXiv:2604.10090) on a
+  binary sparse SYK model — see `dashboard_core/wormhole.py` and
+  `research/wormhole_syk.md` for the physics. Unlike `_energy_scan`, the
+  wormhole sweep runs sequentially, not concurrently (each call is a real
+  multi-second simulation; concurrent calls were found to crash the
+  kernel via a BLAS/eigh thread-safety issue).
 - Large arrays are truncated to their most significant entries, and
   images are saved to disk (path returned) rather than inlined as base64,
   so a tool response stays usable in an agent's context.
@@ -747,6 +763,15 @@ All circuits stored as OpenQASM 2.0 strings in `dashboard_core.QASM_LIBRARY`.
 ---
 
 ## ▍ Changelog
+
+### v8.1.49
+- **New: real traversable-wormhole-inspired quantum teleportation** (Gao-Jafferis-Wall theory, `arXiv:2604.10090`), on a binary sparse Sachdev-Ye-Kitaev (SYK) model -- reproduced as an actual verified simulation, not decoration: an earlier, discarded `dashboard_core` circuit used the right vocabulary (SYK scrambling, a phase "kick") but ran on a single qubit register, which the no-signaling theorem forbids from ever showing the protocol's real sign-dependent signature, verified directly (identical results for either sign of the kick). The real recipe needs two coupled chaotic systems, a message injected via a separate reference-qubit pair, a real bilinear L-R coupling, and a mutual-information readout (not a single-qubit expectation value) -- see `research/wormhole_syk.md` for the full derivation and every verification step (Majorana anticommutation, SYK Hermiticity, Bell-pair/GHZ mutual information, the paper's own instance-selection criterion, Trotter-vs-exact convergence).
+  - **New `dense_evolution` modules**: `fermions.py` (`majorana_pauli_terms` -- Majorana-fermion → qubit Jordan-Wigner mapping), `entropy.py` (`partial_trace`, `von_neumann_entropy`, `mutual_information` -- multi-qubit, MSB-first, distinct from `dashboard_core/state_visuals.py`'s older single-qubit little-endian version), `trotter.py` (`pauli_rotation_ops`, `trotter_evolve_ops` -- real-time Hamiltonian evolution as an actual gate circuit, verified to fidelity 1.0 against `scipy.linalg.expm` and to converge smoothly to exact evolution as Trotter step count increases). Generic building blocks, not specific to the wormhole experiment -- promoted from the original `research/wormhole_syk.py` reproduction once verified, with real tests (`tests/test_fermions.py`, `tests/test_entropy.py`, `tests/test_trotter.py`) checked against known-exact cases (anticommutation relations, textbook Bell-pair/GHZ mutual information, exact `expm`), not just import smoke tests.
+  - **New `dashboard_core.wormhole`**: the SYK/wormhole-specific logic (`build_sparse_syk_terms`, `commuting_pair_count`, `select_good_instance`, `run_wormhole_protocol`, `run_wormhole_protocol_trotter`) that stays genuinely specific to this experiment, built on the promoted `dense_evolution` utilities above -- mirrors how `dashboard_core.hamiltonians`/`vqe` are structured.
+  - **New Composer kernel endpoints**: `POST /api/wormhole_select_instance`, `POST /api/wormhole_teleportation` (`backend='exact'|'trotter'`) -- both real, tested end to end against a live kernel, reproducing the exact reference values from the original research reproduction (seed 61, t0=0.3, t1=0.60: I(mu=+12)=0.01326/0.01301 exact/Trotter, I(mu=-12)=0.01793/0.01821).
+  - **New `dense_evolution_mcp` tools**: `dense_evolution_wormhole_select_instance`, `_wormhole_teleportation`, `_wormhole_scan` (batch `t1` sweep, both mu signs, matching the `_energy_scan` pattern). Bringing the tool count to 20.
+  - **Real bug found and fixed**: `dense_evolution_wormhole_scan`'s first implementation ran every sweep point (and both mu signs within a point) concurrently via `asyncio.gather`, mirroring `_energy_scan`'s pattern -- but this protocol's per-call cost is far higher (real exact diagonalization or a real Trotterized circuit over the full L+R+P+Q system, several seconds per call, not a cheap Hamiltonian lookup), and concurrent calls crashed the kernel process outright with a Windows access-violation inside concurrent `numpy.linalg.eigh` calls (a BLAS thread-safety issue under this protocol's heavier linear algebra). Found by actually running the batch tool's tests, not assumed safe by analogy to `_energy_scan`. Fixed by running sweep points sequentially; documented in the tool's own docstring so a sweep's real wall-clock cost (several minutes for 20 points) isn't a surprise.
+  - 26 new `dense_evolution` unit tests, 14 new kernel/MCP end-to-end tests (all against the real, live kernel/simulator -- no mocked physics), pinned against the exact numeric reference values established during the original research reproduction.
 
 ### v8.1.48
 - **New: `dense_evolution_mcp`, an MCP (Model Context Protocol) server for the Composer kernel** (`mcp_server/`, `dense-evolution[mcp]` extra, `dense-evolution mcp` console subcommand) -- 17 tools, one per `local_site/app/server.py` endpoint plus `dense_evolution_energy_scan`, letting an MCP-aware agent (Claude Code, Claude Desktop, ...) drive circuit runs, molecular Hamiltonians, VQE, QM/MM forces, MD trajectories, and ZNE mitigation directly, without a browser. A thin adapter, not a reimplementation -- every tool calls the same kernel the published Composer page uses; `local_site/app/server.py` itself is untouched.

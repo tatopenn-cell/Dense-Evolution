@@ -272,3 +272,74 @@ def test_kernel_unreachable_gives_actionable_error_not_a_traceback():
         assert "dense-evolution serve" in result
     finally:
         mcp_adapter.KERNEL_URL = original_url
+
+
+def test_wormhole_select_instance_finds_the_known_seed_61():
+    data = json.loads(run(mcp_adapter.dense_evolution_wormhole_select_instance(
+        mcp_adapter.WormholeSelectInstanceInput(
+            n_majorana=8, k_terms=10, J=2 ** 0.5, n_candidates=200, target_commuting=34,
+        )
+    )))
+    assert data["seed"] == 61
+    assert data["commuting"] == 34
+    assert data["anticommuting"] == 11
+
+
+def test_wormhole_teleportation_exact_backend_matches_known_reference_values():
+    """seed=61, t0=0.3, t1=0.60 known peak: I(mu=+12)=0.01326, I(mu=-12)=0.01793
+    (exact backend) -- same values pinned in tests/test_local_site_server.py,
+    checked again here through the MCP adapter's own request path."""
+    pos = json.loads(run(mcp_adapter.dense_evolution_wormhole_teleportation(
+        mcp_adapter.WormholeTeleportationInput(mu=12.0, t0=0.3, t1=0.6, seed=61, backend="exact")
+    )))
+    neg = json.loads(run(mcp_adapter.dense_evolution_wormhole_teleportation(
+        mcp_adapter.WormholeTeleportationInput(mu=-12.0, t0=0.3, t1=0.6, seed=61, backend="exact")
+    )))
+    assert pos["mutual_information_pt"] == pytest.approx(0.01326, abs=1e-5)
+    assert neg["mutual_information_pt"] == pytest.approx(0.01793, abs=1e-5)
+
+
+def test_wormhole_teleportation_trotter_backend_matches_known_reference_values():
+    pos = json.loads(run(mcp_adapter.dense_evolution_wormhole_teleportation(
+        mcp_adapter.WormholeTeleportationInput(mu=12.0, t0=0.3, t1=0.6, seed=61, backend="trotter")
+    )))
+    neg = json.loads(run(mcp_adapter.dense_evolution_wormhole_teleportation(
+        mcp_adapter.WormholeTeleportationInput(mu=-12.0, t0=0.3, t1=0.6, seed=61, backend="trotter")
+    )))
+    assert pos["mutual_information_pt"] == pytest.approx(0.01301, abs=1e-5)
+    assert neg["mutual_information_pt"] == pytest.approx(0.01821, abs=1e-5)
+
+
+def test_wormhole_teleportation_invalid_backend_gives_error_not_a_traceback():
+    result = run(mcp_adapter.dense_evolution_wormhole_teleportation(
+        mcp_adapter.WormholeTeleportationInput(backend="not-a-backend")
+    ))
+    assert result.startswith("Error:")
+
+
+def test_wormhole_scan_sweeps_t1_and_finds_the_known_peak():
+    """One batched call replacing the two-call-per-point pattern above --
+    the peak (largest mu<0 minus mu>0 delta) for this exact configuration
+    is known to land at t1=0.60 (delta=+0.00468, exact backend) from the
+    original research reproduction's 11-point sweep."""
+    result = json.loads(run(mcp_adapter.dense_evolution_wormhole_scan(
+        mcp_adapter.WormholeScanInput(
+            mu_magnitude=12.0, t0=0.3, t1_values=[0.10, 0.30, 0.60, 0.85, 1.20],
+            seed=61, backend="exact",
+        )
+    )))
+    assert result["n_points"] == 5
+    assert all("delta" in r for r in result["results"])
+    assert result["peak"]["t1"] == pytest.approx(0.60)
+    assert result["peak"]["delta"] == pytest.approx(0.00468, abs=1e-4)
+
+
+def test_wormhole_scan_reports_per_point_errors_without_aborting():
+    result = json.loads(run(mcp_adapter.dense_evolution_wormhole_scan(
+        mcp_adapter.WormholeScanInput(
+            n_majorana=200, t0=0.3, t1_values=[0.5], seed=61, backend="exact",
+        )
+    )))
+    assert result["n_points"] == 1
+    assert "error" in result["results"][0]
+    assert result["peak"] is None

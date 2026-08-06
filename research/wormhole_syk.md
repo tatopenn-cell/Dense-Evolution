@@ -110,13 +110,38 @@ to compute it.**
 
 ## Status
 
-This is a research reproduction living in `research/`, not a shipped
-package feature. Nothing in `dense_evolution`, `dashboard_core`, the
-Composer, or the MCP server was touched. If this line of work continues,
-the most obviously reusable pieces are the Majorana JW mapping, the
-partial-trace/von-Neumann-entropy/mutual-information utilities, and the
-generic `pauli_rotation_ops`/`trotter_evolve_ops` pair (real-time
-Hamiltonian evolution as a gate circuit didn't exist anywhere in the
-package before this file, and none of these four are specific to SYK/
-wormhole physics — the rotation and Trotter builders in particular would
-drop straight into any future feature needing exp(-iHt) as real gates).
+Promoted into a real, shipped, tested package feature (v8.1.49). This
+file (`research/wormhole_syk.py`) is kept as the original reproduction
+and its own standalone verification suite (`__main__`), but is no longer
+the only place this logic lives:
+
+- The four generic building blocks this section originally flagged as
+  reusable — Majorana JW mapping, partial-trace/von-Neumann-entropy/
+  mutual-information, and `pauli_rotation_ops`/`trotter_evolve_ops` —
+  now live in `dense_evolution.fermions`, `.entropy`, `.trotter`
+  respectively, each with its own real tests (`tests/test_fermions.py`,
+  `tests/test_entropy.py`, `tests/test_trotter.py`) checked against
+  known-exact cases, not just imported and trusted.
+- The SYK/wormhole-specific logic (sparse Hamiltonian construction, the
+  paper's instance-selection criterion, the two-sided protocol itself)
+  was ported into `dashboard_core.wormhole`, built on the promoted
+  `dense_evolution` utilities, mirroring how `dashboard_core.hamiltonians`
+  / `.vqe` are structured.
+- The Composer kernel gained two real endpoints
+  (`POST /api/wormhole_select_instance`, `POST /api/wormhole_teleportation`
+  with `backend='exact'|'trotter'`), and `dense_evolution_mcp` gained
+  three tools (`dense_evolution_wormhole_select_instance`,
+  `_wormhole_teleportation`, `_wormhole_scan`) — all tested end to end
+  against a live kernel, reproducing this file's exact reference numbers
+  (seed 61, t0=0.3, t1=0.60: I(mu=+12)=0.01326/0.01301 exact/Trotter,
+  I(mu=-12)=0.01793/0.01821).
+- One real bug was found and fixed during promotion: the MCP scan tool's
+  first implementation ran sweep points concurrently (mirroring
+  `dense_evolution_energy_scan`'s pattern), but this protocol's per-call
+  cost is real seconds, not a cheap lookup, and concurrent calls crashed
+  the kernel process via a BLAS/`numpy.linalg.eigh` thread-safety issue
+  under the heavier linear algebra — fixed by running the scan
+  sequentially (see `mcp_server/server.py`'s `dense_evolution_wormhole_scan`).
+
+See the main `README.md`'s Changelog (v8.1.49) and
+`.claude/skills/dense-evolution-mcp/SKILL.md` for the user-facing summary.

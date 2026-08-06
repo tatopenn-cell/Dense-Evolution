@@ -26,5 +26,8 @@ from .harrison_tb import (ELEMENTS as HARRISON_ELEMENTS, ETA as HARRISON_ETA,
                            sp3_dimer_hamiltonian, zincblende_hamiltonian)
 from .vhd_tb import (MATERIALS as VHD_MATERIALS, sp3s_star_hamiltonian,
                       direct_gap_at_gamma, band_extrema_along_path)
+from .fermions import majorana_pauli_terms
+from .entropy import partial_trace, von_neumann_entropy, mutual_information
+from .trotter import pauli_rotation_ops, trotter_evolve_ops
 
-__version__ = "8.1.48"
+__version__ = "8.1.49"

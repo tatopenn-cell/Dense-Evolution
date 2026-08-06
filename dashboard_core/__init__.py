@@ -35,6 +35,10 @@ from .qmmm import (
     ATOMIC_MASSES_AMU,
     compute_hellmann_feynman_forces, md_step, run_md_trajectory,
 )
+from .wormhole import (
+    build_sparse_syk_terms, commuting_pair_count, select_good_instance,
+    run_wormhole_protocol, run_wormhole_protocol_trotter,
+)
 
 __all__ = [
     'QASM_LIBRARY', 'gate_tuples_to_qasm',
@@ -53,4 +57,6 @@ __all__ = [
     'run_vqe',
     'ATOMIC_MASSES_AMU',
     'compute_hellmann_feynman_forces', 'md_step', 'run_md_trajectory',
+    'build_sparse_syk_terms', 'commuting_pair_count', 'select_good_instance',
+    'run_wormhole_protocol', 'run_wormhole_protocol_trotter',
 ]

@@ -605,6 +605,120 @@ def mitigate_matrix(req: MitigateMatrixRequest):
     }
 
 
+class WormholeSelectInstanceRequest(BaseModel):
+    n_majorana: int = 8
+    k_terms: int = 10
+    J: float = float(np.sqrt(2))
+    n_candidates: int = 200
+    target_commuting: int = 34
+
+
+@app.post("/api/wormhole_select_instance")
+def wormhole_select_instance(req: WormholeSelectInstanceRequest):
+    """Screen `n_candidates` random binary-sparse-SYK realizations (see
+    dashboard_core.wormhole) by their exact commuting/anticommuting term-
+    pair count and return the seed closest to `target_commuting` --
+    arXiv:2604.10090's own instance-selection criterion. A uniformly-
+    random seed does not reliably show the protocol's sign-dependent
+    teleportation signal; this is the real, verified fix (not a random
+    seed dressed up), see /api/wormhole_teleportation."""
+    if req.n_majorana < 4 or req.n_majorana % 2 != 0:
+        raise HTTPException(status_code=400, detail="n_majorana must be even and >= 4")
+    if req.k_terms < 1 or req.k_terms > (req.n_majorana * (req.n_majorana - 1) *
+                                          (req.n_majorana - 2) * (req.n_majorana - 3)) // 24:
+        raise HTTPException(status_code=400, detail=f"k_terms must be in [1, C({req.n_majorana},4)]")
+    try:
+        seed = dc.select_good_instance(
+            req.n_majorana, req.k_terms, req.J,
+            n_candidates=req.n_candidates, target_commuting=req.target_commuting,
+        )
+        n_qubits, terms = dc.build_sparse_syk_terms(req.n_majorana, req.k_terms, req.J, seed)
+        commuting, anticommuting = dc.commuting_pair_count(terms, n_qubits)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "seed": seed,
+        "n_majorana": req.n_majorana,
+        "k_terms": req.k_terms,
+        "commuting": commuting,
+        "anticommuting": anticommuting,
+        "target_commuting": req.target_commuting,
+    }
+
+
+class WormholeTeleportationRequest(BaseModel):
+    n_majorana: int = 8
+    k_terms: int = 10
+    J: float = float(np.sqrt(2))
+    mu: float = 12.0
+    t0: float = 0.3
+    t1: float = 0.6
+    seed: int = 61
+    with_message: bool = True
+    backend: str = "exact"  # or "trotter"
+    n_steps_evolution: int = 8
+    n_steps_coupling: int = 16
+
+
+@app.post("/api/wormhole_teleportation")
+def wormhole_teleportation(req: WormholeTeleportationRequest):
+    """Real traversable-wormhole-inspired quantum teleportation
+    (Gao-Jafferis-Wall theory, arXiv:2604.10090) on a binary sparse SYK
+    model -- see dashboard_core.wormhole's module docstring for the full
+    derivation. Returns the mutual information I(P:R[0]) between the
+    injected-message reference qubit and a qubit read out from the R
+    (right) SYK register after the full TFD-setup / evolve(t0) /
+    couple(mu) / evolve(t1) protocol; the qualitative result to look for
+    is that this value differs between mu>0 and mu<0 (call twice with
+    opposite-sign mu and compare -- see /api/wormhole_scan-adjacent MCP
+    tool for a batch version of exactly that sweep).
+
+    backend="exact" evolves via exact matrix exponentiation
+    (eigendecomposition, cheap and exact); backend="trotter" evolves via
+    a real Trotterized gate circuit (dense_evolution.trotter_evolve_ops)
+    run through DenseSVSimulator -- closer to what actual hardware would
+    execute, verified to reproduce the exact backend's result closely at
+    the known signal peak (seed 61, t0=0.3, t1=0.60)."""
+    if req.n_majorana < 4 or req.n_majorana % 2 != 0:
+        raise HTTPException(status_code=400, detail="n_majorana must be even and >= 4")
+    n_full = req.n_majorana + 2
+    limits = dc.max_safe_dense_qubits()
+    if n_full > limits["max_qubits_dense"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"n_majorana={req.n_majorana} needs {n_full} qubits total (L+R+P+Q), "
+                   f"too large for exact dense simulation here (max {limits['max_qubits_dense']})",
+        )
+    if req.backend not in ("exact", "trotter"):
+        raise HTTPException(status_code=400, detail="backend must be 'exact' or 'trotter'")
+
+    try:
+        if req.backend == "exact":
+            mi = dc.run_wormhole_protocol(
+                req.n_majorana, req.k_terms, req.J, req.mu, req.t0, req.t1,
+                req.seed, with_message=req.with_message,
+            )
+        else:
+            mi = dc.run_wormhole_protocol_trotter(
+                req.n_majorana, req.k_terms, req.J, req.mu, req.t0, req.t1,
+                req.seed, with_message=req.with_message,
+                n_steps_evolution=req.n_steps_evolution, n_steps_coupling=req.n_steps_coupling,
+            )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "mutual_information_pt": mi,
+        "backend": req.backend,
+        "n_majorana": req.n_majorana,
+        "k_terms": req.k_terms,
+        "mu": req.mu,
+        "t0": req.t0,
+        "t1": req.t1,
+        "seed": req.seed,
+        "with_message": req.with_message,
+    }
+
+
 def main():
     """Console-script entry point (`dense-evolution serve`, see
     dense_evolution/cli.py) -- identical to running this file directly."""

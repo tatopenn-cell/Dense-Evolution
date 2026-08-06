@@ -24,11 +24,18 @@ out from R, which two-qubit tomography (or, here, exact partial-trace
 math -- we have simulator state access real hardware didn't) can access
 even though no single-qubit observable can.
 
-This module builds each physical ingredient from scratch (nothing this
-specific exists anywhere in dense_evolution/dashboard_core -- confirmed
-by exploration before writing this) and verifies each one against a
-known-exact case before composing them, the same discipline used
-elsewhere in this project:
+This module built each physical ingredient from scratch (nothing this
+specific existed anywhere in dense_evolution/dashboard_core when this was
+written) and verified each one against a known-exact case before
+composing them, the same discipline used elsewhere in this project. The
+generic, non-SYK-specific pieces (Majorana JW mapping, partial-trace/
+entropy/mutual-information, and the Trotterized-evolution gate builders)
+have since been promoted into the `dense_evolution` package proper
+(`dense_evolution.fermions`, `.entropy`, `.trotter`) and are imported
+from there below rather than redefined here -- only what's genuinely
+SYK/wormhole-specific (the sparse Hamiltonian builder, the paper's
+instance-selection criterion, and the protocol itself) still lives in
+this research file:
     - Majorana Jordan-Wigner mapping: verified via the anticommutation
       relations {chi_a, chi_b} = 2*delta_ab*I (exact, not approximate).
     - The sparse SYK Hamiltonian terms: verified Hermitian exactly.
@@ -81,6 +88,10 @@ import itertools
 import numpy as np
 
 import dense_evolution as de
+from dense_evolution import (
+    majorana_pauli_terms, partial_trace, von_neumann_entropy,
+    mutual_information, pauli_rotation_ops, trotter_evolve_ops,
+)
 
 __all__ = [
     'majorana_pauli_terms', 'build_sparse_syk_terms',
@@ -89,26 +100,6 @@ __all__ = [
     'run_wormhole_protocol',
     'pauli_rotation_ops', 'trotter_evolve_ops', 'run_wormhole_protocol_trotter',
 ]
-
-
-# --------------------------------------------------------------------------
-# Majorana -> qubit (Jordan-Wigner) mapping
-# --------------------------------------------------------------------------
-
-def majorana_pauli_terms(mode_index, n_qubits):
-    """Standard JW mapping, one qubit per two Majorana modes:
-        chi_{2j-1} = (prod_{k<j} Z_k) X_j
-        chi_{2j}   = (prod_{k<j} Z_k) Y_j
-    mode_index is 1-indexed (chi_1 .. chi_{2*n_qubits}). Returns a single
-    (coeff, pauli_dict) term, coeff always 1.0 (chi_i is Hermitian and
-    unit-normalized by this convention -- chi_i^2 = I, verified below via
-    the anticommutation check at a=b).
-    """
-    j = (mode_index - 1) // 2
-    is_even = (mode_index % 2 == 0)
-    pauli = {k: 'Z' for k in range(j)}
-    pauli[j] = 'Y' if is_even else 'X'
-    return (1.0, pauli)
 
 
 def _multiply_pauli_dicts(dicts):
@@ -210,33 +201,10 @@ def select_good_instance(n_majorana, k_terms, J, n_candidates=200, target_commut
 
 
 # --------------------------------------------------------------------------
-# Partial trace / von Neumann entropy / mutual information
-# (MSB-first: qubit 0 = index-0 = most significant bit, matching
-# dense_evolution.pauli_hamiltonian_to_matrix's own convention --
-# dashboard_core.state_visuals has a *different*, little-endian,
-# single-qubit-only partial trace; deliberately not reused here, see
-# module docstring / plan.)
+# Partial trace / von Neumann entropy / mutual information now live in
+# dense_evolution.entropy (imported above) -- MSB-first, matching
+# dense_evolution.pauli_hamiltonian_to_matrix's own convention.
 # --------------------------------------------------------------------------
-
-def partial_trace(state, n_qubits, keep_qubits):
-    keep_qubits = sorted(keep_qubits)
-    trace_qubits = [q for q in range(n_qubits) if q not in keep_qubits]
-    psi = np.transpose(state.reshape([2] * n_qubits), keep_qubits + trace_qubits)
-    keep_dim, trace_dim = 2 ** len(keep_qubits), 2 ** len(trace_qubits)
-    psi = psi.reshape(keep_dim, trace_dim)
-    return psi @ psi.conj().T
-
-
-def von_neumann_entropy(rho):
-    eigs = np.clip(np.linalg.eigvalsh(rho).real, 1e-14, None)
-    return float(-np.sum(eigs * np.log(eigs)))
-
-
-def mutual_information(state, n_qubits, qubits_a, qubits_b):
-    s_a = von_neumann_entropy(partial_trace(state, n_qubits, qubits_a))
-    s_b = von_neumann_entropy(partial_trace(state, n_qubits, qubits_b))
-    s_ab = von_neumann_entropy(partial_trace(state, n_qubits, list(qubits_a) + list(qubits_b)))
-    return s_a + s_b - s_ab
 
 
 # --------------------------------------------------------------------------
@@ -321,62 +289,9 @@ def run_wormhole_protocol(n_majorana, k_terms, J, mu, t0, t1, seed, with_message
 
 
 # --------------------------------------------------------------------------
-# Trotterized (real gate-circuit) evolution backend
+# Trotterized (real gate-circuit) evolution backend -- pauli_rotation_ops /
+# trotter_evolve_ops now live in dense_evolution.trotter (imported above).
 # --------------------------------------------------------------------------
-
-def pauli_rotation_ops(pauli_dict, angle):
-    """Gate-tuple circuit for exp(-i*angle*P), P a Pauli string given as
-    {qubit: 'X'/'Y'/'Z'} -- basis-change + CNOT-staircase + RZ + inverse,
-    the same identity already used elsewhere in this codebase for
-    UCCSD/QAOA-style ZZ interactions, generalized here to mixed X/Y/Z
-    strings (needed since Majorana JW terms are not pure-Z). This
-    engine's rz(theta) = exp(-i*theta/2*Z) (checked directly against
-    scipy.linalg.expm, not assumed) -> rz(2*angle) on the accumulator
-    qubit gives exactly exp(-i*angle*Z) on the accumulated parity.
-    Verified to fidelity 1.0 (not "close") against exact expm for
-    1-, 2-, 3-, and 4-qubit mixed Pauli strings, including a 4-qubit
-    case matching what an actual SYK term looks like."""
-    qubits = sorted(pauli_dict.keys())
-    if not qubits:
-        return []
-    ops = []
-    for q in qubits:
-        letter = pauli_dict[q]
-        if letter == 'X':
-            ops.append(('h', q))
-        elif letter == 'Y':
-            ops.append(('sdg', q))
-            ops.append(('h', q))
-    for i in range(len(qubits) - 1):
-        ops.append(('cx', qubits[i], qubits[i + 1]))
-    ops.append(('rz', qubits[-1], 2 * angle))
-    for i in reversed(range(len(qubits) - 1)):
-        ops.append(('cx', qubits[i], qubits[i + 1]))
-    for q in qubits:
-        letter = pauli_dict[q]
-        if letter == 'X':
-            ops.append(('h', q))
-        elif letter == 'Y':
-            ops.append(('h', q))
-            ops.append(('s', q))
-    return ops
-
-
-def trotter_evolve_ops(terms, t, n_steps):
-    """First-order Trotter product formula for exp(-iHt), H = sum_k
-    c_k*P_k: [prod_k exp(-i*c_k*P_k*(t/n_steps))]^n_steps. Term order
-    within a step is fixed (list order), identical every repetition.
-    Verified to converge smoothly to the exact evolution as n_steps
-    increases (infidelity ~4x lower per doubling of steps -- consistent
-    with the expected quadratic scaling of first-order Trotter error in
-    state overlap -- checked directly against the real N=8 SYK
-    Hamiltonian, not a toy example)."""
-    dt = t / n_steps
-    step_ops = []
-    for c, pdict in terms:
-        step_ops.extend(pauli_rotation_ops(pdict, c * dt))
-    return step_ops * n_steps
-
 
 def run_wormhole_protocol_trotter(n_majorana, k_terms, J, mu, t0, t1, seed, with_message,
                                    n_steps_evolution=8, n_steps_coupling=16):

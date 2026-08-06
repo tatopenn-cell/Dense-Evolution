@@ -8,7 +8,7 @@ compatibility: Requires the dense_evolution_mcp MCP server registered (see mcp_s
 
 ## Why this exists
 
-`dense_evolution_mcp` gives you 16 tools that call the *same* local kernel
+`dense_evolution_mcp` gives you 19 tools that call the *same* local kernel
 the published Composer web page uses (`local_site/app/server.py`) -- real
 `DenseSVSimulator` runs, real Hartree-Fock Hamiltonians, real VQE with
 adjoint differentiation, real Hellmann-Feynman forces. Prefer these tools
@@ -56,6 +56,7 @@ assuming a size that worked for a small molecule will scale.
 | Optimize a variational ground state | `dense_evolution_run_vqe` |
 | Nuclear forces / a dynamics trajectory | `dense_evolution_qmmm_forces`, `_md_trajectory` |
 | Correct a noisy result back toward the ideal one | `dense_evolution_mitigate_zne` (scalar observable), `_mitigate_density_matrix` (full state) |
+| Traversable-wormhole-inspired quantum teleportation (SYK model) | `dense_evolution_wormhole_select_instance`, `_wormhole_teleportation`, `_wormhole_scan` |
 
 Every tool's own docstring has the full parameter/return schema -- this
 table is for picking the right one quickly, not a substitute for reading
@@ -130,6 +131,26 @@ the corrected result alongside both.
 to the starting geometry -- flag to the user if they're asking about
 larger geometry changes, where the fixed-electronic-state approximation
 degrades and the (much slower) `true` setting matters more.
+
+**"Simulate a traversable wormhole / Gao-Jafferis-Wall teleportation / SYK model":**
+Real physics (arXiv:2604.10090), not decoration -- see
+`dashboard_core/wormhole.py`'s module docstring and
+`research/wormhole_syk.md` for the full derivation. Always call
+`dense_evolution_wormhole_select_instance` first unless the user already
+has a known-good seed (the default n_majorana=8/k_terms=10/
+target_commuting=34 combination's own match is seed=61, verified
+repeatedly) -- a uniformly-random seed usually does *not* show the
+protocol's sign-dependent signal, this isn't optional setup. Then either
+call `dense_evolution_wormhole_teleportation` twice (opposite-sign `mu`)
+or `dense_evolution_wormhole_scan` once for a `t1` sweep. **Each single
+teleportation call takes several seconds** (real exact diagonalization or
+a real Trotterized gate circuit over the full L+R+P+Q system, not a
+lookup) and `_wormhole_scan` runs its points sequentially on purpose
+(concurrent calls to this specific protocol were found to crash the
+kernel process -- a BLAS/eigh thread-safety issue under its heavier
+linear algebra, unlike the cheap Hamiltonian diagonalizations
+`_energy_scan` batches concurrently) -- a 20-point sweep can take several
+minutes; start with a handful of points to gauge cost, same as VQE.
 
 ## If the kernel isn't set up yet
 
