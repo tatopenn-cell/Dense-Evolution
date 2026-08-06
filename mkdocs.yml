@@ -105,6 +105,9 @@ nav:
       - Drawing (text diagrams): api/drawing.md
       - Harrison Tight-Binding (universal): api/harrison_tb.md
       - VHD Tight-Binding (material-specific): api/vhd_tb.md
+      - Fermions (Majorana Jordan-Wigner): api/fermions.md
+      - Entropy (partial trace, mutual information): api/entropy.md
+      - Trotter (Hamiltonian evolution as gates): api/trotter.md
   - Changelog: changelog.md
   - Contributing: contributing.md
   - License: LICENSE.md

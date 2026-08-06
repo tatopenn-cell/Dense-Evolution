@@ -19,3 +19,6 @@ it can't drift out of sync with the code.
 | [Autodiff](autodiff.md) | Differentiable circuit-to-energy pipeline for VQE |
 | [Harrison Tight-Binding](harrison_tb.md) | Universal (materials-independent) sp3 tight-binding Hamiltonians |
 | [VHD Tight-Binding](vhd_tb.md) | Material-specific sp3s* tight-binding, validated against real GaAs/Si/Ge gaps |
+| [Fermions](fermions.md) | Majorana-fermion → qubit (Jordan-Wigner) mapping |
+| [Entropy](entropy.md) | Multi-qubit partial trace, von Neumann entropy, mutual information |
+| [Trotter](trotter.md) | Real-time Hamiltonian evolution as an actual gate circuit |
