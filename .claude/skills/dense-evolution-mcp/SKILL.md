@@ -8,7 +8,7 @@ compatibility: Requires the dense_evolution_mcp MCP server registered (see mcp_s
 
 ## Why this exists
 
-`dense_evolution_mcp` gives you 19 tools that call the *same* local kernel
+`dense_evolution_mcp` gives you 20 tools that call the *same* local kernel
 the published Composer web page uses (`local_site/app/server.py`) -- real
 `DenseSVSimulator` runs, real Hartree-Fock Hamiltonians, real VQE with
 adjoint differentiation, real Hellmann-Feynman forces. Prefer these tools
