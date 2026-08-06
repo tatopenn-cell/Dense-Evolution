@@ -58,6 +58,9 @@ pip install dense-evolution[pennylane]
 # Composer's local kernel (see "Composer" below)
 pip install dense-evolution[composer]
 
+# MCP server for the Composer kernel (see "MCP Server" below)
+pip install dense-evolution[mcp]
+
 # development
 git clone https://github.com/tatopenn-cell/Dense-Evolution.git
 cd Dense-Evolution && pip install -e .[full]
@@ -121,19 +124,35 @@ sim.run_chunk(circuit_ops, chunk_size_gates=500)   # SafeMemoryGuard active
 
 ```
 dense_evolution/
-├── registry.py     hardware detection · JAX/CuPy/NumPy flags · NoiseModel (Kraus channels)
-├── gates.py        GATES{} · PARAMETRIC_GATES{} · GATE_IDS{}
-├── healing.py      predictive state engine · Phi_AB · vettore dinamico · MemoryReflectionEngine
-├── parser.py       QASMParser · QASMCircuit · OpenQASM 2.0 / 3.0
-├── compiler.py     QuantumTranspiler · _apply_gate_fast_step (jit) · gate decomposition
-├── chunk.py        SafeMemoryGuard · MemoryChunker · CircuitChunker · Chunk (Anti-OOM)
-└── simulator.py    DenseSVSimulator · run_batch_jit · vmap batch VQE
+├── registry.py       hardware detection · JAX/CuPy/NumPy flags · NoiseModel (Kraus channels)
+├── gates.py          GATES{} · PARAMETRIC_GATES{} · GATE_IDS{}
+├── healing.py        predictive state engine · Phi_AB · vettore dinamico · MemoryReflectionEngine
+├── parser.py         QASMParser · QASMCircuit · OpenQASM 2.0 / 3.0
+├── compiler.py       QuantumTranspiler · _apply_gate_fast_step (jit) · gate decomposition
+├── chunk.py          SafeMemoryGuard · MemoryChunker · CircuitChunker · Chunk (Anti-OOM)
+├── simulator.py      DenseSVSimulator · run_batch_jit · vmap batch VQE
+├── mps.py            MPSSimulator — matrix-product-state backend, JAX-backed
+├── autodiff.py        circuit_to_energy_fn — the real, public VQE gradient engine
+├── mitigation.py      Zero-Noise Extrapolation — richardson_extrapolate, zero_noise_extrapolation, zne_density_matrix (+ jit variants)
+├── interop.py         run_qiskit_circuit / run_pennylane_circuit / from_qiskit / from_pennylane
+├── observables.py     Pauli-string expectation values, O(2ⁿ) direct from a statevector
+├── measurement.py     statevector → finite-shot counts, sampling helpers
+├── states.py          common state-preparation circuits (Bell, GHZ, W, ...) as gate tuples
+├── topology.py        entangling_layer — linear/circular/full/star/brick patterns
+├── qft.py             Quantum Fourier Transform circuit builder
+├── random_circuit.py  random circuit generation for benchmarking/fuzz-testing
+├── drawing.py         plain-text circuit diagrams (ASCII, console-safe)
+├── harrison_tb.py     sp3 tight-binding Hamiltonians, Harrison universal parameter table
+├── vhd_tb.py          sp3s* tight-binding, Vogl-Hjalmarson-Dow material-specific parameters
+└── cli.py             `dense-evolution` console script — serve · offline-composer · mcp
 
 ia_utils/
 └── vector_healing.py   median_healing · enhanced_dense_healing_hybrid (NaN/Inf-safe, lazy JAX import)
 
-app_dashboard.py + dashboard_core.py + ui_pages/   Streamlit dashboard — VQE engine · QM/MM · MD simulation · 3D wavefunction
-legacy/dash.py                                     original Colab notebook, reference only (not installed as a module)
+dashboard_core/ + app_dashboard.py + ui_pages/     Streamlit dashboard — VQE engine · QM/MM · MD simulation · 3D wavefunction
+local_site/app/server.py                           Composer's local FastAPI compute kernel (see "Composer" below)
+mcp_server/server.py                                dense_evolution_mcp — MCP adapter over the Composer kernel (see "MCP Server" below)
+legacy/dash.py                                      original Colab notebook, reference only (not installed as a module)
 ```
 
 **Data flow per run:**
@@ -571,8 +590,13 @@ A real circuit editor (graphical drag-and-drop or OpenQASM 2.0), running
 every circuit on the actual `DenseSVSimulator` — statevector,
 probabilities, Q-sphere, Bloch spheres, a native circuit diagram (plain
 matplotlib, no Qiskit `QuantumCircuit` ever constructed), plus real
-molecular Hamiltonians (PennyLane Hartree-Fock), VQE, and ZNE mitigation.
+molecular Hamiltonians (PennyLane Hartree-Fock), VQE, ZNE mitigation, and
+a "Scan energia" panel computing a bond-length ground-state-energy curve
+(e.g. a dissociation curve) in one click instead of one point at a time.
 No mocked data anywhere: every number on the page comes from a real run.
+Every request has a client-side timeout (30s default, 10 minutes for
+VQE/MD-trajectory calls) with a clear error instead of hanging forever
+indistinguishable from normal progress.
 
 **The page is public, the compute is yours.** [tatopenn-cell.github.io/Dense-Evolution/composer](https://tatopenn-cell.github.io/Dense-Evolution/composer/)
 is static — it talks to a local kernel that runs on your own machine, not
@@ -602,6 +626,46 @@ page once it's running and the banner turns from "kernel not found" to
 connected. `offline-composer` downloads the actual live page (not a
 separate hand-maintained copy) plus every asset it references, keeping
 the same relative layout so it opens correctly via `file://`.
+
+---
+
+## ▍ MCP Server — drive the Composer kernel from an agent
+
+`dense_evolution_mcp` (`mcp_server/`) is an MCP ([Model Context
+Protocol](https://modelcontextprotocol.io)) server: 17 tools, one per
+Composer kernel endpoint plus a batch energy scan, letting an MCP-aware
+agent (Claude Code, Claude Desktop, ...) run circuits, compute molecular
+ground-state energies, run VQE, get QM/MM forces, run MD trajectories,
+and apply ZNE mitigation directly — without a browser. A thin adapter,
+not a reimplementation: every tool calls the same kernel `serve` starts
+above; `local_site/app/server.py` itself is untouched.
+
+```bash
+pip install dense-evolution[mcp]
+
+dense-evolution serve   # start the kernel first, in one terminal (see Composer above)
+dense-evolution mcp     # in another terminal, or registered with your MCP client's config
+```
+
+**Register with Claude Code:**
+
+```bash
+claude mcp add dense_evolution -- dense-evolution mcp
+```
+
+- Molecule-name tools accept a short id (`"H2"`, `"LiH"`, `"HeH+"`) or the
+  kernel's full descriptive catalog name — resolved from the live catalog,
+  not hardcoded.
+- `dense_evolution_energy_scan` computes the ground-state energy at
+  several geometries in one call (the same capability the Composer page's
+  "Scan energia" panel gives a human).
+- Large arrays are truncated to their most significant entries, and
+  images are saved to disk (path returned) rather than inlined as base64,
+  so a tool response stays usable in an agent's context.
+- `mcp_server/README.md` has full setup details; a project-scoped Claude
+  Code skill (`.claude/skills/dense-evolution-mcp/`) documents how to use
+  the tools effectively — which tool for which task, known cost/qubit
+  caps, why arrays are truncated.
 
 ---
 
@@ -646,26 +710,39 @@ $$\frac{\partial E}{\partial \theta_i} = \left\langle\psi(\theta)\left|\frac{\pa
 
 ## ▍ Hamiltonian Library
 
-Auto-filtered by qubit count to prevent shape mismatch.
+Real Hartree-Fock + fermion-to-qubit mapping (PennyLane `qchem`, Jordan-Wigner
+or Bravyi-Kitaev — both represent the identical physical Hamiltonian, just a
+different qubit basis), exact dense diagonalization for the ground-state
+energy. `dashboard_core.MOLECULE_CATALOG`:
 
-| Molecule | Qubits | Bond length | E₀ (Ha) |
+| Molecule | Qubits | Bond length | E₀ (Ha, Jordan-Wigner) |
 |---|:---:|:---:|:---:|
-| H₂ | 2 | 0.74 Å | −1.13 |
-| H₃⁺ | 3 | 0.85 Å | −1.28 |
-| LiH | 4 | 1.40 Å | −2.31 |
-| H₂O | 5 | 0.96 Å | −4.12 |
+| H₂ | 4 | 0.7414 Å | −1.1373 |
+| HeH⁺ | 4 | 0.7743 Å | −3.0157 |
+| H₃⁺ (D3h triangle) | 6 | 0.8738 Å | −1.2973 |
+| LiH | 12 | 1.5949 Å | −7.8824 |
+| H₂O (104.5°, frozen-core O 1s) | 12 | 0.9584 Å | −75.0127 |
 
-Custom: JSON array of diagonal eigenvalues, length `2^n_qubits`.
+Custom molecules: any atomic symbols + `[[x, y, z], ...]` geometry in
+Ångström, same Hartree-Fock pipeline — capped at 12 qubits (exact dense
+diagonalization's real limit here, rejected with a clear error before
+PennyLane runs rather than attempted and failing expensively).
+`dense_evolution_energy_scan` (MCP) / the Composer's "Scan energia" panel
+compute this at several geometries in one call, e.g. a dissociation curve.
 
 ---
 
-## ▍ Circuit Library (30+ presets)
+## ▍ Circuit Library (18 presets)
 
-All circuits stored as OpenQASM 2.0 strings in `QASM_LIBRARY`.
+All circuits stored as OpenQASM 2.0 strings in `dashboard_core.QASM_LIBRARY`.
 
-**Standard** — Bell Φ⁺, QFT 4q/8q, Toffoli, Adder 2-bit, Deutsch-Jozsa, Bernstein-Vazirani
+**States** — Bell state (2q), GHZ (3q/4q/8q), W state (3q), Superposition (1q)
 
-**Algorithms** — Grover 3q/4q, Simon 4q, Shor 15, HHL, QAOA Max-Cut 4q, QPE 5q, Quantum Walk, Teleportation, BB84
+**Entangling layers** — linear/ring/full/star/brick topology, 5q each (`dense_evolution.topology.entangling_layer`)
+
+**Algorithms** — Quantum Fourier Transform (3q), Grover search (3q, target `|111⟩`), Deutsch-Jozsa (2+1q, balanced oracle), Bernstein-Vazirani (3+1q, secret `101`), Toffoli/CCX (3q, T-gate decomposition)
+
+**Testing** — Random circuit, fixed seed (3q and 5q variants)
 
 ---
 
