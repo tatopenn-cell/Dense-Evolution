@@ -774,6 +774,12 @@ All circuits stored as OpenQASM 2.0 strings in `dashboard_core.QASM_LIBRARY`.
 
 ## ▍ Changelog
 
+### v8.1.51
+- **`trotter_evolve_ops` gains `order=2`** (Strang/symmetric product formula) alongside the existing default `order=1` -- quadratically more accurate for the same `n_steps` (verified: infidelity drops ~16x per step doubling vs. `order=1`'s ~4x, against `scipy.linalg.expm`), at 2x gates/step. Useful anywhere gate count directly limits circuit noise.
+- **`dashboard_core.qmmm.run_md_trajectory` now catches a diverging MD trajectory early**: raises a clear `RuntimeError` if two atoms end up closer than a physically-motivated 0.3 Å floor after a step, instead of silently feeding a near-collided geometry into Hartree-Fock (which diverges rather than failing informatively) -- the real failure mode of a too-large `dt_fs` with light atoms. The check (`_assert_no_nuclear_collision`) lives at the real-simulation boundary in `run_md_trajectory`, not the bare `md_step` primitive.
+- **Real bug fixed**: `DenseSVSimulator.run_batch_jit`'s initial statevector was hardcoded to `complex128` regardless of `self.dtype`/`use_float32`, silently ignoring the instance's own configured precision on every VQE-gradient-batch call -- a separate instance of the same bug class `run_circuit_jit` already had a documented fix for. Now derives from `self.dtype`, matching the rest of the JIT path.
+- 124 tests pass across the three affected modules, all new behavior covered by new tests, no regressions.
+
 ### v8.1.50
 - **New: reintegrated vector healing** (`dense_evolution.healing`'s Phi-Trigger predictive-healing primitives, via `ia_utils.vector_healing.enhanced_dense_healing_hybrid`) into the kernel and MCP server -- implemented and tested since before the dashboard_core rebuild, but unreachable from any user-facing path until now. `dashboard_core/__init__.py`'s own docstring had flagged this as pending ("will be reintegrated selectively once this base is solid").
   - **New `dashboard_core.vector_healing`**: `run_vector_healing` (+ `VectorHealingResult`), a thin wrapper mirroring `mitigation.py`'s shape -- per step of an `(n_steps, dim)` sequence, a Phi-Trigger decides whether the change from a local baseline looks like genuine dynamics (kept) or static noise (replaced by the local median); NaN/Inf entries are always sanitized first regardless.
