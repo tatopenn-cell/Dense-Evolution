@@ -765,6 +765,40 @@ async def dense_evolution_mitigate_density_matrix(params: MitigateDensityMatrixI
         return _handle_error(e)
 
 
+class VectorHealingInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    vectors: list = Field(..., description="(n_steps, dim) sequence of equal-length numeric rows to heal -- "
+                           "e.g. a VQE parameter/energy trajectory, MD telemetry, or any other noisy vector "
+                           "sequence. NaN/Inf entries are sanitized automatically.")
+    radius_baseline: int | None = Field(
+        default=None,
+        description="Fixed radius for the local baseline window used to judge each step. If omitted, "
+        "computed adaptively as min(20, max(3, n_steps // 3)).",
+    )
+
+
+@mcp.tool(name="dense_evolution_vector_healing", annotations={"title": "Heal a noisy vector sequence", **COMPUTE})
+async def dense_evolution_vector_healing(params: VectorHealingInput) -> str:
+    """Run a real predictive-healing pass over a noisy (n_steps, dim)
+    vector sequence -- e.g. VQE convergence telemetry or an MD
+    trajectory. Per step, a Phi-Trigger (dense_evolution.healing) decides
+    whether the change from a local baseline looks like genuine dynamics
+    (kept as-is) or static noise (replaced by the local median). NaN/Inf
+    entries are sanitized first regardless of that decision.
+
+    Args:
+        params (VectorHealingInput): vectors, radius_baseline.
+
+    Returns:
+        str: JSON with healed_vectors, fallback_triggered,
+        adaptive_radius_used, reconstruction_error.
+    """
+    try:
+        return json.dumps(await _request("POST", "/api/vector_healing", json=params.model_dump()), indent=2)
+    except Exception as e:
+        return _handle_error(e)
+
+
 # --------------------------------------------------------------------------
 # Tools: traversable-wormhole-inspired quantum teleportation (SYK model)
 # --------------------------------------------------------------------------

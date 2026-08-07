@@ -637,16 +637,17 @@ the same relative layout so it opens correctly via `file://`.
 ## ▍ MCP Server — drive the Composer kernel from an agent
 
 `dense_evolution_mcp` (`mcp_server/`) is an MCP ([Model Context
-Protocol](https://modelcontextprotocol.io)) server: 20 tools, one per
-Composer kernel endpoint plus a batch energy scan and a batch wormhole
-sweep, letting an MCP-aware agent (Claude Code, Claude Desktop, ...) run
-circuits, compute molecular ground-state energies, run VQE, get QM/MM
-forces, run MD trajectories, apply ZNE mitigation, and run traversable-
-wormhole-inspired quantum teleportation directly — without a browser. A
-thin adapter, not a reimplementation: every tool calls the same kernel
-`serve` starts above; `local_site/app/server.py` itself gained two new
-endpoints for the wormhole tools (`/api/wormhole_select_instance`,
-`/api/wormhole_teleportation`) but no existing endpoint changed.
+Protocol](https://modelcontextprotocol.io)) server: 21 tools, one per
+Composer kernel endpoint plus a batch energy scan, a batch wormhole
+sweep, and a vector-healing pass, letting an MCP-aware agent (Claude
+Code, Claude Desktop, ...) run circuits, compute molecular ground-state
+energies, run VQE, get QM/MM forces, run MD trajectories, apply ZNE
+mitigation, run traversable-wormhole-inspired quantum teleportation, and
+heal a noisy vector sequence directly — without a browser. A thin
+adapter, not a reimplementation: every tool calls the same kernel
+`serve` starts above; `local_site/app/server.py` itself gained three new
+endpoints (`/api/wormhole_select_instance`, `/api/wormhole_teleportation`,
+`/api/vector_healing`) but no existing endpoint changed.
 
 ```bash
 pip install dense-evolution[mcp]
@@ -675,6 +676,15 @@ claude mcp add dense_evolution -- dense-evolution mcp
   wormhole sweep runs sequentially, not concurrently (each call is a real
   multi-second simulation; concurrent calls were found to crash the
   kernel via a BLAS/eigh thread-safety issue).
+- `dense_evolution_vector_healing` reintegrates the predictive-healing
+  engine (`dense_evolution.healing`'s Phi-Trigger primitives, via
+  `ia_utils.vector_healing.enhanced_dense_healing_hybrid`) that shipped
+  with the pre-rebuild dashboard_core's Streamlit "AI healing shield"
+  middleware, left behind (not removed) when dashboard_core was rebuilt
+  around the Composer kernel — see `dashboard_core/vector_healing.py`.
+  Cleans a noisy (n_steps, dim) sequence (VQE telemetry, MD trajectory,
+  or any other vector sequence): per step, keeps genuine dynamics,
+  replaces static noise with the local median, always sanitizes NaN/Inf.
 - Large arrays are truncated to their most significant entries, and
   images are saved to disk (path returned) rather than inlined as base64,
   so a tool response stays usable in an agent's context.
