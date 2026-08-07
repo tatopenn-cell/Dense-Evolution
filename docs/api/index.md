@@ -2,7 +2,15 @@
 
 Generated directly from the package's own docstrings via
 [`mkdocstrings`](https://mkdocstrings.github.io/) — nothing here is duplicated by hand, so
-it can't drift out of sync with the code.
+it can't drift out of sync with the code. Scoped to the `dense_evolution` package itself;
+`dashboard_core`, `ia_utils`, and `mcp_server` (the Composer kernel and its MCP adapter) are
+built on top of these modules but aren't part of this generated reference — see below.
+
+**Driving these modules without writing Python**: every module in the table has a real,
+tested execution path through the Composer kernel, reachable either from a browser
+([Composer](../composer.md)) or from an MCP-aware agent ([MCP Server](../mcp.md), 21 tools —
+Claude Code, Claude Desktop, ...). Both call the exact same kernel, not a separate
+reimplementation.
 
 | Module | What it's for |
 |---|---|

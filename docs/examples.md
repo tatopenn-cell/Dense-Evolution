@@ -1,6 +1,6 @@
 # Examples
 
-Three runnable, end-to-end examples, each lifted from real experiments/tests already in
+Four runnable, end-to-end examples, each lifted from real experiments/tests already in
 the repository rather than written fresh for this page:
 
 - [Density-matrix ZNE healing](#density-matrix-zne-healing) — from
@@ -10,6 +10,8 @@ the repository rather than written fresh for this page:
   `tests/test_mps.py::test_run_circuit_jit_ghz_chain`.
 - [Differentiable VQE](#differentiable-vqe) — from
   `tests/test_autodiff.py::TestCircuitToEnergyFn`.
+- [Vector healing](#vector-healing) — from `tests/test_ia_healing.py`, healing a noisy
+  vector sequence (not to be confused with density-matrix ZNE healing above).
 
 ## Density-matrix ZNE healing
 
@@ -158,3 +160,31 @@ print(f"ground state:  {float(jnp.min(jnp.diag(h_matrix))):.4f}")
 `circuit_to_energy_fn` also accepts an optional `noise=` (`dense_evolution.NoiseSpec`, a
 JAX pytree) to trace noisy VQE runs natively — composable with `jax.jit`, `jax.grad`, and
 `jax.vmap` over noise-key batches. See [`dense_evolution.autodiff`](api/autodiff.md).
+
+## Vector healing
+
+Not to be confused with [density-matrix ZNE healing](#density-matrix-zne-healing) above —
+same word, different thing. This is `dense_evolution.healing`'s Phi-Trigger applied to a
+real `(n_steps, dim)` vector sequence (a VQE parameter/energy trajectory, MD telemetry, or
+any other noisy sequence): per step, keep it if the change from a local baseline looks like
+genuine dynamics, replace it with the local median if it looks like static noise. NaN/Inf
+entries are always sanitized first, regardless of that decision.
+
+```python
+import numpy as np
+from ia_utils.vector_healing import enhanced_dense_healing_hybrid
+
+rng = np.random.default_rng(0)
+trajectory = rng.normal(loc=1.0, scale=0.05, size=(30, 4))  # e.g. a VQE parameter history
+trajectory[17] = [50.0, -30.0, 12.0, -8.0]                  # one genuine outlier step
+
+healed, meta = enhanced_dense_healing_hybrid(trajectory)
+
+print(f"outlier step replaced: {not np.array_equal(healed[17], trajectory[17])}")
+print(f"fallback_triggered:    {meta['fallback_triggered']}")     # NaN/Inf found *and* corrected
+print(f"reconstruction_error:  {meta['reconstruction_error']:.4f}")
+```
+
+Same primitives, reachable without writing Python: `dashboard_core.run_vector_healing`
+(kernel-facing wrapper), the Composer kernel's `POST /api/vector_healing`, or the MCP tool
+`dense_evolution_vector_healing` — see [MCP Server](mcp.md).

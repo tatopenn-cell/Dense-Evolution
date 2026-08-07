@@ -27,11 +27,26 @@ of `2ⁿ × 16 bytes`.
   projection, Uhlmann fidelity), every entry point with a `jax.jit`-compatible variant.
 - **[`dense_evolution.healing`](api/healing.md)** — the predictive-healing primitives
   (`calculate_delta_preemp`, `calculate_vettore_dinamico`, ...) ZNE's healing-adapted branch
-  is built on.
+  is built on, and that `dashboard_core.run_vector_healing` / `dense_evolution_vector_healing`
+  (below) apply to real noisy vector sequences.
 - **[`NoiseModel`](api/registry.md)** — Kraus-channel noise (depolarizing, bitflip,
   phaseflip, amplitude damping, and a combined worst-case model), JAX- and NumPy-native.
 - **Interop** with [Qiskit and PennyLane](api/interop.md), and [autodiff](api/autodiff.md)
   through `circuit_to_energy_fn` for gradient-based VQE.
+
+## Beyond the library: Composer and MCP
+
+Two ways to drive the simulator without writing Python against it directly, both backed by
+the same local kernel (`local_site/app/server.py`, real `DenseSVSimulator`/PennyLane
+Hartree-Fock, no mocked physics):
+
+- **[Composer](composer.md)** — a browser UI: build a circuit graphically or in OpenQASM,
+  compute molecular ground-state energies, run VQE, get QM/MM forces and MD trajectories,
+  apply ZNE mitigation, and run the traversable-wormhole-inspired teleportation protocol.
+- **[MCP Server](mcp.md)** — the same kernel, driven by an MCP-aware agent (Claude Code,
+  Claude Desktop, ...) instead of a browser: 21 tools covering everything Composer does,
+  plus a batch energy scan, a batch wormhole sweep, and healing a noisy vector sequence
+  (`dense_evolution_vector_healing`, see `dense_evolution.healing` above).
 
 ## Module dependencies
 

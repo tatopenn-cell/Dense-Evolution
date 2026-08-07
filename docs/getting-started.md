@@ -104,13 +104,38 @@ See [`dense_evolution.mitigation`](api/mitigation.md) for the full API, includin
 
 `app_dashboard.py` lives at the root of the cloned repository -- it is not part of the
 pip-installed package, so this needs the `git clone` from the [Install](#install) section
-above, not just `pip install`.
+above, not just `pip install`. Circuit builder / statevector / probabilities / Q-sphere
+only -- VQE, molecular Hamiltonians, ZNE mitigation, and vector healing aren't wired into
+this Streamlit UI (yet); reach them via [Composer](composer.md) or the [MCP Server](mcp.md)
+above instead.
 
 ```bash
 pip install "dense-evolution[dashboard]"  # JAX already included by default
 cd Dense-Evolution
 streamlit run app_dashboard.py
 ```
+
+## MCP Server (drive it from an agent)
+
+Same kernel as the Composer web page above, driven by an MCP-aware agent (Claude Code,
+Claude Desktop, ...) instead of a browser -- circuits, molecular energies, VQE, QM/MM
+forces, MD trajectories, ZNE mitigation, the wormhole teleportation protocol, and healing a
+noisy vector sequence, all as callable tools instead of Python you write yourself.
+
+```bash
+pip install "dense-evolution[mcp]"
+
+dense-evolution serve   # start the kernel first, in one terminal
+dense-evolution mcp     # in another terminal, or registered with your MCP client's config
+```
+
+**Register with Claude Code:**
+
+```bash
+claude mcp add dense_evolution -- dense-evolution mcp
+```
+
+Full tool reference, setup details, and design notes: **[MCP Server](mcp.md)**.
 
 ## Running the test suite
 

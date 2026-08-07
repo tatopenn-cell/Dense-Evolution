@@ -80,6 +80,7 @@ plugins:
 nav:
   - Home: index.md
   - Composer: composer.md
+  - MCP Server: mcp.md
   - Getting Started: getting-started.md
   - Examples: examples.md
   - Benchmarks: benchmarks.md
