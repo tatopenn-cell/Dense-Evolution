@@ -8,7 +8,7 @@ compatibility: Requires the dense_evolution_mcp MCP server registered (see mcp_s
 
 ## Why this exists
 
-`dense_evolution_mcp` gives you 20 tools that call the *same* local kernel
+`dense_evolution_mcp` gives you 21 tools that call the *same* local kernel
 the published Composer web page uses (`local_site/app/server.py`) -- real
 `DenseSVSimulator` runs, real Hartree-Fock Hamiltonians, real VQE with
 adjoint differentiation, real Hellmann-Feynman forces. Prefer these tools
@@ -57,6 +57,7 @@ assuming a size that worked for a small molecule will scale.
 | Nuclear forces / a dynamics trajectory | `dense_evolution_qmmm_forces`, `_md_trajectory` |
 | Correct a noisy result back toward the ideal one | `dense_evolution_mitigate_zne` (scalar observable), `_mitigate_density_matrix` (full state) |
 | Traversable-wormhole-inspired quantum teleportation (SYK model) | `dense_evolution_wormhole_select_instance`, `_wormhole_teleportation`, `_wormhole_scan` |
+| Clean a noisy VQE/MD telemetry sequence or any other noisy vector trajectory | `dense_evolution_vector_healing` |
 
 Every tool's own docstring has the full parameter/return schema -- this
 table is for picking the right one quickly, not a substitute for reading
@@ -151,6 +152,20 @@ kernel process -- a BLAS/eigh thread-safety issue under its heavier
 linear algebra, unlike the cheap Hamiltonian diagonalizations
 `_energy_scan` batches concurrently) -- a 20-point sweep can take several
 minutes; start with a handful of points to gauge cost, same as VQE.
+
+**"Clean up / denoise this VQE or MD telemetry" / "vector healing":**
+`dense_evolution_vector_healing` -- pass the raw (n_steps, dim) sequence
+(e.g. a VQE energy/parameter trajectory or MD telemetry). Per step, a
+Phi-Trigger (`dense_evolution.healing`) decides whether the change from
+a local baseline looks like genuine dynamics (kept as-is) or static
+noise (replaced by the local median); NaN/Inf entries are always
+sanitized first regardless. Report `fallback_triggered` and
+`reconstruction_error` back to the user alongside the healed sequence --
+`fallback_triggered=True` means genuine corruption (NaN/Inf) was found
+*and* corrected, not just that some step looked statistically static.
+This is the same predictive-healing engine the pre-rebuild dashboard
+routed VQE/MD telemetry through before any panel was built from it
+(`ia_utils/vector_healing.py`'s `enhanced_dense_healing_hybrid`).
 
 ## If the kernel isn't set up yet
 
