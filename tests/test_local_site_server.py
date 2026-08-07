@@ -383,6 +383,22 @@ def test_mitigate_matrix_invalid_qasm_returns_400():
     assert resp.status_code == 400
 
 
+def test_vector_healing_replaces_an_outlier_with_the_local_median():
+    vectors = [[1.0, 2.0], [1.1, 2.1], [1.05, 2.05], [50.0, -30.0], [1.08, 2.08], [1.02, 2.02]]
+    resp = client.post("/api/vector_healing", json={"vectors": vectors})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body["healed_vectors"]) == 6
+    # The genuine outlier row must not survive untouched.
+    assert body["healed_vectors"][3] != vectors[3]
+    assert body["reconstruction_error"] > 0.0
+
+
+def test_vector_healing_invalid_shape_returns_400():
+    resp = client.post("/api/vector_healing", json={"vectors": [1.0, 2.0, 3.0]})
+    assert resp.status_code == 400
+
+
 def test_wormhole_select_instance_finds_the_known_seed_61():
     """n_majorana=8/k_terms=10/target_commuting=34 is the exact
     configuration whose known-good seed (61, matching arXiv:2604.10090's

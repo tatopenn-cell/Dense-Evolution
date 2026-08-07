@@ -127,6 +127,16 @@ def test_mitigate_density_matrix_reports_fidelity_improvement():
     assert 0.0 <= result["fidelity_corrected"] <= 1.0
 
 
+def test_vector_healing_replaces_an_outlier_with_the_local_median():
+    vectors = [[1.0, 2.0], [1.1, 2.1], [1.05, 2.05], [50.0, -30.0], [1.08, 2.08], [1.02, 2.02]]
+    result = json.loads(run(mcp_adapter.dense_evolution_vector_healing(
+        mcp_adapter.VectorHealingInput(vectors=vectors)
+    )))
+    assert len(result["healed_vectors"]) == 6
+    assert result["healed_vectors"][3] != vectors[3]
+    assert result["reconstruction_error"] > 0.0
+
+
 def test_list_molecules_includes_short_ids():
     data = json.loads(run(mcp_adapter.dense_evolution_list_molecules(mcp_adapter.ListMoleculesInput())))
     by_id = {m["id"]: m for m in data}

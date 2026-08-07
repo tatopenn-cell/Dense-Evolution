@@ -605,6 +605,30 @@ def mitigate_matrix(req: MitigateMatrixRequest):
     }
 
 
+class VectorHealingRequest(BaseModel):
+    vectors: list       # (n_steps, dim) -- list of equal-length rows
+    radius_baseline: int | None = None
+
+
+@app.post("/api/vector_healing")
+def vector_healing(req: VectorHealingRequest):
+    """Real predictive-healing pass over a noisy vector sequence
+    (dashboard_core.run_vector_healing / ia_utils.vector_healing): per
+    step, a Phi-Trigger decides whether the change from a local baseline
+    looks like genuine dynamics (kept) or static noise (replaced by the
+    local median). NaN/Inf entries are sanitized first regardless."""
+    try:
+        result = dc.run_vector_healing(req.vectors, radius_baseline=req.radius_baseline)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "healed_vectors": result.healed_vectors,
+        "fallback_triggered": result.fallback_triggered,
+        "adaptive_radius_used": result.adaptive_radius_used,
+        "reconstruction_error": result.reconstruction_error,
+    }
+
+
 class WormholeSelectInstanceRequest(BaseModel):
     n_majorana: int = 8
     k_terms: int = 10

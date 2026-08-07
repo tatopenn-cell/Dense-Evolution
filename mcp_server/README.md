@@ -66,7 +66,7 @@ server's environment.
 
 ## Tools
 
-20 tools -- one per Composer kernel endpoint, plus batch scans:
+21 tools -- one per Composer kernel endpoint, plus batch scans:
 
 | Tool | What it does |
 |---|---|
@@ -90,6 +90,20 @@ server's environment.
 | `dense_evolution_wormhole_select_instance` | Screen SYK seeds for a good instance for the wormhole protocol (arXiv:2604.10090's own selection criterion) |
 | `dense_evolution_wormhole_teleportation` | Run one point of the real traversable-wormhole-inspired teleportation protocol on a binary sparse SYK model |
 | `dense_evolution_wormhole_scan` | Sweep `t1` (both +mu and -mu at each point) for the wormhole protocol in one batched call |
+| `dense_evolution_vector_healing` | Heal a noisy (n_steps, dim) vector sequence -- e.g. VQE convergence telemetry or an MD trajectory |
+
+**Vector healing** (`dense_evolution_vector_healing`) reintegrates the
+predictive-healing engine (`dense_evolution.healing`'s Phi-Trigger
+primitives, via `ia_utils.vector_healing.enhanced_dense_healing_hybrid`)
+that shipped with the pre-rebuild dashboard_core's Streamlit "AI healing
+shield" middleware -- left behind (not removed) when dashboard_core was
+rebuilt around the Composer kernel, now reintegrated as
+`dashboard_core.run_vector_healing`. Per step, a Phi-Trigger compares
+the change from a local baseline against the recent trend: a genuine
+move is kept as-is, a static/noisy one is replaced by the local median.
+NaN/Inf entries are always sanitized first (column-mean imputation),
+regardless of that decision. Useful for cleaning a noisy VQE parameter/
+energy trajectory or MD telemetry before analyzing or plotting it.
 
 **Wormhole tools need a well-selected SYK instance.** Call
 `dense_evolution_wormhole_select_instance` before `_wormhole_teleportation`/
