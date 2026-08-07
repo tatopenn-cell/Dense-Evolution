@@ -66,7 +66,7 @@ server's environment.
 
 ## Tools
 
-17 tools -- one per Composer kernel endpoint, plus a batch scan:
+20 tools -- one per Composer kernel endpoint, plus batch scans:
 
 | Tool | What it does |
 |---|---|
@@ -87,6 +87,23 @@ server's environment.
 | `dense_evolution_md_trajectory` | Velocity-Verlet MD trajectory |
 | `dense_evolution_mitigate_zne` | Zero-noise extrapolation, scalar observable |
 | `dense_evolution_mitigate_density_matrix` | Zero-noise extrapolation, full density matrix |
+| `dense_evolution_wormhole_select_instance` | Screen SYK seeds for a good instance for the wormhole protocol (arXiv:2604.10090's own selection criterion) |
+| `dense_evolution_wormhole_teleportation` | Run one point of the real traversable-wormhole-inspired teleportation protocol on a binary sparse SYK model |
+| `dense_evolution_wormhole_scan` | Sweep `t1` (both +mu and -mu at each point) for the wormhole protocol in one batched call |
+
+**Wormhole tools need a well-selected SYK instance.** Call
+`dense_evolution_wormhole_select_instance` before `_wormhole_teleportation`/
+`_wormhole_scan` unless you already have a known-good seed -- a uniformly
+random draw of which SYK terms to keep does not reliably show the
+protocol's sign-dependent signal (verified directly: some seeds give a
+clean peak, some the wrong sign, some flat noise). `seed=61` is the
+verified match for the defaults (`n_majorana=8, k_terms=10`), used
+throughout [Dense-Evolution-Ising-Tests' own wormhole experiments](https://tatopenn-cell.github.io/Dense-Evolution-Ising-Tests/wormhole_syk_teleportation/).
+`_wormhole_scan` points run sequentially, not concurrently -- concurrent
+calls to this specific endpoint were found to crash the kernel process
+outright (a real BLAS/eigh thread-safety issue under this protocol's
+heavier-than-usual linear algebra), so each point costs several seconds
+and a full 20-point sweep can take a few minutes.
 
 **Molecule names**: every tool that takes a catalog molecule accepts either
 its short `id` (e.g. `"H2"`, `"LiH"`, `"HeH+"`) or the kernel's full
