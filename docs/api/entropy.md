@@ -27,7 +27,7 @@ pair (`I = 2*ln(2)`, maximal) and a GHZ state.
 **See also**: [`fermions`](fermions.md) and [`trotter`](trotter.md), the
 other two modules promoted alongside this one from a real traversable-
 wormhole-inspired quantum teleportation reproduction (arXiv:2604.10090)
-— see [Dense-Evolution-Ising-Tests](https://tatopenn-cell.github.io/Dense-Evolution-Ising-Tests/wormhole_syk_teleportation/)
+— see [Dense-Evolution-Discovery](https://tatopenn-cell.github.io/Dense-Evolution-Discovery/wormhole_syk_teleportation/)
 for the real experiments, including a control run confirming
 `mutual_information` correctly returns exactly `0` when two subsystems
 are structurally disconnected.

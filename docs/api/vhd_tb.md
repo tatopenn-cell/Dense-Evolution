@@ -43,7 +43,7 @@ reading only $\Gamma$.
 ## Accuracy
 
 Validated against real experimental gaps (GaAs, Si, Ge) -- see the
-[Dense-Evolution-Ising-Tests validation page](https://tatopenn-cell.github.io/Dense-Evolution-Ising-Tests/harrison_tight_binding/)
+[Dense-Evolution-Discovery validation page](https://tatopenn-cell.github.io/Dense-Evolution-Discovery/harrison_tight_binding/)
 for the full writeup and numbers.
 
 ::: dense_evolution.vhd_tb

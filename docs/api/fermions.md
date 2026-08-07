@@ -20,5 +20,5 @@ Sachdev-Ye-Kitaev (SYK) model: `H = sum_{ijkl} J_ijkl * chi_i*chi_j*chi_k*chi_l`
 other two modules promoted alongside this one from a real traversable-
 wormhole-inspired quantum teleportation reproduction (Gao-Jafferis-Wall
 theory, arXiv:2604.10090) — see the [MCP Server](../composer.md) section
-and [Dense-Evolution-Ising-Tests](https://tatopenn-cell.github.io/Dense-Evolution-Ising-Tests/wormhole_syk_teleportation/)
+and [Dense-Evolution-Discovery](https://tatopenn-cell.github.io/Dense-Evolution-Discovery/wormhole_syk_teleportation/)
 for the real experiments built on top of these three modules.

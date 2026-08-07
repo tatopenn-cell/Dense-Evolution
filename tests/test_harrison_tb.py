@@ -3,7 +3,7 @@ Unit tests for dense_evolution/harrison_tb.py -- Harrison's universal
 sp3 tight-binding parameters. Checks the scaling law, Slater-Koster
 block construction, and the two Hamiltonian builders (dimer, periodic
 zinc-blende), including the real Si-Si/Ga-As/GaAs numbers recorded in
-Dense-Evolution-Ising-Tests' validation writeup.
+Dense-Evolution-Discovery' validation writeup.
 """
 import numpy as np
 import pytest
@@ -85,7 +85,7 @@ class TestZincblendeHamiltonian:
         H = zincblende_hamiltonian([0., 0., 0.], 'Ga', 'As', 5.6533)
         eig = np.sort(np.linalg.eigvalsh(H).real)
         gap = eig[4] - eig[3]
-        # Recorded 2026-08-05 in Dense-Evolution-Ising-Tests' validation
+        # Recorded 2026-08-05 in Dense-Evolution-Discovery' validation
         # writeup: 2.906 eV, ~105% off the 1.42 eV experimental gap --
         # this is Harrison's universal parameters' known behavior, not a
         # target to hit exactly (see vhd_tb for the material-specific fix).

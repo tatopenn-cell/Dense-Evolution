@@ -89,7 +89,7 @@ def test_zero_noise_extrapolation_without_sigma_matches_richardson_extrapolate()
 
 def test_zero_noise_extrapolation_with_sigma_matches_reference_healing_formula():
     # reference formula, promoted verbatim from
-    # Dense-Evolution-Ising-Tests/tests/test_zne_predictive_healing.py
+    # Dense-Evolution-Discovery/tests/test_zne_predictive_healing.py
     # (_adaptive_healing_richardson), independently re-derived here.
     def reference(e_l1, e_l2, e_l3, delta_p):
         c1, c2, c3 = 3.0 - 0.01 * delta_p, -3.0 + 0.02 * delta_p, 1.0 - 0.01 * delta_p
