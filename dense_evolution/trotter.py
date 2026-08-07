@@ -20,11 +20,25 @@ Trotterized VQE-adjacent ansatz, quench dynamics, etc.).
 pauli_rotation_ops is exact for a single Pauli-string term (fidelity
 1.0 against scipy.linalg.expm, verified in tests/test_trotter.py for
 1-4 qubit mixed X/Y/Z strings, not just Z-strings); trotter_evolve_ops
-composes many such terms via the first-order product formula, which is
-an *approximation* whose error shrinks as n_steps grows (also verified:
-infidelity drops roughly 4x per doubling of steps against a real,
-non-trivial multi-qubit Hamiltonian, consistent with the expected
+composes many such terms via the first-order product formula by default,
+which is an *approximation* whose error shrinks as n_steps grows (also
+verified: infidelity drops roughly 4x per doubling of steps against a
+real, non-trivial multi-qubit Hamiltonian, consistent with the expected
 quadratic convergence of first-order Trotter error in state overlap).
+
+order=2 selects the second-order (Strang/symmetric) product formula
+instead -- each step applies the terms forward at half the angle, then
+backward (reversed order) at half the angle again:
+[prod_k exp(-i*c_k*P_k*dt/2)] * [prod_k(reversed) exp(-i*c_k*P_k*dt/2)],
+which cancels the first-order formula's leading error term (verified in
+tests/test_trotter.py: infidelity drops roughly 16x per doubling of
+steps, consistent with the expected quartic convergence of second-order
+Trotter error in state overlap, vs. order=1's ~4x). Costs 2x the gates
+of order=1 for the same n_steps -- the standard second-order tradeoff,
+worth it when n_steps would otherwise need to be large for accuracy
+(e.g. the noise-robustness experiments in wormhole_syk_teleportation.py,
+where gate count directly limits how much depolarizing noise the
+circuit accumulates).
 """
 
 __all__ = ['pauli_rotation_ops', 'trotter_evolve_ops']
@@ -80,11 +94,19 @@ def pauli_rotation_ops(pauli_dict, angle):
     return ops
 
 
-def trotter_evolve_ops(terms, t, n_steps):
-    """First-order Trotter product formula for exp(-i*H*t),
-    H = sum_k c_k*P_k: [prod_k exp(-i*c_k*P_k*(t/n_steps))]^n_steps.
+def trotter_evolve_ops(terms, t, n_steps, order=1):
+    """Trotter product formula for exp(-i*H*t), H = sum_k c_k*P_k.
+
+    order=1 (default): [prod_k exp(-i*c_k*P_k*(t/n_steps))]^n_steps.
     Term order within one step follows `terms`' own order, identical
     every repetition (not re-randomized per step).
+
+    order=2: Strang/symmetric splitting -- each step is a forward half-
+    angle pass through `terms` followed by a backward half-angle pass
+    through `terms` reversed, [prod_k exp(-i*c_k*P_k*dt/2)] *
+    [prod_k(reversed) exp(-i*c_k*P_k*dt/2)], repeated n_steps times.
+    Quadratically more accurate than order=1 for the same n_steps (see
+    module docstring), at 2x the gate count per step.
 
     Parameters
     ----------
@@ -96,17 +118,27 @@ def trotter_evolve_ops(terms, t, n_steps):
         Total evolution time.
     n_steps : int
         Number of Trotter steps -- higher is more accurate and more
-        gates (len(terms) gates' worth of pauli_rotation_ops per term,
-        repeated n_steps times), the standard Trotter accuracy/cost
-        tradeoff.
+        gates, the standard Trotter accuracy/cost tradeoff.
+    order : int
+        1 (default) or 2 -- see above.
 
     Returns
     -------
     list[tuple]
         Gate tuples for the whole Trotterized evolution.
     """
+    if order not in (1, 2):
+        raise ValueError(f"order must be 1 or 2, got {order}")
     dt = t / n_steps
-    step_ops = []
-    for c, pdict in terms:
-        step_ops.extend(pauli_rotation_ops(pdict, c * dt))
+    if order == 1:
+        step_ops = []
+        for c, pdict in terms:
+            step_ops.extend(pauli_rotation_ops(pdict, c * dt))
+    else:
+        half_dt = dt / 2
+        step_ops = []
+        for c, pdict in terms:
+            step_ops.extend(pauli_rotation_ops(pdict, c * half_dt))
+        for c, pdict in reversed(terms):
+            step_ops.extend(pauli_rotation_ops(pdict, c * half_dt))
     return step_ops * n_steps

@@ -47,7 +47,42 @@ from .hamiltonians import MOLECULE_CATALOG, build_molecular_hamiltonian, _pennyl
 
 __all__ = [
     'ATOMIC_MASSES_AMU', 'compute_hellmann_feynman_forces', 'md_step', 'run_md_trajectory',
+    'MIN_NUCLEAR_DISTANCE_ANGSTROM',
 ]
+
+# Real MD safety floor, not a fabricated number: shorter than any real
+# covalent bond this project's molecule catalog could ever produce (H2's
+# own equilibrium is 0.7414 A) -- run_md_trajectory checks new positions
+# against this after every Velocity-Verlet step, since Hartree-Fock at a
+# near-collided geometry (the failure mode a too-large dt_fs drives
+# light atoms like H toward) diverges rather than raising a clear error,
+# making the actual cause hard to diagnose from the resulting crash.
+# md_step itself stays a bare, unchecked F=ma primitive -- the check
+# belongs at run_md_trajectory's real-simulation boundary, not the
+# mechanical formula (tests exercise md_step directly with synthetic,
+# not physically meaningful, starting positions).
+MIN_NUCLEAR_DISTANCE_ANGSTROM = 0.3
+
+
+def _assert_no_nuclear_collision(positions, step, dt_fs):
+    """Raises RuntimeError if any two atoms in `positions` (n_atoms, 3)
+    are closer than MIN_NUCLEAR_DISTANCE_ANGSTROM -- see that constant's
+    comment for why. A no-op for a single atom (nothing to compare)."""
+    if positions.shape[0] < 2:
+        return
+    diffs = positions[:, None, :] - positions[None, :, :]
+    dists = np.linalg.norm(diffs, axis=-1)
+    np.fill_diagonal(dists, np.inf)
+    min_dist = float(dists.min())
+    if min_dist < MIN_NUCLEAR_DISTANCE_ANGSTROM:
+        raise RuntimeError(
+            f"MD trajectory diverged: two atoms are {min_dist:.4f} A apart at step "
+            f"{step + 1} (below the {MIN_NUCLEAR_DISTANCE_ANGSTROM} A safety floor -- "
+            f"no real covalent bond in this catalog is that short). This almost always "
+            f"means dt_fs={dt_fs} is too large for the forces involved -- light atoms "
+            f"like H accelerate sharply and overshoot in a single step. Try a smaller "
+            f"dt_fs before rerunning."
+        )
 
 # Real standard atomic weights (amu) for the elements this project's real
 # molecule catalog actually uses (H2, HeH+, H3+, LiH, H2O) -- only what's
@@ -199,6 +234,7 @@ def run_md_trajectory(name: str, n_steps: int, dt_fs: float = 0.5, mapping: str 
         trajectory["force_norm"].append(result["force_norm"])
 
         positions, velocities, _accel = md_step(positions, velocities, forces, symbols, dt_fs=dt_fs)
+        _assert_no_nuclear_collision(positions, step, dt_fs)
 
         if recompute_electronic_state:
             statevector, _gs_energy, _n_qubits = _reference_ground_state(symbols, positions, charge, mapping)

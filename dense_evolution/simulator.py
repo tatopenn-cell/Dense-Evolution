@@ -492,7 +492,13 @@ class DenseSVSimulator:
             )
 
         template    = jnp.array(compiled_ops, dtype=jnp.float64)
-        init_sv     = jnp.zeros(self.dim, dtype=jnp.complex128).at[0].set(1.0)
+        # self.dtype, not a hardcoded jnp.complex128: _apply_gate_fast_step
+        # (compiler.py) already derives its working dtype from the input
+        # statevector specifically so use_float32=True instances run in
+        # complex64 end to end -- hardcoding complex128 here silently
+        # discarded that for every run_batch_jit/run_parametric_batch_jit
+        # call regardless of the instance's own configured dtype.
+        init_sv     = jnp.zeros(self.dim, dtype=self.dtype).at[0].set(1.0)
 
         def simulate_single_instance(single_params: "jnp.ndarray") -> "jnp.ndarray":
             """Run one parameter vector through the circuit."""

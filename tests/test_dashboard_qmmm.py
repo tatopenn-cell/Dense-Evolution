@@ -10,8 +10,9 @@ import numpy as np
 import pytest
 
 from dashboard_core.qmmm import (
-    ATOMIC_MASSES_AMU, ACCEL_CONVERSION,
+    ATOMIC_MASSES_AMU, ACCEL_CONVERSION, MIN_NUCLEAR_DISTANCE_ANGSTROM,
     compute_hellmann_feynman_forces, md_step, run_md_trajectory,
+    _assert_no_nuclear_collision,
 )
 
 H2_EQUILIBRIUM = "H2 (Idrogeno) - R = 0.7414 A [equilibrio reale]"
@@ -111,3 +112,41 @@ class TestRunMdTrajectory:
     def test_time_axis_matches_dt(self):
         trajectory = run_md_trajectory(H2_EQUILIBRIUM, n_steps=4, dt_fs=0.25)
         assert trajectory["time_fs"] == [0.0, 0.25, 0.5, 0.75]
+
+
+class TestAssertNoNuclearCollision:
+    """Fast, direct tests for the collision safety check run_md_trajectory
+    calls after every step -- synthetic positions, no real Hartree-Fock
+    calculation needed to verify the guard itself is correct."""
+
+    def test_real_h2_equilibrium_geometry_passes(self):
+        positions = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.7414]])
+        _assert_no_nuclear_collision(positions, step=0, dt_fs=0.5)  # must not raise
+
+    def test_exactly_at_threshold_passes(self):
+        positions = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, MIN_NUCLEAR_DISTANCE_ANGSTROM]])
+        _assert_no_nuclear_collision(positions, step=0, dt_fs=0.5)  # must not raise
+
+    def test_below_threshold_raises(self):
+        positions = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.05]])
+        with pytest.raises(RuntimeError, match="diverged"):
+            _assert_no_nuclear_collision(positions, step=3, dt_fs=50.0)
+
+    def test_error_message_includes_step_and_dt(self):
+        positions = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.01]])
+        with pytest.raises(RuntimeError, match=r"step 4.*dt_fs=50\.0"):
+            _assert_no_nuclear_collision(positions, step=3, dt_fs=50.0)
+
+    def test_checks_closest_pair_among_more_than_two_atoms(self):
+        # Two atoms far apart, one pair dangerously close -- must still catch it.
+        positions = np.array([
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 5.0],
+            [0.0, 0.0, 5.05],
+        ])
+        with pytest.raises(RuntimeError):
+            _assert_no_nuclear_collision(positions, step=0, dt_fs=1.0)
+
+    def test_single_atom_never_raises(self):
+        positions = np.array([[0.0, 0.0, 0.0]])
+        _assert_no_nuclear_collision(positions, step=0, dt_fs=1000.0)  # nothing to compare

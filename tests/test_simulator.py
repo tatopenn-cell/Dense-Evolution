@@ -405,6 +405,35 @@ class TestBeastModeFloat32:
         np.testing.assert_allclose(probs(sim32), probs(sim64), atol=1e-6)
 
 
+class TestRunBatchJitFloat32:
+    """run_batch_jit built its own init_sv hardcoded to jnp.complex128,
+    ignoring self.dtype/self.use_float32 entirely -- a separate instance
+    of the same category of bug TestBeastModeFloat32 documents for
+    run_circuit_jit above (that one already got its own fix; this one
+    hadn't). Fixed by deriving init_sv's dtype from self.dtype, matching
+    _apply_gate_fast_step's own sv_dtype-derived (not hardcoded)
+    approach in compiler.py."""
+
+    def test_output_is_complex64_under_use_float32(self):
+        sim = DenseSVSimulator(n_qubits=3, use_float32=True)
+        out = sim.run_batch_jit([['h', 0, -1], ['rx', 1, None]], np.array([[0.5]]))
+        assert np.asarray(out).dtype == np.complex64
+
+    def test_output_is_complex128_by_default(self):
+        sim = DenseSVSimulator(n_qubits=3, use_float32=False)
+        out = sim.run_batch_jit([['h', 0, -1], ['rx', 1, None]], np.array([[0.5]]))
+        assert np.asarray(out).dtype == np.complex128
+
+    def test_float32_batch_matches_float64_within_precision(self):
+        circuit = [['h', 0, -1], ['cx', 0, 1], ['ry', 2, None]]
+        batch = np.array([[0.3], [0.9], [1.5]])
+        sim32 = DenseSVSimulator(n_qubits=3, use_float32=True)
+        sim64 = DenseSVSimulator(n_qubits=3, use_float32=False)
+        out32 = np.asarray(sim32.run_batch_jit(circuit, batch))
+        out64 = np.asarray(sim64.run_batch_jit(circuit, batch))
+        np.testing.assert_allclose(np.abs(out32) ** 2, np.abs(out64) ** 2, atol=1e-6)
+
+
 class TestBeastModeDonateArgnums:
     """run_circuit_jit's self.sv = ... call used to allocate a
     fresh statevector buffer on every call instead of letting XLA reuse the
