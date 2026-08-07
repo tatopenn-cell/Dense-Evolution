@@ -27,5 +27,5 @@ wormhole-inspired quantum teleportation reproduction (arXiv:2604.10090).
 `dashboard_core.wormhole.run_wormhole_protocol_trotter` uses this
 module's Trotterized circuit as the "closer to real hardware" backend,
 cross-verified against the exact-evolution backend — see
-[Dense-Evolution-Ising-Tests](https://tatopenn-cell.github.io/Dense-Evolution-Ising-Tests/wormhole_syk_teleportation/)
+[Dense-Evolution-Discovery](https://tatopenn-cell.github.io/Dense-Evolution-Discovery/wormhole_syk_teleportation/)
 for the real experiments (run with the exact backend, for scan speed).

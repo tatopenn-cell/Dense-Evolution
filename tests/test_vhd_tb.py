@@ -2,7 +2,7 @@
 Unit tests for dense_evolution/vhd_tb.py -- Vogl-Hjalmarson-Dow's
 material-specific sp3s* tight-binding parameters. Checks Hermiticity
 across the full material table, the real GaAs/Si/Ge gap numbers
-recorded in Dense-Evolution-Ising-Tests' validation writeup, and that
+recorded in Dense-Evolution-Discovery' validation writeup, and that
 Si/Ge's conduction-band minimum is correctly found off-Gamma.
 """
 import numpy as np

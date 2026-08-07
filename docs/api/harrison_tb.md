@@ -64,7 +64,7 @@ experiment, and for indirect-gap materials it can misplace the
 conduction-band minimum entirely (see [`vhd_tb`](vhd_tb.md) for why and the
 fix). Validation numbers against real experimental gaps (GaAs, Si, Ge) are
 tracked in
-[Dense-Evolution-Ising-Tests](https://tatopenn-cell.github.io/Dense-Evolution-Ising-Tests/harrison_tight_binding/).
+[Dense-Evolution-Discovery](https://tatopenn-cell.github.io/Dense-Evolution-Discovery/harrison_tight_binding/).
 
 ::: dense_evolution.harrison_tb
 

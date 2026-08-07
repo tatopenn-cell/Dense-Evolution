@@ -112,7 +112,7 @@ random draw of which SYK terms to keep does not reliably show the
 protocol's sign-dependent signal (verified directly: some seeds give a
 clean peak, some the wrong sign, some flat noise). `seed=61` is the
 verified match for the defaults (`n_majorana=8, k_terms=10`), used
-throughout [Dense-Evolution-Ising-Tests' own wormhole experiments](https://tatopenn-cell.github.io/Dense-Evolution-Ising-Tests/wormhole_syk_teleportation/).
+throughout [Dense-Evolution-Discovery' own wormhole experiments](https://tatopenn-cell.github.io/Dense-Evolution-Discovery/wormhole_syk_teleportation/).
 `_wormhole_scan` points run sequentially, not concurrently -- concurrent
 calls to this specific endpoint were found to crash the kernel process
 outright (a real BLAS/eigh thread-safety issue under this protocol's
