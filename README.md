@@ -13,6 +13,7 @@
 ╚══════╝  ╚═══╝   ╚═════╝ ╚══════╝ ╚═════╝    ╚═╝   ╚═╝ ╚═════╝ ╚═╝  ╚═══╝
 ```
 
+<!-- mcp-name: io.github.tatopenn-cell/dense-evolution -->
 
 **Dense Statevector Quantum Simulator · JAX XLA · NISQ · VQE · QML**
 
@@ -773,6 +774,9 @@ All circuits stored as OpenQASM 2.0 strings in `dashboard_core.QASM_LIBRARY`.
 ---
 
 ## ▍ Changelog
+
+### v8.1.52
+- **MCP Registry ownership verification marker added** (`<!-- mcp-name: io.github.tatopenn-cell/dense-evolution -->`, hidden HTML comment right after the ASCII banner) -- required by the [official MCP Registry](https://github.com/modelcontextprotocol/registry) to verify this PyPI package's ownership before `dense_evolution_mcp` can be published there. No functional change; this version exists solely so the marker is present in the README rendered as this release's PyPI description (PyPI descriptions are fixed per version, so the marker had to ship in a new release rather than editing an already-published one).
 
 ### v8.1.51
 - **`trotter_evolve_ops` gains `order=2`** (Strang/symmetric product formula) alongside the existing default `order=1` -- quadratically more accurate for the same `n_steps` (verified: infidelity drops ~16x per step doubling vs. `order=1`'s ~4x, against `scipy.linalg.expm`), at 2x gates/step. Useful anywhere gate count directly limits circuit noise.
