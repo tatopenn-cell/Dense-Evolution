@@ -88,13 +88,26 @@ def enhanced_dense_healing_hybrid(
                     - 'reconstruction_error' (float): La norma media di variazione (errore di ricostruzione)
                                                       introdotta rispetto ai vettori originali (potenzialmente corrotti).
     """
-    import jax.numpy as jnp
-    from dense_evolution.healing import (
-        calculate_phi_ab,
-        calculate_vettore_dinamico,
-        evaluate_phi_trigger,
-        GLOBAL_CONSTANTS,
-    )
+    try:
+        import jax.numpy as jnp
+        from dense_evolution.healing import (
+            calculate_phi_ab,
+            calculate_vettore_dinamico,
+            evaluate_phi_trigger,
+            GLOBAL_CONSTANTS,
+        )
+    except ImportError as _import_error:
+        # jax is a core dependency of dense-evolution (see pyproject.toml),
+        # so this shouldn't fail on a normal install -- but ia_utils could
+        # be used standalone outside the full package (e.g. a stripped or
+        # vendored copy missing dense_evolution.healing, or an environment
+        # missing jax), where the bare ModuleNotFoundError gives no hint
+        # this module needs them.
+        raise ImportError(
+            "enhanced_dense_healing_hybrid requires jax and dense_evolution.healing "
+            f"(failed to import: {_import_error}). Install the full dense-evolution "
+            "package (which depends on jax) to use this function."
+        ) from _import_error
 
     n, hidden_dim = vettori.shape
 
