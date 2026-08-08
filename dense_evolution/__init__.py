@@ -30,4 +30,4 @@ from .fermions import majorana_pauli_terms
 from .entropy import partial_trace, von_neumann_entropy, mutual_information
 from .trotter import pauli_rotation_ops, trotter_evolve_ops
 
-__version__ = "8.1.53"
+__version__ = "8.1.54"

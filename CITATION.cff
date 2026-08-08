@@ -12,7 +12,7 @@ authors:
 repository-code: "https://github.com/tatopenn-cell/Dense-Evolution"
 url: "https://github.com/tatopenn-cell/Dense-Evolution"
 license: "BUSL-1.1"
-version: "8.1.53"
+version: "8.1.54"
 # TODO: fill in once the repo is archived on Zenodo (zenodo.org GitHub
 # integration -> enable this repo -> cut a GitHub release -> Zenodo mints
 # a DOI automatically). Remove this comment and the placeholder lines
