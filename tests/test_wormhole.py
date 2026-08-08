@@ -17,6 +17,7 @@ from dashboard_core.wormhole import (
     _finite_beta_layout_precomputed, _run_finite_beta_precomputed,
     find_delta_beta_bands, commuting_pair_count, build_sparse_syk_terms,
 )
+from dense_evolution.chunk import MemoryPressureError
 
 N_MAJORANA, K_TERMS, J = 8, 10, float(np.sqrt(2))
 SEED = 61
@@ -154,3 +155,26 @@ class TestCommutingPairCount:
         commuting, anticommuting = commuting_pair_count(terms, n_qubits)
         from math import comb
         assert commuting + anticommuting == comb(K_TERMS, 2)
+
+
+class TestExactBackendMemoryGuard:
+
+    def test_normal_scale_still_works(self):
+        # n_majorana=8 (n_full=10, dim=1024) must be completely
+        # unaffected by the added memory check.
+        result = run_wormhole_protocol(N_MAJORANA, K_TERMS, J, 12.0, 0.3, 0.60, SEED, True)
+        assert result == pytest.approx(0.01326, abs=1e-3)
+
+    def test_unreasonably_large_n_majorana_raises_memory_pressure_error(self):
+        # BUG FIX: run_wormhole_protocol / _finite_beta_layout_precomputed
+        # build dense 2**n_full x 2**n_full matrices with no size check --
+        # a large n_majorana used to be an unhandled OOM crash instead of
+        # a clear, actionable error. n_majorana=24 (n_full=14,
+        # dim=16384) needs ~1TB for this estimate, far beyond any real
+        # machine's available RAM.
+        with pytest.raises(MemoryPressureError):
+            run_wormhole_protocol(24, K_TERMS, J, 12.0, 0.3, 0.60, SEED, True)
+
+    def test_finite_beta_layout_also_raises_for_unreasonably_large_n_majorana(self):
+        with pytest.raises(MemoryPressureError):
+            _finite_beta_layout_precomputed(24, K_TERMS, J, SEED)
