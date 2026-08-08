@@ -31,6 +31,7 @@
 [![Issues](https://img.shields.io/github/issues/tatopenn-cell/Dense-Evolution?style=flat-square)](https://github.com/tatopenn-cell/Dense-Evolution/issues)
 [![Stars](https://img.shields.io/github/stars/tatopenn-cell/Dense-Evolution?style=flat-square&color=yellow)](https://github.com/tatopenn-cell/Dense-Evolution/stargazers)
 [![JAX](https://img.shields.io/badge/Backend-JAX_XLA-f9ab00?style=flat-square&logo=google&logoColor=white)](https://github.com/google/jax)
+[![DOI](https://zenodo.org/badge/1247011090.svg)](https://doi.org/10.5281/zenodo.21855643)
 
 ---
 
@@ -776,7 +777,7 @@ All circuits stored as OpenQASM 2.0 strings in `dashboard_core.QASM_LIBRARY`.
 ## ▍ Changelog
 
 ### v8.1.54
-- **Added `CITATION.cff` and a "Cite This" section (README + docs)** for academic citations, following the standard [Citation File Format](https://citation-file-format.github.io/) (recognized by GitHub's own "Cite this repository" button). No DOI yet -- the repository isn't archived on Zenodo yet; this release is what triggers Zenodo to mint one, at which point `CITATION.cff` will be updated with the real DOI.
+- **Added `CITATION.cff` and a "Cite This" section (README + docs)** for academic citations, following the standard [Citation File Format](https://citation-file-format.github.io/) (recognized by GitHub's own "Cite this repository" button). Archived on Zenodo -- concept DOI `10.5281/zenodo.21855643`, version DOI `10.5281/zenodo.21855644` for this release.
 - **`dashboard_core.hamiltonians.build_molecular_hamiltonian` now validates its geometry input** instead of letting bad input surface as a raw `IndexError` deep inside PennyLane's internals or silently produce a NaN Hamiltonian. New `_validate_geometry` checks: `geometry` has shape `(n_atoms, 3)`, `symbols`/`geometry` lengths match, all coordinates are finite, and no two atoms are closer than a physically-realistic 0.3 Å floor (`MIN_NUCLEAR_DISTANCE_ANGSTROM`, matching the same floor `dashboard_core.qmmm` already uses for MD trajectories). Verified directly: a symbols/geometry length mismatch, non-finite coordinates, wrong geometry shape, and overlapping atoms each now raise a clear `ValueError` instead of the prior crash/silent-NaN behavior; valid geometries are unaffected.
 - **`dashboard_core.qmmm.run_md_trajectory` gains an `fd_step_angstrom` parameter** (default `0.001`, unchanged) and now actually forwards it to `compute_hellmann_feynman_forces` on every step -- previously the parameter existed one level down but `run_md_trajectory` never exposed or passed it through, so callers silently always got the default finite-difference step regardless of what they asked for. Verified: a coarser `fd_step_angstrom` now measurably changes the per-step numerical-derivative force estimate, confirming the value reaches the real per-step calculation.
 - **`ia_utils.vector_healing.enhanced_dense_healing_hybrid`'s inner `dense_evolution.healing`/`jax` import is now guarded** -- previously an unguarded `import` deep inside the function, so a real import failure (e.g. `ia_utils` used standalone, missing one of its own transitive dependencies) surfaced as a bare `ModuleNotFoundError` with no hint what the function actually needed. Now raises a clear `ImportError` naming both the requirement and the underlying cause. Verified against a real forced import failure, not a simulated downstream consequence.
@@ -1080,7 +1081,10 @@ Full text: [LICENSE.md](LICENSE.md)
 
 If Dense-Evolution is useful in academic work, please cite it via the metadata in [CITATION.cff](CITATION.cff) (recognized by GitHub's own "Cite this repository" button, and by reference managers that support the [Citation File Format](https://citation-file-format.github.io/)).
 
-> **Note:** this project is not yet archived on [Zenodo](https://zenodo.org/), so there is no DOI to cite yet. Once the repository is linked to Zenodo (GitHub login → enable the repo → cut a release, which mints a DOI automatically), `CITATION.cff` and this section will be updated with the real DOI badge.
+Archived on [Zenodo](https://zenodo.org/):
+
+- **Concept DOI** (always resolves to the latest version): [10.5281/zenodo.21855643](https://doi.org/10.5281/zenodo.21855643)
+- **This release (v8.1.54)**: [10.5281/zenodo.21855644](https://doi.org/10.5281/zenodo.21855644)
 
 ---
 
