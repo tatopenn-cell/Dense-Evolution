@@ -13,6 +13,7 @@ import pytest
 from dashboard_core.wormhole import (
     run_wormhole_protocol, run_wormhole_protocol_finite_beta,
     _finite_beta_layout_precomputed, _run_finite_beta_precomputed,
+    find_delta_beta_bands,
 )
 
 N_MAJORANA, K_TERMS, J = 8, 10, float(np.sqrt(2))
@@ -64,3 +65,40 @@ class TestRunWormholeProtocolFiniteBeta:
             precomputed_result = _run_finite_beta_precomputed(*layout, MU, T0, T1, beta, True)
             wrapper_result = run_wormhole_protocol_finite_beta(N_MAJORANA, K_TERMS, J, MU, T0, T1, beta, SEED, True)
             assert precomputed_result == pytest.approx(wrapper_result, abs=1e-12)
+
+
+class TestFindDeltaBetaBands:
+
+    def test_seed_61_matches_known_crossings(self):
+        # Recorded 2026-08-08 (fine grid, beta_step=0.02, beta_max=6):
+        # seed=61 crosses sign at beta~0.419 and beta~1.861, giving
+        # bands (positive, negative, positive). Restricted to
+        # beta_max=2.5 here (covers both known crossings) with a
+        # coarser step for test speed -- the interpolated crossing
+        # locations should still land close to the finer-grid values.
+        bands = find_delta_beta_bands(N_MAJORANA, K_TERMS, J, MU, T0, T1, SEED, True,
+                                       beta_max=2.5, beta_step=0.05)
+        assert len(bands) == 3
+        assert [b["sign"] for b in bands] == ["positive", "negative", "positive"]
+        assert bands[0]["beta_lo"] == 0.0
+        assert bands[0]["beta_hi"] == pytest.approx(0.419, abs=0.1)
+        assert bands[1]["beta_hi"] == pytest.approx(1.861, abs=0.1)
+        assert bands[-1]["beta_hi"] == 2.5
+
+    def test_bands_partition_the_full_range_contiguously(self):
+        bands = find_delta_beta_bands(N_MAJORANA, K_TERMS, J, MU, T0, T1, SEED, True,
+                                       beta_max=2.5, beta_step=0.05)
+        for prev_band, next_band in zip(bands, bands[1:]):
+            assert prev_band["beta_hi"] == next_band["beta_lo"]
+        assert all(b["max_abs_delta"] > 0 for b in bands)
+
+    def test_seed_that_never_flips_gives_a_single_band(self):
+        # seed=1944: delta_beta0=+0.03690, and independently verified
+        # (n=30 stability run, fine-grid scan over the full [0, 6]) to
+        # never change sign -- a single band spanning the whole range.
+        bands = find_delta_beta_bands(N_MAJORANA, K_TERMS, J, MU, T0, T1, 1944, True,
+                                       beta_max=2.5, beta_step=0.05)
+        assert len(bands) == 1
+        assert bands[0]["sign"] == "positive"
+        assert bands[0]["beta_lo"] == 0.0
+        assert bands[0]["beta_hi"] == 2.5
