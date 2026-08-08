@@ -12,6 +12,8 @@ pipelines, and QML workloads. It eliminates Kronecker-product overhead via strid
 linear kernel fusion compiled through JAX XLA, keeping memory at the theoretical minimum
 of `2ⁿ × 16 bytes`.
 
+Using this in academic work? See [CITATION.cff](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/CITATION.cff) in the repository root for citation metadata (no DOI yet -- the project isn't archived on Zenodo).
+
 ## What's in here
 
 - **[`DenseSVSimulator`](api/simulator.md)** — the core dense statevector engine, JIT-fused

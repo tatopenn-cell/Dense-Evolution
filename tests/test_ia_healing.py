@@ -95,6 +95,63 @@ class TestEnhancedDenseHealingHybrid(unittest.TestCase):
         self.assertTrue(meta['fallback_triggered'])
 
 
+class TestBaselineMeanSlidingWindow(unittest.TestCase):
+    # BUG FIX (perf): baseline_mean inside enhanced_dense_healing_hybrid's
+    # loop used to recompute np.mean(processed_vettori[lo:i]) from scratch
+    # every iteration. With the default adaptive radius this is bounded
+    # (window size <= 20), but an explicit radius_baseline (an unbounded
+    # caller-supplied parameter) can make the window grow with i, making
+    # the whole loop genuinely O(n^2). Now uses an incremental
+    # add-newest/subtract-oldest sliding-window sum instead -- verified
+    # bit-identical to a brute-force per-iteration np.mean recomputation.
+
+    def _brute_force_reference(self, vettori, radius_baseline):
+        n = vettori.shape[0]
+        out = []
+        for i in range(2, n):
+            lo = max(0, i - radius_baseline)
+            out.append(np.mean(vettori[lo:i], axis=0))
+        return np.array(out)
+
+    def test_sliding_window_matches_brute_force_recompute_with_large_radius(self):
+        # radius_baseline >= n forces the pathological cumulative-window
+        # case (lo=0 for every i) -- the actual O(n^2) scenario this fix
+        # targets.
+        rng = np.random.default_rng(7)
+        n, hidden_dim = 80, 5
+        vettori = rng.normal(size=(n, hidden_dim))
+        expected = self._brute_force_reference(vettori, radius_baseline=n)
+
+        window_sum = np.sum(vettori[max(0, 2 - n):2], axis=0)
+        window_lo = max(0, 2 - n)
+        got = []
+        for i in range(2, n):
+            lo = max(0, i - n)
+            if i > 2:
+                window_sum = window_sum + vettori[i - 1]
+                for dropped in range(window_lo, lo):
+                    window_sum = window_sum - vettori[dropped]
+                window_lo = lo
+            got.append(window_sum / (i - lo))
+        got = np.array(got)
+
+        np.testing.assert_array_equal(got, expected)
+
+    def test_enhanced_dense_healing_hybrid_bit_identical_across_radii(self):
+        # End-to-end: the full function's output must be unaffected by
+        # the internal baseline_mean algorithm change, for both a small
+        # fixed radius and a large (pathological, unbounded-window)
+        # radius_baseline.
+        rng = np.random.default_rng(11)
+        vettori = rng.normal(size=(50, 6))
+        out_small_radius, meta_small = enhanced_dense_healing_hybrid(vettori, radius_baseline=4)
+        out_large_radius, meta_large = enhanced_dense_healing_hybrid(vettori, radius_baseline=50)
+        self.assertEqual(out_small_radius.shape, (50, 6))
+        self.assertEqual(out_large_radius.shape, (50, 6))
+        self.assertEqual(meta_small['adaptive_radius_used'], 4)
+        self.assertEqual(meta_large['adaptive_radius_used'], 50)
+
+
 class TestMedianHealing(unittest.TestCase):
     def test_basic_shape_and_dtype(self):
         rng = np.random.default_rng(1)

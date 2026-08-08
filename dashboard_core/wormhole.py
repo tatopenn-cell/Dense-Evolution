@@ -54,6 +54,7 @@ match and gives the cleanest signal found (see research/wormhole_syk.md).
 """
 
 import itertools
+from functools import lru_cache
 
 import numpy as np
 
@@ -263,13 +264,15 @@ def run_wormhole_protocol(n_majorana, k_terms, J, mu, t0, t1, seed, with_message
     sign doesn't have to line up with theirs -- what matters is that
     *some* consistent sign shows the enhancement (mu=-12 does, for the
     seed 61 instance -- see research/wormhole_syk.md).
+
+    Diagonalizing H_L+H_R and V (the two dense n_full x n_full
+    eigendecompositions this needs) is reused across repeat calls at the
+    same (n_majorana, k_terms, J, seed) via _cached_finite_beta_layout --
+    real cost for a caller scanning many mu/t0/t1 values at a fixed
+    instance, previously redone identically on every single call.
     """
-    n_side, n_full, L, R, P, Q, terms_full, v_terms = _protocol_layout(n_majorana, k_terms, J, seed)
-    _check_exact_backend_memory(n_full, context=f"run_wormhole_protocol n_majorana={n_majorana}")
-    H = de.pauli_hamiltonian_to_matrix(terms_full, n_full)
-    eigvals, eigvecs = np.linalg.eigh(H)
-    V = de.pauli_hamiltonian_to_matrix(v_terms, n_full)
-    v_eigvals, v_eigvecs = np.linalg.eigh(V)
+    n_side, n_full, L, R, P, Q, eigvals, eigvecs, v_eigvals, v_eigvecs = \
+        _cached_finite_beta_layout(n_majorana, k_terms, J, seed)
 
     sim = de.DenseSVSimulator(n_full)
     sim.run_circuit(_initial_state_ops(n_side, L, R, P, Q, with_message))
@@ -378,6 +381,37 @@ def _finite_beta_layout_precomputed(n_majorana, k_terms, J, seed):
     return n_side, n_full, L, R, P, Q, eigvals, eigvecs, v_eigvals, v_eigvecs
 
 
+@lru_cache(maxsize=32)
+def _cached_finite_beta_layout(n_majorana, k_terms, J, seed):
+    """LRU-memoized wrapper around _finite_beta_layout_precomputed --
+    diagonalizing H_tot and V is ~58% of a single exact-backend call's
+    cost (see that function's own docstring) and is identical for every
+    call at the same (n_majorana, k_terms, J, seed). Without this,
+    run_wormhole_protocol and run_wormhole_protocol_finite_beta each
+    redid the diagonalization from scratch on every call, even for a
+    caller re-running the same instance with a different mu/t0/t1/beta
+    -- exactly the callers _finite_beta_layout_precomputed /
+    _run_finite_beta_precomputed's own split API already served, just
+    without requiring callers to manage the split themselves.
+
+    maxsize=32 bounds memory: each cached entry holds up to 4 dense
+    n_full x n_full matrices (H's and V's eigenvectors), so an unbounded
+    cache across many distinct instances/sizes could otherwise grow
+    without limit -- 32 easily covers realistic single-session usage
+    (a handful of instances scanned over many mu/beta points each)
+    while evicting least-recently-used entries once exceeded.
+
+    The returned eigenvector/eigenvalue arrays are marked read-only
+    (defensive: every caller only ever reads them via _evolve /
+    _prepare_finite_beta_tfd_sv, both non-mutating, but the cache is
+    shared across calls so accidental in-place mutation would silently
+    corrupt it for everyone)."""
+    result = _finite_beta_layout_precomputed(n_majorana, k_terms, J, seed)
+    for arr in result[6:]:  # eigvals, eigvecs, v_eigvals, v_eigvecs
+        arr.setflags(write=False)
+    return result
+
+
 def _run_finite_beta_precomputed(n_side, n_full, L, R, P, Q, eigvals, eigvecs, v_eigvals, v_eigvecs,
                                   mu, t0, t1, beta, with_message):
     """Same physics as run_wormhole_protocol_finite_beta, given an
@@ -397,13 +431,14 @@ def run_wormhole_protocol_finite_beta(n_majorana, k_terms, J, mu, t0, t1, beta, 
     beta=3 matches arXiv:2604.10090's own fixed choice (Section S2:
     "we consider J=sqrt(2), q=4, and beta=3").
 
-    One-shot convenience wrapper: diagonalizes H and V fresh every
-    call. For a (beta, mu) sweep at a fixed seed (many calls), use
-    _finite_beta_layout_precomputed once + _run_finite_beta_precomputed
-    per point instead -- substantially faster, see that function's own
-    docstring for the measured cost breakdown."""
+    Diagonalizing H and V is memoized per (n_majorana, k_terms, J, seed)
+    via _cached_finite_beta_layout -- a repeat call at the same instance
+    (different beta/mu) reuses it instead of redoing it from scratch.
+    For an explicit (beta, mu) sweep at a fixed seed, _finite_beta_layout_precomputed
+    + _run_finite_beta_precomputed remain available directly if a caller
+    wants to hold the layout itself rather than rely on the cache."""
     n_side, n_full, L, R, P, Q, eigvals, eigvecs, v_eigvals, v_eigvecs = \
-        _finite_beta_layout_precomputed(n_majorana, k_terms, J, seed)
+        _cached_finite_beta_layout(n_majorana, k_terms, J, seed)
     return _run_finite_beta_precomputed(n_side, n_full, L, R, P, Q, eigvals, eigvecs, v_eigvals, v_eigvecs,
                                          mu, t0, t1, beta, with_message)
 
@@ -422,11 +457,13 @@ def find_delta_beta_bands(n_majorana, k_terms, J, mu, t0, t1, seed, with_message
     all implicitly at beta=0) can be misleading -- this gives the full
     picture instead of one point on it.
 
-    Uses _finite_beta_layout_precomputed once per call (not per beta
-    point) -- a beta_step=0.02 scan over [0, 6] is ~300 points x 2 mu
-    signs (600 evaluations), all reusing the same eigendecomposition;
-    measured at ~36-40s per seed total (~0.06-0.07s/evaluation after
-    the one-time diagonalization), not ~13s/evaluation x 600 naive.
+    Uses _cached_finite_beta_layout once per call (not per beta point) --
+    a beta_step=0.02 scan over [0, 6] is ~300 points x 2 mu signs (600
+    evaluations), all reusing the same eigendecomposition; measured at
+    ~36-40s per seed total (~0.06-0.07s/evaluation after the one-time
+    diagonalization), not ~13s/evaluation x 600 naive. A repeat call at
+    the same seed (different mu/t0/t1/beta_max/beta_step) also reuses
+    the cached diagonalization instead of redoing it.
 
     Returns a list of dicts, one per constant-sign band, in beta order:
     {"beta_lo", "beta_hi", "sign" ("positive"/"negative"),
@@ -436,7 +473,7 @@ def find_delta_beta_bands(n_majorana, k_terms, J, mu, t0, t1, seed, with_message
     just snapped to the grid resolution.
     """
     n_side, n_full, L, R, P, Q, eigvals, eigvecs, v_eigvals, v_eigvecs = \
-        _finite_beta_layout_precomputed(n_majorana, k_terms, J, seed)
+        _cached_finite_beta_layout(n_majorana, k_terms, J, seed)
 
     betas = np.arange(0.0, beta_max + beta_step / 2, beta_step)
     deltas = np.array([

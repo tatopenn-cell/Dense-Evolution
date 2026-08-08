@@ -152,9 +152,26 @@ def enhanced_dense_healing_hybrid(
     if n > 1:
         reconstruction_errors_per_step.append(np.linalg.norm(out[1] - processed_vettori[1]))
 
+    # BUG FIX (perf): baseline_mean used to be np.mean(processed_vettori[lo:i])
+    # recomputed from scratch every iteration -- O(window_size) per step.
+    # window_size is capped at 20 for the default adaptive radius, but an
+    # explicit radius_baseline (a caller-supplied parameter, unbounded) can
+    # make it grow with i, making the whole loop O(n^2) in that case. A
+    # sliding-window sum (add the newly-entering element, subtract the
+    # element that just fell out of the window) makes each step O(1)
+    # amortized regardless of radius_baseline, at the one-time cost of a
+    # single O(window_size) sum for the first window.
+    window_sum = np.sum(processed_vettori[max(0, 2 - adaptive_radius_used):2], axis=0)
+    window_lo = max(0, 2 - adaptive_radius_used)
+
     for i in range(2, n):
         lo = max(0, i - adaptive_radius_used)
-        baseline_mean = np.mean(processed_vettori[lo:i], axis=0)
+        if i > 2:
+            window_sum = window_sum + processed_vettori[i - 1]
+            for dropped_idx in range(window_lo, lo):
+                window_sum = window_sum - processed_vettori[dropped_idx]
+            window_lo = lo
+        baseline_mean = window_sum / (i - lo)
 
         state_A = jnp.array(baseline_mean)
         state_B = jnp.array(processed_vettori[i])
