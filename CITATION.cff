@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "Dense-Evolution: Micro-optimized High-Performance NISQ Statevector Quantum Circuit Simulator"
+abstract: >-
+  Hardware-adaptive integration of native NumPy, CUDA-accelerated CuPy,
+  and linear kernel fusion via JAX JIT/XLA compilation, for high-performance
+  NISQ statevector quantum circuit simulation.
+authors:
+  - family-names: "Pennacchio"
+    given-names: "Salvatore"
+    email: "jtatopenn@libero.it"
+repository-code: "https://github.com/tatopenn-cell/Dense-Evolution"
+url: "https://github.com/tatopenn-cell/Dense-Evolution"
+license: "BUSL-1.1"
+version: "8.1.53"
+# TODO: fill in once the repo is archived on Zenodo (zenodo.org GitHub
+# integration -> enable this repo -> cut a GitHub release -> Zenodo mints
+# a DOI automatically). Remove this comment and the placeholder lines
+# below once the real DOI is available.
+# doi: "10.5281/zenodo.XXXXXXX"
+# identifiers:
+#   - type: doi
+#     value: "10.5281/zenodo.XXXXXXX"
+#     description: "The concept DOI for all versions of this software."
