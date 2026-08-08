@@ -353,3 +353,32 @@ def test_wormhole_scan_reports_per_point_errors_without_aborting():
     assert result["n_points"] == 1
     assert "error" in result["results"][0]
     assert result["peak"] is None
+
+
+def test_request_reuses_the_same_client_across_calls():
+    # BUG FIX (perf): _request used to open a fresh httpx.AsyncClient
+    # (TCP handshake) per call -- _get_client now caches and reuses one
+    # as long as (_TEST_TRANSPORT, KERNEL_URL) haven't changed, which
+    # they don't within a single test (the autouse fixture only swaps
+    # _TEST_TRANSPORT between tests, not within one).
+    run(mcp_adapter.dense_evolution_health())
+    client_after_first_call = mcp_adapter._shared_client
+    run(mcp_adapter.dense_evolution_health())
+    assert mcp_adapter._shared_client is client_after_first_call
+
+
+def test_request_rebuilds_client_when_transport_or_url_changes():
+    run(mcp_adapter.dense_evolution_health())
+    stale_client = mcp_adapter._shared_client
+
+    original_transport = mcp_adapter._TEST_TRANSPORT
+    original_url = mcp_adapter.KERNEL_URL
+    try:
+        mcp_adapter._TEST_TRANSPORT = None
+        mcp_adapter.KERNEL_URL = "http://127.0.0.1:1"
+        result = run(mcp_adapter.dense_evolution_health())
+        assert result.startswith("Error:")  # confirms it actually hit the new (broken) target
+        assert mcp_adapter._shared_client is not stale_client
+    finally:
+        mcp_adapter._TEST_TRANSPORT = original_transport
+        mcp_adapter.KERNEL_URL = original_url

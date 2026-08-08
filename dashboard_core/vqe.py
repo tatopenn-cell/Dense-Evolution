@@ -274,10 +274,15 @@ def run_vqe(symbols, geometry, charge=0, ansatz_type="hardware_efficient", n_lay
         )
         parsed = de.QASMParser().parse(qasm_structure)
         energy_fn_full, n_params_full = de.circuit_to_energy_fn(parsed, n_qubits)
-        assert n_params_full == len(baseline), (
-            f"circuit_to_energy_fn found {n_params_full} parametric gates, "
-            f"expected {len(baseline)} from the UCCSD decomposition probe"
-        )
+        if n_params_full != len(baseline):
+            # BUG FIX: was `assert`, silently stripped under python -O,
+            # letting a UCCSD/circuit_to_energy_fn desync through to a
+            # shape mismatch far downstream instead of failing here with
+            # a clear cause.
+            raise ValueError(
+                f"circuit_to_energy_fn found {n_params_full} parametric gates, "
+                f"expected {len(baseline)} from the UCCSD decomposition probe"
+            )
 
         h_matrix = jnp.array(H_dense)
         baseline_jax = jnp.array(baseline)
@@ -315,9 +320,11 @@ def run_vqe(symbols, geometry, charge=0, ansatz_type="hardware_efficient", n_lay
         qasm_template = _hardware_efficient_qasm(np.zeros(n_params), n_qubits, n_layers, hf_occupation)
         parsed = de.QASMParser().parse(qasm_template)
         energy_fn, n_params_native = de.circuit_to_energy_fn(parsed, n_qubits)
-        assert n_params_native == n_params, (
-            f"circuit_to_energy_fn found {n_params_native} parametric gates, expected {n_params}"
-        )
+        if n_params_native != n_params:
+            # BUG FIX: was `assert`, silently stripped under python -O.
+            raise ValueError(
+                f"circuit_to_energy_fn found {n_params_native} parametric gates, expected {n_params}"
+            )
 
         h_matrix = jnp.array(H_dense)
         theta = jnp.array(rng.uniform(-0.1, 0.1, size=n_params))

@@ -23,6 +23,7 @@ computed from a real run of the real engine.
 """
 
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Optional
 
 import numpy as np
@@ -49,14 +50,27 @@ def _qasm_to_tuples(qasm_text: str):
 MPS_DENSE_CONTRACTION_LIMIT = 24
 
 
+@lru_cache(maxsize=None)
+def _qiskit_bit_order_perm(n_qubits: int) -> np.ndarray:
+    """The bit-reverse index permutation itself, cached per n_qubits --
+    it's O(2**n_qubits) to build and depends only on n_qubits, so a
+    circuit run repeatedly at the same qubit count (the common case: a
+    fixed molecule/preset re-run with different parameters) was
+    rebuilding an identical array every single call. lru_cache keys on
+    the (hashable) n_qubits argument only -- the returned array itself
+    doesn't need to be hashable."""
+    perm = np.array([int(format(i, f'0{n_qubits}b')[::-1], 2) for i in range(2 ** n_qubits)])
+    perm.setflags(write=False)  # cached and shared across calls -- never mutate in place
+    return perm
+
+
 def _to_qiskit_bit_order(values: np.ndarray, n_qubits: int) -> np.ndarray:
     """Bit-reverse index order: Dense-Evolution is MSB-first (qubit 0 =
     most significant bit of the index), Qiskit is little-endian (qubit 0
     = least significant bit) -- the same remap dense_evolution.interop
     applies to probabilities internally, used here for the raw complex
     statevector too since it is the identical index permutation."""
-    perm = [int(format(i, f'0{n_qubits}b')[::-1], 2) for i in range(2 ** n_qubits)]
-    return values[perm]
+    return values[_qiskit_bit_order_perm(n_qubits)]
 
 
 @dataclass

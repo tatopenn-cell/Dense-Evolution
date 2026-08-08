@@ -16,7 +16,7 @@ docstring for why that matters on macOS).
 import numpy as np
 import pytest
 
-from dashboard_core.engine import run_circuit_from_qasm
+from dashboard_core.engine import run_circuit_from_qasm, _to_qiskit_bit_order, _qiskit_bit_order_perm
 
 _INV_SQRT2 = 1 / np.sqrt(2)
 
@@ -104,3 +104,39 @@ def test_noisy_run_fidelity_vs_ideal_matches_direct_overlap_computation():
     noisy = run_circuit_from_qasm(BELL_QASM, n_shots=10, seed=1, noise_model="depolarizing", noise_p=0.3)
     expected = abs(np.vdot(ideal.statevector, noisy.statevector)) ** 2
     assert noisy.fidelity_vs_ideal == pytest.approx(expected, abs=1e-9)
+
+
+def _reference_qiskit_bit_order(values, n_qubits):
+    """The pre-caching implementation, kept only as an independent
+    reference for the tests below."""
+    perm = [int(format(i, f'0{n_qubits}b')[::-1], 2) for i in range(2 ** n_qubits)]
+    return values[perm]
+
+
+@pytest.mark.parametrize("n_qubits", [1, 2, 3, 4, 5, 8])
+def test_to_qiskit_bit_order_matches_reference(n_qubits):
+    values = np.arange(2 ** n_qubits, dtype=complex)
+    np.testing.assert_array_equal(
+        _to_qiskit_bit_order(values, n_qubits),
+        _reference_qiskit_bit_order(values, n_qubits),
+    )
+
+
+def test_qiskit_bit_order_perm_is_cached():
+    # BUG FIX (perf): _to_qiskit_bit_order used to rebuild the O(2**n)
+    # permutation from scratch on every call -- _qiskit_bit_order_perm
+    # caches it per n_qubits via lru_cache, so two calls at the same
+    # n_qubits must return the identical cached array object, not just
+    # an equal one.
+    perm_a = _qiskit_bit_order_perm(6)
+    perm_b = _qiskit_bit_order_perm(6)
+    assert perm_a is perm_b
+
+
+def test_qiskit_bit_order_perm_is_read_only():
+    # Cached and shared across calls -- must not be mutable in place,
+    # or one caller corrupting it would corrupt every future call at
+    # that n_qubits.
+    perm = _qiskit_bit_order_perm(4)
+    with pytest.raises(ValueError):
+        perm[0] = 999
