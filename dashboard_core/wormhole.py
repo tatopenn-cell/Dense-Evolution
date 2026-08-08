@@ -234,6 +234,24 @@ def _initial_state_ops(n_side, L, R, P, Q, with_message):
     return ops
 
 
+def _check_exact_backend_memory(n_full, context):
+    """Both dense-matrix exact-backend paths below (run_wormhole_protocol,
+    _finite_beta_layout_precomputed) build H and V as dense
+    2**n_full x 2**n_full complex128 matrices, then diagonalize both --
+    up to 4 matrices of that size resident at once (H, V, and each of
+    their full eigenvector matrices). For n_majorana=8 (n_full=10,
+    dim=1024) that's ~64 MB, fine; for n_majorana=12 (n_full=14,
+    dim=16384) it's ~16 GB, an unhandled OOM crash rather than a clear
+    error, if a caller tries a larger n_majorana without knowing the
+    exact backend's actual scaling. Same real anti-OOM guard
+    dense_evolution.chunk / dashboard_core.engine already use elsewhere
+    (15% safety threshold, psutil-backed) instead of letting the
+    allocation crash the process."""
+    dim = 2 ** n_full
+    required_mb = (dim ** 2) * 16 / 1e6 * 4
+    de.chunk.SafeMemoryGuard().check_allocation(required_mb, context=context)
+
+
 def run_wormhole_protocol(n_majorana, k_terms, J, mu, t0, t1, seed, with_message):
     """Exact-evolution backend: TFD/message setup -> evolve under H_L+H_R
     for t0 (exact matrix exponential, eigendecomposition-based) ->
@@ -247,6 +265,7 @@ def run_wormhole_protocol(n_majorana, k_terms, J, mu, t0, t1, seed, with_message
     seed 61 instance -- see research/wormhole_syk.md).
     """
     n_side, n_full, L, R, P, Q, terms_full, v_terms = _protocol_layout(n_majorana, k_terms, J, seed)
+    _check_exact_backend_memory(n_full, context=f"run_wormhole_protocol n_majorana={n_majorana}")
     H = de.pauli_hamiltonian_to_matrix(terms_full, n_full)
     eigvals, eigvecs = np.linalg.eigh(H)
     V = de.pauli_hamiltonian_to_matrix(v_terms, n_full)
@@ -351,6 +370,7 @@ def _finite_beta_layout_precomputed(n_majorana, k_terms, J, seed):
     _run_finite_beta_precomputed (measured ~78x faster per point after
     this one-time cost, for a 3-point sweep)."""
     n_side, n_full, L, R, P, Q, terms_full, v_terms = _protocol_layout(n_majorana, k_terms, J, seed)
+    _check_exact_backend_memory(n_full, context=f"_finite_beta_layout_precomputed n_majorana={n_majorana}")
     H = de.pauli_hamiltonian_to_matrix(terms_full, n_full)
     eigvals, eigvecs = np.linalg.eigh(H)
     V = de.pauli_hamiltonian_to_matrix(v_terms, n_full)
