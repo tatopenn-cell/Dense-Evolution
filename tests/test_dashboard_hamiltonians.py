@@ -76,8 +76,13 @@ class TestBuildMolecularHamiltonian:
         # should fail fast with a message naming the actual unsupported
         # symbols and framing it as a basis-set gap, not a dense_evolution
         # limitation -- and before any Hartree-Fock/densification work.
+        # A real, non-degenerate geometry (not np.zeros -- three atoms at
+        # the exact same point is itself now a validation error, see
+        # TestGeometryValidation below; the point of this test is the
+        # element-support error, so the geometry just needs to be valid).
+        geometry = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 2.0], [0.0, 2.0, 0.0]])
         with pytest.raises(ValueError, match="No built-in STO-3G basis data for: Fe"):
-            build_molecular_hamiltonian(['Fe', 'Mo', 'S'], np.zeros((3, 3)), charge=0)
+            build_molecular_hamiltonian(['Fe', 'Mo', 'S'], geometry, charge=0)
 
     def test_light_supported_elements_are_unaffected(self):
         # H2's own symbols (H, H) must still pass the new check -- guards
@@ -97,6 +102,39 @@ class TestBuildMolecularHamiltonian:
         H_jw, _ = build_molecular_hamiltonian(H2_SYMBOLS, H2_GEOMETRY, charge=0, mapping="jordan_wigner")
         H_bk, _ = build_molecular_hamiltonian(H2_SYMBOLS, H2_GEOMETRY, charge=0, mapping="bravyi_kitaev")
         assert ground_state_energy(H_jw) == pytest.approx(ground_state_energy(H_bk), abs=1e-9)
+
+
+class TestGeometryValidation:
+    """BUG FIX: build_molecular_hamiltonian had no input validation --
+    a symbols/geometry length mismatch surfaced as a raw IndexError deep
+    inside PennyLane's own internals, and non-finite coordinates were
+    silently accepted, producing a NaN Hamiltonian with no error at all
+    (both verified directly before this fix, not assumed)."""
+
+    def test_symbols_geometry_length_mismatch_raises_clear_error(self):
+        with pytest.raises(ValueError, match="2 symbols but 1 geometry rows"):
+            build_molecular_hamiltonian(['H', 'H'], np.array([[0.0, 0.0, 0.0]]), charge=0)
+
+    def test_non_finite_geometry_raises_instead_of_silently_producing_nan(self):
+        geometry = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, np.nan]])
+        with pytest.raises(ValueError, match="non-finite"):
+            build_molecular_hamiltonian(['H', 'H'], geometry, charge=0)
+
+    def test_wrong_geometry_shape_raises_clear_error(self):
+        with pytest.raises(ValueError, match=r"shape \(n_atoms, 3\)"):
+            build_molecular_hamiltonian(['H', 'H'], np.array([[0.0, 0.0], [0.0, 0.0]]), charge=0)
+
+    def test_overlapping_atoms_raise_clear_error_not_a_pennylane_crash(self):
+        # 0.1 A is below any real atomic radius -- this is malformed
+        # input (e.g. a units mistake), not a physically valid molecule.
+        geometry = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.1]])
+        with pytest.raises(ValueError, match="physically-realistic floor"):
+            build_molecular_hamiltonian(['H', 'H'], geometry, charge=0)
+
+    def test_valid_geometry_still_works_unaffected(self):
+        H, n_qubits = build_molecular_hamiltonian(H2_SYMBOLS, H2_GEOMETRY, charge=0)
+        assert n_qubits == 4
+        assert not np.any(np.isnan(H))
 
 
 class TestCatalog:

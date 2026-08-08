@@ -113,6 +113,19 @@ class TestRunMdTrajectory:
         trajectory = run_md_trajectory(H2_EQUILIBRIUM, n_steps=4, dt_fs=0.25)
         assert trajectory["time_fs"] == [0.0, 0.25, 0.5, 0.75]
 
+    def test_fd_step_angstrom_is_genuinely_threaded_through(self):
+        # BUG FIX: fd_step_angstrom was already a real parameter of
+        # compute_hellmann_feynman_forces, but run_md_trajectory never
+        # exposed or forwarded it -- every step silently used that
+        # function's own default regardless of what a caller wanted.
+        # A different finite-difference step size gives a measurably
+        # different numerical-derivative force estimate at the same
+        # geometry, so this confirms the value is actually reaching the
+        # per-step force calculation, not just accepted and ignored.
+        default_step = run_md_trajectory(H2_EQUILIBRIUM, n_steps=1, dt_fs=0.5)
+        coarser_step = run_md_trajectory(H2_EQUILIBRIUM, n_steps=1, dt_fs=0.5, fd_step_angstrom=0.05)
+        assert default_step["force_norm"][0] != pytest.approx(coarser_step["force_norm"][0], rel=1e-6)
+
 
 class TestAssertNoNuclearCollision:
     """Fast, direct tests for the collision safety check run_md_trajectory

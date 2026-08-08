@@ -107,6 +107,53 @@ MOLECULE_CATALOG = {
 _pennylane_hamiltonian_cache = {}
 _dense_hamiltonian_cache = {}
 
+# Same physical floor as dashboard_core.qmmm.MIN_NUCLEAR_DISTANCE_ANGSTROM
+# (kept as a separate constant here, not imported, since qmmm.py already
+# imports from this module -- importing back would be circular). Any real
+# atomic radius is well above this; two nuclei closer than this in an
+# *input* geometry (as opposed to qmmm's own post-MD-step divergence
+# check) means malformed input, not physics.
+MIN_NUCLEAR_DISTANCE_ANGSTROM = 0.3
+
+
+def _validate_geometry(symbols, geometry):
+    """BUG FIX: build_molecular_hamiltonian had no input validation at
+    all -- a symbols/geometry length mismatch surfaced as a raw
+    IndexError deep inside PennyLane's own internals (verified directly:
+    2 symbols + 1-row geometry -> 'IndexError: index 1 is out of bounds
+    for axis 0 with size 1', no indication the actual problem is the
+    caller's mismatched input), and non-finite coordinates (e.g. a NaN
+    from an upstream bug) were silently accepted and produced a NaN
+    Hamiltonian with no error at all (verified directly: NaN in a
+    geometry row -> np.any(np.isnan(H_dense)) is True, no exception).
+    Called once, at the real entry point every other function here
+    funnels through (_get_pennylane_hamiltonian), not duplicated at each
+    of its public callers.
+    """
+    geometry = np.asarray(geometry, dtype=np.float64)
+    if geometry.ndim != 2 or geometry.shape[1] != 3:
+        raise ValueError(
+            f"geometry must have shape (n_atoms, 3), got {geometry.shape}")
+    if len(symbols) != geometry.shape[0]:
+        raise ValueError(
+            f"{len(symbols)} symbols but {geometry.shape[0]} geometry rows -- "
+            f"these must match one-to-one")
+    if not np.all(np.isfinite(geometry)):
+        raise ValueError("geometry contains non-finite values (NaN/Inf)")
+    n_atoms = geometry.shape[0]
+    if n_atoms > 1:
+        diffs = geometry[:, None, :] - geometry[None, :, :]
+        dists = np.linalg.norm(diffs, axis=-1)
+        np.fill_diagonal(dists, np.inf)
+        i, j = np.unravel_index(np.argmin(dists), dists.shape)
+        if dists[i, j] < MIN_NUCLEAR_DISTANCE_ANGSTROM:
+            raise ValueError(
+                f"atoms {i} and {j} are {dists[i, j]:.4f} A apart, below the "
+                f"{MIN_NUCLEAR_DISTANCE_ANGSTROM} A physically-realistic floor "
+                f"-- check the geometry for a units mistake (e.g. Bohr instead "
+                f"of Angstrom) or a duplicated atom")
+    return geometry
+
 
 def _get_pennylane_hamiltonian(symbols, geometry, charge, mapping, active_electrons, active_orbitals):
     """Real Hartree-Fock + fermion-to-qubit mapping (PennyLane qchem),
@@ -120,7 +167,9 @@ def _get_pennylane_hamiltonian(symbols, geometry, charge, mapping, active_electr
     import pennylane as qml
     from pennylane.qchem.basis_data import STO3G
 
-    key = (tuple(symbols), tuple(map(tuple, np.asarray(geometry).round(10))), charge, mapping,
+    geometry = _validate_geometry(symbols, geometry)
+
+    key = (tuple(symbols), tuple(map(tuple, geometry.round(10))), charge, mapping,
            active_electrons, active_orbitals)
     if key in _pennylane_hamiltonian_cache:
         return _pennylane_hamiltonian_cache[key]
