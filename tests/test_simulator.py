@@ -778,6 +778,18 @@ class TestMeasurement:
         result = sim.measure(0)
         assert result in (0, 1)
 
+    def test_measure_jax_key_without_jax_raises(self, monkeypatch):
+        # jax_key is only meaningful with JAX installed -- passing one
+        # in a JAX-less environment must raise a clear error, not
+        # silently fall through or hit a NameError on an unimported
+        # `jax` module. Simulated here via monkeypatching HAS_JAX
+        # (this environment always has real JAX installed).
+        import dense_evolution.simulator as sim_mod
+        monkeypatch.setattr(sim_mod, "HAS_JAX", False)
+        sim = DenseSVSimulator(n_qubits=1, use_gpu=False, use_float32=False)
+        with pytest.raises(ValueError, match="requires JAX"):
+            sim.measure(0, jax_key=object())
+
 # ─────────────────────────────────────────────────────────────
 # 8. CIRCUIT CHUNKING (Stress test da README) -- DenseSVSimulator's own
 #    run_circuit_with_chunking, distinct from the standalone Chunk class
