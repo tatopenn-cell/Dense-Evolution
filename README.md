@@ -17,7 +17,6 @@
 
 **Dense Statevector Quantum Simulator · JAX XLA · NISQ · VQE · QML**
 
-[![smithery badge](https://smithery.ai/badge/tatopenn/dense-evolution)](https://smithery.ai/servers/tatopenn/dense-evolution)
 [![CI](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml/badge.svg)](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-tatopenn--cell.github.io-00e5ff?style=flat-square)](https://tatopenn-cell.github.io/Dense-Evolution/)
 [![codecov](https://codecov.io/gh/tatopenn-cell/Dense-Evolution/branch/main/graph/badge.svg)](https://codecov.io/gh/tatopenn-cell/Dense-Evolution)
