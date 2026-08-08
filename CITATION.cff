@@ -13,12 +13,11 @@ repository-code: "https://github.com/tatopenn-cell/Dense-Evolution"
 url: "https://github.com/tatopenn-cell/Dense-Evolution"
 license: "BUSL-1.1"
 version: "8.1.54"
-# TODO: fill in once the repo is archived on Zenodo (zenodo.org GitHub
-# integration -> enable this repo -> cut a GitHub release -> Zenodo mints
-# a DOI automatically). Remove this comment and the placeholder lines
-# below once the real DOI is available.
-# doi: "10.5281/zenodo.XXXXXXX"
-# identifiers:
-#   - type: doi
-#     value: "10.5281/zenodo.XXXXXXX"
-#     description: "The concept DOI for all versions of this software."
+doi: "10.5281/zenodo.21855644"
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.21855643"
+    description: "The concept DOI for all versions of this software."
+  - type: doi
+    value: "10.5281/zenodo.21855644"
+    description: "The version-specific DOI for v8.1.54."
