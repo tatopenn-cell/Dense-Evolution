@@ -1,3 +1,4 @@
+import builtins
 import unittest
 import warnings
 
@@ -7,6 +8,31 @@ from ia_utils.vector_healing import enhanced_dense_healing_hybrid, median_healin
 
 
 class TestEnhancedDenseHealingHybrid(unittest.TestCase):
+    def test_clear_import_error_when_dense_evolution_healing_is_missing(self):
+        # BUG FIX: the inner `from dense_evolution.healing import ...` used
+        # to be unguarded -- a real import failure (e.g. ia_utils used
+        # standalone without dense_evolution.healing available) surfaced as
+        # a bare ModuleNotFoundError with no hint this function needed it.
+        # Force a REAL ImportError (not a monkeypatched downstream
+        # consequence) via builtins.__import__, matching how this failure
+        # actually happens at import time.
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == 'dense_evolution.healing':
+                raise ImportError('simulated missing module')
+            return real_import(name, *args, **kwargs)
+
+        builtins.__import__ = fake_import
+        try:
+            with self.assertRaises(ImportError) as ctx:
+                enhanced_dense_healing_hybrid(np.random.default_rng(0).normal(size=(5, 3)))
+        finally:
+            builtins.__import__ = real_import
+
+        self.assertIn('enhanced_dense_healing_hybrid requires jax and dense_evolution.healing', str(ctx.exception))
+        self.assertIn('simulated missing module', str(ctx.exception))
+
     def test_output_and_reconstruction_error_with_nan_inf_input(self):
         rng = np.random.default_rng(42)
         vettori = rng.normal(size=(30, 8))

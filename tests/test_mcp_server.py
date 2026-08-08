@@ -10,6 +10,7 @@ swapped for an in-process one, for the same reason test_local_site_server.py
 uses FastAPI's TestClient rather than a live server.
 """
 import asyncio
+import base64
 import json
 import os
 
@@ -207,6 +208,67 @@ def test_run_circuit_visualizations_are_saved_to_disk_not_inlined(tmp_path):
             assert raw_key not in data
     finally:
         mcp_adapter.IMAGE_OUTPUT_DIR = original_dir
+
+
+def test_prune_old_images_keeps_only_the_most_recent_max_files(tmp_path):
+    # BUG FIX: nothing ever cleaned up IMAGE_OUTPUT_DIR -- a long-running
+    # MCP session grows it without bound. Uses synthetic files with
+    # explicit mtimes (not _save_png's real-clock filenames) so the
+    # "oldest" ordering is deterministic instead of racing real time.
+    original_dir = mcp_adapter.IMAGE_OUTPUT_DIR
+    original_max = mcp_adapter.IMAGE_MAX_FILES
+    mcp_adapter.IMAGE_OUTPUT_DIR = tmp_path
+    mcp_adapter.IMAGE_MAX_FILES = 3
+    try:
+        for i in range(5):
+            p = tmp_path / f"img{i}.png"
+            p.write_bytes(b"x")
+            os.utime(p, (i, i))
+
+        mcp_adapter._prune_old_images()
+
+        remaining = {p.name for p in tmp_path.glob("*.png")}
+        assert remaining == {"img2.png", "img3.png", "img4.png"}
+    finally:
+        mcp_adapter.IMAGE_OUTPUT_DIR = original_dir
+        mcp_adapter.IMAGE_MAX_FILES = original_max
+
+
+def test_prune_old_images_disabled_when_max_files_non_positive(tmp_path):
+    original_dir = mcp_adapter.IMAGE_OUTPUT_DIR
+    original_max = mcp_adapter.IMAGE_MAX_FILES
+    mcp_adapter.IMAGE_OUTPUT_DIR = tmp_path
+    mcp_adapter.IMAGE_MAX_FILES = 0
+    try:
+        for i in range(5):
+            (tmp_path / f"img{i}.png").write_bytes(b"x")
+
+        mcp_adapter._prune_old_images()
+
+        assert len(list(tmp_path.glob("*.png"))) == 5
+    finally:
+        mcp_adapter.IMAGE_OUTPUT_DIR = original_dir
+        mcp_adapter.IMAGE_MAX_FILES = original_max
+
+
+def test_save_png_calls_prune_so_the_directory_stays_bounded(tmp_path):
+    # End-to-end wiring check: _save_png itself must trigger pruning, not
+    # just the helper in isolation. Real-clock filenames make exact
+    # oldest-file identity unreliable at test speed, so this only checks
+    # the invariant that actually matters: the directory never exceeds
+    # the configured cap.
+    original_dir = mcp_adapter.IMAGE_OUTPUT_DIR
+    original_max = mcp_adapter.IMAGE_MAX_FILES
+    mcp_adapter.IMAGE_OUTPUT_DIR = tmp_path
+    mcp_adapter.IMAGE_MAX_FILES = 3
+    try:
+        tiny_png_b64 = base64.b64encode(b"not a real png but bytes are bytes").decode()
+        for i in range(6):
+            mcp_adapter._save_png(tiny_png_b64, f"shot{i}")
+        assert len(list(tmp_path.glob("*.png"))) <= 3
+    finally:
+        mcp_adapter.IMAGE_OUTPUT_DIR = original_dir
+        mcp_adapter.IMAGE_MAX_FILES = original_max
 
 
 def test_energy_scan_matches_individual_molecule_energy_call():

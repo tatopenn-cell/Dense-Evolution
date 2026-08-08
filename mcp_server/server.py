@@ -54,6 +54,11 @@ KERNEL_URL = os.environ.get("DENSE_EVOLUTION_KERNEL_URL", "http://127.0.0.1:8800
 IMAGE_OUTPUT_DIR = Path(
     os.environ.get("DENSE_EVOLUTION_MCP_IMAGE_DIR", str(Path.home() / ".dense_evolution_mcp" / "images"))
 )
+# Every include_visualizations=True call writes a new timestamped PNG with
+# no cleanup -- a long-running MCP session (or an agent looping over many
+# circuits) grows this directory without bound. Cap it to the most
+# recently written files; 0 or negative disables pruning entirely.
+IMAGE_MAX_FILES = int(os.environ.get("DENSE_EVOLUTION_MCP_IMAGE_MAX_FILES", "500"))
 
 READ_ONLY_IDEMPOTENT = {
     "readOnlyHint": True,
@@ -143,6 +148,18 @@ def _handle_error(e: Exception) -> str:
     return f"Error: {e}"
 
 
+def _prune_old_images() -> None:
+    """Keep at most IMAGE_MAX_FILES PNGs in IMAGE_OUTPUT_DIR, deleting the
+    oldest by mtime first. Read at call time (not module import) so tests
+    that monkeypatch IMAGE_OUTPUT_DIR/IMAGE_MAX_FILES take effect."""
+    if IMAGE_MAX_FILES <= 0:
+        return
+    files = sorted(IMAGE_OUTPUT_DIR.glob("*.png"), key=lambda p: p.stat().st_mtime)
+    excess_count = len(files) - IMAGE_MAX_FILES
+    for path in files[:excess_count]:
+        path.unlink(missing_ok=True)
+
+
 def _save_png(b64_png: Optional[str], name: str) -> Optional[str]:
     """Decode a base64 PNG from the kernel and write it to disk, returning
     the path instead of the raw base64 -- see module docstring."""
@@ -151,6 +168,7 @@ def _save_png(b64_png: Optional[str], name: str) -> Optional[str]:
     IMAGE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     path = IMAGE_OUTPUT_DIR / f"{name}_{int(time.time() * 1000)}.png"
     path.write_bytes(base64.b64decode(b64_png))
+    _prune_old_images()
     return str(path)
 
 
