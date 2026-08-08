@@ -198,12 +198,19 @@ def md_step(positions_angstrom, velocities_angstrom_per_fs, forces_hartree_per_a
 
 
 def run_md_trajectory(name: str, n_steps: int, dt_fs: float = 0.5, mapping: str = "jordan_wigner",
-                       recompute_electronic_state: bool = False):
+                       recompute_electronic_state: bool = False, fd_step_angstrom: float = 0.001):
     """Real, minimal ab-initio-forces MD trajectory: at each step, real
     Hellmann-Feynman forces (compute_hellmann_feynman_forces) move the
     real nuclear positions/velocities via real Velocity-Verlet (md_step).
     Starts from rest (zero initial velocities) at the catalog's real
     equilibrium geometry.
+
+    fd_step_angstrom: forwarded to compute_hellmann_feynman_forces at
+    every step -- previously not exposed here at all, silently using
+    that function's own default (0.001 A) with no way for a caller to
+    ask for a different finite-difference step (e.g. a molecule with an
+    unusually steep energy landscape, where the default step size isn't
+    the one already verified converged for H2).
 
     recompute_electronic_state=False (default) holds the electronic state
     fixed at the initial Hartree-Fock reference through the whole
@@ -225,7 +232,8 @@ def run_md_trajectory(name: str, n_steps: int, dt_fs: float = 0.5, mapping: str 
 
     trajectory = {"step": [], "time_fs": [], "positions_angstrom": [], "energy_hartree": [], "force_norm": []}
     for step in range(n_steps):
-        result = compute_hellmann_feynman_forces(name, statevector, mapping=mapping, geometry=positions)
+        result = compute_hellmann_feynman_forces(name, statevector, mapping=mapping, geometry=positions,
+                                                  fd_step_angstrom=fd_step_angstrom)
         forces = np.asarray(result["forces_hartree_per_angstrom"])
         trajectory["step"].append(step)
         trajectory["time_fs"].append(step * dt_fs)
