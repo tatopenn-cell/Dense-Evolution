@@ -512,22 +512,16 @@ class MPSSimulator:
     ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, float, float]:
         U, S, Vh = jnp.linalg.svd(theta_mat, full_matrices=False)
 
-        mask = S > self.eps
-        chi_new = max(1, min(int(jnp.sum(mask)), self.chi))
+        # Was a Python while loop incrementing chi_new one at a time,
+        # host-syncing (float()/int() casts) every iteration -- the
+        # eager path never used the vectorized search already written
+        # for the JIT path (_vectorized_chi_search / ..._jax), despite
+        # that search being verified to replicate the while loop's
+        # chi_new/jsd_val exactly (0 mismatches across 171 real calls,
+        # including this budget-violation fallback -- see that
+        # function's own docstring).
+        chi_new, jsd_val = _vectorized_chi_search(S, self.eps, self.jsd_budget, self.chi)
         max_possible = min(len(S), self.chi)
-
-        norm_full = float(jnp.sum(S**2)) + 1e-15
-        p_full = (S**2) / norm_full
-
-        def _trunc_jsd(chi_try):
-            p_trunc = jnp.zeros_like(p_full)
-            p_trunc = p_trunc.at[:chi_try].set((S[:chi_try] ** 2) / norm_full)
-            return _jsd_vectors(p_full, p_trunc)
-
-        jsd_val = _trunc_jsd(chi_new)
-        while jsd_val > self.jsd_budget and chi_new < max_possible:
-            chi_new += 1
-            jsd_val = _trunc_jsd(chi_new)
 
         if jsd_val > self.jsd_budget:
             # Loop exited because chi_new hit max_possible (== max_bond, in
