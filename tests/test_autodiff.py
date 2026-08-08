@@ -131,6 +131,34 @@ class TestCircuitToEnergyFn:
         assert float(jnp.linalg.norm(grad)) > 1e-6
 
 
+class TestUnrecognizedGateRaises:
+    """BUG FIX: _build_template used to silently `continue` past any op
+    whose gate name has no GATE_IDS entry -- e.g. 'u2'/'u3' (multi-
+    parameter gates this template's single-param-per-row shape can't
+    represent, unlike GATE_IDS's other entries) -- dropping the gate
+    from the traced circuit entirely with no error, giving a silently
+    WRONG energy/gradient. Now raises instead of dropping."""
+
+    def test_u2_gate_raises_instead_of_silently_dropping(self):
+        qasm = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[1]; u2(0.3,0.7) q[0];'
+        circ = de.QASMParser().parse(qasm)
+        with pytest.raises(ValueError, match="u2"):
+            de.circuit_to_energy_fn(circ, circ.n_qubits)
+
+    def test_u3_gate_raises_instead_of_silently_dropping(self):
+        qasm = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[1]; u3(0.3,0.7,1.1) q[0];'
+        circ = de.QASMParser().parse(qasm)
+        with pytest.raises(ValueError, match="u3"):
+            de.circuit_to_energy_fn(circ, circ.n_qubits)
+
+    def test_known_gates_still_work_unaffected(self):
+        # Regression check: the error path must not affect circuits that
+        # only use gates with a real GATE_IDS entry.
+        circ = de.QASMParser().parse(VQE_QASM)
+        energy_fn, n_params = de.circuit_to_energy_fn(circ, circ.n_qubits)
+        assert n_params == 5
+
+
 class TestEnergyFnNoiseSpec:
     """circuit_to_energy_fn's `noise=` argument (registry.NoiseSpec, a
     JAX PyTree): applies NoiseModel.apply_to_sv natively inside the same

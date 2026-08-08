@@ -43,6 +43,18 @@ GATE_IDS = {
 }
 
 
+# Which PARAMETRIC_GATES entries act on 2 qubits (vs. every other entry,
+# which acts on 1). Needed to dispatch correctly: a 1-qubit gate with 2
+# params (u2: phi, lam) and a 2-qubit gate with 1 param (cp/crz: theta)
+# both produce a 3-element args tuple downstream, so arg *count* alone
+# can't disambiguate them -- BUG FIX: simulator.py's run_circuit used to
+# dispatch PARAMETRIC_GATES purely on len(args), which silently mis-typed
+# 'u2' as a 2-qubit gate (crashing with a TypeError from calling its
+# 2-param lambda with only 1 positional argument) since it collided with
+# cp/crz's own 3-element shape. Named lookup here, not arg-count
+# guessing, is the fix.
+_TWO_QUBIT_PARAMETRIC_GATES = frozenset(('cp', 'cphase', 'crz'))
+
 PARAMETRIC_GATES = {
     'rx': lambda theta: xp.array([[xp.cos(theta/2), -1j*xp.sin(theta/2)], [-1j*xp.sin(theta/2), xp.cos(theta/2)]], dtype=complex),
     'ry': lambda theta: xp.array([[xp.cos(theta/2), -xp.sin(theta/2)], [xp.sin(theta/2), xp.cos(theta/2)]], dtype=complex),

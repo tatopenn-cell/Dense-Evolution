@@ -675,6 +675,37 @@ class TestParametricGates:
         sim2.run_circuit([('u3', 0, np.pi, 0.3, 0.7)], transpile=True)
         assert abs(norm(sim2) - 1.0) < 1e-12
 
+    def test_run_circuit_u2_two_parameter_gate(self, sim2):
+        # BUG FIX: u2(phi, lam) is a 1-qubit gate with 2 params, giving a
+        # 3-element args tuple (qubit, phi, lam) -- run_circuit used to
+        # dispatch PARAMETRIC_GATES purely on len(args), and len(args)==3
+        # was hard-coded for 2-qubit+1-param gates (cp/crz), so a real
+        # 'u2' op crashed with "missing 1 required positional argument:
+        # 'lam'" instead of applying the gate. Now dispatched by name.
+        sim2.run_circuit([('u2', 0, 0.3, 0.7)], transpile=True)
+        assert abs(norm(sim2) - 1.0) < 1e-12
+
+        from dense_evolution.gates import PARAMETRIC_GATES
+        sim_direct = DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
+        sim_direct.apply_gate_1q(np.asarray(PARAMETRIC_GATES['u2'](0.3, 0.7)), 0)
+        np.testing.assert_allclose(np.asarray(sim2.get_statevector()),
+                                    np.asarray(sim_direct.get_statevector()), atol=1e-10)
+
+    def test_run_circuit_cp_still_dispatches_as_two_qubit_gate(self):
+        # Regression check for the same dispatch rewrite: cp/crz (2 qubits,
+        # 1 param) must still be applied as 2-qubit gates, not broken by
+        # switching from arg-count to name-based dispatch.
+        sim = DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
+        sim.run_circuit([('x', 0), ('x', 1), ('cp', 0, 1, 0.9)], transpile=True)
+
+        from dense_evolution.gates import PARAMETRIC_GATES
+        sim_direct = DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
+        sim_direct.apply_gate_1q(GATES['x'], 0)
+        sim_direct.apply_gate_1q(GATES['x'], 1)
+        sim_direct.apply_gate_2q(np.asarray(PARAMETRIC_GATES['cp'](0.9)), 0, 1)
+        np.testing.assert_allclose(np.asarray(sim.get_statevector()),
+                                    np.asarray(sim_direct.get_statevector()), atol=1e-10)
+
     def test_run_batch_jit_cp_gate(self):
         # run_batch_jit's cp/crz/cphase branch -- a 2-qubit
         # parametric gate, distinct from the 1-qubit rx/ry/rz/p/u1 and
@@ -724,6 +755,40 @@ class TestMeasurement:
         sim = DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
         with pytest.raises(ValueError):
             sim.measure(5)
+
+    def test_measure_jax_key_is_reproducible(self):
+        # measure(jax_key=...) is an explicit, seedable alternative to the
+        # default np.random.choice (global NumPy RNG state, not seedable
+        # via JAX) -- same key on a fresh simulator in the same
+        # superposition state must give the same outcome every time.
+        def make_plus_state():
+            sim = DenseSVSimulator(n_qubits=1, use_gpu=False, use_float32=False)
+            sim.apply_gate_1q(GATES['h'], 0)
+            return sim
+
+        key = jax.random.PRNGKey(42)
+        results = {make_plus_state().measure(0, jax_key=key) for _ in range(5)}
+        assert len(results) == 1
+
+    def test_measure_jax_key_none_keeps_default_behavior(self):
+        # Default (no jax_key) must be unchanged: still returns a valid
+        # binary outcome via the original np.random.choice path.
+        sim = DenseSVSimulator(n_qubits=1, use_gpu=False, use_float32=False)
+        sim.apply_gate_1q(GATES['h'], 0)
+        result = sim.measure(0)
+        assert result in (0, 1)
+
+    def test_measure_jax_key_without_jax_raises(self, monkeypatch):
+        # jax_key is only meaningful with JAX installed -- passing one
+        # in a JAX-less environment must raise a clear error, not
+        # silently fall through or hit a NameError on an unimported
+        # `jax` module. Simulated here via monkeypatching HAS_JAX
+        # (this environment always has real JAX installed).
+        import dense_evolution.simulator as sim_mod
+        monkeypatch.setattr(sim_mod, "HAS_JAX", False)
+        sim = DenseSVSimulator(n_qubits=1, use_gpu=False, use_float32=False)
+        with pytest.raises(ValueError, match="requires JAX"):
+            sim.measure(0, jax_key=object())
 
 # ─────────────────────────────────────────────────────────────
 # 8. CIRCUIT CHUNKING (Stress test da README) -- DenseSVSimulator's own
