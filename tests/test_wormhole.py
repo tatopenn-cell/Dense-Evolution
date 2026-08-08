@@ -10,14 +10,33 @@ result -- not just that the functions run without raising.
 import numpy as np
 import pytest
 
+import itertools
+
 from dashboard_core.wormhole import (
     run_wormhole_protocol, run_wormhole_protocol_finite_beta,
     _finite_beta_layout_precomputed, _run_finite_beta_precomputed,
-    find_delta_beta_bands,
+    find_delta_beta_bands, commuting_pair_count, build_sparse_syk_terms,
 )
 
 N_MAJORANA, K_TERMS, J = 8, 10, float(np.sqrt(2))
 SEED = 61
+
+
+def _dense_matrix_commuting_pair_count(terms, n_qubits):
+    """Independent reference: the original O(2**n_qubits) dense-matrix
+    implementation commuting_pair_count used before the O(n_qubits)
+    Pauli-dict rewrite -- kept here only to verify the rewrite against
+    an implementation that doesn't share its own logic."""
+    import dense_evolution as de
+    matrices = [de.pauli_hamiltonian_to_matrix([(1.0, t[1])], n_qubits) for t in terms]
+    commuting = anticommuting = 0
+    for a, b in itertools.combinations(range(len(matrices)), 2):
+        comm = matrices[a] @ matrices[b] - matrices[b] @ matrices[a]
+        if np.max(np.abs(comm)) < 1e-9:
+            commuting += 1
+        else:
+            anticommuting += 1
+    return commuting, anticommuting
 T0, MU, T1 = 0.3, 12.0, 0.60
 
 
@@ -102,3 +121,36 @@ class TestFindDeltaBetaBands:
         assert bands[0]["sign"] == "positive"
         assert bands[0]["beta_lo"] == 0.0
         assert bands[0]["beta_hi"] == 2.5
+
+
+class TestCommutingPairCount:
+
+    def test_seed_61_matches_papers_own_ratio(self):
+        # arXiv:2604.10090's own chosen K=10 instance: 34 commuting / 11
+        # anticommuting out of C(10,2)=45 pairs -- this module's own
+        # docstring value, re-derived here, not hardcoded blindly.
+        n_qubits, terms = build_sparse_syk_terms(N_MAJORANA, K_TERMS, J, SEED)
+        commuting, anticommuting = commuting_pair_count(terms, n_qubits)
+        assert (commuting, anticommuting) == (34, 11)
+
+    @pytest.mark.parametrize("n_majorana,seeds", [
+        (8, range(20)),
+        (12, range(5)),
+        (16, range(3)),
+    ])
+    def test_matches_dense_matrix_reference(self, n_majorana, seeds):
+        # O(n_qubits)-per-pair Pauli-dict rewrite must match the
+        # original O(2**n_qubits) dense-matrix commutator computation
+        # exactly, not approximately, across real SYK instances at
+        # several sizes -- not just the one seed=61 spot check above.
+        for seed in seeds:
+            n_qubits, terms = build_sparse_syk_terms(n_majorana, K_TERMS, J, seed)
+            fast = commuting_pair_count(terms, n_qubits)
+            reference = _dense_matrix_commuting_pair_count(terms, n_qubits)
+            assert fast == reference, f"n_majorana={n_majorana} seed={seed}: {fast} != {reference}"
+
+    def test_counts_sum_to_total_pairs(self):
+        n_qubits, terms = build_sparse_syk_terms(N_MAJORANA, K_TERMS, J, SEED)
+        commuting, anticommuting = commuting_pair_count(terms, n_qubits)
+        from math import comb
+        assert commuting + anticommuting == comb(K_TERMS, 2)
