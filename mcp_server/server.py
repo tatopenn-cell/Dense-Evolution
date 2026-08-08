@@ -87,31 +87,55 @@ COMPUTE = {
 # a live subprocess bound to a real port in CI.
 _TEST_TRANSPORT = None
 
+# Lazily-created, reused across calls -- _request used to open a fresh
+# httpx.AsyncClient (TCP handshake to the kernel) per tool call, real
+# overhead for an MCP session that calls many tools in a row. Keyed on
+# (_TEST_TRANSPORT identity, KERNEL_URL): production code never changes
+# KERNEL_URL after import (it's a plain module-level constant read once
+# from os.environ), but the test suite mutates both mcp_adapter.KERNEL_URL
+# and _TEST_TRANSPORT directly to exercise the unreachable-kernel path,
+# and its autouse fixture swaps _TEST_TRANSPORT to a fresh ASGITransport
+# before every test and back to None after -- a client cached against a
+# stale transport or base_url must not be reused across either kind of
+# swap. Verified by rerunning the full mcp_server test suite, not just
+# assumed safe from reading the fixture.
+_shared_client: Optional[httpx.AsyncClient] = None
+_shared_client_key = None  # (transport identity, base_url) the cached client was built with
+
+
+def _get_client() -> httpx.AsyncClient:
+    global _shared_client, _shared_client_key
+    current_key = (id(_TEST_TRANSPORT), KERNEL_URL)
+    if _shared_client is None or _shared_client_key != current_key:
+        _shared_client = httpx.AsyncClient(base_url=KERNEL_URL, transport=_TEST_TRANSPORT, timeout=180.0)
+        _shared_client_key = current_key
+    return _shared_client
+
 
 async def _request(method: str, path: str, **kwargs) -> dict:
     """Reusable request helper for every tool below."""
-    async with httpx.AsyncClient(base_url=KERNEL_URL, transport=_TEST_TRANSPORT, timeout=180.0) as client:
+    client = _get_client()
+    try:
+        resp = await client.request(method, path, **kwargs)
+    except httpx.ConnectError:
+        raise RuntimeError(
+            f"Dense Evolution kernel not reachable at {KERNEL_URL}. Start it with "
+            "`dense-evolution serve` (or `python -m local_site.app.server` from the "
+            "repo root), then retry. Use dense_evolution_health to check connectivity."
+        )
+    except httpx.TimeoutException:
+        raise RuntimeError(
+            "Request to the Dense Evolution kernel timed out -- the simulation may be "
+            "too large or slow for this request (e.g. high qubit count, many VQE "
+            "iterations, or a long MD trajectory). Try reducing its size."
+        )
+    if resp.status_code >= 400:
         try:
-            resp = await client.request(method, path, **kwargs)
-        except httpx.ConnectError:
-            raise RuntimeError(
-                f"Dense Evolution kernel not reachable at {KERNEL_URL}. Start it with "
-                "`dense-evolution serve` (or `python -m local_site.app.server` from the "
-                "repo root), then retry. Use dense_evolution_health to check connectivity."
-            )
-        except httpx.TimeoutException:
-            raise RuntimeError(
-                "Request to the Dense Evolution kernel timed out -- the simulation may be "
-                "too large or slow for this request (e.g. high qubit count, many VQE "
-                "iterations, or a long MD trajectory). Try reducing its size."
-            )
-        if resp.status_code >= 400:
-            try:
-                detail = resp.json().get("detail", resp.text)
-            except Exception:
-                detail = resp.text
-            raise RuntimeError(f"Dense Evolution kernel returned HTTP {resp.status_code}: {detail}")
-        return resp.json()
+            detail = resp.json().get("detail", resp.text)
+        except Exception:
+            detail = resp.text
+        raise RuntimeError(f"Dense Evolution kernel returned HTTP {resp.status_code}: {detail}")
+    return resp.json()
 
 
 def _handle_error(e: Exception) -> str:

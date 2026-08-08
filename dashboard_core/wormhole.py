@@ -324,10 +324,16 @@ def _prepare_finite_beta_tfd_sv(n_side, n_full, L, R, P, Q, eigvals, eigvecs, be
     sv = sv / np.linalg.norm(sv)
 
     if with_message:
-        sim2 = de.DenseSVSimulator(n_full)
-        sim2.set_state(sv)
-        sim2.run_circuit([('swap', Q, L[0])])
-        sv = sim2.get_statevector()
+        # BUG FIX (perf): was a second DenseSVSimulator constructed just
+        # to apply one swap gate -- real overhead in a (beta, mu) sweep
+        # (this runs once per point). A SWAP on qubits (Q, L[0]) is
+        # exactly an axis-swap on the statevector reshaped to [2]*n_full
+        # (MSB-first indexing, the same convention apply_gate_1q/
+        # measure() use) -- verified bit-identical to the simulator-gate
+        # version directly, not just assumed equivalent.
+        sv_nd = sv.reshape([2] * n_full)
+        sv_nd = np.swapaxes(sv_nd, Q, L[0])
+        sv = sv_nd.reshape(-1)
     return sv
 
 

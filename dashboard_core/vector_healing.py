@@ -20,7 +20,21 @@ from typing import Optional
 
 import numpy as np
 
-from ia_utils.vector_healing import enhanced_dense_healing_hybrid
+try:
+    from ia_utils.vector_healing import enhanced_dense_healing_hybrid
+except ImportError as _import_error:
+    # ia_utils ships in the same distribution as dashboard_core (see
+    # pyproject.toml's packages list) so this shouldn't fail on a normal
+    # install -- but ia_utils.vector_healing's own dependency chain
+    # (dense_evolution.healing, which needs JAX) can still fail
+    # transitively, or a stripped/vendored copy could omit ia_utils
+    # entirely. Deferred to call time instead of failing this whole
+    # module's import, which would otherwise take down every unrelated
+    # dashboard_core feature at import time for a healing-specific gap.
+    enhanced_dense_healing_hybrid = None
+    _IMPORT_ERROR = _import_error
+else:
+    _IMPORT_ERROR = None
 
 __all__ = ['VectorHealingResult', 'run_vector_healing']
 
@@ -51,6 +65,15 @@ def run_vector_healing(vectors, radius_baseline: Optional[int] = None) -> Vector
     Returns:
         VectorHealingResult
     """
+    if enhanced_dense_healing_hybrid is None:
+        raise ImportError(
+            "run_vector_healing requires ia_utils.vector_healing, which failed "
+            f"to import ({_IMPORT_ERROR}). It ships with dense-evolution's own "
+            "packages, so this usually means a stripped/vendored install is "
+            "missing it, or one of its own dependencies (dense_evolution.healing "
+            "needs JAX) isn't available."
+        )
+
     arr = np.asarray(vectors, dtype=np.float64)
     if arr.ndim != 2:
         raise ValueError(f"vectors must be 2D (n_steps, dim), got shape {arr.shape}")
