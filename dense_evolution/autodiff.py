@@ -59,7 +59,21 @@ def _build_template(circuit: QASMCircuit, n_qubits: int) -> "jnp.ndarray":
     for cmd in target:
         name = cmd[0].lower()
         if name not in GATE_IDS:
-            continue
+            # BUG FIX: used to `continue` here, silently dropping the
+            # gate from the traced circuit -- a typo'd or unsupported
+            # gate name (e.g. 'u2'/'u3', multi-parameter gates this
+            # template's single-param-per-row [g_id, q1, q2, sentinel]
+            # shape can't represent -- see gates.py's PARAMETRIC_GATES)
+            # gave a silently WRONG energy/gradient instead of an error.
+            raise ValueError(
+                f"circuit_to_energy_fn: gate '{name}' has no GATE_IDS "
+                f"entry, so it can't be represented in this JIT template "
+                f"and would otherwise be silently dropped from the "
+                f"traced circuit. Multi-parameter gates like 'u2'/'u3' "
+                f"aren't supported here (this template carries one "
+                f"parameter per row) -- decompose them into rx/ry/rz/cx "
+                f"first, or use DenseSVSimulator.run_circuit (the eager "
+                f"path) instead, which does support them directly.")
         g_id = float(GATE_IDS[name])
         qubits = cmd[1:]
         sentinel = -1.0 if name in _PARAMETRIC_GATES else 0.0

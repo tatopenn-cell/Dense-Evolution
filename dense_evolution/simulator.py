@@ -2,7 +2,7 @@ import warnings
 import numpy as np
 from typing import List, Tuple, Optional
 from .registry import HAS_JAX
-from .gates import GATES, PARAMETRIC_GATES, GATE_IDS
+from .gates import GATES, PARAMETRIC_GATES, GATE_IDS, _TWO_QUBIT_PARAMETRIC_GATES
 from .compiler import QuantumTranspiler
 
 if HAS_JAX:
@@ -263,7 +263,7 @@ class DenseSVSimulator:
 
     # ── measurement ───────────────────────────────────────────────────
 
-    def measure(self, qubit_idx: int) -> int:
+    def measure(self, qubit_idx: int, jax_key: Optional["jax.Array"] = None) -> int:
         """
         Projective measurement on *qubit_idx*.
 
@@ -274,11 +274,38 @@ class DenseSVSimulator:
             sv_reshaped[:, 1 if result == 0 else 0, :] = 0.0
         which zeroed the *wrong* basis state (0 when result=1, 1 when result=0)
         and never normalised the JAX path.
+
+        jax_key : optional JAX PRNGKey. When given, the random outcome is
+                  drawn via jax.random.choice(jax_key, ...) instead of the
+                  global `np.random.choice` -- explicit, seedable, and
+                  independent of NumPy's global RNG state, matching
+                  registry.NoiseModel.apply_to_sv's own jax_key convention
+                  (see that function's docstring for why explicit keys, not
+                  hidden per-instance state, are this codebase's convention
+                  for JAX-side reproducibility). Default (None) keeps the
+                  original np.random.choice behavior unchanged, on both
+                  backends -- this measurement's own state-collapse still
+                  does concrete Python branching either way (the `result`
+                  drives which basis-state slot gets zeroed), so passing a
+                  key makes the *outcome* reproducible, not this method
+                  jax.jit-traceable.
         """
         if not 0 <= qubit_idx < self.n:
             raise ValueError(
                 f"Qubit {qubit_idx} out of range [0, {self.n})")
 
+        # BUG FIX: the JAX branch below reshapes to a [2]*n tensor and
+        # moveaxis'd -- the exact same indexing scheme apply_gate_1q
+        # uses (`moveaxis(sv_nd, qubit, -1)`, qubit axis == qubit index
+        # directly, no conversion). This method's JAX branch was instead
+        # using `phys = n-1-qubit_idx` for that moveaxis -- correct for
+        # the *NumPy* branch below (genuinely different flat/stride
+        # arithmetic on a raveled array), but wrong for the JAX branch's
+        # reshape-based indexing, silently reading/collapsing the WRONG
+        # qubit's marginal whenever qubit_idx != n-1-qubit_idx. Verified
+        # directly: X on qubit 0 of a 2-qubit register, then measure(0),
+        # returned 0 instead of 1 before this fix (see tests/test_simulator.py's
+        # TestMeasurement class).
         phys   = self.n - 1 - qubit_idx
         stride = 1 << phys
 
@@ -286,7 +313,7 @@ class DenseSVSimulator:
         if HAS_JAX:
             probs   = jnp.abs(self.sv) ** 2
             sv_nd   = probs.reshape([2] * self.n)
-            mv      = jnp.moveaxis(sv_nd, phys, 0)
+            mv      = jnp.moveaxis(sv_nd, qubit_idx, 0)
             prob_0  = float(jnp.sum(mv[0]))
             prob_1  = float(jnp.sum(mv[1]))
         else:
@@ -300,7 +327,12 @@ class DenseSVSimulator:
         prob_0 /= total
         prob_1 /= total
 
-        result = int(np.random.choice([0, 1], p=[prob_0, prob_1]))
+        if jax_key is not None:
+            if not HAS_JAX:
+                raise ValueError("measure(jax_key=...) requires JAX to be installed.")
+            result = int(jax.random.choice(jax_key, jnp.array([0, 1]), p=jnp.array([prob_0, prob_1])))
+        else:
+            result = int(np.random.choice([0, 1], p=[prob_0, prob_1]))
 
         # ── collapse ────────────────────────────────────────────────
         # Zero out the amplitudes corresponding to the *opposite* outcome.
@@ -308,9 +340,9 @@ class DenseSVSimulator:
 
         if HAS_JAX:
             sv_nd  = self.sv.reshape([2] * self.n)
-            mv     = jnp.moveaxis(sv_nd, phys, 0)
+            mv     = jnp.moveaxis(sv_nd, qubit_idx, 0)
             mv     = mv.at[zero_slot].set(0.0 + 0j)
-            self.sv = jnp.moveaxis(mv, 0, phys).ravel()
+            self.sv = jnp.moveaxis(mv, 0, qubit_idx).ravel()
         else:
             sv_res = self.sv.reshape(-1, 2, stride)
             sv_res[:, zero_slot, :] = 0.0
@@ -335,16 +367,16 @@ class DenseSVSimulator:
                     self.apply_gate_2q(mat, int(args[0]), int(args[1]))
 
             elif name in PARAMETRIC_GATES:
-                if len(args) == 2:
-                    mat = self.xp.array(PARAMETRIC_GATES[name](args[1]), dtype=self.dtype)
-                    self.apply_gate_1q(mat, int(args[0]))
-                elif len(args) == 3:
-                    mat = self.xp.array(PARAMETRIC_GATES[name](args[2]), dtype=self.dtype)
+                # Dispatch by gate NAME, not arg count -- a 1-qubit gate
+                # with 2 params (u2: qubit,phi,lam) and a 2-qubit gate
+                # with 1 param (cp/crz: q1,q2,theta) both have len(args)
+                # == 3, so arg-count alone is ambiguous (see
+                # _TWO_QUBIT_PARAMETRIC_GATES's own comment in gates.py).
+                if name in _TWO_QUBIT_PARAMETRIC_GATES:
+                    mat = self.xp.array(PARAMETRIC_GATES[name](*args[2:]), dtype=self.dtype)
                     self.apply_gate_2q(mat, int(args[0]), int(args[1]))
-                elif len(args) == 4:
-                    mat = self.xp.array(
-                        PARAMETRIC_GATES[name](args[1], args[2], args[3]),
-                        dtype=self.dtype)
+                else:
+                    mat = self.xp.array(PARAMETRIC_GATES[name](*args[1:]), dtype=self.dtype)
                     self.apply_gate_1q(mat, int(args[0]))
 
             else:
