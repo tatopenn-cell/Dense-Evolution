@@ -284,6 +284,39 @@ def test_kernel_unreachable_gives_actionable_error_not_a_traceback():
         mcp_adapter.KERNEL_URL = original_url
 
 
+def test_kernel_timeout_gives_actionable_error_not_a_traceback(monkeypatch):
+    class _TimeoutClient:
+        async def request(self, method, path, **kwargs):
+            raise httpx.TimeoutException("simulated timeout")
+
+    monkeypatch.setattr(mcp_adapter, "_get_client", lambda: _TimeoutClient())
+    result = run(mcp_adapter.dense_evolution_health())
+    assert result.startswith("Error:")
+    assert "timed out" in result
+
+
+def test_kernel_error_response_with_non_json_body_falls_back_to_raw_text(monkeypatch):
+    # _request's status_code>=400 branch tries resp.json().get("detail", ...)
+    # first and falls back to resp.text if the body isn't valid JSON (e.g. a
+    # raw HTML 502 from a proxy in front of the kernel, not the kernel's own
+    # structured FastAPI error response).
+    class _FakeResponse:
+        status_code = 502
+        text = "<html>Bad Gateway</html>"
+
+        def json(self):
+            raise ValueError("not valid json")
+
+    class _ErrorClient:
+        async def request(self, method, path, **kwargs):
+            return _FakeResponse()
+
+    monkeypatch.setattr(mcp_adapter, "_get_client", lambda: _ErrorClient())
+    result = run(mcp_adapter.dense_evolution_health())
+    assert result.startswith("Error:")
+    assert "<html>Bad Gateway</html>" in result
+
+
 def test_wormhole_select_instance_finds_the_known_seed_61():
     data = json.loads(run(mcp_adapter.dense_evolution_wormhole_select_instance(
         mcp_adapter.WormholeSelectInstanceInput(

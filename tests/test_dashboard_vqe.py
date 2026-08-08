@@ -116,6 +116,41 @@ class TestQasmOutputIsReal:
         assert energy == pytest.approx(result['vqe_energy_hartree'], abs=1e-6)
 
 
+class TestParamCountConsistencyCheck:
+    """BUG FIX: both ansatz paths used to `assert n_params == ...` to
+    catch a circuit_to_energy_fn/ansatz-construction desync -- assert
+    is stripped entirely under `python -O`, silently removing the
+    check. Now `raise ValueError`. This desync can't happen through the
+    normal public API (that's the whole point of the check), so it's
+    forced here via monkeypatching circuit_to_energy_fn's return value
+    directly -- the only way to actually exercise the branch."""
+
+    def test_hardware_efficient_raises_on_param_count_mismatch(self, monkeypatch):
+        import dashboard_core.vqe as vqe_module
+        real_circuit_to_energy_fn = vqe_module.de.circuit_to_energy_fn
+
+        def wrong_count(parsed, n_qubits):
+            energy_fn, n_params = real_circuit_to_energy_fn(parsed, n_qubits)
+            return energy_fn, n_params + 1  # deliberately wrong
+
+        monkeypatch.setattr(vqe_module.de, "circuit_to_energy_fn", wrong_count)
+        with pytest.raises(ValueError, match="circuit_to_energy_fn found"):
+            run_vqe(H2_SYMBOLS, H2_GEOMETRY, charge=0, ansatz_type="hardware_efficient",
+                    n_layers=1, maxiter=1)
+
+    def test_uccsd_raises_on_param_count_mismatch(self, monkeypatch):
+        import dashboard_core.vqe as vqe_module
+        real_circuit_to_energy_fn = vqe_module.de.circuit_to_energy_fn
+
+        def wrong_count(parsed, n_qubits):
+            energy_fn, n_params = real_circuit_to_energy_fn(parsed, n_qubits)
+            return energy_fn, n_params + 1  # deliberately wrong
+
+        monkeypatch.setattr(vqe_module.de, "circuit_to_energy_fn", wrong_count)
+        with pytest.raises(ValueError, match="circuit_to_energy_fn found"):
+            run_vqe(H2_SYMBOLS, H2_GEOMETRY, charge=0, ansatz_type="uccsd", maxiter=1)
+
+
 def build_h2_pauli_terms():
     from dashboard_core.hamiltonians import build_molecular_hamiltonian
     return build_molecular_hamiltonian(H2_SYMBOLS, H2_GEOMETRY, charge=0)
