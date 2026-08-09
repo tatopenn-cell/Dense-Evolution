@@ -155,6 +155,59 @@ class TestNoiseModel:
         sv_out = NoiseModel.apply_to_sv(sv, n=1, model='bitflip', p=0.5, rng=None)
         assert abs(np.linalg.norm(sv_out) - 1.0) < 1e-10
 
+    def test_amplitude_damping_pure_1_state_matches_flat_probability(self):
+        # A qubit purely in |1> is the ONE case where the old (buggy) flat
+        # decay probability and the correct Born-rule probability
+        # gamma*|v1|^2 coincide exactly (|v1|^2=1) -- this is why the bug
+        # was invisible to test_amplitude_damping_preserves_norm above
+        # (which only checks |1>). Verifies the fixed implementation still
+        # gives the textbook-correct P(decay to |0>)=gamma for this case.
+        rng = np.random.default_rng(3)
+        sv1 = np.array([0.0, 1.0], dtype=complex)
+        n_shots = 30000
+        gamma = 0.4
+        counts = np.zeros(2)
+        for _ in range(n_shots):
+            sv = NoiseModel.apply_to_sv(sv1.copy(), n=1, model='amplitude_damping', p=gamma, rng=rng)
+            probs_ = np.abs(sv) ** 2
+            probs_ /= probs_.sum()
+            counts[rng.choice(2, p=probs_)] += 1
+        freq = counts / n_shots
+        assert freq[0] == pytest.approx(gamma, abs=0.02)
+
+    def test_amplitude_damping_superposition_matches_born_rule_not_flat_probability(self):
+        # BUG FIX: the decay branch used to fire with a flat probability
+        # `gamma`, independent of the qubit's actual |1> population, AND
+        # (a second, related error) added the original |0> amplitude
+        # into the decay branch's result (`v0 + v1*sqrt(gamma)`) instead
+        # of replacing it, as the K1 = [[0,sqrt(gamma)],[0,0]] Kraus
+        # operator actually requires (K1 zeroes out any incoming |0>
+        # component entirely). For |+> = (|0>+|1>)/sqrt(2) at gamma=0.5,
+        # closed-form evaluation of the exact OLD per-branch formula
+        # (flat probability + the erroneous +v0 term, each branch
+        # renormalized the same way the outer apply_to_sv function does)
+        # predicts P(measure 0) = 0.8333; the correct Born-rule formula
+        # (P(0) = gamma*|v1|^2 + |v0|^2, verified to match the textbook
+        # Kraus channel to 0.00000000 -- see the fix's own commit
+        # message / README entry) predicts P(measure 0) = 0.75. These
+        # are far enough apart (0.083) to distinguish cleanly at 50k
+        # shots with abs=0.02 tolerance.
+        rng = np.random.default_rng(11)
+        sv_plus = np.array([1.0, 1.0], dtype=complex) / np.sqrt(2)
+        n_shots = 50000
+        gamma = 0.5
+        counts = np.zeros(2)
+        for _ in range(n_shots):
+            sv = NoiseModel.apply_to_sv(sv_plus.copy(), n=1, model='amplitude_damping', p=gamma, rng=rng)
+            probs_ = np.abs(sv) ** 2
+            probs_ /= probs_.sum()
+            counts[rng.choice(2, p=probs_)] += 1
+        freq = counts / n_shots
+        expected_p0_correct = 0.75
+        expected_p0_old_buggy = 0.8333333333333333
+        assert freq[0] == pytest.approx(expected_p0_correct, abs=0.02)
+        assert freq[0] != pytest.approx(expected_p0_old_buggy, abs=0.02)
+
 
 class TestQuantumHardwareRegistry:
     def test_print_diagnostics_runs(self, capsys):
