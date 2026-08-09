@@ -238,6 +238,63 @@ def test_uhlmann_fidelity_is_symmetric():
     assert uhlmann_fidelity(rho_a, rho_b) == pytest.approx(uhlmann_fidelity(rho_b, rho_a), abs=1e-9)
 
 
+def test_uhlmann_fidelity_gradient_is_finite_at_degenerate_eigenvalues():
+    # Regression test for the degenerate-eigenvalue AD singularity (JAX
+    # issues #2311/#8732; general treatment in Kasim, arXiv:2011.04366):
+    # jnp.linalg.eigh's own gradient rule divides by (lambda_i - lambda_j),
+    # which is exactly 0/0 whenever rho_A has tied eigenvalues -- the
+    # maximally mixed state (all eigenvalues equal) is the sharpest case.
+    # _uhlmann_fidelity_core now routes rho_A's eigendecomposition through
+    # _eigh_degenerate_safe specifically to stay finite here; confirmed
+    # against the plain-jnp.linalg.eigh formula below, which really does
+    # still produce NaN (the pre-fix behavior), so this isn't a vacuous test.
+    import jax
+    from dense_evolution.mitigation import _uhlmann_fidelity_core
+
+    d = 4
+    rho_a = jnp.eye(d, dtype=jnp.complex128) / d
+    rng = np.random.default_rng(7)
+    rho_b = jnp.asarray(_random_density_matrix(rng, d), dtype=jnp.complex128)
+
+    def fidelity_via_fixed_core(a):
+        return jnp.real(_uhlmann_fidelity_core(a, rho_b))
+
+    grad_fixed = jax.grad(fidelity_via_fixed_core)(rho_a)
+    assert not bool(jnp.any(jnp.isnan(grad_fixed)))
+
+    def fidelity_via_plain_eigh(a):
+        w, v = jnp.linalg.eigh(a)
+        sqrt_a = (v * jnp.sqrt(jnp.clip(jnp.real(w), 0.0, None))) @ jnp.conj(v).T
+        inner = sqrt_a @ rho_b @ sqrt_a
+        inner_evals = jnp.clip(jnp.real(jnp.linalg.eigvalsh(inner)), 0.0, None)
+        return jnp.real(jnp.sum(jnp.sqrt(inner_evals)) ** 2)
+
+    grad_plain = jax.grad(fidelity_via_plain_eigh)(rho_a)
+    assert bool(jnp.any(jnp.isnan(grad_plain)))
+
+
+def test_uhlmann_fidelity_unchanged_by_degenerate_safe_eigh():
+    # The degenerate-safe eigh fix only changes the backward (gradient)
+    # rule -- forward-pass values must stay bit-for-bit the same as before
+    # (same underlying jnp.linalg.eigh call). Cross-checked against an
+    # independent numpy reference implementation, not just self-consistency.
+    rng = np.random.default_rng(8)
+    for d in (2, 4, 5):
+        rho_a = _random_density_matrix(rng, d)
+        rho_b = _random_density_matrix(rng, d)
+        w, v = np.linalg.eigh(rho_a)
+        sqrt_a = (v * np.sqrt(np.clip(w.real, 0.0, None))) @ v.conj().T
+        inner = sqrt_a @ rho_b @ sqrt_a
+        inner_evals = np.clip(np.linalg.eigvalsh(inner).real, 0.0, None)
+        expected = float(np.sum(np.sqrt(inner_evals)) ** 2)
+
+        got = uhlmann_fidelity(
+            jnp.asarray(rho_a, dtype=jnp.complex128),
+            jnp.asarray(rho_b, dtype=jnp.complex128),
+        )
+        assert got == pytest.approx(expected, abs=1e-9)
+
+
 def test_zne_density_matrix_output_is_a_valid_density_matrix():
     rng = np.random.default_rng(7)
     d = 4
