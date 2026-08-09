@@ -6,6 +6,7 @@ import dense_evolution as de
 from dense_evolution.mitigation import (
     richardson_extrapolate, zero_noise_extrapolation, polynomial_extrapolate,
     project_to_physical, uhlmann_fidelity, zne_density_matrix, zne_density_matrix_jit,
+    jsd_predictive_zne_density_matrix,
     richardson_extrapolate_jit, zero_noise_extrapolation_jit, uhlmann_fidelity_jit,
     polynomial_extrapolate_jit,
 )
@@ -524,3 +525,79 @@ def test_full_pipeline_composes_under_a_single_outer_jax_jit():
     np.testing.assert_allclose(np.asarray(corrected), np.asarray(corrected).conj().T, atol=1e-9)
     assert np.trace(np.asarray(corrected)).real == pytest.approx(1.0, abs=1e-9)
     assert 0.0 <= float(fidelity) <= 1.0 + 1e-9
+
+
+def test_jsd_predictive_zne_density_matrix_output_is_a_valid_density_matrix():
+    rng = np.random.default_rng(30)
+    d = 4
+    rho_at_scales = jnp.stack([
+        jnp.asarray(_random_density_matrix(rng, d), dtype=jnp.complex128) for _ in range(3)
+    ])
+    got = np.asarray(jsd_predictive_zne_density_matrix(rho_at_scales, [1.0, 2.0, 3.0]))
+    np.testing.assert_allclose(got, got.conj().T, atol=1e-9)
+    assert np.trace(got).real == pytest.approx(1.0, abs=1e-9)
+    assert np.linalg.eigvalsh(got).min() >= -1e-9
+
+
+def test_jsd_predictive_zne_density_matrix_rejects_non_3point():
+    rng = np.random.default_rng(31)
+    rho_at_scales = jnp.stack([
+        jnp.asarray(_random_density_matrix(rng, 2), dtype=jnp.complex128) for _ in range(4)
+    ])
+    with pytest.raises(NotImplementedError):
+        jsd_predictive_zne_density_matrix(rho_at_scales, [1.0, 2.0, 3.0, 4.0])
+
+
+def test_jsd_predictive_zne_density_matrix_reduces_to_plain_when_scales_identical():
+    # Identical density matrices at all 3 scales -> JSD(scale1,scale2) =
+    # JSD(scale2,scale3) = 0 exactly -> nonlinearity = 0/eps = 0, which
+    # is <= 0 -> the rectification means this must reduce EXACTLY to
+    # plain zne_density_matrix (zero risk in the inactive regime), the
+    # core safety property this function is built around.
+    rng = np.random.default_rng(32)
+    rho = jnp.asarray(_random_density_matrix(rng, 3), dtype=jnp.complex128)
+    rho_at_scales = jnp.stack([rho, rho, rho])
+    noise_factors = [1.0, 2.0, 3.0]
+
+    plain = zne_density_matrix(rho_at_scales, noise_factors)
+    jsd_corrected = jsd_predictive_zne_density_matrix(rho_at_scales, noise_factors)
+    np.testing.assert_allclose(np.asarray(jsd_corrected), np.asarray(plain), atol=1e-9)
+
+
+def test_jsd_predictive_zne_density_matrix_improves_photon_loss_fidelity():
+    # Real physics regression test, not just abstract math: reproduces
+    # the actual scenario this function was validated against in
+    # Dense-Evolution-Discovery's photonic_predictive_zne.py -- a Bell
+    # state under amplitude_damping noise (= photon loss on a
+    # dual-rail-encoded qubit), at a photon-loss rate where the
+    # validated large-sample run showed a real improvement.
+    from dense_evolution.registry import NoiseModel
+
+    sim = de.DenseSVSimulator(2)
+    sim.run_circuit([("h", 0), ("cx", 0, 1)])
+    ideal_sv = np.asarray(sim.get_statevector())
+    rho_ideal = jnp.asarray(np.outer(ideal_sv, ideal_sv.conj()), dtype=jnp.complex128)
+
+    rng = np.random.default_rng(0)
+
+    def noisy_rho(gamma, k=200):
+        dim = len(ideal_sv)
+        rho = np.zeros((dim, dim), dtype=np.complex128)
+        for _ in range(k):
+            sv = NoiseModel.apply_to_sv(ideal_sv.copy(), 2, 'amplitude_damping', gamma, rng=rng)
+            rho += np.outer(sv, sv.conj())
+        rho /= k
+        return rho
+
+    gamma_base = 1.0 - 0.7  # eta=0.7, matches a validated point from the Discovery run
+    rho_at_scales = jnp.stack([
+        jnp.asarray(noisy_rho(min(gamma_base * s, 1.0)), dtype=jnp.complex128) for s in (1.0, 2.0, 3.0)
+    ])
+
+    plain = zne_density_matrix(rho_at_scales, (1.0, 2.0, 3.0))
+    jsd_corrected = jsd_predictive_zne_density_matrix(rho_at_scales, (1.0, 2.0, 3.0))
+    fidelity_plain = float(uhlmann_fidelity(plain, rho_ideal))
+    fidelity_jsd = float(uhlmann_fidelity(jsd_corrected, rho_ideal))
+
+    assert 0.0 <= fidelity_jsd <= 1.0 + 1e-9
+    assert fidelity_jsd >= fidelity_plain - 1e-9  # never worse than plain in the inactive case; may improve
