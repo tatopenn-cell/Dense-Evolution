@@ -257,6 +257,70 @@ class TestPennyLaneInterop:
             _, ours = run_pennylane_circuit(qnode, use_float32=False)
             assert np.allclose(ref, ours, atol=1e-6), f"trial {trial} mismatch, piano={piano}"
 
+    def test_elaborate_circuit_fuzz(self):
+        # The fuzz test above (test_non_monotonic_wire_order_fuzz) is
+        # deliberately small -- 4 qubits, 5-12 gates, a 4-gate alphabet
+        # (H/X/RZ/CNOT) -- built to isolate one specific wire-ordering
+        # bug, not to stand in for a general cross-validation check.
+        # This is a separate, larger check: 8 qubits, 40-80 gates, and
+        # a much richer gate alphabet spanning fixed single-qubit gates
+        # (H, X, Y, Z, S, T), parametric single-qubit gates (RX, RY, RZ),
+        # and both a 2-controlled and a 3-qubit entangling gate (CNOT,
+        # CZ, SWAP, Toffoli) -- exercising far more of the gate library
+        # (see README's "Gate Library" table) and a much larger Hilbert
+        # space (2^8=256 amplitudes vs. 2^4=16) than any existing
+        # PennyLane cross-check in this repo. 25 random trials, each an
+        # independent circuit topology, not 25 repeats of one shape.
+        import pennylane as qml
+        n_wires = 8
+        dev = qml.device('default.qubit', wires=n_wires)
+        rng = np.random.default_rng(7)
+
+        FIXED_1Q = ['h', 'x', 'y', 'z', 's', 't']
+        PARAM_1Q = ['rx', 'ry', 'rz']
+        GATE_2Q = ['cnot', 'cz', 'swap']
+
+        for trial in range(25):
+            n_ops = int(rng.integers(40, 81))
+            piano = []
+            for _ in range(n_ops):
+                kind = rng.choice(['fixed1q', 'param1q', 'gate2q', 'toffoli'],
+                                   p=[0.35, 0.35, 0.25, 0.05])
+                if kind == 'fixed1q':
+                    piano.append((rng.choice(FIXED_1Q), int(rng.integers(n_wires))))
+                elif kind == 'param1q':
+                    piano.append((rng.choice(PARAM_1Q), int(rng.integers(n_wires)),
+                                   float(rng.uniform(0, 2 * np.pi))))
+                elif kind == 'gate2q':
+                    a, b = rng.choice(n_wires, 2, replace=False)
+                    piano.append((rng.choice(GATE_2Q), int(a), int(b)))
+                else:
+                    a, b, c = rng.choice(n_wires, 3, replace=False)
+                    piano.append(('toffoli', int(a), int(b), int(c)))
+
+            def circuit(piano=piano):
+                for op in piano:
+                    name = op[0]
+                    if name == 'h': qml.Hadamard(wires=op[1])
+                    elif name == 'x': qml.PauliX(wires=op[1])
+                    elif name == 'y': qml.PauliY(wires=op[1])
+                    elif name == 'z': qml.PauliZ(wires=op[1])
+                    elif name == 's': qml.S(wires=op[1])
+                    elif name == 't': qml.T(wires=op[1])
+                    elif name == 'rx': qml.RX(op[2], wires=op[1])
+                    elif name == 'ry': qml.RY(op[2], wires=op[1])
+                    elif name == 'rz': qml.RZ(op[2], wires=op[1])
+                    elif name == 'cnot': qml.CNOT(wires=[op[1], op[2]])
+                    elif name == 'cz': qml.CZ(wires=[op[1], op[2]])
+                    elif name == 'swap': qml.SWAP(wires=[op[1], op[2]])
+                    elif name == 'toffoli': qml.Toffoli(wires=[op[1], op[2], op[3]])
+                return qml.probs(wires=range(n_wires))
+
+            qnode = qml.QNode(circuit, dev)
+            ref = np.asarray(qnode())
+            _, ours = run_pennylane_circuit(qnode, use_float32=False)
+            assert np.allclose(ref, ours, atol=1e-6), f"trial {trial} mismatch, piano={piano}"
+
     def test_non_monotonic_wire_order_bare_tape(self):
         # Same fix, tape (not QNode) input path.
         import pennylane as qml
