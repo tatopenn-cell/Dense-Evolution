@@ -14,6 +14,8 @@ genuinely stochastic across independent runs -- is preserved here as a
 real, CI-enforced test; both original scripts have been deleted.
 """
 import numpy as np
+import jax
+import jax.numpy as jnp
 
 from dense_evolution import DenseSVSimulator, NoiseModel, QASMParser, QuantumTranspiler
 
@@ -47,18 +49,37 @@ class TestFullPipelineIntegration:
         prob_ideale = sim_ideale.get_probabilities()
         assert abs(float(np.sum(prob_ideale)) - 1.0) < 1e-9
 
-        sim_noisy1 = DenseSVSimulator(n_qubits)
-        sim_noisy1.run_circuit_jit(tuples)
-        sim_noisy1.sv = NoiseModel.apply_to_sv(sim_noisy1.sv, n_qubits, model='amplitude_damping', p=0.15)
-        prob_noisy1 = sim_noisy1.get_probabilities()
+        # Kraus noise must be genuinely stochastic: independent applications
+        # of the same channel to the same clean state must not all produce
+        # identical output. Regression note: a single pair of draws used to
+        # be enough to show this (pre-fix, `amplitude_damping` fired its
+        # decay branch with a flat probability independent of the qubit's
+        # actual |1> population -- see NoiseModel.apply_to_sv's docstring).
+        # After that Born-rule fix, THIS specific circuit's post-rotation
+        # state turns out to be sparse (only 4 of the 64 basis states have
+        # any amplitude at all -- H+CX chain gives a 2-branch cat state,
+        # and RX/RY only ever double the branch count, never spread over
+        # the full space), so most of the per-qubit random draws compare
+        # against an exactly-zero decay probability and can never fire --
+        # only ~12 of the 192 draws across all 6 qubits are "live" at all.
+        # Measured directly (500 trials, gamma=0.15): the single most
+        # common outcome (no visible decay anywhere) occurs ~72% of the
+        # time, so a bare 2-trial comparison collides more than half the
+        # time -- a real, now-fixed CI flake, not a hypothetical one (it
+        # reproduced on this exact seed-free path in GitHub Actions CI).
+        # N=80 independent draws, asserting they are not ALL identical,
+        # keeps the same physical check with a false-flake probability of
+        # roughly 0.72**80 ~ 1e-12 -- functionally never, without needing
+        # to change gamma or the circuit's structural assertions above.
+        prob_trials = []
+        for trial_seed in range(80):
+            sv_trial = NoiseModel.apply_to_sv(
+                sim_ideale.sv, n_qubits, model='amplitude_damping', p=0.15,
+                jax_key=jax.random.PRNGKey(trial_seed),
+            )
+            prob_trials.append(np.asarray(jnp.abs(sv_trial) ** 2))
 
-        sim_noisy2 = DenseSVSimulator(n_qubits)
-        sim_noisy2.run_circuit_jit(tuples)
-        sim_noisy2.sv = NoiseModel.apply_to_sv(sim_noisy2.sv, n_qubits, model='amplitude_damping', p=0.15)
-        prob_noisy2 = sim_noisy2.get_probabilities()
-
-        # Kraus noise must be genuinely stochastic: two independent
-        # applications of the same channel to the same clean state must
-        # not produce identical output.
-        stochastic_spread = float(np.linalg.norm(prob_noisy1 - prob_noisy2))
-        assert stochastic_spread > 1e-12
+        all_identical = all(
+            np.allclose(prob_trials[0], p, atol=1e-12) for p in prob_trials[1:]
+        )
+        assert not all_identical
