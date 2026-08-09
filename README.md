@@ -135,7 +135,7 @@ dense_evolution/
 ├── simulator.py      DenseSVSimulator · run_batch_jit · vmap batch VQE
 ├── mps.py            MPSSimulator — matrix-product-state backend, JAX-backed
 ├── autodiff.py        circuit_to_energy_fn — the real, public VQE gradient engine
-├── mitigation.py      Zero-Noise Extrapolation — richardson_extrapolate, zero_noise_extrapolation, zne_density_matrix (+ jit variants)
+├── mitigation.py      Zero-Noise Extrapolation — richardson_extrapolate, zero_noise_extrapolation, zne_density_matrix, jsd_predictive_zne_density_matrix (+ jit variants)
 ├── interop.py         run_qiskit_circuit / run_pennylane_circuit / from_qiskit / from_pennylane
 ├── observables.py     Pauli-string expectation values, O(2ⁿ) direct from a statevector
 ├── measurement.py     statevector → finite-shot counts, sampling helpers
@@ -182,6 +182,7 @@ legacy/dash.py                                      original Colab notebook, ref
 | **Parametric Batch JIT** | `run_batch_jit()` evaluates full parameter grids in one `jax.vmap` + `jax.jit` call |
 | **Circuit Chunking** | Fixed-size JIT blocks eliminate tracer overhead on 1000+ gate circuits |
 | **Kraus Noise Channels** | `depolarizing` `amplitude_damping` `phase_damping` `bitflip` `combined` — stochastic, O(2ⁿ) cost |
+| **Zero-Noise Extrapolation** | `mitigation.py` — `zne_density_matrix` (Smolin-Gambetta-Smith physical projection), `jsd_predictive_zne_density_matrix` (adaptive, photon-loss-validated), `uhlmann_fidelity` |
 | **VQE + ADAM** | Hellmann-Feynman gradient · positional parameter injection into any OpenQASM 2.0 circuit |
 | **Anti-OOM Engine** | `SafeMemoryGuard` blocks execution before JAX raises `RESOURCE_EXHAUSTED` |
 | **Predictive Healing** | `healing.py` — Φ_AB alignment, dynamic vector, Σ-sync, `MemoryReflectionEngine` |
