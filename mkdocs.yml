@@ -111,6 +111,20 @@ nav:
       - Fermions (Majorana Jordan-Wigner): api/fermions.md
       - Entropy (partial trace, mutual information): api/entropy.md
       - Trotter (Hamiltonian evolution as gates): api/trotter.md
+      - "Dashboard Core — Wormhole (SYK teleportation)": api/dashboard_core_wormhole.md
+      - "Dashboard Core — VQE": api/dashboard_core_vqe.md
+      - "Dashboard Core — Hamiltonians": api/dashboard_core_hamiltonians.md
+      - "Dashboard Core — QM/MM": api/dashboard_core_qmmm.md
+      - "Dashboard Core — Mitigation (ZNE panel)": api/dashboard_core_mitigation.md
+      - "Dashboard Core — Vector Healing (healing panel)": api/dashboard_core_vector_healing.md
+      - "Dashboard Core — Engine": api/dashboard_core_engine.md
+      - "Dashboard Core — QASM Library": api/dashboard_core_qasm_library.md
+      - "Dashboard Core — System Limits": api/dashboard_core_system_limits.md
+      - "Dashboard Core — Circuit Diagram": api/dashboard_core_circuit_diagram.md
+      - "Dashboard Core — State Visuals": api/dashboard_core_state_visuals.md
+      - "Dashboard Core — Visuals": api/dashboard_core_visuals.md
+      - "Dashboard Core — Graphical Builder": api/dashboard_core_graphical_builder.md
+      - "Dashboard Core — Circuit Builder Component": api/dashboard_core_circuit_builder_component.md
   - Changelog: changelog.md
   - Contributing: contributing.md
   - License: LICENSE.md

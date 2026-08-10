@@ -47,7 +47,7 @@ class VectorHealingResult:
     reconstruction_error: float   # mean per-step norm of (healed - sanitized) vectors
 
 
-def run_vector_healing(vectors, radius_baseline: Optional[int] = None) -> VectorHealingResult:
+def run_vector_healing(vectors: np.ndarray, radius_baseline: Optional[int] = None) -> VectorHealingResult:
     """Heal a noisy (n_steps, dim) vector sequence: per step, a Phi-Trigger
     (dense_evolution.healing) decides whether the change from a local
     baseline looks like genuine dynamics (kept as-is) or static noise
