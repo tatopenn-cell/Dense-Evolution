@@ -187,6 +187,7 @@ legacy/dash.py                                      original Colab notebook, ref
 | **Anti-OOM Engine** | `SafeMemoryGuard` blocks execution before JAX raises `RESOURCE_EXHAUSTED` |
 | **Predictive Healing** | `healing.py` — Φ_AB alignment, dynamic vector, Σ-sync, `MemoryReflectionEngine` |
 | **Vector Sequence Healing** | `ia_utils/` — `median_healing`, `enhanced_dense_healing_hybrid` — NaN/Inf-safe, lazy JAX import |
+| **Adversarial Robustness Testing** | `ia_utils.adversarial_vector_attack.craft_adversarial_healing_perturbation` — PGD-style minimal perturbation, flips the healing Phi-Trigger either direction |
 | **Backend Agnostic** | NumPy CPU · JAX XLA CPU/TPU · CuPy CUDA — runtime selection, zero code changes |
 | **Live Dashboard** | 8-panel ipywidgets telemetry: probability, VQE energy, entropy, purity, gradient, noise, θ-correction, Pearson heatmap |
 
@@ -314,6 +315,25 @@ healed, metadata = enhanced_dense_healing_hybrid(vettori, radius_baseline=None)
 ```
 
 See **IA Utils — Vector Sequence Healing** above for details.
+
+### `ia_utils.adversarial_vector_attack`
+
+A gradient-based (PGD-style) stress test for `enhanced_dense_healing_hybrid`'s Phi-Trigger decision -- crafts the *minimal* perturbation, within an L2 epsilon-ball, that flips whether a given vector sequence gets treated as "dynamic" (passed through unhealed) or "static" (median-replaced). Adapted from IGME's chained-differentiable-attack idea ([arXiv:2607.27465](https://arxiv.org/abs/2607.27465), He & Zhang), applied here to vector sequences instead of image segmentation.
+
+```python
+from ia_utils.adversarial_vector_attack import craft_adversarial_healing_perturbation
+
+result = craft_adversarial_healing_perturbation(
+    vettori, target_idx=10,
+    epsilon=0.1,               # L2 budget for the perturbation
+    direction="flip_to_dynamic",  # or "flip_to_static"
+)
+result["success"]            # bool: did the perturbation flip the trigger?
+result["perturbed_vettori"]  # the adversarial sequence
+result["perturbation_norm"]  # actual L2 norm used (0.0 if the gradient saturated -- reported, not hidden)
+```
+
+Two directions of attack: `flip_to_dynamic` (evade -- make static-looking corruption pass through unhealed) or `flip_to_static` (suppress -- make genuine dynamic signal get wrongly median-replaced). Use this to check whether `enhanced_dense_healing_hybrid`'s trigger is robust at your own operating point before relying on it in a pipeline where inputs aren't trusted.
 
 ---
 
