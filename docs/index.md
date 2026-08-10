@@ -31,6 +31,12 @@ Using this in academic work? See [CITATION.cff](https://github.com/tatopenn-cell
   (`calculate_delta_preemp`, `calculate_vettore_dinamico`, ...) ZNE's healing-adapted branch
   is built on, and that `dashboard_core.run_vector_healing` / `dense_evolution_vector_healing`
   (below) apply to real noisy vector sequences.
+- **[`ia_utils.vector_healing`](api/ia_utils_vector_healing.md)** — `median_healing` /
+  `enhanced_dense_healing_hybrid`, applying the Phi-Trigger primitives above to real
+  `(n_steps, dim)` vector sequences (VQE/MD telemetry, embeddings), NaN/Inf-safe.
+- **[`ia_utils.adversarial_vector_attack`](api/ia_utils_adversarial_vector_attack.md)** — a
+  gradient-based (PGD-style) robustness test that crafts the minimal perturbation flipping
+  `enhanced_dense_healing_hybrid`'s Phi-Trigger decision either direction.
 - **[`NoiseModel`](api/registry.md)** — Kraus-channel noise (depolarizing, bitflip,
   phaseflip, amplitude damping, and a combined worst-case model), JAX- and NumPy-native.
 - **Interop** with [Qiskit and PennyLane](api/interop.md), and [autodiff](api/autodiff.md)
@@ -78,6 +84,11 @@ flowchart LR
         mitigation["mitigation<br/>(ZNE)"]
     end
 
+    subgraph iautils["ia_utils (separate top-level package)"]
+        vhealing["vector_healing<br/>(median_healing, enhanced_dense_healing_hybrid)"]
+        advattack["adversarial_vector_attack<br/>(craft_adversarial_healing_perturbation)"]
+    end
+
     gates --> registry
     simulator --> registry
     simulator --> gates
@@ -94,6 +105,8 @@ flowchart LR
     autodiff --> compiler
     autodiff --> registry
     mitigation --> healing
+    vhealing -.->|lazy import| healing
+    advattack --> healing
 ```
 
 ## Where to start
