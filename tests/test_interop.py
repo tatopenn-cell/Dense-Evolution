@@ -6,6 +6,7 @@ class so this file stays green in environments without qiskit/pennylane
 installed, on top of CI installing both explicitly.
 """
 import sys
+import warnings
 
 import numpy as np
 import pytest
@@ -44,6 +45,42 @@ class TestImportSafety:
         monkeypatch.setattr(interop, 'HAS_PENNYLANE', False)
         with pytest.raises(ImportError, match='pennylane'):
             from_pennylane(None)
+
+
+# ─────────────────────────────────────────────────────────────
+# macOS Qiskit segfault warning
+#
+# The warning logic is gated purely on HAS_QISKIT + sys.platform, both of
+# which are monkeypatched here — doesn't require qiskit to actually be
+# importable, so this runs the same on every platform/CI environment,
+# unlike TestQiskitInterop below.
+# ─────────────────────────────────────────────────────────────
+
+class TestMacOSQiskitWarning:
+
+    @pytest.fixture(autouse=True)
+    def _reset_warning_flag(self, monkeypatch):
+        monkeypatch.setattr(interop, 'HAS_QISKIT', True)
+        monkeypatch.setattr(interop, '_macos_qiskit_warning_shown', False)
+
+    def test_warns_on_darwin(self, monkeypatch):
+        monkeypatch.setattr(sys, 'platform', 'darwin')
+        with pytest.warns(RuntimeWarning, match='segfault'):
+            interop._require_qiskit()
+
+    def test_no_warning_on_non_darwin(self, monkeypatch):
+        monkeypatch.setattr(sys, 'platform', 'linux')
+        with warnings.catch_warnings():
+            warnings.simplefilter('error')
+            interop._require_qiskit()  # would raise if it warned
+
+    def test_warns_only_once_per_process(self, monkeypatch):
+        monkeypatch.setattr(sys, 'platform', 'darwin')
+        with pytest.warns(RuntimeWarning, match='segfault'):
+            interop._require_qiskit()
+        with warnings.catch_warnings():
+            warnings.simplefilter('error')
+            interop._require_qiskit()  # second call: flag already set, no warning
 
 
 # ─────────────────────────────────────────────────────────────

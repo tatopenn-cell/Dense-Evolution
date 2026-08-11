@@ -1,3 +1,5 @@
+import sys
+import warnings
 from typing import Optional, Tuple
 import numpy as np
 
@@ -16,12 +18,26 @@ try:
 except ImportError:
     HAS_PENNYLANE = False
 
+_macos_qiskit_warning_shown = False
+
 
 def _require_qiskit():
     if not HAS_QISKIT:
         raise ImportError(
             "Qiskit interop requires the 'qiskit' package. "
             "Install it with: pip install dense-evolution[qiskit]")
+    global _macos_qiskit_warning_shown
+    if sys.platform == 'darwin' and not _macos_qiskit_warning_shown:
+        _macos_qiskit_warning_shown = True
+        warnings.warn(
+            "Qiskit's own QuantumCircuit.__init__ is known to segfault the "
+            "whole process on macOS/arm64 (reproduced on GitHub Actions "
+            "arm64 runners, Python 3.10-3.12) -- this is an upstream Qiskit "
+            "bug, not something dense-evolution can fix from its side. If "
+            "you hit a crash, consider the PennyLane bridge instead "
+            "(pip install dense-evolution[pennylane]), which does not "
+            "construct Qiskit objects and has no known issue of this kind.",
+            RuntimeWarning, stacklevel=2)
 
 
 def _require_pennylane():
