@@ -41,7 +41,7 @@
 
 📖 **[Full documentation, API reference, and worked examples →](https://tatopenn-cell.github.io/Dense-Evolution/)**
 
-A Streamlit dashboard (`app_dashboard.py`) provides live telemetry across 8 panels per simulation run — Quantum Simulator and Vector Healing tabs, run locally with `streamlit run app_dashboard.py`. `legacy/dash.py` is the original Google Colab notebook this was ported from, kept for reference only (not installable — see the file header).
+A Streamlit dashboard (`app_dashboard.py`) is a Quantum-Composer-style circuit editor — Graphical Builder, Circuit, Statevector, Probabilities, and Q-sphere tabs, every one backed by a real `DenseSVSimulator` run — launched locally with `streamlit run app_dashboard.py`. VQE, real molecular Hamiltonians, ZNE mitigation, QM/MM forces, MD trajectories, and vector healing live in the Composer web app's local kernel (`local_site/app/server.py`, see "Composer" below) and its MCP server (`mcp_server/`, see "MCP Server" below), not in the Streamlit dashboard. `legacy/dash.py` is the original Google Colab notebook this was ported from, kept for reference only (not installable — see the file header).
 
 ---
 
@@ -154,22 +154,36 @@ dense_evolution/
 ia_utils/
 └── vector_healing.py   median_healing · enhanced_dense_healing_hybrid (NaN/Inf-safe, lazy JAX import)
 
-dashboard_core/ + app_dashboard.py + ui_pages/     Streamlit dashboard — VQE engine · QM/MM · MD simulation · 3D wavefunction
-dashboard_core/wormhole.py                          binary sparse SYK model — traversable-wormhole-inspired teleportation (see "MCP Server" below)
-local_site/app/server.py                           Composer's local FastAPI compute kernel (see "Composer" below)
-mcp_server/server.py                                dense_evolution_mcp — MCP adapter over the Composer kernel (see "MCP Server" below)
-research/wormhole_syk.py                            the original wormhole research reproduction + its own verification suite, reference only (not installed as a module — see research/wormhole_syk.md)
-legacy/dash.py                                      original Colab notebook, reference only (not installed as a module)
+dashboard_core/
+├── engine.py                     run_circuit_from_qasm — real DenseSVSimulator execution, shared by app_dashboard.py and local_site/app/server.py
+├── graphical_builder.py          drag-and-drop grid ops → native gate tuples (app_dashboard.py's Graphical Builder tab)
+├── circuit_builder_component.py  Streamlit component backing that grid
+├── circuit_diagram.py            plain matplotlib circuit diagrams (no Qiskit QuantumCircuit ever constructed)
+├── state_visuals.py              native statevector histogram / Bloch / Q-sphere rendering
+├── visuals.py                    circuit/histogram/qsphere/Bloch figure wrappers used by app_dashboard.py
+├── qasm_library.py               preset OpenQASM circuits (Bell, GHZ, ...)
+├── system_limits.py              RAM-based safe qubit ceiling
+├── hamiltonians.py                real molecular Hamiltonians (PennyLane Hartree-Fock) — served by local_site/app/server.py, not app_dashboard.py
+├── vqe.py                         VQE engine — served by local_site/app/server.py, not app_dashboard.py
+├── qmmm.py                        Hellmann-Feynman QM/MM forces + MD trajectories — served by local_site/app/server.py, not app_dashboard.py
+├── mitigation.py                  Zero-Noise Extrapolation (statevector + density-matrix) — served by local_site/app/server.py, not app_dashboard.py
+├── vector_healing.py              dense_evolution.healing / ia_utils.vector_healing bridge — served by the MCP server, not app_dashboard.py
+└── wormhole.py                    binary sparse SYK model — traversable-wormhole-inspired teleportation (see "MCP Server" below)
+app_dashboard.py                   Streamlit "Quantum Composer" clone — Graphical Builder/Circuit/Statevector/Probabilities/Q-sphere tabs only, `streamlit run app_dashboard.py`
+local_site/app/server.py           Composer's local FastAPI compute kernel — full feature set: VQE, molecular Hamiltonians, QM/MM, MD, mitigation, wormhole teleportation, vector healing (see "Composer" below)
+mcp_server/server.py               dense_evolution_mcp — MCP adapter over the Composer kernel (see "MCP Server" below)
+research/wormhole_syk.py           the original wormhole research reproduction + its own verification suite, reference only (not installed as a module — see research/wormhole_syk.md)
+legacy/dash.py                     original Colab notebook, reference only (not installed as a module)
 ```
 
-**Data flow per run:**
+**Data flow per run (`app_dashboard.py`):**
 
 ```
-▶ Run
-└─ core_calcolo_quantistico()        parse → JIT execute → apply noise
-    ├─ ottimizza_vqe()               Hellmann-Feynman AD → ADAM → df_vqe_telemetry
-    ├─ run_md_simulation_dummy()     QM/MM dynamics → df_md_telemetry + Pearson matrix
-    └─ build_panel_*(res)            matplotlib figure → display()
+▶ Esegui
+└─ dc.run_circuit_from_qasm()        dense_evolution QASMParser → DenseSVSimulator (JIT) → shots
+    ├─ dc.draw_circuit_figure()      Circuit tab
+    ├─ dc.histogram_figure()         Probabilities tab
+    └─ dc.qsphere_figure()           Q-sphere tab
 ```
 
 ---
@@ -189,7 +203,7 @@ legacy/dash.py                                      original Colab notebook, ref
 | **Vector Sequence Healing** | `ia_utils/` — `median_healing`, `enhanced_dense_healing_hybrid` — NaN/Inf-safe, lazy JAX import |
 | **Adversarial Robustness Testing** | `ia_utils.adversarial_vector_attack.craft_adversarial_healing_perturbation` — PGD-style minimal perturbation, flips the healing Phi-Trigger either direction |
 | **Backend Agnostic** | NumPy CPU · JAX XLA CPU/TPU · CuPy CUDA — runtime selection, zero code changes |
-| **Live Dashboard** | 8-panel ipywidgets telemetry: probability, VQE energy, entropy, purity, gradient, noise, θ-correction, Pearson heatmap |
+| **Live Dashboard** | `app_dashboard.py` — Streamlit Quantum-Composer clone, 5 tabs (Graphical Builder/Circuit/Statevector/Probabilities/Q-sphere) per simulation run |
 
 ---
 
@@ -718,16 +732,17 @@ claude mcp add dense_evolution -- dense-evolution mcp
 
 ---
 
-## ▍ Dashboard Panels
+## ▍ Dashboard Panels (`app_dashboard.py`)
 
-| Panel | Contents |
+| Tab | Contents |
 |---|---|
-| **Overview** | R0 header · R1 P(\|n⟩) histogram + Top-12 states · R2 wavefunction helix 3D + metrics table · R3 noise analysis + shot histogram · R4–R6 VQE telemetry ×3 · R7 Pearson heatmap |
-| **Fisica Stato** | Bloch projection · Schmidt rank · coherence vector |
-| **Mosaico** | 2D probability density map up to 1008 qubits |
-| **VQE Results** | 6-subplot: energy convergence, entropy, purity, ‖∇L‖, noise factor, θ-correction |
-| **MD Results** | 6-subplot MD telemetry + masked Pearson correlation heatmap |
-| **Performance** | Gate throughput · JIT compile time · RAM usage |
+| **Graphical Builder** | Drag-and-drop gate grid (`dashboard_core.mount_circuit_builder`) — loads straight into the Circuit editor as OpenQASM |
+| **Circuit** | Native matplotlib circuit diagram of the parsed OpenQASM (`dashboard_core.draw_circuit_figure`) |
+| **Statevector** | Full complex amplitude table (real/imaginary/magnitude/phase) for every basis state above threshold |
+| **Probabilities** | Shot histogram sampled from the computed statevector (`dashboard_core.histogram_figure`) |
+| **Q-sphere** | Q-sphere rendering of the statevector (`dashboard_core.qsphere_figure`) |
+
+VQE Results, MD Results, and Performance-style telemetry panels (energy convergence, QM/MM trajectories, Pearson heatmaps) are not part of this Streamlit dashboard — that functionality lives in the Composer web app (see "Composer" below), driven by the same `dashboard_core` VQE/QM/MM/mitigation modules through `local_site/app/server.py`.
 
 ---
 
