@@ -1,5 +1,5 @@
-site_name: Dense-Evolution
-site_description: High-performance NISQ statevector quantum circuit simulator, JAX XLA-accelerated.
+site_name: Dense-Evolution — JAX NISQ Quantum Circuit Simulator
+site_description: Dense-Evolution is a high-performance, JAX XLA-accelerated NISQ statevector quantum circuit simulator for VQE, QML, and Zero-Noise Extrapolation workloads.
 site_url: https://tatopenn-cell.github.io/Dense-Evolution/
 repo_url: https://github.com/tatopenn-cell/Dense-Evolution
 repo_name: tatopenn-cell/Dense-Evolution
@@ -29,6 +29,7 @@ theme:
     - navigation.tabs
     - navigation.top
     - navigation.indexes
+    - navigation.path
     - search.suggest
     - search.highlight
     - content.code.copy
@@ -55,6 +56,9 @@ markdown_extensions:
       alternate_style: true
   - toc:
       permalink: true
+
+extra_css:
+  - assets/extra.css
 
 extra_javascript:
   - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
