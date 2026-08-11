@@ -68,6 +68,8 @@ git clone https://github.com/tatopenn-cell/Dense-Evolution.git
 cd Dense-Evolution && pip install -e .[full]
 ```
 
+> **macOS note on `dense-evolution[qiskit]`**: Qiskit's own `QuantumCircuit.__init__` is known to segfault the whole process on macOS/arm64 (see v8.1.43 below for the full reproduction — an upstream Qiskit bug, not something Dense-Evolution can fix from its side). `dense_evolution/interop.py` now warns (`RuntimeWarning`, once per process) the first time you touch the Qiskit bridge on `sys.platform == 'darwin'`, but it does not block — some Qiskit/macOS combinations may work fine. If you hit a crash, `pip install dense-evolution[pennylane]` gives the same circuit-interop functionality without constructing any Qiskit object.
+
 **Google Colab (3 lines):**
 
 ```python
