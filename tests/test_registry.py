@@ -11,7 +11,7 @@ import pytest
 import jax
 import jax.numpy as jnp
 
-from dense_evolution import NoiseModel, NoiseSpec
+from dense_evolution import NoiseModel, NoiseSpec, DenseSVSimulator, pauli_expectation
 
 # ─────────────────────────────────────────────────────────────
 # NOISE MODEL (Esempio 2 dal README)
@@ -313,3 +313,67 @@ class TestNoiseSpecPyTree:
         spec = NoiseSpec(model='depolarizing', p=0.1, jax_key=jax.random.PRNGKey(0))
         doubled = jax.tree_util.tree_map(lambda x: x * 2 if jnp.ndim(x) == 0 else x, spec)
         assert doubled.p == pytest.approx(0.2)
+
+
+class TestNoiseModelEntangledStateCorrectness:
+    """Regression tests for a real bug: every apply_to_sv channel used to
+    draw dim/2 INDEPENDENT fire/no-fire decisions per qubit per shot --
+    one per amplitude pair, i.e. one per branch of the OTHER n-1 qubits --
+    instead of ONE decision per qubit per shot applied uniformly across
+    the whole statevector (the convention STIM's DEPOLARIZE1(p)/X_ERROR(p)
+    use). Inert on a product state (only one branch has nonzero
+    amplitude), but on an entangled state it over-decoheres any
+    coherence-sensitive (off-diagonal) observable -- confirmed up to
+    hundreds of sigma vs an exact density-matrix Kraus-sum reference on a
+    4-qubit GHZ state's XXXX expectation. See registry.py's
+    NoiseModel.apply_to_sv comments above the 'depolarizing' branch for
+    the full root-cause writeup."""
+
+    @staticmethod
+    def _ghz(n):
+        sim = DenseSVSimulator(n)
+        ops = [('h', 0)] + [('cx', 0, q) for q in range(1, n)]
+        sim.run_circuit(ops)
+        return sim.get_statevector()
+
+    def test_bitflip_leaves_ghz_xxx_exactly_invariant(self):
+        # X commutes with the X observable, so a single-qubit bit-flip
+        # channel must leave <X^(x)n> EXACTLY 1.0 for a GHZ state, on
+        # EVERY single trajectory (not just on average): X^(x)n maps
+        # GHZ's two basis states |a> and |~a> into each other regardless
+        # of which qubits flipped, so (|a>+|~a>)/sqrt2 is always an
+        # eigenstate of X^(x)n with eigenvalue +1 after any subset of bit
+        # flips. Zero variance under CORRECT physics -- the old
+        # per-branch-independent bug broke this badly (measured
+        # <XXXX> down to 0.31 at p=0.15 on a fresh run before this fix,
+        # a 98-210 sigma discrepancy vs the true invariant value).
+        n = 4
+        sv0 = self._ghz(n)
+        rng = np.random.default_rng(123)
+        observable = 'X' * n
+        for p in (0.1, 0.3):
+            for _ in range(200):
+                sv = NoiseModel.apply_to_sv(sv0.copy(), n, 'bitflip', p, rng=rng)
+                val = pauli_expectation(sv, observable).real
+                assert val == pytest.approx(1.0, abs=1e-8)
+
+    def test_depolarizing_matches_exact_density_matrix_on_entangled_state(self):
+        # <X^(x)n> under single-qubit depolarizing(p) applied to every
+        # qubit of a GHZ state has the closed form (1-4p/3)^n (weight-n
+        # Pauli Bloch shrinkage). The old per-branch-independent sampling
+        # measured ~0.27 vs the true ~0.41 at p=0.15 on GHZ-4 (19-33
+        # sigma) -- tight enough here (abs=0.03) to catch a ~2x
+        # effective-noise-strength error, loose enough for the Monte
+        # Carlo variance of 20000 shots.
+        n = 4
+        sv0 = self._ghz(n)
+        p = 0.15
+        expected = (1.0 - 4.0 * p / 3.0) ** n
+        rng = np.random.default_rng(321)
+        n_trials = 20000
+        observable = 'X' * n
+        vals = np.empty(n_trials)
+        for i in range(n_trials):
+            sv = NoiseModel.apply_to_sv(sv0.copy(), n, 'depolarizing', p, rng=rng)
+            vals[i] = pauli_expectation(sv, observable).real
+        assert vals.mean() == pytest.approx(expected, abs=0.03)

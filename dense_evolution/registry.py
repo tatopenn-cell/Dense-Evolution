@@ -266,36 +266,54 @@ class NoiseModel:
         for q in target_qubits:
             # ── correct index pair construction ───────────────────────
             idx_0, idx_1 = _qubit_index_pairs(dim, q)
-            half = len(idx_0)   # == dim // 2
-
-            # ── draw random numbers ───────────────────────────────────
-            if is_jax:
-                key, subkey = jax.random.split(key)
-                r = jax.random.uniform(subkey, shape=(half,), minval=0.0, maxval=1.0)
-            else:
-                r = rng.random(half)            # uniform [0, 1)
 
             # ── channel application ───────────────────────────────────
+            #
+            # BUG FIX (all branches below): every channel used to draw
+            # `half` = 2**(n-1) INDEPENDENT fire/no-fire (and, for
+            # depolarizing, Pauli-choice) decisions per qubit per shot --
+            # one per computational-basis amplitude pair, i.e. one per
+            # branch of the OTHER n-1 qubits -- instead of ONE decision
+            # per qubit per shot applied uniformly across the whole
+            # statevector, which is what a correct Kraus-channel
+            # unraveling requires (the convention STIM's DEPOLARIZE1(p)/
+            # X_ERROR(p)/Z_ERROR(p) use: one Pauli draw per qubit per
+            # shot, applied globally). A single-qubit noise event cannot
+            # be correlated with what value the *other* qubits happen to
+            # hold in superposition -- that correlation is exactly what
+            # per-branch-independent sampling introduces.
+            #
+            # On a product state this was inert (only one branch has
+            # nonzero amplitude). On an entangled/superposed state it
+            # acts like measuring the other qubits in the computational
+            # basis before deciding the error, over-decohering any
+            # observable sensitive to coherence between branches --
+            # confirmed for 'depolarizing' at 17-33 sigma vs an exact
+            # density-matrix Kraus-sum reference on a GHZ-4 state's XXXX
+            # expectation (equivalent to a true depolarizing channel at
+            # p_eff ~2.2-2.5x nominal p), and for 'bitflip' even more
+            # starkly: <XXXX> must be EXACTLY invariant under a bit-flip
+            # channel (X commutes with the X observable) yet the old
+            # per-branch sampling dropped it from 1.0 to 0.31 at p=0.15
+            # (98-210 sigma). Fixed by drawing one scalar decision per
+            # qubit per shot and applying it identically to every branch
+            # (idx_0/idx_1 index the qubit's own two values; the fixed
+            # code touches them as whole arrays, not element-by-element).
             if model == 'depolarizing':
                 # Three equiprobable Pauli errors GIVEN that the channel
-                # fired (fire = r < p already gates the overall p rate) —
-                # the choice AMONG X/Y/Z must be a uniform 1-in-3 pick,
-                # independent of p. ch is drawn uniform on [0,1), so the
-                # thresholds here are fixed at 1/3 and 2/3, not p/3 and
-                # 2p/3 (that was comparing a full-range [0,1) draw against
-                # thresholds scaled for a [0,p) draw, skewing the outcome
-                # heavily toward Z for any p < 1 — verified directly:
-                # p=0.3 gave P(X|fire)=P(Y|fire)=10%, P(Z|fire)=80% instead
-                # of the correct 33.3% each).
+                # fired -- the choice AMONG X/Y/Z must be a uniform
+                # 1-in-3 pick, independent of p, so ch's thresholds are
+                # fixed at 1/3 and 2/3 (see historical note below).
                 THIRD = 1.0 / 3.0
                 if is_jax:
-                    key, subkey2 = jax.random.split(key)
-                    ch = jax.random.uniform(subkey2, shape=(half,), minval=0.0, maxval=1.0)
-                    v0, v1      = sv_out[idx_0], sv_out[idx_1]
-                    fire        = r < p
-                    x_gate      = fire & (ch < THIRD)
-                    y_gate      = fire & (ch >= THIRD) & (ch < 2.0 * THIRD)
-                    z_gate      = fire & (ch >= 2.0 * THIRD)
+                    key, sk1, sk2 = jax.random.split(key, 3)
+                    r  = jax.random.uniform(sk1, shape=(), minval=0.0, maxval=1.0)
+                    ch = jax.random.uniform(sk2, shape=(), minval=0.0, maxval=1.0)
+                    fire   = r < p
+                    x_gate = fire & (ch < THIRD)
+                    y_gate = fire & (ch >= THIRD) & (ch < 2.0 * THIRD)
+                    z_gate = fire & (ch >= 2.0 * THIRD)
+                    v0, v1 = sv_out[idx_0], sv_out[idx_1]
                     new_v0 = jnp.where(x_gate,  v1,
                              jnp.where(y_gate, -1j * v1, v0))
                     new_v1 = jnp.where(x_gate,  v0,
@@ -304,98 +322,110 @@ class NoiseModel:
                     sv_out = sv_out.at[idx_0].set(new_v0)
                     sv_out = sv_out.at[idx_1].set(new_v1)
                 else:
-                    ch     = rng.random(half)
-                    v0, v1 = sv_out[idx_0].copy(), sv_out[idx_1].copy()
-                    fire   = r < p
-                    x_gate = fire & (ch < THIRD)
-                    y_gate = fire & (ch >= THIRD) & (ch < 2.0 * THIRD)
-                    z_gate = fire & (ch >= 2.0 * THIRD)
-                    sv_out[idx_0] = np.where(x_gate,  v1,
-                                    np.where(y_gate, -1j * v1, v0))
-                    sv_out[idx_1] = np.where(x_gate,  v0,
-                                    np.where(y_gate,  1j * v0,
-                                    np.where(z_gate, -v1, v1)))
+                    r  = rng.random()
+                    ch = rng.random()
+                    if r < p:
+                        if ch < THIRD:
+                            sv_out[idx_0], sv_out[idx_1] = sv_out[idx_1].copy(), sv_out[idx_0].copy()
+                        elif ch < 2.0 * THIRD:
+                            v0, v1 = sv_out[idx_0].copy(), sv_out[idx_1].copy()
+                            sv_out[idx_0] = -1j * v1
+                            sv_out[idx_1] =  1j * v0
+                        else:
+                            sv_out[idx_1] = -sv_out[idx_1]
 
             elif model == 'bitflip':
-                # X gate applied with probability p
-                fire = r < p
+                # X gate applied with probability p, once per qubit per
+                # shot, uniformly across the whole statevector.
                 if is_jax:
+                    key, subkey = jax.random.split(key)
+                    r    = jax.random.uniform(subkey, shape=(), minval=0.0, maxval=1.0)
+                    fire = r < p
                     v0, v1 = sv_out[idx_0], sv_out[idx_1]
                     sv_out = sv_out.at[idx_0].set(jnp.where(fire, v1, v0))
                     sv_out = sv_out.at[idx_1].set(jnp.where(fire, v0, v1))
                 else:
-                    v0, v1 = sv_out[idx_0].copy(), sv_out[idx_1].copy()
-                    sv_out[idx_0] = np.where(fire, v1, v0)
-                    sv_out[idx_1] = np.where(fire, v0, v1)
+                    r = rng.random()
+                    if r < p:
+                        sv_out[idx_0], sv_out[idx_1] = sv_out[idx_1].copy(), sv_out[idx_0].copy()
 
             elif model == 'phaseflip':
-                # Z gate applied with probability p:
+                # Z gate applied with probability p, once per qubit per
+                # shot:
                 # Z|0⟩ = |0⟩  →  no change to idx_0 amplitudes
                 # Z|1⟩ = -|1⟩ →  negate idx_1 amplitudes when fired
-                fire = r < p
                 if is_jax:
+                    key, subkey = jax.random.split(key)
+                    r    = jax.random.uniform(subkey, shape=(), minval=0.0, maxval=1.0)
+                    fire = r < p
                     v1     = sv_out[idx_1]
                     sv_out = sv_out.at[idx_1].set(jnp.where(fire, -v1, v1))
                 else:
-                    v1            = sv_out[idx_1].copy()
-                    sv_out[idx_1] = np.where(fire, -v1, v1)
+                    r = rng.random()
+                    if r < p:
+                        sv_out[idx_1] = -sv_out[idx_1]
 
             elif model == 'amplitude_damping':
                 # K0 = [[1, 0], [0, √(1-γ)]]  — no decay
                 # K1 = [[0, √γ], [0, 0]]       — decay |1⟩ → |0⟩
                 #
-                # BUG FIX: this used to fire the decay branch with a flat
-                # probability γ, independent of the qubit's actual
-                # population in |1⟩ (`decay = r < gamma`). Verified
-                # analytically (exact expectation over both branches, no
-                # Monte Carlo sampling noise involved) that this diverges
-                # from the true amplitude-damping Kraus channel for any
-                # state that isn't purely |1⟩ -- up to ~0.13 max density-
-                # matrix-element error at γ=0.5 for an equal
-                # superposition. The correct single-trajectory ("quantum
-                # jump") unraveling fires the decay branch with the
-                # Born-rule probability P(K1) = <psi|K1^dagger K1|psi> =
-                # γ*|v1|^2: a qubit with no |1⟩ population must never
-                # decay, and partial |1⟩ population decays less often
-                # than a flat γ implies. Cross-checked independently
-                # against John Preskill's Ph219/CS219 Chapter 3 (Caltech
-                # lecture notes) -- its own derivation of this channel
-                # (system-environment isometry + partial trace) gives
-                # exactly this K0/K1 pair; the missing piece was always
-                # the state-dependent firing probability, not the Kraus
-                # operators themselves. Verified directly against the
-                # exact (non-stochastic) Kraus map for several
-                # superposition states before trusting this fix.
+                # Single-trajectory ("quantum jump") unraveling: ONE
+                # decay/no-decay decision per qubit per shot, using the
+                # Born-rule probability aggregated over the WHOLE
+                # statevector, P(K1) = <psi|K1^dagger K1|psi> =
+                # γ * Σ_i |v1[i]|^2 (sum over every branch of the other
+                # n-1 qubits, not per branch -- see the per-branch-
+                # sampling bug note above the 'depolarizing' branch).
+                # Cross-checked against John Preskill's Ph219/CS219
+                # Chapter 3 (Caltech lecture notes), whose own derivation
+                # of this channel (system-environment isometry + partial
+                # trace) gives exactly this K0/K1 pair. If it fires, K1
+                # collapses the ENTIRE qubit-q=1 branch onto q=0,
+                # preserving the other qubits' relative amplitudes
+                # (v1[i]/norm, not flattened to unit phase per branch --
+                # the previous per-branch fix only got this right for a
+                # single isolated qubit, where there is only one branch
+                # to preserve). Renormalizing by the GLOBAL P(K1) (or
+                # 1-P(K1) for the no-decay branch) here, not a per-branch
+                # norm, is what a correct sequential multi-qubit
+                # trajectory needs -- the next qubit's Born-rule
+                # probability must be computed on a properly
+                # renormalized state.
                 gamma = float(np.clip(p, 0.0, 1.0))
                 if is_jax:
+                    key, subkey = jax.random.split(key)
+                    r = jax.random.uniform(subkey, shape=(), minval=0.0, maxval=1.0)
                     v0, v1 = sv_out[idx_0], sv_out[idx_1]
-                    p_decay = gamma * jnp.abs(v1) ** 2
-                    decay = r < p_decay
-                    sq_1m_gamma = jnp.sqrt(1.0 - gamma)
-                    p_no_decay = jnp.maximum(1.0 - p_decay, 1e-15)
-                    norm_no_decay = jnp.sqrt(p_no_decay)
-                    # Post-decay state is exactly |0> up to the phase
-                    # v1/|v1| already carried by the amplitude that
-                    # decayed (K1|psi> = sqrt(gamma)*v1 |0>, normalized).
-                    phase_v1 = v1 / (jnp.abs(v1) + 1e-15)
-                    new_v0 = jnp.where(decay, phase_v1, v0 / norm_no_decay)
-                    new_v1 = jnp.where(decay, 0.0 + 0j, v1 * sq_1m_gamma / norm_no_decay)
+                    p1 = jnp.clip(gamma * jnp.sum(jnp.abs(v1) ** 2), 0.0, 1.0)
+                    decay = r < p1
+                    norm_decay    = jnp.sqrt(jnp.maximum(p1, 1e-15))
+                    norm_no_decay = jnp.sqrt(jnp.maximum(1.0 - p1, 1e-15))
+                    new_v0 = jnp.where(decay, v1 * jnp.sqrt(gamma) / norm_decay, v0 / norm_no_decay)
+                    new_v1 = jnp.where(decay, 0.0 + 0j, v1 * jnp.sqrt(1.0 - gamma) / norm_no_decay)
                     sv_out = sv_out.at[idx_0].set(new_v0)
                     sv_out = sv_out.at[idx_1].set(new_v1)
                 else:
-                    v0, v1      = sv_out[idx_0].copy(), sv_out[idx_1].copy()
-                    p_decay     = gamma * np.abs(v1) ** 2
-                    decay       = r < p_decay
-                    sq_1m_gamma = np.sqrt(1.0 - gamma)
-                    p_no_decay  = np.maximum(1.0 - p_decay, 1e-15)
-                    norm_no_decay = np.sqrt(p_no_decay)
-                    phase_v1    = v1 / (np.abs(v1) + 1e-15)
-                    sv_out[idx_0] = np.where(decay, phase_v1, v0 / norm_no_decay)
-                    sv_out[idx_1] = np.where(decay, 0.0 + 0j, v1 * sq_1m_gamma / norm_no_decay)
+                    r = rng.random()
+                    v0, v1 = sv_out[idx_0].copy(), sv_out[idx_1].copy()
+                    p1 = float(np.clip(gamma * np.sum(np.abs(v1) ** 2), 0.0, 1.0))
+                    if r < p1:
+                        norm_decay = np.sqrt(max(p1, 1e-15))
+                        sv_out[idx_0] = v1 * np.sqrt(gamma) / norm_decay
+                        sv_out[idx_1] = 0.0
+                    else:
+                        norm_no_decay = np.sqrt(max(1.0 - p1, 1e-15))
+                        sv_out[idx_0] = v0 / norm_no_decay
+                        sv_out[idx_1] = v1 * np.sqrt(1.0 - gamma) / norm_no_decay
 
             elif model == 'combined':
-                # Worst-case NISQ: depolarizing(p/2) + amplitude_damping(p/3)
-                # applied sequentially on the same qubit.
+                # Worst-case NISQ: depolarizing(p/2) then amplitude_damping(p/3)
+                # applied sequentially on the same qubit, each as a single
+                # per-qubit-per-shot decision (see the notes on the
+                # 'depolarizing' and 'amplitude_damping' branches above --
+                # this sub-channel used to share the same per-branch bug,
+                # plus its own amplitude-damping sub-step never replaced
+                # (only added to) the decayed |0> amplitude and never
+                # renormalized the no-decay branch at all).
                 p_dep   = p * 0.5
                 p_damp  = p * 0.333333
                 THIRD   = 1.0 / 3.0  # see the 'depolarizing' branch above for why
@@ -404,13 +434,13 @@ class NoiseModel:
                 # — depolarizing sub-channel —
                 if is_jax:
                     key, sk1, sk2 = jax.random.split(key, 3)
-                    r_dep = jax.random.uniform(sk1, shape=(half,), minval=0.0, maxval=1.0)
-                    ch    = jax.random.uniform(sk2, shape=(half,), minval=0.0, maxval=1.0)
-                    v0, v1 = sv_out[idx_0], sv_out[idx_1]
+                    r_dep = jax.random.uniform(sk1, shape=(), minval=0.0, maxval=1.0)
+                    ch    = jax.random.uniform(sk2, shape=(), minval=0.0, maxval=1.0)
                     fire   = r_dep < p_dep
                     x_gate = fire & (ch < THIRD)
                     y_gate = fire & (ch >= THIRD) & (ch < 2.0 * THIRD)
                     z_gate = fire & (ch >= 2.0 * THIRD)
+                    v0, v1 = sv_out[idx_0], sv_out[idx_1]
                     new_v0 = jnp.where(x_gate,  v1,
                              jnp.where(y_gate, -1j * v1, v0))
                     new_v1 = jnp.where(x_gate,  v0,
@@ -418,35 +448,41 @@ class NoiseModel:
                              jnp.where(z_gate, -v1, v1)))
                     sv_out = sv_out.at[idx_0].set(new_v0)
                     sv_out = sv_out.at[idx_1].set(new_v1)
-                    # — amplitude_damping sub-channel —
-                    key, sk3   = jax.random.split(key)
-                    r_damp     = jax.random.uniform(sk3, shape=(half,), minval=0.0, maxval=1.0)
-                    decay      = r_damp < p_damp
-                    v0, v1     = sv_out[idx_0], sv_out[idx_1]
-                    sq_g       = jnp.sqrt(p_damp)
-                    sq_1mg     = jnp.sqrt(1.0 - p_damp)
-                    sv_out     = sv_out.at[idx_0].set(jnp.where(decay, v0 + v1 * sq_g, v0))
-                    sv_out     = sv_out.at[idx_1].set(jnp.where(decay, 0.0 + 0j,       v1 * sq_1mg))
+                    # — amplitude_damping sub-channel, global Born rule —
+                    key, sk3 = jax.random.split(key)
+                    r_damp = jax.random.uniform(sk3, shape=(), minval=0.0, maxval=1.0)
+                    v0, v1 = sv_out[idx_0], sv_out[idx_1]
+                    p1 = jnp.clip(p_damp * jnp.sum(jnp.abs(v1) ** 2), 0.0, 1.0)
+                    decay = r_damp < p1
+                    norm_decay    = jnp.sqrt(jnp.maximum(p1, 1e-15))
+                    norm_no_decay = jnp.sqrt(jnp.maximum(1.0 - p1, 1e-15))
+                    new_v0d = jnp.where(decay, v1 * jnp.sqrt(p_damp) / norm_decay, v0 / norm_no_decay)
+                    new_v1d = jnp.where(decay, 0.0 + 0j, v1 * jnp.sqrt(1.0 - p_damp) / norm_no_decay)
+                    sv_out = sv_out.at[idx_0].set(new_v0d)
+                    sv_out = sv_out.at[idx_1].set(new_v1d)
                 else:
-                    r_dep  = rng.random(half)
-                    ch     = rng.random(half)
+                    r_dep = rng.random()
+                    ch    = rng.random()
+                    if r_dep < p_dep:
+                        if ch < THIRD:
+                            sv_out[idx_0], sv_out[idx_1] = sv_out[idx_1].copy(), sv_out[idx_0].copy()
+                        elif ch < 2.0 * THIRD:
+                            v0, v1 = sv_out[idx_0].copy(), sv_out[idx_1].copy()
+                            sv_out[idx_0] = -1j * v1
+                            sv_out[idx_1] =  1j * v0
+                        else:
+                            sv_out[idx_1] = -sv_out[idx_1]
+                    r_damp = rng.random()
                     v0, v1 = sv_out[idx_0].copy(), sv_out[idx_1].copy()
-                    fire   = r_dep < p_dep
-                    x_gate = fire & (ch < THIRD)
-                    y_gate = fire & (ch >= THIRD) & (ch < 2.0 * THIRD)
-                    z_gate = fire & (ch >= 2.0 * THIRD)
-                    sv_out[idx_0] = np.where(x_gate,  v1,
-                                    np.where(y_gate, -1j * v1, v0))
-                    sv_out[idx_1] = np.where(x_gate,  v0,
-                                    np.where(y_gate,  1j * v0,
-                                    np.where(z_gate, -v1, v1)))
-                    r_damp        = rng.random(half)
-                    decay         = r_damp < p_damp
-                    v0, v1        = sv_out[idx_0].copy(), sv_out[idx_1].copy()
-                    sq_g          = np.sqrt(p_damp)
-                    sq_1mg        = np.sqrt(1.0 - p_damp)
-                    sv_out[idx_0] = np.where(decay, v0 + v1 * sq_g, v0)
-                    sv_out[idx_1] = np.where(decay, 0.0 + 0j,       v1 * sq_1mg)
+                    p1 = float(np.clip(p_damp * np.sum(np.abs(v1) ** 2), 0.0, 1.0))
+                    if r_damp < p1:
+                        norm_decay = np.sqrt(max(p1, 1e-15))
+                        sv_out[idx_0] = v1 * np.sqrt(p_damp) / norm_decay
+                        sv_out[idx_1] = 0.0
+                    else:
+                        norm_no_decay = np.sqrt(max(1.0 - p1, 1e-15))
+                        sv_out[idx_0] = v0 / norm_no_decay
+                        sv_out[idx_1] = v1 * np.sqrt(1.0 - p_damp) / norm_no_decay
 
         # ── normalise ─────────────────────────────────────────────────
         if is_jax:

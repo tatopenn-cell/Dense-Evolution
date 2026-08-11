@@ -188,12 +188,22 @@ class TestEnergyFnNoiseSpec:
         assert float(e1) == pytest.approx(float(e2))
 
     def test_noisy_energy_differs_from_ideal(self):
+        # p=0.9, jax_key=PRNGKey(0) verified to fire real noise for this
+        # circuit's 2 qubits. A single trajectory can legitimately draw
+        # zero errors on all qubits (probability (1-p)^n_qubits, ~1% even
+        # at p=0.9 here) -- registry.py's apply_to_sv used to draw
+        # 2**(n_qubits-1) independent per-branch decisions per qubit,
+        # which made SOME branch differing from ideal almost certain
+        # regardless of p/seed; now it's one real Bernoulli(p) draw per
+        # qubit per shot, so an arbitrary (p, seed) pair is no longer
+        # guaranteed to show a deviation -- this test needs one verified
+        # to actually fire, not just any nonzero p.
         circ = de.QASMParser().parse(VQE_QASM)
         energy_fn, n_params = de.circuit_to_energy_fn(circ, circ.n_qubits)
         h_matrix = _random_hamiltonian(circ.n_qubits)
         theta = jnp.asarray(np.random.default_rng(3).uniform(-np.pi, np.pi, n_params))
         e_ideal, _ = energy_fn(theta, h_matrix)
-        noise = de.NoiseSpec(model='depolarizing', p=0.3, jax_key=jax.random.PRNGKey(7))
+        noise = de.NoiseSpec(model='depolarizing', p=0.9, jax_key=jax.random.PRNGKey(0))
         e_noisy, _ = energy_fn(theta, h_matrix, noise=noise)
         assert float(e_ideal) != pytest.approx(float(e_noisy))
 
@@ -250,6 +260,15 @@ class TestEnergyFnNoiseSpec:
     def test_composable_with_jax_vmap_over_keys(self):
         # a batch of independent, reproducible noise realizations,
         # natively -- no external Python loop managing keys
+        #
+        # p=0.9 (not 0.15): post-fix, apply_to_sv draws one real
+        # Bernoulli(p) decision per qubit per shot instead of the old
+        # buggy 2**(n_qubits-1) independent per-branch decisions, so a
+        # low p has a real, non-negligible chance every key in a small
+        # batch independently draws zero errors on both qubits --
+        # verified directly: p=0.15 with this exact PRNGKey(0)/6-key
+        # split gave all 6 keys the same (zero-error) outcome. p=0.9
+        # keeps that chance below ~1% per key.
         circ = de.QASMParser().parse(VQE_QASM)
         energy_fn, n_params = de.circuit_to_energy_fn(circ, circ.n_qubits)
         h_matrix = _random_hamiltonian(circ.n_qubits)
@@ -257,7 +276,7 @@ class TestEnergyFnNoiseSpec:
         keys = jax.random.split(jax.random.PRNGKey(0), 6)
 
         def run(k):
-            noise = de.NoiseSpec(model='depolarizing', p=0.15, jax_key=k)
+            noise = de.NoiseSpec(model='depolarizing', p=0.9, jax_key=k)
             e, _ = energy_fn(theta, h_matrix, None, noise)
             return e
 

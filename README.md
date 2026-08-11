@@ -465,6 +465,8 @@ All channels applied as post-circuit stochastic Kraus operations on the full sta
 
 Fidelity metrics computed on every noisy run: Bhattacharyya `F = Σᵢ √(pᵢqᵢ)` and TVD `= ½Σᵢ|pᵢ−qᵢ|`.
 
+Every channel draws **one fire/no-fire decision per qubit per shot** (plus one Pauli choice for `depolarizing`/`combined`'s depolarizing sub-step), applied identically across the whole statevector — the same single-Pauli-per-qubit-per-shot convention STIM's `DEPOLARIZE1(p)` uses. Prior to v8.1.57, every channel instead drew `2**(n-1)` *independent* decisions per qubit per shot, one per amplitude pair (i.e. one per branch of the other n-1 qubits) — inert on a product state, but on an entangled state it over-decohered any coherence-sensitive (off-diagonal) observable, up to hundreds of sigma vs the exact density-matrix Kraus-sum result on test cases (see changelog).
+
 **Native integration with `circuit_to_energy_fn` via `NoiseSpec`.** Applying noise used to mean stepping outside the traced circuit computation: build the ideal statevector, exit the trace, call `apply_to_sv` separately, manage a PRNG key by hand around the training loop. `NoiseSpec` is a real JAX PyTree (`model`/`qubits` static, `p`/`jax_key` as leaves) that `circuit_to_energy_fn`'s `energy_fn` accepts directly as a fourth argument — noise is applied natively, in the same traced graph as `theta`, fully `jax.jit`/`jax.grad`/`jax.vmap`-composable:
 
 ```python
