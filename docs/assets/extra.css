@@ -1,0 +1,8 @@
+.mermaid {
+  overflow-x: auto;
+  display: block;
+}
+
+.mermaid svg {
+  max-width: none;
+}

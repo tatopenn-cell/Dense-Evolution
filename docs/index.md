@@ -14,6 +14,24 @@ of `2ⁿ × 16 bytes`.
 
 Using this in academic work? See [CITATION.cff](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/CITATION.cff) in the repository root for citation metadata. Archived on Zenodo — concept DOI [10.5281/zenodo.21855643](https://doi.org/10.5281/zenodo.21855643).
 
+## Hello world: a Bell state
+
+```python
+import dense_evolution as de
+
+sim = de.DenseSVSimulator(n_qubits=2)
+sim.run_circuit([('h', 0), ('cx', 0, 1)])
+
+print(sim.get_statevector())
+# [0.70710678+0.j 0.        +0.j 0.        +0.j 0.70710678+0.j]
+print(sim.get_probabilities())
+# [0.5 0.  0.  0.5]
+```
+
+That's the full API surface for a basic run: build a gate list, run it, read the
+statevector or probabilities back. See [Getting Started](getting-started.md) for OpenQASM
+parsing, chunked large-scale circuits, and ZNE mitigation.
+
 ## What's in here
 
 - **[`DenseSVSimulator`](api/simulator.md)** — the core dense statevector engine, JIT-fused
