@@ -564,13 +564,31 @@ def test_jsd_predictive_zne_density_matrix_reduces_to_plain_when_scales_identica
     np.testing.assert_allclose(np.asarray(jsd_corrected), np.asarray(plain), atol=1e-9)
 
 
-def test_jsd_predictive_zne_density_matrix_improves_photon_loss_fidelity():
-    # Real physics regression test, not just abstract math: reproduces
-    # the actual scenario this function was validated against in
-    # Dense-Evolution-Discovery's photonic_predictive_zne.py -- a Bell
-    # state under amplitude_damping noise (= photon loss on a
-    # dual-rail-encoded qubit), at a photon-loss rate where the
-    # validated large-sample run showed a real improvement.
+def test_jsd_predictive_zne_density_matrix_never_worse_in_the_inactive_regime():
+    # Real physics regression test, not just abstract math: a Bell state
+    # under amplitude_damping noise (= photon loss on a dual-rail-encoded
+    # qubit), the same scenario this function was validated against in
+    # Dense-Evolution-Discovery's photonic_predictive_zne.py.
+    #
+    # eta=0.5 (not the original eta=0.7): the real per-qubit-per-shot fix
+    # to apply_to_sv's 'amplitude_damping' branch (registry.py) changed
+    # noisy_rho's values enough that eta=0.7/seed=0/k=200 -- inactive
+    # (nonlinearity <= 0, guaranteed reduces exactly to plain) under the
+    # old buggy channel -- now has nonlinearity=+0.36, i.e. it activates
+    # the JSD nudge. That's not a bug: the nudge is only guaranteed
+    # non-worse than plain when inactive (see this function's own
+    # docstring -- among *active* points it improves 76.1% of the time,
+    # not 100%), and eta=0.7 lands in the other 24% post-fix. Checked
+    # directly rather than assumed: chasing a still-active-and-improving
+    # point at these small K=200 trajectory counts turned out to be
+    # exactly the kind of small-sample noise this project has been
+    # burned by before -- a point that "improved" at k=200 stopped
+    # improving entirely by k=500 (the extra sampling noise was the
+    # whole reason it was even active). eta=0.5 is a robust choice
+    # instead: nonlinearity=-1.0 (deeply inactive, not a borderline
+    # sign flip) across every seed 0-5 tested, so this asserts the
+    # mechanism's actual construction guarantee, not a fragile
+    # improvement claim.
     from dense_evolution.registry import NoiseModel
 
     sim = de.DenseSVSimulator(2)
@@ -589,7 +607,7 @@ def test_jsd_predictive_zne_density_matrix_improves_photon_loss_fidelity():
         rho /= k
         return rho
 
-    gamma_base = 1.0 - 0.7  # eta=0.7, matches a validated point from the Discovery run
+    gamma_base = 1.0 - 0.5  # eta=0.5, verified inactive (nonlinearity=-1.0)
     rho_at_scales = jnp.stack([
         jnp.asarray(noisy_rho(min(gamma_base * s, 1.0)), dtype=jnp.complex128) for s in (1.0, 2.0, 3.0)
     ])
@@ -600,4 +618,4 @@ def test_jsd_predictive_zne_density_matrix_improves_photon_loss_fidelity():
     fidelity_jsd = float(uhlmann_fidelity(jsd_corrected, rho_ideal))
 
     assert 0.0 <= fidelity_jsd <= 1.0 + 1e-9
-    assert fidelity_jsd >= fidelity_plain - 1e-9  # never worse than plain in the inactive case; may improve
+    assert fidelity_jsd == pytest.approx(fidelity_plain, abs=1e-6)  # exact reduction to plain when inactive
