@@ -198,6 +198,8 @@ legacy/dash.py                     original Colab notebook, reference only (not 
 | **Parametric Batch JIT** | `run_batch_jit()` evaluates full parameter grids in one `jax.vmap` + `jax.jit` call |
 | **Circuit Chunking** | Fixed-size JIT blocks eliminate tracer overhead on 1000+ gate circuits |
 | **Kraus Noise Channels** | `depolarizing` `amplitude_damping` `phase_damping` `bitflip` `combined` — stochastic, O(2ⁿ) cost |
+| **Differentiable Circuits** | `circuit_to_energy_fn` — pure JAX `energy_fn(theta, h_matrix)`, `jax.value_and_grad`-composable, verified against finite differences to ~1e-11 |
+| **Differentiable Noise** | `NoiseSpec` — noise as a JAX PyTree accepted natively by `circuit_to_energy_fn`; the whole `theta → noisy statevector → energy` path stays inside one `jax.jit`/`jax.grad`/`jax.vmap` trace |
 | **Zero-Noise Extrapolation** | `mitigation.py` — `zne_density_matrix` (Smolin-Gambetta-Smith physical projection), `jsd_predictive_zne_density_matrix` (adaptive, photon-loss-validated), `uhlmann_fidelity` |
 | **VQE + ADAM** | Hellmann-Feynman gradient · positional parameter injection into any OpenQASM 2.0 circuit |
 | **Anti-OOM Engine** | `SafeMemoryGuard` blocks execution before JAX raises `RESOURCE_EXHAUSTED` |
