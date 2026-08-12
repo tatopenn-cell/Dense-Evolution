@@ -152,6 +152,105 @@ def run_qiskit_circuit(
     return sim, _to_qiskit_bit_order(probs, circ.n_qubits)
 
 
+_DEFAULT_CALIBRATION_SKIP_GATES = frozenset({'measure'})
+
+
+def noise_model_from_qiskit_backend(
+    backend,
+    circuit=None,
+    skip_gates=_DEFAULT_CALIBRATION_SKIP_GATES,
+) -> list:
+    """Build a Dense-Evolution-native noise specification from a Qiskit
+    BackendV2's own calibration data (backend.target) -- works for both
+    real backends and fake/mock backends carrying a real historical
+    calibration snapshot (e.g.
+    qiskit_ibm_runtime.fake_provider.FakeSherbrooke), so a simulation can
+    use the device's actual measured per-qubit/per-gate error rates
+    instead of an idealized channel.
+
+    Returns a list of dicts, each directly usable as the model/p/qubits
+    arguments to NoiseModel.apply_to_sv:
+        [{'gate': 'sx', 'qubits': [3], 'model': 'depolarizing', 'p': 0.00029},
+         {'gate': 'ecr', 'qubits': [1, 0], 'model': 'depolarizing', 'p': 0.0075}, ...]
+    One entry per unique (gate, qubit-target) pair found in the
+    calibration data -- never duplicated by how many times a gate occurs
+    in any one circuit.
+
+    If `circuit` is given, restricts the result to the (gate, qargs)
+    targets that circuit actually uses. Still exactly one entry per
+    unique target regardless of how many times the circuit repeats it --
+    promoted from Dense-Evolution-Discovery's Steane-code hardware bridge
+    script (scripts/steane_code_block5_qiskit_bridge.py), where an
+    earlier version called qiskit_aer's NoiseModel.add_quantum_error once
+    per gate OCCURRENCE instead of once per unique target: AerSimulator
+    composes the same Kraus channel with itself on repeated registration
+    for the same target (documented semantics, not "apply once per
+    instance"), and on a circuit with many repeats on the same qubits
+    this blew up to multi-GB memory from the resulting Kraus-term
+    combinatorial explosion before OOM-killing the process. This function
+    can't reproduce that bug by construction: it walks target[gate_name]
+    (already deduplicated by qargs, one InstructionProperties per target)
+    and, when `circuit` is given, additionally dedupes via a `seen` set
+    keyed on (gate, qargs) before ever appending a spec entry -- so
+    repeated occurrences in `circuit` collapse to the same single entry.
+
+    `measure` is excluded by default (readout error is a classical
+    bit-flip-on-outcome effect measured after collapse, not a
+    pre-measurement unitary channel on the state) -- pass a smaller/
+    larger `skip_gates` to change that. Gates with no calibrated error
+    (virtual gates like `rz`, or entries with error=None such as `delay`
+    or control-flow ops like `for_loop`/`if_else`) are skipped too, since
+    there is no error rate to convert into a channel.
+
+    Every entry uses Dense-Evolution's 'depolarizing' model with the
+    calibration's average gate error as `p` -- the same standard
+    average-gate-infidelity-to-depolarizing-parameter approximation
+    qiskit_aer.noise.NoiseModel.from_backend itself falls back to when no
+    finer-grained error data is available, not a from-scratch physical
+    model of this library's own invention.
+
+    `circuit` matching is order-independent on the qubit tuple (e.g. an
+    `ecr(0, 1)` instruction matches a calibration target stored as
+    `(1, 0)`) -- NoiseModel.apply_to_sv itself only ever applies
+    independent single-qubit channels per entry in `qubits`, never a
+    genuine joint multi-qubit channel, so which qubit was "control" vs
+    "target" in the original gate has no effect on the result here."""
+    _require_qiskit()
+    target = backend.target
+
+    wanted = None
+    if circuit is not None:
+        wanted = {
+            (instr.operation.name, tuple(sorted(circuit.find_bit(q).index for q in instr.qubits)))
+            for instr in circuit.data
+        }
+
+    specs = []
+    seen = set()
+    for gate_name in target.operation_names:
+        if gate_name in skip_gates:
+            continue
+        gate_map = target[gate_name]
+        if not gate_map:
+            continue
+        for qargs, props in gate_map.items():
+            if qargs is None or props is None or props.error is None:
+                continue
+            if wanted is not None and (gate_name, tuple(sorted(qargs))) not in wanted:
+                continue
+            key = (gate_name, qargs)
+            if key in seen:
+                continue
+            seen.add(key)
+            specs.append({
+                'gate': gate_name,
+                'qubits': list(qargs),
+                'model': 'depolarizing',
+                'p': float(props.error),
+            })
+    return specs
+
+
 def run_pennylane_circuit(
     circuit,
     *args,

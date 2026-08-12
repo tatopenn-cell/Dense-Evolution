@@ -32,6 +32,7 @@ jobs:
           pip install pytest pytest-cov numpy scipy pandas matplotlib psutil ipython seaborn plotly
           pip install setuptools pytest pytest-cov numpy scipy pandas matplotlib psutil ipython jax jaxlib seaborn plotly
           pip install qiskit pennylane pylatexenc
+          pip install qiskit-ibm-runtime # tests/test_interop_calibration_noise.py -- FakeSherbrooke, real historical IBM Eagle-127 calibration data, offline/no account needed
           pip install streamlit>=1.30.0 ipywidgets>=8.0.0
           pip install fastapi uvicorn pydantic httpx2 # composer extra -- local_site/app/server.py + tests/test_local_site_server.py (httpx2: starlette.testclient's current required client)
           pip install mcp httpx # mcp extra -- mcp_server/server.py + tests/test_mcp_server.py (real httpx, not the httpx2 alias above -- the MCP adapter imports httpx directly)

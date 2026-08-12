@@ -8,7 +8,10 @@ from .compiler import QuantumTranspiler
 from .registry import NoiseModel, NoiseSpec, QuantumHardwareRegistry
 from .gates import GATES, PARAMETRIC_GATES, GATE_IDS
 from .chunk import Chunk
-from .interop import from_qiskit, from_pennylane, run_qiskit_circuit, run_pennylane_circuit
+from .interop import (
+    from_qiskit, from_pennylane, run_qiskit_circuit, run_pennylane_circuit,
+    noise_model_from_qiskit_backend,
+)
 from .autodiff import circuit_to_energy_fn
 from .mps import MPSSimulator
 from .mitigation import (richardson_extrapolate, zero_noise_extrapolation, polynomial_extrapolate,
@@ -31,4 +34,4 @@ from .fermions import majorana_pauli_terms
 from .entropy import partial_trace, von_neumann_entropy, mutual_information
 from .trotter import pauli_rotation_ops, trotter_evolve_ops
 
-__version__ = "8.1.57"
+__version__ = "8.1.58"
