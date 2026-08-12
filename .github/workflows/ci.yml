@@ -32,6 +32,7 @@ jobs:
           pip install pytest pytest-cov numpy scipy pandas matplotlib psutil ipython seaborn plotly
           pip install setuptools pytest pytest-cov numpy scipy pandas matplotlib psutil ipython jax jaxlib seaborn plotly
           pip install qiskit pennylane pylatexenc
+          pip install basis_set_exchange # dashboard_core.hamiltonians' native_hf fallback (e.g. Si2 -- PennyLane's own STO-3G table stops at Ne)
           pip install qiskit-ibm-runtime # tests/test_interop_calibration_noise.py -- FakeSherbrooke, real historical IBM Eagle-127 calibration data, offline/no account needed
           pip install stim # tests/test_interop_stim_bridge.py -- to_stim() correctness tests were being silently skipped in CI without this (pytest.importorskip), leaving the real logic uncovered
           pip install streamlit>=1.30.0 ipywidgets>=8.0.0
