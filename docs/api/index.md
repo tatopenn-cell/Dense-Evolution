@@ -30,3 +30,4 @@ reimplementation.
 | [Fermions](fermions.md) | Majorana-fermion → qubit (Jordan-Wigner) mapping |
 | [Entropy](entropy.md) | Multi-qubit partial trace, von Neumann entropy, mutual information |
 | [Trotter](trotter.md) | Real-time Hamiltonian evolution as an actual gate circuit |
+| [Native Hartree-Fock](native_hf.md) | From-scratch JAX/Obara-Saika ab-initio HF engine for elements outside PennyLane's own STO-3G table |
