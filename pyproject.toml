@@ -65,7 +65,11 @@ qiskit = [
     "qiskit>=1.0.0"
 ]
 pennylane = [
-    "pennylane>=0.35.0"
+    "pennylane>=0.35.0",
+    # dashboard_core.hamiltonians falls back to dense_evolution.native_hf
+    # for elements outside PennyLane's own bundled STO-3G table (e.g. Si);
+    # basis_set_exchange supplies that basis-set data.
+    "basis_set_exchange>=0.9"
 ]
 stim = [
     "stim>=1.13.0"
@@ -81,7 +85,8 @@ composer = [
     # same library independently described as destabilizing the process on
     # macOS CI runners, and the whole point of that work was to not depend
     # on it here at all, not to make it merely optional.
-    "pennylane>=0.35.0"
+    "pennylane>=0.35.0",
+    "basis_set_exchange>=0.9"
 ]
 mcp = [
     "mcp>=2.0.0",  # mcp<2.0 has FastMCP at mcp.server.fastmcp -- mcp_server/server.py imports the >=2.0 mcp.server.MCPServer path
@@ -99,6 +104,7 @@ full = [
     "qiskit>=1.0.0",
     "pylatexenc>=2.10",
     "pennylane>=0.35.0",
+    "basis_set_exchange>=0.9",
     "fastapi>=0.110.0",
     "uvicorn>=0.29.0",
     "pydantic>=2.0.0",
