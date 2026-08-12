@@ -496,3 +496,30 @@ def test_request_rebuilds_client_when_transport_or_url_changes():
     finally:
         mcp_adapter._TEST_TRANSPORT = original_transport
         mcp_adapter.KERNEL_URL = original_url
+
+
+def test_per_tool_timeouts_reach_the_real_http_call(monkeypatch):
+    """Each tool used to share one flat 180s timeout regardless of real
+    cost -- a fast health check waited as long as a slow VQE run would
+    need, and a genuinely long VQE/MD run could get cut off by the same
+    180s ceiling. Verifies the actual timeout= kwarg httpx.AsyncClient.request
+    receives differs per tool and matches each endpoint's real expected
+    cost, not that the call merely succeeds (which wouldn't catch a timeout
+    value silently being ignored or defaulted)."""
+    seen_timeouts = {}
+    real_request = httpx.AsyncClient.request
+
+    async def _spy_request(self, method, url, *args, **kwargs):
+        seen_timeouts[url] = kwargs.get("timeout")
+        return await real_request(self, method, url, *args, **kwargs)
+
+    monkeypatch.setattr(httpx.AsyncClient, "request", _spy_request)
+
+    run(mcp_adapter.dense_evolution_health())
+    run(mcp_adapter.dense_evolution_run_vqe(mcp_adapter.RunVqeInput(
+        name="H2", ansatz_type="hardware_efficient", n_layers=1, maxiter=1,
+    )))
+
+    assert seen_timeouts["/api/health"] == 5.0
+    assert seen_timeouts["/api/vqe"] == 600.0
+    assert seen_timeouts["/api/health"] != seen_timeouts["/api/vqe"]
