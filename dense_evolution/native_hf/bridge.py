@@ -14,7 +14,7 @@ import pennylane.qchem.observable_hf as _pl_observable
 
 from dense_evolution.native_hf.basis import build_molecule_shells
 from dense_evolution.native_hf.assembly import build_overlap_matrix, build_core_hamiltonian, build_repulsion_tensor
-from dense_evolution.native_hf.scf import run_scf
+from dense_evolution.native_hf.scf import run_scf, HFResult
 
 _BOHR_PER_ANGSTROM = 1.0 / 0.52917721067
 
@@ -54,14 +54,15 @@ def build_qubit_hamiltonian(
     active_orbitals: int = None,
     basis_name: str = "sto-3g",
     cutoff: float = 1e-12,
-):
+) -> tuple["qml.Hamiltonian", int, HFResult]:
     """Runs native Hartree-Fock, then hands the result to PennyLane for
     second quantization + Jordan-Wigner mapping.
 
     Returns:
-        (qubit_hamiltonian, n_qubits, hf_result) -- hf_result is the
-        native_hf.scf.HFResult, useful for e.g. reporting the SCF energy
-        alongside the post-mapping ground-state energy.
+        tuple[qml.Hamiltonian, int, HFResult]: the mapped qubit
+        Hamiltonian, the qubit count, and the native HFResult -- the
+        latter useful for e.g. reporting the SCF energy alongside the
+        post-mapping ground-state energy.
     """
     geometry_bohr = np.asarray(geometry_angstrom) * _BOHR_PER_ANGSTROM
     shells = build_molecule_shells(atomic_numbers, geometry_bohr, basis_name)
