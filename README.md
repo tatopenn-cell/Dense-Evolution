@@ -1176,7 +1176,7 @@ If Dense-Evolution is useful in academic work, please cite it via the metadata i
 Archived on [Zenodo](https://zenodo.org/):
 
 - **Concept DOI** (always resolves to the latest version): [10.5281/zenodo.21855643](https://doi.org/10.5281/zenodo.21855643)
-- **This release (v8.1.58)**: [10.5281/zenodo.21900611](https://doi.org/10.5281/zenodo.21900611)
+- **This release (v8.1.59)**: [10.5281/zenodo.21907077](https://doi.org/10.5281/zenodo.21907077)
 
 ---
 
