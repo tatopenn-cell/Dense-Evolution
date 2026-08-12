@@ -207,6 +207,7 @@ legacy/dash.py                     original Colab notebook, reference only (not 
 | **Predictive Healing** | `healing.py` — Φ_AB alignment, dynamic vector, Σ-sync, `MemoryReflectionEngine` |
 | **Vector Sequence Healing** | `ia_utils/` — `median_healing`, `enhanced_dense_healing_hybrid` — NaN/Inf-safe, lazy JAX import |
 | **Adversarial Robustness Testing** | `ia_utils.adversarial_vector_attack.craft_adversarial_healing_perturbation` — PGD-style minimal perturbation, flips the healing Phi-Trigger either direction |
+| **STIM Bridge** | `to_stim` — Clifford-only op-list → `stim.Circuit`, for cross-validation against STIM's stabilizer simulator/decoder tooling |
 | **Backend Agnostic** | NumPy CPU · JAX XLA CPU/TPU · CuPy CUDA — runtime selection, zero code changes |
 | **Live Dashboard** | `app_dashboard.py` — Streamlit Quantum-Composer clone, 5 tabs (Graphical Builder/Circuit/Statevector/Probabilities/Q-sphere) per simulation run |
 
@@ -436,6 +437,16 @@ for entry in specs:
 ```
 
 Pass `circuit=` to restrict the result to just the `(gate, qargs)` targets a specific circuit uses — still exactly one entry per unique target no matter how many times the circuit repeats it. Promoted from [Dense-Evolution-Discovery](https://github.com/tatopenn-cell/Dense-Evolution-Discovery)'s Steane-code hardware bridge script, which found a real bug worth preserving here: calling Qiskit Aer's `add_quantum_error` once per gate *occurrence* (rather than once per unique target) composes the same Kraus channel with itself repeatedly, blowing up to multi-GB memory on circuits with many repeats on the same qubits. This function can't reproduce that bug by construction — it dedupes by `(gate, qargs)` before ever emitting a spec entry.
+
+**STIM bridge — `to_stim`.** Converts a Dense-Evolution op-list circuit into a `stim.Circuit`, for cross-validation against STIM's own stabilizer simulator/decoder tooling:
+
+```python
+from dense_evolution import to_stim
+
+circuit = to_stim([['h', 0], ['cx', 0, 1]], n_qubits=2)
+```
+
+STIM is a *stabilizer* simulator — it can only represent Clifford operations (`h`/`x`/`y`/`z`/`s`/`sdg`/`sx`/`id`/`cx`/`cy`/`cz` map 1:1 onto native STIM instructions here). A continuous-angle rotation (`rx`/`ry`/`rz`/`p`/...) or a non-Clifford gate (`t`/`tdg`) raises `ValueError` naming the offending gate, rather than being silently dropped or approximated — a stabilizer circuit that's silently wrong defeats the point of using STIM as an independent check. Generalized from [Dense-Evolution-Discovery](https://github.com/tatopenn-cell/Dense-Evolution-Discovery)'s Steane-code STIM cross-check, which was specific to that one circuit; this version works on any Clifford op-list.
 
 **Known limits** (inherited from the QASM2 bridge, not something this layer works around):
 - No classical control flow — `if`/`while` and mid-circuit-measurement-conditioned gates are parsed out, not executed (same limitation as native QASM3 circuits, see Changelog v8.1.13).

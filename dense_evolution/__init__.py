@@ -10,7 +10,7 @@ from .gates import GATES, PARAMETRIC_GATES, GATE_IDS
 from .chunk import Chunk
 from .interop import (
     from_qiskit, from_pennylane, run_qiskit_circuit, run_pennylane_circuit,
-    noise_model_from_qiskit_backend,
+    noise_model_from_qiskit_backend, to_stim,
 )
 from .autodiff import circuit_to_energy_fn
 from .mps import MPSSimulator
