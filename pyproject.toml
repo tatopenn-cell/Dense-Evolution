@@ -133,7 +133,7 @@ Repository = "https://github.com/tatopenn-cell/Dense-Evolution"
 dense-evolution = "dense_evolution.cli:main"
 
 [tool.setuptools]
-packages = ["dense_evolution", "ia_utils", "dashboard_core", "local_site", "local_site.app", "mcp_server"]
+packages = ["dense_evolution", "dense_evolution.native_hf", "ia_utils", "dashboard_core", "local_site", "local_site.app", "mcp_server"]
 
 [tool.setuptools.package-data]
 "dense_evolution" = ["*.py"]
