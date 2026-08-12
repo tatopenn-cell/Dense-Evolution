@@ -59,6 +59,10 @@ parsing, chunked large-scale circuits, and ZNE mitigation.
   phaseflip, amplitude damping, and a combined worst-case model), JAX- and NumPy-native.
 - **Interop** with [Qiskit and PennyLane](api/interop.md), and [autodiff](api/autodiff.md)
   through `circuit_to_energy_fn` for gradient-based VQE.
+- **[`dense_evolution.native_hf`](api/native_hf.md)** — a from-scratch, JAX/Obara-Saika
+  Hartree-Fock engine for elements outside PennyLane's own bundled STO-3G table (H–Ne),
+  automatically backing [`dashboard_core.hamiltonians`](api/dashboard_core_hamiltonians.md)
+  for molecules like Si2.
 
 ## Dashboard Core — Composer's real compute layer
 
@@ -131,6 +135,11 @@ flowchart LR
         advattack["adversarial_vector_attack<br/>(craft_adversarial_healing_perturbation)"]
     end
 
+    subgraph nativehf["native_hf (dense_evolution submodule)"]
+        nhf_bridge["bridge"]
+        nhf_scf["scf"]
+    end
+
     subgraph dashcore["dashboard_core (separate top-level package, Composer's backend)"]
         dc_wormhole["wormhole"]
         dc_vqe["vqe"]
@@ -167,6 +176,8 @@ flowchart LR
     vhealing -.->|lazy import| healing
     advattack --> healing
 
+    nhf_bridge --> nhf_scf
+    dc_hamiltonians -.->|element outside PennyLane's STO-3G table| nhf_bridge
     dc_vqe --> dc_hamiltonians
     dc_qmmm --> dc_hamiltonians
     dc_visuals --> dc_circuit_diagram
@@ -175,10 +186,10 @@ flowchart LR
     dc_vector_healing -.->|lazy import| vhealing
 ```
 
-`dashboard_core.engine`, `dashboard_core.hamiltonians`, `dashboard_core.mitigation`,
-`dashboard_core.qasm_library`, `dashboard_core.system_limits`, and `dashboard_core.wormhole`
-each depend only on `dense_evolution`'s top-level public API (`import dense_evolution as de`,
-or `from dense_evolution import mutual_information, majorana_pauli_terms, trotter_evolve_ops`
+`dashboard_core.engine`, `dashboard_core.mitigation`, `dashboard_core.qasm_library`,
+`dashboard_core.system_limits`, and `dashboard_core.wormhole` each depend only on
+`dense_evolution`'s top-level public API (`import dense_evolution as de`, or
+`from dense_evolution import mutual_information, majorana_pauli_terms, trotter_evolve_ops`
 for `wormhole`), not on a specific submodule shown above, so they have no internal edges
 drawn here beyond that. `circuit_diagram`, `state_visuals`, and `graphical_builder` have no
 internal-repo dependencies at all (NumPy / Matplotlib only).

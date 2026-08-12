@@ -208,6 +208,7 @@ legacy/dash.py                     original Colab notebook, reference only (not 
 | **Vector Sequence Healing** | `ia_utils/` — `median_healing`, `enhanced_dense_healing_hybrid` — NaN/Inf-safe, lazy JAX import |
 | **Adversarial Robustness Testing** | `ia_utils.adversarial_vector_attack.craft_adversarial_healing_perturbation` — PGD-style minimal perturbation, flips the healing Phi-Trigger either direction |
 | **STIM Bridge** | `to_stim` — Clifford-only op-list → `stim.Circuit`, for cross-validation against STIM's stabilizer simulator/decoder tooling |
+| **Native Hartree-Fock** | `dense_evolution.native_hf` — from-scratch JAX/Obara-Saika ab-initio HF engine for elements outside PennyLane's own STO-3G table (H–Ne), auto-used by the Hamiltonian Library for e.g. Si2 |
 | **Backend Agnostic** | NumPy CPU · JAX XLA CPU/TPU · CuPy CUDA — runtime selection, zero code changes |
 | **Live Dashboard** | `app_dashboard.py` — Streamlit Quantum-Composer clone, 5 tabs (Graphical Builder/Circuit/Statevector/Probabilities/Q-sphere) per simulation run |
 
@@ -215,10 +216,10 @@ legacy/dash.py                     original Colab notebook, reference only (not 
 
 ## ▍ Scientific Validation & Applications
 
-To demonstrate the numerical accuracy and stability of **Dense Evolution**, the simulator was stress-tested across 3,500 continuous spatial sampling points to compute the **Silicon Dimer (Si2) Dissociation Curve** via Variational Quantum Eigensolver (VQE).
+To demonstrate the numerical accuracy and stability of **Dense Evolution**, the simulator was stress-tested across 3,500 continuous spatial sampling points to compute a **Silicon Dimer (Si2) Dissociation Curve** via Variational Quantum Eigensolver (VQE), using a small active space/basis (raw script linked below).
 
-* Physical Accuracy: The simulation successfully maps the exact Born-Oppenheimer Potential Energy Curve (PEC), capturing the deep quantum ground state bound minimum at ~3.55 Å with negative total energy, before converging asymptotically toward full molecular dissociation.
 * Numerical Precision: Calculations are locked at Double Precision (float64), proving the simulator's resilience against cumulative machine epsilon errors (~ 1.11 × 10⁻¹⁶) across thousands of sequential circuit executions.
+* **Honest caveat, corrected in v8.1.59**: this scan's own minimum (~3.55 Å below, negative total energy) is an artifact of its small active-space/basis choice, not the real physical Si2 equilibrium — the real experimental/literature bond length is **2.184 Å** (Balamurugan & Prasad, [arXiv:cond-mat/0108426](https://arxiv.org/abs/cond-mat/0108426)). This claim went unverified in earlier README revisions; it's stated correctly here and Si2 is now in the [Hamiltonian Library](#-hamiltonian-library) below at its real geometry, computed by the new [native Hartree-Fock engine](#-api-reference) since Si is outside PennyLane's own bundled STO-3G table.
 * Run this molecular experiment instantly on Google Colab Free Tier:
   [Open Notebook on Google Colab](https://colab.research.google.com/drive/1cX7vYsVaxO29677ltgDTbh3pqUi0NYC5#scrollTo=Qg_lqX-Iw_UM)
 
@@ -807,23 +808,28 @@ $$\frac{\partial E}{\partial \theta_i} = \left\langle\psi(\theta)\left|\frac{\pa
 
 ## ▍ Hamiltonian Library
 
-Real Hartree-Fock + fermion-to-qubit mapping (PennyLane `qchem`, Jordan-Wigner
-or Bravyi-Kitaev — both represent the identical physical Hamiltonian, just a
-different qubit basis), exact dense diagonalization for the ground-state
-energy. `dashboard_core.MOLECULE_CATALOG`:
+Real Hartree-Fock + fermion-to-qubit mapping, exact dense diagonalization
+for the ground-state energy. `_get_hamiltonian` dispatches per molecule to
+PennyLane's own `qchem` pipeline (Jordan-Wigner or Bravyi-Kitaev — both
+represent the identical physical Hamiltonian, just a different qubit basis)
+when every element is in PennyLane's bundled STO-3G table, or to
+Dense-Evolution's own [`native_hf`](#-core-features) engine otherwise.
+`dashboard_core.MOLECULE_CATALOG`:
 
-| Molecule | Qubits | Bond length | E₀ (Ha, Jordan-Wigner) |
-|---|:---:|:---:|:---:|
-| H₂ | 4 | 0.7414 Å | −1.1373 |
-| HeH⁺ | 4 | 0.7743 Å | −3.0157 |
-| H₃⁺ (D3h triangle) | 6 | 0.8738 Å | −1.2973 |
-| LiH | 12 | 1.5949 Å | −7.8824 |
-| H₂O (104.5°, frozen-core O 1s) | 12 | 0.9584 Å | −75.0127 |
+| Molecule | Qubits | Bond length | E₀ (Ha, Jordan-Wigner) | Engine |
+|---|:---:|:---:|:---:|---|
+| H₂ | 4 | 0.7414 Å | −1.1373 | PennyLane `dhf` |
+| HeH⁺ | 4 | 0.7743 Å | −3.0157 | PennyLane `dhf` |
+| H₃⁺ (D3h triangle) | 6 | 0.8738 Å | −1.2973 | PennyLane `dhf` |
+| LiH | 12 | 1.5949 Å | −7.8824 | PennyLane `dhf` |
+| H₂O (104.5°, frozen-core O 1s) | 12 | 0.9584 Å | −75.0127 | PennyLane `dhf` |
+| Si₂ | 8 | 2.184 Å (real equilibrium, active space too small to reproduce as its own minimum — see v8.1.59 changelog) | −570.6861 | `native_hf` |
 
 Custom molecules: any atomic symbols + `[[x, y, z], ...]` geometry in
-Ångström, same Hartree-Fock pipeline — capped at 12 qubits (exact dense
-diagonalization's real limit here, rejected with a clear error before
-PennyLane runs rather than attempted and failing expensively).
+Ångström, same Hartree-Fock pipeline (PennyLane or `native_hf`, dispatched
+automatically) — capped at 12 qubits (exact dense diagonalization's real
+limit here, rejected with a clear error before PennyLane runs rather than
+attempted and failing expensively).
 `dense_evolution_energy_scan` (MCP) / the Composer's "Scan energia" panel
 compute this at several geometries in one call, e.g. a dissociation curve.
 
