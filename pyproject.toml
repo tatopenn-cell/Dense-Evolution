@@ -67,6 +67,9 @@ qiskit = [
 pennylane = [
     "pennylane>=0.35.0"
 ]
+stim = [
+    "stim>=1.13.0"
+]
 composer = [
     "fastapi>=0.110.0",
     "uvicorn>=0.29.0",

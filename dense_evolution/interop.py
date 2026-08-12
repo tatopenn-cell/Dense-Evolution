@@ -18,6 +18,12 @@ try:
 except ImportError:
     HAS_PENNYLANE = False
 
+try:
+    import stim
+    HAS_STIM = True
+except ImportError:
+    HAS_STIM = False
+
 _macos_qiskit_warning_shown = False
 
 
@@ -45,6 +51,13 @@ def _require_pennylane():
         raise ImportError(
             "PennyLane interop requires the 'pennylane' package. "
             "Install it with: pip install dense-evolution[pennylane]")
+
+
+def _require_stim():
+    if not HAS_STIM:
+        raise ImportError(
+            "STIM interop requires the 'stim' package. "
+            "Install it with: pip install dense-evolution[stim]")
 
 
 def _to_qiskit_bit_order(probs: np.ndarray, n_qubits: int) -> np.ndarray:
@@ -280,3 +293,55 @@ def run_pennylane_circuit(
     sim.run_circuit(circ.to_tuples())
     probs = np.asarray(sim.get_probabilities())
     return sim, probs
+
+
+_STIM_GATE_MAP = {
+    'h': 'H', 'x': 'X', 'y': 'Y', 'z': 'Z',
+    's': 'S', 'sdg': 'S_DAG', 'sx': 'SQRT_X', 'id': 'I',
+    'cx': 'CX', 'cy': 'CY', 'cz': 'CZ',
+}
+
+
+def to_stim(ops, n_qubits: int) -> 'stim.Circuit':
+    """Convert a Dense-Evolution op-list circuit (e.g. [['h', 0], ['cx', 0, 1]])
+    into a stim.Circuit, for cross-validation against STIM's own stabilizer
+    simulator/decoder tooling. Promoted from Dense-Evolution-Discovery's
+    Steane-code STIM bridge script (scripts/steane_code_block4_stim_translation.py),
+    generalized from that script's Steane-specific gate set to every
+    STIM-representable gate this library has.
+
+    STIM is a STABILIZER simulator: it can only represent Clifford
+    operations. Every gate below maps 1:1 onto a native STIM instruction
+    (h/x/y/z/s/sdg/sx/id/cx/cy/cz); anything else in the op list --
+    continuous-angle rotations (rx/ry/rz/p/phase/u1/cp/cphase/crz) or the
+    non-Clifford t/tdg gates -- raises ValueError rather than being dropped
+    or approximated, since a silently-wrong stabilizer circuit defeats the
+    purpose of using STIM as an independent cross-check in the first place.
+
+    A leading no-op 'I' on qubit n_qubits - 1 is emitted first so the
+    returned circuit always has exactly n_qubits qubits, even if the
+    highest-indexed qubit is never otherwise touched by `ops`.
+
+    Qubit indexing matches `ops` directly (STIM has no reordering of its
+    own, unlike Qiskit's little-endian convention handled by
+    run_qiskit_circuit) -- but STIM's state_vector()/TableauSimulator
+    output is still little-endian (qubit 0 = least significant bit),
+    the same convention _to_qiskit_bit_order reorders into, so comparing
+    against DenseSVSimulator's own MSB-first probabilities/statevector
+    still needs that same reordering."""
+    _require_stim()
+    circuit = stim.Circuit()
+    if n_qubits > 0:
+        circuit.append('I', [n_qubits - 1])
+    for op in ops:
+        gate_name = op[0]
+        stim_gate = _STIM_GATE_MAP.get(gate_name)
+        if stim_gate is None:
+            raise ValueError(
+                f"Gate '{gate_name}' is not representable in STIM -- STIM is "
+                "a stabilizer simulator and only supports Clifford "
+                "operations (h, x, y, z, s, sdg, sx, id, cx, cy, cz here), "
+                "not continuous-angle rotations (rx/ry/rz/p/phase/u1/cp/"
+                "cphase/crz) or non-Clifford gates (t/tdg).")
+        circuit.append(stim_gate, list(op[1:]))
+    return circuit
