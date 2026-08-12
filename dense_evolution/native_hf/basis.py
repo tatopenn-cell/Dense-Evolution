@@ -78,6 +78,20 @@ def load_element_shells(basis_name: str, atomic_number: int, center: jax.Array, 
     if any(s["function_type"] not in ("gto", "gto_cartesian") for s in electron_shells):
         raise NotImplementedError("Only Cartesian Gaussian basis sets are currently supported.")
 
+    max_degree = max(
+        degree for shell in electron_shells for degree in shell["angular_momentum"]
+    )
+    if max_degree > 1:
+        from basis_set_exchange.lut import element_sym_from_Z
+
+        sym = element_sym_from_Z(atomic_number).capitalize()
+        raise NotImplementedError(
+            f"native_hf's overlap/kinetic/Coulomb integrals only implement s and p "
+            f"shells (degree <= 1); {sym} (Z={atomic_number}) needs a degree-{max_degree} "
+            f"shell (d-orbitals or higher) in {basis_name}. Not a silent approximation -- "
+            f"this element genuinely isn't supported by this engine yet."
+        )
+
     out = []
     for shell in electron_shells:
         out.extend(_contracted_shell_from_bse(shell, center, atom_index))

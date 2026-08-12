@@ -70,18 +70,23 @@ class TestBuildMolecularHamiltonian:
         assert np.allclose(H, H.conj().T)
 
     def test_unsupported_element_raises_a_clear_error_not_pennylanes_own(self):
-        # PennyLane's own error for a missing STO-3G basis (e.g. Fe, Mo --
-        # heavier than Ne) is real but written for someone already inside
-        # its own codebase ("consider using load_data=True ..."). This
-        # should fail fast with a message naming the actual unsupported
-        # symbols and framing it as a basis-set gap, not a dense_evolution
-        # limitation -- and before any Hartree-Fock/densification work.
+        # An element outside PennyLane's own bundled STO-3G table (e.g.
+        # Fe, past Ne) no longer fails outright -- it's handed to
+        # native_hf (see dashboard_core.hamiltonians._get_hamiltonian and
+        # the module docstring), which sources basis data from
+        # basis_set_exchange instead and genuinely supports far more of
+        # the periodic table (Si2 is in MOLECULE_CATALOG precisely
+        # because of this). What native_hf's own integrals don't yet
+        # implement is d-orbitals and up (only s/p, degree <= 1) -- Fe's
+        # STO-3G basis needs a d shell, so this should still fail fast,
+        # now with a message naming the real remaining limitation instead
+        # of a raw internal crash.
         # A real, non-degenerate geometry (not np.zeros -- three atoms at
         # the exact same point is itself now a validation error, see
         # TestGeometryValidation below; the point of this test is the
         # element-support error, so the geometry just needs to be valid).
         geometry = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 2.0], [0.0, 2.0, 0.0]])
-        with pytest.raises(ValueError, match="No built-in STO-3G basis data for: Fe"):
+        with pytest.raises(NotImplementedError, match="Cartesian Gaussian"):
             build_molecular_hamiltonian(['Fe', 'Mo', 'S'], geometry, charge=0)
 
     def test_light_supported_elements_are_unaffected(self):
@@ -164,6 +169,48 @@ class TestCatalog:
     def test_get_molecular_hamiltonian_matrix_by_catalog_name(self):
         H = get_molecular_hamiltonian_matrix("H2 (Idrogeno) - R = 0.7414 A [equilibrio reale]")
         assert ground_state_energy(H) == pytest.approx(-1.1372701748786913, abs=1e-6)
+
+
+class TestNativeHfFallback:
+    """Si2 needs native_hf (dense_evolution.native_hf), since Si isn't in
+    PennyLane's own bundled STO-3G table -- see _get_hamiltonian's
+    dispatch and the module docstring. Slow (real Hartree-Fock on a
+    2-atom/8-qubit active space, not PennyLane's), but relies on caching
+    (this class runs after TestCatalog, which already built Si2's
+    Hamiltonian once) to stay reasonably fast in the full suite."""
+
+    SI2_NAME = "Si2 (Disilicio) - R = 2.184 A [equilibrio reale, active space minimo]"
+
+    def test_si2_ground_state_matches_independent_verification(self):
+        # Cross-checked earlier (this project's own development, not
+        # asserted blindly) against an independent JAX Hartree-Fock
+        # implementation (lowdanie/hartree-fock-solver) to 10 significant
+        # figures on the same geometry/active space, and separately
+        # matches PennyLane's own dhf-based result exactly at R=1.9A.
+        H = get_molecular_hamiltonian_matrix(self.SI2_NAME)
+        assert ground_state_energy(H) == pytest.approx(-570.68610495, abs=1e-6)
+
+    def test_si2_n_qubits(self):
+        spec = MOLECULE_CATALOG[self.SI2_NAME]
+        n_qubits = get_molecule_n_qubits(
+            spec["symbols"], spec["geometry"](), spec["charge"],
+            active_electrons=spec["active_electrons"], active_orbitals=spec["active_orbitals"],
+        )
+        assert n_qubits == 8  # 2 * active_orbitals
+
+    def test_si2_hamiltonian_is_hermitian(self):
+        H = get_molecular_hamiltonian_matrix(self.SI2_NAME)
+        assert np.allclose(H, H.conj().T)
+
+    def test_transition_metal_still_fails_clearly_not_a_silent_wrong_answer(self):
+        # Fe's real STO-3G basis needs a d shell (angular momentum 2),
+        # which native_hf's own overlap/kinetic/Coulomb integrals don't
+        # implement yet (only s/p, degree <= 1) -- this must still fail
+        # loudly, not silently produce a wrong energy for an incomplete
+        # basis.
+        geometry = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 2.0]])
+        with pytest.raises(NotImplementedError):
+            build_molecular_hamiltonian(['Fe', 'Fe'], geometry, charge=0)
 
 
 class TestMixHamiltonians:

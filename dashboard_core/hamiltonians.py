@@ -9,6 +9,16 @@ built and verified against known values before the dashboard rebuild.
 Only the real molecular catalog comes along here -- the old diagonal
 "toy model" library and the VQE optimization loop stay out for now
 (kept minimal on purpose, brought back separately if/when needed).
+
+For elements PennyLane's own bundled STO-3G table doesn't cover (row 3+,
+e.g. Silicon), this falls back to dense_evolution.native_hf -- a
+from-scratch, jax-vmap-vectorized Hartree-Fock engine (Obara-Saika
+integrals, Roothaan-Hall SCF) that sources basis-set data from
+basis_set_exchange instead, so any element it has STO-3G parameters for
+works. Only the Hartree-Fock/integral stage is native; the resulting
+converged result is still handed to PennyLane's own fermionic_observable
++ jordan_wigner for the qubit mapping (see native_hf/bridge.py), since
+that stage is already fast and well-tested.
 """
 
 import numpy as np
@@ -102,6 +112,26 @@ MOLECULE_CATALOG = {
         "active_electrons": 8,
         "active_orbitals": 6,
     },
+    # Real published equilibrium bond length (Balamurugan & Prasad,
+    # "Effect of hydrogen on ground state structures of small silicon
+    # clusters", arXiv:cond-mat/0108426). Si isn't in PennyLane's own
+    # bundled STO-3G table, so this routes through native_hf (see module
+    # docstring) -- verified against an independent reference
+    # (lowdanie/hartree-fock-solver) to 10 significant figures. Given only
+    # 4 active electrons/orbitals (freezing all 20 core electrons: Si's
+    # 1s,2s,2p x2 atoms), this active space is too small to reproduce
+    # 2.184 A as its own energy minimum (checked directly: a 10-point scan
+    # from 1.9-4.0 A found its minimum at the 1.9 A edge of the range, not
+    # an interior point) -- included anyway, with this caveat stated
+    # plainly, rather than silently picking a geometry that flatters the
+    # active-space choice.
+    "Si2 (Disilicio) - R = 2.184 A [equilibrio reale, active space minimo]": {
+        "symbols": ["Si", "Si"],
+        "geometry": lambda: _linear_two_atom_geometry(2.184),
+        "charge": 0,
+        "active_electrons": 4,
+        "active_orbitals": 4,
+    },
 }
 
 _pennylane_hamiltonian_cache = {}
@@ -155,6 +185,45 @@ def _validate_geometry(symbols, geometry):
     return geometry
 
 
+_native_hamiltonian_cache = {}
+
+
+def _get_native_hamiltonian(symbols, geometry, charge, mapping, active_electrons, active_orbitals):
+    """Same contract as _get_pennylane_hamiltonian (returns (H, n_qubits),
+    cached), but for elements outside PennyLane's bundled STO-3G table --
+    routes through dense_evolution.native_hf instead (see module
+    docstring). Jordan-Wigner only for now: native_hf/bridge.py calls
+    qml.jordan_wigner directly rather than taking a mapping parameter,
+    since every current caller (MOLECULE_CATALOG) already defaults to
+    jordan_wigner -- raising here instead of silently ignoring a
+    different requested mapping."""
+    if mapping != "jordan_wigner":
+        raise NotImplementedError(
+            f"native_hf fallback only supports mapping='jordan_wigner' (got {mapping!r}) "
+            f"-- native_hf/bridge.py calls qml.jordan_wigner directly, not a general mapper."
+        )
+
+    from basis_set_exchange.lut import element_Z_from_sym
+    from dense_evolution.native_hf.bridge import build_qubit_hamiltonian
+
+    geometry = _validate_geometry(symbols, geometry)
+
+    key = (tuple(symbols), tuple(map(tuple, geometry.round(10))), charge,
+           active_electrons, active_orbitals)
+    if key in _native_hamiltonian_cache:
+        return _native_hamiltonian_cache[key]
+
+    atomic_numbers = [element_Z_from_sym(s) for s in symbols]
+    n_electrons = sum(atomic_numbers) - charge
+
+    H, n_qubits, _hf_result = build_qubit_hamiltonian(
+        atomic_numbers, geometry, n_electrons,
+        active_electrons=active_electrons, active_orbitals=active_orbitals,
+    )
+    _native_hamiltonian_cache[key] = (H, n_qubits)
+    return H, n_qubits
+
+
 def _get_pennylane_hamiltonian(symbols, geometry, charge, mapping, active_electrons, active_orbitals):
     """Real Hartree-Fock + fermion-to-qubit mapping (PennyLane qchem),
     returning the PennyLane operator (not yet densified) and n_qubits.
@@ -199,6 +268,19 @@ def _get_pennylane_hamiltonian(symbols, geometry, charge, mapping, active_electr
     )
     _pennylane_hamiltonian_cache[key] = (H, n_qubits)
     return H, n_qubits
+
+
+def _get_hamiltonian(symbols, geometry, charge, mapping, active_electrons, active_orbitals):
+    """Dispatches to PennyLane's own qchem pipeline when every symbol is
+    in its bundled STO-3G table, or to native_hf otherwise -- the single
+    real entry point every public function below funnels through, so
+    "does this molecule need the native fallback" is decided in exactly
+    one place."""
+    from pennylane.qchem.basis_data import STO3G
+
+    if all(s in STO3G for s in symbols):
+        return _get_pennylane_hamiltonian(symbols, geometry, charge, mapping, active_electrons, active_orbitals)
+    return _get_native_hamiltonian(symbols, geometry, charge, mapping, active_electrons, active_orbitals)
 
 
 def _water_geometry(bond_length_angstrom: float, angle_degrees: float):
@@ -254,7 +336,7 @@ def build_molecular_hamiltonian(symbols, geometry, charge: int = 0, mapping: str
     Pauli decomposition, not qml.matrix() -- verified to match qml.matrix
     exactly (same ground-state energy, same matrix, atol=1e-8) for every
     catalog molecule."""
-    H, n_qubits = _get_pennylane_hamiltonian(symbols, geometry, charge, mapping, active_electrons, active_orbitals)
+    H, n_qubits = _get_hamiltonian(symbols, geometry, charge, mapping, active_electrons, active_orbitals)
 
     dense_key = (tuple(symbols), tuple(map(tuple, np.asarray(geometry).round(10))), charge, mapping,
                  active_electrons, active_orbitals)
@@ -288,7 +370,7 @@ def get_molecule_n_qubits(symbols, geometry, charge=0, mapping="jordan_wigner",
     """The qubit count a molecule's real Hamiltonian needs, without
     paying for a dense matrix build -- cheap enough to call for every
     catalog entry when just listing what's available."""
-    _, n_qubits = _get_pennylane_hamiltonian(symbols, geometry, charge, mapping, active_electrons, active_orbitals)
+    _, n_qubits = _get_hamiltonian(symbols, geometry, charge, mapping, active_electrons, active_orbitals)
     return n_qubits
 
 
