@@ -108,20 +108,32 @@ _shared_client: Optional[httpx.AsyncClient] = None
 _shared_client_key = None  # (transport identity, base_url) the cached client was built with
 
 
+_DEFAULT_TIMEOUT = 60.0  # fallback for any call site that doesn't pass timeout= explicitly
+
+
 def _get_client() -> httpx.AsyncClient:
     global _shared_client, _shared_client_key
     current_key = (id(_TEST_TRANSPORT), KERNEL_URL)
     if _shared_client is None or _shared_client_key != current_key:
-        _shared_client = httpx.AsyncClient(base_url=KERNEL_URL, transport=_TEST_TRANSPORT, timeout=180.0)
+        # Client-level timeout is just the fallback ceiling -- every real
+        # call site below passes its own timeout= to _request, sized to
+        # that endpoint's actual expected cost (a health check and a
+        # 10-minute VQE run have nothing in common). A single flat 180s
+        # here used to either cut off legitimate long VQE/MD runs too
+        # early or leave fast health-check calls waiting needlessly long
+        # once the kernel is actually down.
+        _shared_client = httpx.AsyncClient(base_url=KERNEL_URL, transport=_TEST_TRANSPORT, timeout=_DEFAULT_TIMEOUT)
         _shared_client_key = current_key
     return _shared_client
 
 
-async def _request(method: str, path: str, **kwargs) -> dict:
-    """Reusable request helper for every tool below."""
+async def _request(method: str, path: str, timeout: float = _DEFAULT_TIMEOUT, **kwargs) -> dict:
+    """Reusable request helper for every tool below. `timeout` (seconds)
+    should be sized to the specific endpoint's real expected cost -- see
+    each tool's own call site."""
     client = _get_client()
     try:
-        resp = await client.request(method, path, **kwargs)
+        resp = await client.request(method, path, timeout=timeout, **kwargs)
     except httpx.ConnectError:
         raise RuntimeError(
             f"Dense Evolution kernel not reachable at {KERNEL_URL}. Start it with "
@@ -130,9 +142,9 @@ async def _request(method: str, path: str, **kwargs) -> dict:
         )
     except httpx.TimeoutException:
         raise RuntimeError(
-            "Request to the Dense Evolution kernel timed out -- the simulation may be "
-            "too large or slow for this request (e.g. high qubit count, many VQE "
-            "iterations, or a long MD trajectory). Try reducing its size."
+            f"Request to the Dense Evolution kernel timed out after {timeout:g}s -- the "
+            "simulation may be too large or slow for this request (e.g. high qubit "
+            "count, many VQE iterations, or a long MD trajectory). Try reducing its size."
         )
     if resp.status_code >= 400:
         try:
@@ -217,7 +229,7 @@ async def _get_annotated_molecule_catalog(mapping: str) -> list:
     """Catalog entries with a short `id` field added, and refreshes the
     alias cache used by _resolve_molecule_name."""
     global _molecule_alias_cache
-    catalog = await _request("GET", "/api/hamiltonians", params={"mapping": mapping})
+    catalog = await _request("GET", "/api/hamiltonians", timeout=10.0, params={"mapping": mapping})
     _molecule_alias_cache = {}
     annotated = []
     for full_key, spec in catalog.items():
@@ -259,7 +271,7 @@ async def dense_evolution_health() -> str:
         "Error: ..." string if the kernel is not running.
     """
     try:
-        return json.dumps(await _request("GET", "/api/health"), indent=2)
+        return json.dumps(await _request("GET", "/api/health", timeout=5.0), indent=2)
     except Exception as e:
         return _handle_error(e)
 
@@ -274,7 +286,7 @@ async def dense_evolution_system_limits() -> str:
         str: JSON describing the current safe qubit ceiling for the dense backend.
     """
     try:
-        return json.dumps(await _request("GET", "/api/system_limits"), indent=2)
+        return json.dumps(await _request("GET", "/api/system_limits", timeout=5.0), indent=2)
     except Exception as e:
         return _handle_error(e)
 
@@ -293,7 +305,7 @@ async def dense_evolution_list_presets() -> str:
         str: JSON mapping preset names to their OpenQASM source text.
     """
     try:
-        return json.dumps(await _request("GET", "/api/presets"), indent=2)
+        return json.dumps(await _request("GET", "/api/presets", timeout=5.0), indent=2)
     except Exception as e:
         return _handle_error(e)
 
@@ -307,7 +319,7 @@ async def dense_evolution_list_gates() -> str:
         str: JSON gate palette (name, symbol, qubit arity, etc. per gate).
     """
     try:
-        return json.dumps(await _request("GET", "/api/palette"), indent=2)
+        return json.dumps(await _request("GET", "/api/palette", timeout=5.0), indent=2)
     except Exception as e:
         return _handle_error(e)
 
@@ -322,7 +334,7 @@ async def dense_evolution_list_noise_models() -> str:
         str: JSON mapping noise model names to their parameters/description.
     """
     try:
-        return json.dumps(await _request("GET", "/api/noise_models"), indent=2)
+        return json.dumps(await _request("GET", "/api/noise_models", timeout=5.0), indent=2)
     except Exception as e:
         return _handle_error(e)
 
@@ -386,7 +398,7 @@ async def dense_evolution_build_circuit(params: BuildCircuitInput) -> str:
         str: JSON {"qasm": "..."} on success, or "Error: ..." if the op list is invalid.
     """
     try:
-        data = await _request("POST", "/api/build_from_ops", json=params.model_dump())
+        data = await _request("POST", "/api/build_from_ops", timeout=30.0, json=params.model_dump())
         return json.dumps(data, indent=2)
     except Exception as e:
         return _handle_error(e)
@@ -434,7 +446,7 @@ async def dense_evolution_run_circuit(params: RunCircuitInput) -> str:
     """
     try:
         payload = params.model_dump(exclude={"include_visualizations"})
-        data = await _request("POST", "/api/run", json=payload)
+        data = await _request("POST", "/api/run", timeout=60.0, json=payload)
     except Exception as e:
         return _handle_error(e)
 
@@ -493,7 +505,7 @@ async def dense_evolution_molecule_energy(params: MoleculeEnergyInput) -> str:
     try:
         resolved = await _resolve_molecule_name(params.name)
         payload = {**params.model_dump(), "name": resolved}
-        return json.dumps(await _request("POST", "/api/hamiltonian/molecule", json=payload), indent=2)
+        return json.dumps(await _request("POST", "/api/hamiltonian/molecule", timeout=60.0, json=payload), indent=2)
     except Exception as e:
         return _handle_error(e)
 
@@ -526,7 +538,7 @@ async def dense_evolution_mix_molecules(params: MixMoleculesInput) -> str:
         name_a = await _resolve_molecule_name(params.name_a)
         name_b = await _resolve_molecule_name(params.name_b)
         payload = {**params.model_dump(), "name_a": name_a, "name_b": name_b}
-        return json.dumps(await _request("POST", "/api/hamiltonian/mix", json=payload), indent=2)
+        return json.dumps(await _request("POST", "/api/hamiltonian/mix", timeout=60.0, json=payload), indent=2)
     except Exception as e:
         return _handle_error(e)
 
@@ -556,7 +568,7 @@ async def dense_evolution_custom_molecule_energy(params: CustomMoleculeInput) ->
         if the molecule needs more than 12 qubits.
     """
     try:
-        return json.dumps(await _request("POST", "/api/hamiltonian/custom", json=params.model_dump()), indent=2)
+        return json.dumps(await _request("POST", "/api/hamiltonian/custom", timeout=60.0, json=params.model_dump()), indent=2)
     except Exception as e:
         return _handle_error(e)
 
@@ -612,7 +624,7 @@ async def dense_evolution_energy_scan(params: EnergyScanInput) -> str:
             return {"label": label, "error": f"{len(params.symbols)} symbols but {len(geometry)} geometry rows"}
         try:
             data = await _request(
-                "POST", "/api/hamiltonian/custom",
+                "POST", "/api/hamiltonian/custom", timeout=60.0,
                 json={"symbols": params.symbols, "geometry": geometry, "charge": params.charge, "mapping": params.mapping},
             )
             return {"label": label, "n_qubits": data["n_qubits"], "ground_state_energy_hartree": data["ground_state_energy_hartree"]}
@@ -671,7 +683,7 @@ async def dense_evolution_run_vqe(params: RunVqeInput) -> str:
         payload = params.model_dump()
         if params.name:
             payload["name"] = await _resolve_molecule_name(params.name)
-        return json.dumps(await _request("POST", "/api/vqe", json=payload), indent=2)
+        return json.dumps(await _request("POST", "/api/vqe", timeout=600.0, json=payload), indent=2)
     except Exception as e:
         return _handle_error(e)
 
@@ -701,7 +713,7 @@ async def dense_evolution_qmmm_forces(params: QmmmForcesInput) -> str:
     try:
         resolved = await _resolve_molecule_name(params.name)
         payload = {**params.model_dump(), "name": resolved}
-        return json.dumps(await _request("POST", "/api/qmmm_forces", json=payload), indent=2)
+        return json.dumps(await _request("POST", "/api/qmmm_forces", timeout=120.0, json=payload), indent=2)
     except Exception as e:
         return _handle_error(e)
 
@@ -738,7 +750,7 @@ async def dense_evolution_md_trajectory(params: MdTrajectoryInput) -> str:
     try:
         resolved = await _resolve_molecule_name(params.name)
         payload = {**params.model_dump(), "name": resolved}
-        return json.dumps(await _request("POST", "/api/md_trajectory", json=payload), indent=2)
+        return json.dumps(await _request("POST", "/api/md_trajectory", timeout=600.0, json=payload), indent=2)
     except Exception as e:
         return _handle_error(e)
 
@@ -776,7 +788,7 @@ async def dense_evolution_mitigate_zne(params: MitigateZneInput) -> str:
         noisy_expectations, zne_extrapolated, extrapolation_method.
     """
     try:
-        return json.dumps(await _request("POST", "/api/mitigate", json=params.model_dump()), indent=2)
+        return json.dumps(await _request("POST", "/api/mitigate", timeout=120.0, json=params.model_dump()), indent=2)
     except Exception as e:
         return _handle_error(e)
 
@@ -802,7 +814,7 @@ async def dense_evolution_mitigate_density_matrix(params: MitigateDensityMatrixI
         str: JSON with n_qubits, noise_factors, fidelity_raw, fidelity_corrected.
     """
     try:
-        return json.dumps(await _request("POST", "/api/mitigate_matrix", json=params.model_dump()), indent=2)
+        return json.dumps(await _request("POST", "/api/mitigate_matrix", timeout=120.0, json=params.model_dump()), indent=2)
     except Exception as e:
         return _handle_error(e)
 
@@ -836,7 +848,7 @@ async def dense_evolution_vector_healing(params: VectorHealingInput) -> str:
         adaptive_radius_used, reconstruction_error.
     """
     try:
-        return json.dumps(await _request("POST", "/api/vector_healing", json=params.model_dump()), indent=2)
+        return json.dumps(await _request("POST", "/api/vector_healing", timeout=30.0, json=params.model_dump()), indent=2)
     except Exception as e:
         return _handle_error(e)
 
@@ -890,7 +902,7 @@ async def dense_evolution_wormhole_select_instance(params: WormholeSelectInstanc
         dense_evolution_wormhole_teleportation / _wormhole_scan.
     """
     try:
-        return json.dumps(await _request("POST", "/api/wormhole_select_instance", json=params.model_dump()), indent=2)
+        return json.dumps(await _request("POST", "/api/wormhole_select_instance", timeout=60.0, json=params.model_dump()), indent=2)
     except Exception as e:
         return _handle_error(e)
 
@@ -951,7 +963,7 @@ async def dense_evolution_wormhole_teleportation(params: WormholeTeleportationIn
         mu, t0, t1, seed, with_message}.
     """
     try:
-        return json.dumps(await _request("POST", "/api/wormhole_teleportation", json=params.model_dump()), indent=2)
+        return json.dumps(await _request("POST", "/api/wormhole_teleportation", timeout=120.0, json=params.model_dump()), indent=2)
     except Exception as e:
         return _handle_error(e)
 
@@ -1024,8 +1036,8 @@ async def dense_evolution_wormhole_scan(params: WormholeScanInput) -> str:
             n_steps_evolution=params.n_steps_evolution, n_steps_coupling=params.n_steps_coupling,
         )
         try:
-            pos = await _request("POST", "/api/wormhole_teleportation", json={**base, "mu": params.mu_magnitude})
-            neg = await _request("POST", "/api/wormhole_teleportation", json={**base, "mu": -params.mu_magnitude})
+            pos = await _request("POST", "/api/wormhole_teleportation", timeout=120.0, json={**base, "mu": params.mu_magnitude})
+            neg = await _request("POST", "/api/wormhole_teleportation", timeout=120.0, json={**base, "mu": -params.mu_magnitude})
             i_pos, i_neg = pos["mutual_information_pt"], neg["mutual_information_pt"]
             return {"t1": t1, "mu_positive": i_pos, "mu_negative": i_neg, "delta": i_neg - i_pos}
         except Exception as e:
