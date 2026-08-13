@@ -558,6 +558,20 @@ healed = de.zero_noise_extrapolation([e1, e2, e3], [1.0, 2.0, 3.0],
 
 ---
 
+## ▍ Erasure-Aware QEC Decoding — `dense_evolution.qec`
+
+Code-agnostic stabilizer-code primitives plus a decoder that corrects known-location (erasure) errors past a standard decoder's reach. Full math, citations, and validation details: [docs/api/qec.md](https://tatopenn-cell.github.io/Dense-Evolution/api/qec/).
+
+```python
+from dense_evolution import compute_syndrome, erasure_aware_decode
+
+stabilizers = ['IIIXXXX', 'IXXIIXX', 'XIXIXIX', 'IIIZZZZ', 'IZZIIZZ', 'ZIZIZIZ']  # Steane [[7,1,3]]
+syndrome = compute_syndrome('IIIZIII', stabilizers)                              # Z error on qubit 3
+corrected = erasure_aware_decode(syndrome, heralded_qubits=[3], n_qubits=7, stabilizers=stabilizers)
+```
+
+---
+
 ## ▍ IA Utils — Vector Sequence Healing
 
 `ia_utils/vector_healing.py` — standalone module for cleaning sequences of vectors (e.g. hidden states / embeddings) that may contain `NaN` or `Inf` entries. Both functions preprocess the input (Inf → NaN → column-mean imputation) before healing, so corrupted values never propagate into the output.
