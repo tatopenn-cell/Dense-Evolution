@@ -33,5 +33,6 @@ from .vhd_tb import (MATERIALS as VHD_MATERIALS, sp3s_star_hamiltonian,
 from .fermions import majorana_pauli_terms
 from .entropy import partial_trace, von_neumann_entropy, mutual_information
 from .trotter import pauli_rotation_ops, trotter_evolve_ops
+from .qec import pauli_commutes, compute_syndrome, erasure_aware_decode
 
-__version__ = "8.1.59"
+__version__ = "8.1.60"
