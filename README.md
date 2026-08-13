@@ -209,6 +209,7 @@ legacy/dash.py                     original Colab notebook, reference only (not 
 | **Adversarial Robustness Testing** | `ia_utils.adversarial_vector_attack.craft_adversarial_healing_perturbation` — PGD-style minimal perturbation, flips the healing Phi-Trigger either direction |
 | **STIM Bridge** | `to_stim` — Clifford-only op-list → `stim.Circuit`, for cross-validation against STIM's stabilizer simulator/decoder tooling |
 | **Native Hartree-Fock** | `dense_evolution.native_hf` — from-scratch JAX/Obara-Saika ab-initio HF engine for elements outside PennyLane's own STO-3G table (H–Ne), auto-used by the Hamiltonian Library for e.g. Si2 |
+| **Erasure-Aware QEC Decoding** | `dense_evolution.qec` — code-agnostic Pauli commutation/syndrome primitives plus a decoder that corrects up to *d*-1 known-location (erasure) errors on a distance-*d* stabilizer code, vs. floor((*d*-1)/2) for a standard syndrome-only decoder (Grassl, Beth & Pellizzari 1997); validated on the Steane [[7,1,3]] code against STIM's `HERALDED_ERASE` channel, 0 failures on >60,000 double-erasure shots |
 | **Backend Agnostic** | NumPy CPU · JAX XLA CPU/TPU · CuPy CUDA — runtime selection, zero code changes |
 | **Live Dashboard** | `app_dashboard.py` — Streamlit Quantum-Composer clone, 5 tabs (Graphical Builder/Circuit/Statevector/Probabilities/Q-sphere) per simulation run |
 

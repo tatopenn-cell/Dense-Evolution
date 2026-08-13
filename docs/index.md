@@ -63,6 +63,11 @@ parsing, chunked large-scale circuits, and ZNE mitigation.
   Hartree-Fock engine for elements outside PennyLane's own bundled STO-3G table (H–Ne),
   automatically backing [`dashboard_core.hamiltonians`](api/dashboard_core_hamiltonians.md)
   for molecules like Si2.
+- **[`dense_evolution.qec`](api/qec.md)** — code-agnostic stabilizer-code utilities (Pauli
+  commutation, syndrome computation) plus an erasure-aware decoder that exploits known error
+  *locations* (e.g. a heralded lost photon) to correct up to *d*-1 errors on a distance-*d*
+  code, versus floor((*d*-1)/2) for a standard syndrome-only decoder (Grassl, Beth &
+  Pellizzari 1997).
 
 ## Dashboard Core — Composer's real compute layer
 
