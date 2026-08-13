@@ -310,16 +310,29 @@ def _eigh_degenerate_safe(A: jnp.ndarray):
     partial eigendecomposition of a real symmetric matrix for degenerate
     cases", arXiv:2011.04366).
 
-    This is the practical variant of that fix (also documented elsewhere,
-    e.g. PyTorch's `torch.linalg.eigh` gradient notes and the `xitorch`
-    library's `symeig`): mask the `1/(lambda_i - lambda_j)` term to 0 for
-    near-degenerate pairs instead of letting it blow up, rather than
-    Kasim's fuller per-degenerate-block treatment (which recovers a
-    generally nonzero contribution from within the degenerate eigenspace
-    itself). Sufficient here because `uhlmann_fidelity`'s only use of the
+    This is a practical variant of that fix: mask the `1/(lambda_i -
+    lambda_j)` term to 0 for near-degenerate pairs instead of letting it
+    blow up, rather than Kasim's fuller per-degenerate-block treatment
+    (which recovers a generally nonzero contribution from within the
+    degenerate eigenspace itself for some perturbation directions).
+    Sufficient here because `uhlmann_fidelity`'s only use of the
     eigenVECTORS is to rebuild a matrix square root, and simply zeroing
     that masked term still gives a mathematically valid (if not maximally
     sharp) subgradient direction there.
+
+    This masking is NOT known to already exist elsewhere, checked directly
+    rather than assumed: PyTorch's current `linalg_eig_jvp`/
+    `linalg_eig_backward` (`torch/csrc/autograd/FunctionsManual.cpp`)
+    divides directly by `(L_j - L_i)` with no degenerate-pair masking at
+    all -- the same singularity as JAX's default, unresolved there too.
+    The `xitorch` library (built by Kasim himself)'s own derivation notes
+    (`doc/notes/deriv_symeig.rst`) state "This derivation assumes the
+    eigenvalues are all unique. Cases with degenerate eigenvalues are
+    treated differently" without giving that treatment on that page, and
+    its `symeig` docstring warns directly that for degenerate values "the
+    calculation and its gradient might be inaccurate". This appears to be
+    a genuinely open problem across the JAX/PyTorch/xitorch ecosystem, not
+    something ported from prior art.
 
     Verified (directional-derivative/JVP comparison against symmetric-
     tangent finite differences, the only comparison method that avoids
