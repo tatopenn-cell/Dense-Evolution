@@ -55,8 +55,8 @@ parsing, chunked large-scale circuits, and ZNE mitigation.
 - **[`ia_utils.adversarial_vector_attack`](api/ia_utils_adversarial_vector_attack.md)** — a
   gradient-based (PGD-style) robustness test that crafts the minimal perturbation flipping
   `enhanced_dense_healing_hybrid`'s Phi-Trigger decision either direction.
-- **[`NoiseModel`](api/registry.md)** — Kraus-channel noise (depolarizing, bitflip,
-  phaseflip, amplitude damping, and a combined worst-case model), JAX- and NumPy-native.
+- **Noise** — Kraus channels, real-device calibration, and JAX-differentiable noise. See the
+  dedicated [Noise Models](#noise-models) section below.
 - **Interop** with [Qiskit and PennyLane](api/interop.md), and [autodiff](api/autodiff.md)
   through `circuit_to_energy_fn` for gradient-based VQE.
 - **[`dense_evolution.native_hf`](api/native_hf.md)** — a from-scratch, JAX/Obara-Saika
@@ -68,6 +68,46 @@ parsing, chunked large-scale circuits, and ZNE mitigation.
   *locations* (e.g. a heralded lost photon) to correct up to *d*-1 errors on a distance-*d*
   code, versus floor((*d*-1)/2) for a standard syndrome-only decoder (Grassl, Beth &
   Pellizzari 1997).
+
+## Noise Models
+
+Three complementary ways to put noise into a simulation, all built on the same underlying
+Kraus-channel machinery:
+
+### [`NoiseModel`](api/registry.md) — Kraus noise channels
+
+Stochastic single-qubit Kraus channels applied directly to a statevector, JAX- and
+NumPy-native, trace-preserving by construction:
+
+| Model | Kraus operators |
+|---|---|
+| `depolarizing` | `{√(1-p)I, √(p/3)X, √(p/3)Y, √(p/3)Z}` |
+| `bitflip` | `{√(1-p)I, √p·X}` |
+| `phaseflip` | `{√(1-p)I, √p·Z}` (applies Z with probability p per qubit) |
+| `amplitude_damping` | `K0=diag(1,√(1-γ)), K1=[[0,√γ],[0,0]]` |
+| `combined` | `depolarizing(p/2) + amplitude_damping(p/3)`, renormalised — a worst-case NISQ mixture of all three Pauli errors plus amplitude damping |
+| `ideal` | identity, no modification |
+
+Every channel draws one fire/no-fire decision per qubit per shot (plus one Pauli choice for
+depolarizing/combined's depolarizing sub-step) — the same single-Pauli-per-qubit-per-shot
+convention STIM's `DEPOLARIZE1(p)` uses.
+
+### [`noise_model_from_qiskit_backend`](api/interop.md) — Real device noise
+
+Builds a Dense-Evolution noise spec straight from a Qiskit `BackendV2`'s own calibration
+data (live or fake/mock, e.g. `FakeSherbrooke`), so a simulation reflects a device's actual
+measured per-qubit/per-gate error rates instead of an idealized channel. One entry per
+unique (gate, qubit-target) pair — deduplicated regardless of how many times a circuit
+repeats a gate on the same qubits.
+
+### [`NoiseSpec`](api/registry.md) — Differentiable noise
+
+Noise as a JAX PyTree, accepted natively by [`circuit_to_energy_fn`](api/autodiff.md) —
+the whole `theta → noisy statevector → energy` path stays inside one
+`jax.jit`/`jax.grad`/`jax.vmap` trace, instead of applying noise as an external Python-side
+step around an already-traced circuit. `model`/`qubits` are static (select the code path);
+`p`/`jax_key` are pytree leaves, so noise strength itself can be a differentiable/traced
+value.
 
 ## Dashboard Core — Composer's real compute layer
 
