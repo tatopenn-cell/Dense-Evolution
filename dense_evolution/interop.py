@@ -1,3 +1,55 @@
+"""Qiskit / PennyLane interop bridges (`from_qiskit`, `from_pennylane`,
+`run_qiskit_circuit`, `run_pennylane_circuit`), a real-calibration noise
+bridge (`noise_model_from_qiskit_backend`), and a Clifford-only STIM
+bridge (`to_stim`). All circuit bridges go through OpenQASM 2.0
+(`qiskit.qasm2.dumps` / `qml.to_openqasm`) and this library's own
+`QASMParser` -- not bespoke gate-by-gate translators, so gate coverage
+matches whatever the parser/simulator already support.
+
+**Bit-order.** Qiskit indexes probability/statevector arrays
+little-endian (qubit 0 = least significant bit); Dense-Evolution indexes
+MSB-first everywhere (`phys = n_qubits - 1 - qubit`, the same convention
+`apply_gate_1q`/`apply_gate_2q`/`measure`/`run_circuit_jit` use).
+`run_qiskit_circuit` reorders its output into Qiskit's own convention
+(`_to_qiskit_bit_order`, a plain bit-reversal permutation, verified
+against `Statevector.from_instruction(...).probabilities()` on an
+asymmetric circuit) so it's directly comparable to
+`Statevector(circuit).probabilities()`. PennyLane's own wire convention
+already matches Dense-Evolution's MSB-first indexing natively --
+`run_pennylane_circuit` does **not** reorder, on purpose; verified
+directly that the two frameworks genuinely need different treatment
+here, not just "symmetric for simplicity."
+
+**Known limits**, inherited from the QASM2 bridge (not something this
+layer works around):
+
+- No classical control flow -- `if`/`while` and mid-circuit-measurement-
+  conditioned gates are parsed out, not executed (same limitation as
+  native QASM3 circuits).
+- No expansion of composite/custom gates. A Qiskit call like `mcx` with
+  3+ controls gets exported as a named `gate mcx { ... }` definition;
+  the definition parses cleanly but the gate itself isn't a primitive
+  this simulator knows how to execute, so a call to it is a silent
+  no-op -- same as referencing any unrecognized gate name elsewhere.
+  Stick to the gates this simulator actually implements for results you
+  can trust.
+- Only a plugin/backend-free bridge for circuit *execution* -- no
+  `qiskit.providers.BackendV2` or PennyLane `Device` registration, so
+  callers still invoke `run_qiskit_circuit`/`run_pennylane_circuit`
+  explicitly rather than pointing existing framework code at a new
+  backend/device string. (`noise_model_from_qiskit_backend` reads a
+  `BackendV2`'s calibration data -- that's data extraction only, not
+  backend/provider registration.)
+- **`run_qiskit_circuit`/`run_pennylane_circuit` are not differentiable.**
+  `from_pennylane`/`from_qiskit` materialize every gate parameter into a
+  plain Python `float` inside the QASM text before parsing -- the value
+  leaves the JAX trace entirely. `jax.grad` through `run_pennylane_circuit`
+  does **not** raise: it silently returns `0.0`, which looks like
+  "already converged" rather than "not wired up" (verified directly).
+  For a real gradient, use `circuit_to_energy_fn` instead -- pass it the
+  `QASMCircuit` that `from_qiskit`/`from_pennylane` returns, before that
+  float-baking happens, and `jax.grad` works correctly.
+"""
 import sys
 import warnings
 from typing import Optional, Tuple

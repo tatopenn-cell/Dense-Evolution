@@ -340,22 +340,16 @@ See **IA Utils — Vector Sequence Healing** above for details.
 
 ### `ia_utils.adversarial_vector_attack`
 
-A gradient-based (PGD-style) stress test for `enhanced_dense_healing_hybrid`'s Phi-Trigger decision -- crafts the *minimal* perturbation, within an L2 epsilon-ball, that flips whether a given vector sequence gets treated as "dynamic" (passed through unhealed) or "static" (median-replaced). Adapted from IGME's chained-differentiable-attack idea ([arXiv:2607.27465](https://arxiv.org/abs/2607.27465), He & Zhang), applied here to vector sequences instead of image segmentation.
+A gradient-based (PGD-style) robustness test for `enhanced_dense_healing_hybrid`'s Phi-Trigger decision. Full method and validation: [docs/api/ia_utils_adversarial_vector_attack.md](https://tatopenn-cell.github.io/Dense-Evolution/api/ia_utils_adversarial_vector_attack/).
 
 ```python
 from ia_utils.adversarial_vector_attack import craft_adversarial_healing_perturbation
 
 result = craft_adversarial_healing_perturbation(
-    vettori, target_idx=10,
-    epsilon=0.1,               # L2 budget for the perturbation
-    direction="flip_to_dynamic",  # or "flip_to_static"
+    vettori, target_idx=10, epsilon=0.1, direction="flip_to_dynamic",  # or "flip_to_static"
 )
-result["success"]            # bool: did the perturbation flip the trigger?
-result["perturbed_vettori"]  # the adversarial sequence
-result["perturbation_norm"]  # actual L2 norm used (0.0 if the gradient saturated -- reported, not hidden)
+result["success"], result["perturbed_vettori"], result["perturbation_norm"]
 ```
-
-Two directions of attack: `flip_to_dynamic` (evade -- make static-looking corruption pass through unhealed) or `flip_to_static` (suppress -- make genuine dynamic signal get wrongly median-replaced). Use this to check whether `enhanced_dense_healing_hybrid`'s trigger is robust at your own operating point before relying on it in a pipeline where inputs aren't trusted.
 
 ---
 
@@ -423,38 +417,7 @@ sim, probs = run_pennylane_circuit(circuit)   # no reordering needed, see below
 
 `from_qiskit(circuit)` / `from_pennylane(circuit)` return a `QASMCircuit` (structural conversion only) for anyone who wants to manage their own `DenseSVSimulator`/`Chunk` instead of the convenience runners above.
 
-**Bit-order — read this before comparing arrays across frameworks.** Qiskit indexes probability/statevector arrays little-endian (qubit 0 = least-significant bit); Dense-Evolution indexes MSB-first everywhere (`phys = n_qubits - 1 - qubit`, the same convention `apply_gate_1q`/`apply_gate_2q`/`measure`/beast-mode use). `run_qiskit_circuit` reorders its output into Qiskit's own convention so it's directly comparable to `Statevector(circuit).probabilities()`. PennyLane's own wire convention already matches Dense-Evolution's MSB-first indexing natively — `run_pennylane_circuit` does **not** reorder, on purpose; verified directly on an asymmetric circuit that the two frameworks genuinely need different treatment here, not just "symmetric for simplicity."
-
-**Real device noise — `noise_model_from_qiskit_backend`.** Converts a Qiskit `BackendV2`'s own calibration data (`backend.target` — real per-qubit/per-gate error rates, works for both live backends and fake/mock backends carrying a real historical snapshot, e.g. `qiskit_ibm_runtime.fake_provider.FakeSherbrooke`) into a Dense-Evolution-native noise spec, so a simulation can run under a real device's measured error rates instead of an idealized channel:
-
-```python
-from qiskit_ibm_runtime.fake_provider import FakeSherbrooke
-from dense_evolution import noise_model_from_qiskit_backend, NoiseModel
-
-backend = FakeSherbrooke()
-specs = noise_model_from_qiskit_backend(backend)   # one entry per unique (gate, qubit-target)
-
-for entry in specs:
-    sv = NoiseModel.apply_to_sv(sv, n_qubits, model=entry['model'], p=entry['p'], qubits=entry['qubits'])
-```
-
-Pass `circuit=` to restrict the result to just the `(gate, qargs)` targets a specific circuit uses — still exactly one entry per unique target no matter how many times the circuit repeats it. Promoted from [Dense-Evolution-Discovery](https://github.com/tatopenn-cell/Dense-Evolution-Discovery)'s Steane-code hardware bridge script, which found a real bug worth preserving here: calling Qiskit Aer's `add_quantum_error` once per gate *occurrence* (rather than once per unique target) composes the same Kraus channel with itself repeatedly, blowing up to multi-GB memory on circuits with many repeats on the same qubits. This function can't reproduce that bug by construction — it dedupes by `(gate, qargs)` before ever emitting a spec entry.
-
-**STIM bridge — `to_stim`.** Converts a Dense-Evolution op-list circuit into a `stim.Circuit`, for cross-validation against STIM's own stabilizer simulator/decoder tooling:
-
-```python
-from dense_evolution import to_stim
-
-circuit = to_stim([['h', 0], ['cx', 0, 1]], n_qubits=2)
-```
-
-STIM is a *stabilizer* simulator — it can only represent Clifford operations (`h`/`x`/`y`/`z`/`s`/`sdg`/`sx`/`id`/`cx`/`cy`/`cz` map 1:1 onto native STIM instructions here). A continuous-angle rotation (`rx`/`ry`/`rz`/`p`/...) or a non-Clifford gate (`t`/`tdg`) raises `ValueError` naming the offending gate, rather than being silently dropped or approximated — a stabilizer circuit that's silently wrong defeats the point of using STIM as an independent check. Generalized from [Dense-Evolution-Discovery](https://github.com/tatopenn-cell/Dense-Evolution-Discovery)'s Steane-code STIM cross-check, which was specific to that one circuit; this version works on any Clifford op-list.
-
-**Known limits** (inherited from the QASM2 bridge, not something this layer works around):
-- No classical control flow — `if`/`while` and mid-circuit-measurement-conditioned gates are parsed out, not executed (same limitation as native QASM3 circuits, see Changelog v8.1.13).
-- No expansion of composite/custom gates. A Qiskit call like `mcx` with 3+ controls gets exported as a named `gate mcx { ... }` definition; the definition is parsed cleanly (no longer corrupts what follows it) but the gate itself isn't a primitive Dense-Evolution knows how to execute, so a call to it is a silent no-op — same as referencing any unrecognized gate name elsewhere in this simulator. Stick to the gates in the Gate Library table above for results you can trust.
-- Only a plugin/backend-free bridge for circuit *execution* — no `qiskit.providers.BackendV2` or PennyLane `Device` registration, so you still call `run_qiskit_circuit`/`run_pennylane_circuit` explicitly rather than pointing existing framework code at a new backend/device string. (`noise_model_from_qiskit_backend` above reads a `BackendV2`'s calibration data — that's data extraction only, not backend/provider registration.)
-- **`run_qiskit_circuit`/`run_pennylane_circuit` themselves are not differentiable.** `from_pennylane`/`from_qiskit` materialize every gate parameter into a plain Python `float` inside the QASM text before parsing — the value leaves the JAX trace entirely. `jax.grad` through `run_pennylane_circuit` does **not** raise: it silently returns `0.0`, which looks like "already converged" rather than "not wired up." Verified directly, not just documented from a guess. **For a real gradient, use `circuit_to_energy_fn` instead** (see next section) — pass it the `QASMCircuit` that `from_qiskit`/`from_pennylane` returns, before that float-baking happens, and `jax.grad` works correctly (also verified directly, on a PennyLane circuit imported this exact way).
+Also included: `noise_model_from_qiskit_backend` (real device calibration → Dense-Evolution noise spec) and `to_stim` (Clifford-only bridge to STIM's stabilizer tooling). Bit-order convention, known limits (classical control flow, composite gates, differentiability), and full detail on both bridges: [docs/api/interop.md](https://tatopenn-cell.github.io/Dense-Evolution/api/interop/).
 
 ---
 
@@ -492,11 +455,9 @@ All channels applied as post-circuit stochastic Kraus operations on the full sta
 | `bitflip` | `{√(1−p)I, √p·X}` | Bit flip σₓ |
 | `combined` | depolarizing(p/2) ∘ amplitude_damping(p/3) | Worst-case NISQ |
 
-Fidelity metrics computed on every noisy run: Bhattacharyya `F = Σᵢ √(pᵢqᵢ)` and TVD `= ½Σᵢ|pᵢ−qᵢ|`.
+Fidelity metrics computed on every noisy run: Bhattacharyya `F = Σᵢ √(pᵢqᵢ)` and TVD `= ½Σᵢ|pᵢ−qᵢ|`. Each channel draws one fire/no-fire decision per qubit per shot — the same convention STIM's `DEPOLARIZE1(p)` uses.
 
-Every channel draws **one fire/no-fire decision per qubit per shot** (plus one Pauli choice for `depolarizing`/`combined`'s depolarizing sub-step), applied identically across the whole statevector — the same single-Pauli-per-qubit-per-shot convention STIM's `DEPOLARIZE1(p)` uses. Prior to v8.1.57, every channel instead drew `2**(n-1)` *independent* decisions per qubit per shot, one per amplitude pair (i.e. one per branch of the other n-1 qubits) — inert on a product state, but on an entangled state it over-decohered any coherence-sensitive (off-diagonal) observable, up to hundreds of sigma vs the exact density-matrix Kraus-sum result on test cases (see changelog).
-
-**Native integration with `circuit_to_energy_fn` via `NoiseSpec`.** Applying noise used to mean stepping outside the traced circuit computation: build the ideal statevector, exit the trace, call `apply_to_sv` separately, manage a PRNG key by hand around the training loop. `NoiseSpec` is a real JAX PyTree (`model`/`qubits` static, `p`/`jax_key` as leaves) that `circuit_to_energy_fn`'s `energy_fn` accepts directly as a fourth argument — noise is applied natively, in the same traced graph as `theta`, fully `jax.jit`/`jax.grad`/`jax.vmap`-composable:
+`NoiseSpec` composes noise natively into `circuit_to_energy_fn` (a JAX PyTree accepted as `energy_fn`'s fourth argument — noise stays inside the same `jax.jit`/`jax.grad`/`jax.vmap` trace as `theta`, no external step):
 
 ```python
 import jax
@@ -504,20 +465,10 @@ from dense_evolution import QASMParser, circuit_to_energy_fn, NoiseSpec
 
 energy_fn, n_params = circuit_to_energy_fn(circuit, n_qubits)
 noise = NoiseSpec(model='depolarizing', p=0.05, jax_key=jax.random.PRNGKey(0))
-
-energy, sv = energy_fn(theta, h_matrix, noise=noise)          # applied inline
-energy, sv = jax.jit(energy_fn)(theta, h_matrix, None, noise) # jit-compatible
-grad = jax.grad(lambda t: energy_fn(t, h_matrix, None, noise)[0])(theta)  # grad flows through the noise
+energy, sv = energy_fn(theta, h_matrix, noise=noise)
 ```
 
-A fresh, independent, reproducible noise draw per call is a `jax.random.split` away — no OS-entropy fallback, no external key bookkeeping. `p` is also a tracked leaf (you *can* differentiate through it), though the gradient is ~0 almost everywhere in practice: the underlying channels sample via a hard threshold (`fire = r < p`), which isn't usefully differentiable without a smooth relaxation — out of scope here.
-
-**`apply_to_sv`'s randomness arguments** — `rng: np.random.Generator` and `jax_key: jax.random.PRNGKey` — cover the two statevector array types:
-
-- `sv` is a NumPy array → uses `rng` (or a fresh default generator if `rng=None`).
-- `sv` is a JAX array (e.g. the statevector returned by `circuit_to_energy_fn`'s `energy_fn`, the common case when composing noise into a `jax.grad`/`jax.value_and_grad` pipeline) → uses `jax_key` if given explicitly; otherwise, if `rng` is given, a JAX key is *derived* from it (`rng.integers(...)` seeds `jax.random.PRNGKey`) so a seeded `rng` reproduces the same sequence of keys across separate runs, the same guarantee the NumPy path already gives; only when *neither* is given does it fall back to a fresh, non-reproducible key from OS entropy.
-
-`jax_key`, when given, always takes precedence over `rng` — pass it explicitly (and split a fresh subkey per call, e.g. `jax.random.split`) when you specifically want a different-but-reproducible noise draw each step rather than one implied by advancing a shared `rng`. Prior to v8.1.27, `rng` was silently ignored whenever `sv` was a JAX array (issue #7) — a caller who seeded `rng` expecting NumPy-style reproducibility got a different result on every call with no error or warning.
+Sampling history, `apply_to_sv`'s `rng`/`jax_key` precedence rules, and full channel detail: [docs/api/registry.md](https://tatopenn-cell.github.io/Dense-Evolution/api/registry/).
 
 ---
 
@@ -555,6 +506,20 @@ healed = de.zero_noise_extrapolation([e1, e2, e3], [1.0, 2.0, 3.0],
 ```
 
 `richardson_extrapolate`/`zero_noise_extrapolation` accept array-valued `expectation_values` too (e.g. a full probability distribution per noise scale, extrapolated elementwise), not just scalars — this is what the Streamlit dashboard's **Mitigation (ZNE)** tab uses under the hood (`dashboard_core.mitigation_runner.run_mitigation_sweep`): run the active circuit at 1x/2x/3x the configured noise probability, extrapolate the whole probability vector (and fidelity) to zero noise, reusing these two functions exactly as-is.
+
+---
+
+## ▍ Erasure-Aware QEC Decoding — `dense_evolution.qec`
+
+Code-agnostic stabilizer-code primitives plus a decoder that corrects known-location (erasure) errors past a standard decoder's reach. Full math, citations, and validation details: [docs/api/qec.md](https://tatopenn-cell.github.io/Dense-Evolution/api/qec/).
+
+```python
+from dense_evolution import compute_syndrome, erasure_aware_decode
+
+stabilizers = ['IIIXXXX', 'IXXIIXX', 'XIXIXIX', 'IIIZZZZ', 'IZZIIZZ', 'ZIZIZIZ']  # Steane [[7,1,3]]
+syndrome = compute_syndrome('IIIZIII', stabilizers)                              # Z error on qubit 3
+corrected = erasure_aware_decode(syndrome, heralded_qubits=[3], n_qubits=7, stabilizers=stabilizers)
+```
 
 ---
 

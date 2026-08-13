@@ -175,6 +175,20 @@ class NoiseModel:
     'phaseflip'        {√(1-p)I, √p·Z}    ← was broken, now fixed
     'amplitude_damping'{K0=diag(1,√(1-γ)), K1=[[0,√γ],[0,0]]}
     'combined'         depolarizing(p/2) + amplitude_damping(p/3), renormalised
+
+    Every channel draws one fire/no-fire decision per qubit per shot
+    (plus one Pauli choice for depolarizing/combined's depolarizing
+    sub-step), applied identically across the whole statevector -- the
+    same single-Pauli-per-qubit-per-shot convention STIM's
+    DEPOLARIZE1(p) uses. Prior to v8.1.57, every channel instead drew
+    2**(n-1) INDEPENDENT decisions per qubit per shot, one per amplitude
+    pair (i.e. one per branch of the other n-1 qubits) -- inert on a
+    product state, but on an entangled state it over-decohered any
+    coherence-sensitive (off-diagonal) observable, up to hundreds of
+    sigma vs the exact density-matrix Kraus-sum result on test cases
+    (e.g. per-branch sampling dropped a measured value from 1.0 to 0.31
+    at p=0.15 on one such test -- see the v8.1.57 changelog entry for
+    the full reproduction).
     """
 
     MODELS = ['ideal', 'depolarizing', 'bitflip', 'phaseflip',
