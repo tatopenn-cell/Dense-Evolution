@@ -85,14 +85,20 @@ cd Dense-Evolution && pip install -e .[full]
 ```python
 from dense_evolution import DenseSVSimulator, QASMParser
 
-# parse any OpenQASM 2.0 / 3.0 string
+# parse any OpenQASM 2.0 / 3.0 string -- single-qubit rotations, a barrier
+# (a real OpenQASM synchronization marker: parsed like hardware would, no
+# effect on the simulated state), then an entangling layer
 qasm = """
 OPENQASM 2.0;
 include "qelib1.inc";
 qreg q[3];
-h q[0];
+rx(pi/3) q[0];
+ry(pi/4) q[1];
+h q[2];
+barrier q;
 cx q[0], q[1];
 cx q[1], q[2];
+rz(pi/6) q[2];
 """
 
 parser = QASMParser()
@@ -103,6 +109,7 @@ sim.run_circuit_jit(circuit.to_tuples())
 
 probs = sim.get_probabilities()
 sv    = sim.get_statevector()
+# probs = [0.3201 0.3201 0.0549 0.0549 0.0183 0.0183 0.1067 0.1067]
 ```
 
 **Dashboard (local, Streamlit):**
