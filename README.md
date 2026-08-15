@@ -14,8 +14,8 @@
 ```
 
 <!-- mcp-name: io.github.tatopenn-cell/dense-evolution -->
-
-**Dense Statevector Quantum Simulator · JAX XLA · NISQ · VQE · QML**
+** A high-performance quantum simulation toolkit
+Statevector/MPS engines with compilation, noise, VQE, QEC, chemistry, and agent-native tooling.**
 
 [![CI](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml/badge.svg)](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-tatopenn--cell.github.io-00e5ff?style=flat-square)](https://tatopenn-cell.github.io/Dense-Evolution/)
