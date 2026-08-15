@@ -14,7 +14,7 @@
 ```
 
 <!-- mcp-name: io.github.tatopenn-cell/dense-evolution -->
-** A high-performance quantum simulation toolkit
+**A high-performance quantum simulation toolkit
 Statevector/MPS engines with compilation, noise, VQE, QEC, chemistry, and agent-native tooling.**
 
 [![CI](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml/badge.svg)](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml)
