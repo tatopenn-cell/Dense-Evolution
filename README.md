@@ -36,6 +36,13 @@ Statevector/MPS engines with compilation, noise, VQE, QEC, chemistry, and agent-
 
 ---
 
+## Table of Contents
+- [What It Is](#-what-it-is)
+- [Install](#-install)
+- [Quick Start](#-quick-start)
+- [Architecture](#-architecture)
+- [Contributing](#contributing)
+
 ## ▍ What It Is
 
 **Dense Evolution** is a high-performance statevector simulator engineered for deep NISQ circuits, VQE pipelines, and QML workloads. It eliminates Kronecker product overhead entirely via stride-sliced linear kernel fusion compiled through JAX XLA — keeping memory at the theoretical minimum of `2ⁿ × 16 bytes`.
