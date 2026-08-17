@@ -23,12 +23,7 @@ import functools
 import jax
 import jax.numpy as jnp
 
-from dense_evolution.native_hf.gaussians import (
-    GaussianShell1D,
-    GaussianShell3D,
-    product_center,
-    product_prefactor,
-)
+from dense_evolution.native_hf.gaussians import GaussianShell1D, GaussianShell3D
 
 
 def _base_overlap_1d(g1: GaussianShell1D, g2: GaussianShell1D) -> jax.Array:
