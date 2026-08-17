@@ -38,6 +38,7 @@ jobs:
           pip install streamlit>=1.30.0 ipywidgets>=8.0.0
           pip install fastapi uvicorn pydantic httpx2 # composer extra -- local_site/app/server.py + tests/test_local_site_server.py (httpx2: starlette.testclient's current required client)
           pip install mcp httpx # mcp extra -- mcp_server/server.py + tests/test_mcp_server.py (real httpx, not the httpx2 alias above -- the MCP adapter imports httpx directly)
+          pip install pre-commit
           pip install -e . --no-deps # Installa il pacchetto locale in modalita' editable:
           # con un'installazione normale (`pip install .`), i sorgenti finiscono
           # copiati dentro site-packages e i test importano QUELLA copia, non i
@@ -47,6 +48,11 @@ jobs:
           # diversi. Confermato nel log della CI stessa: "TOTAL 4009 4009 0.0%"
           # gia' nello step di test, prima ancora di generare coverage.xml --
           # non era un bug di Codecov.
+
+      - name: Run pre-commit hooks
+        # Run pre-commit across the repository to enforce formatting and linters
+        run: |
+          pre-commit run --all-files --show-diff-on-failure
 
       - name: Run test suite
         run: |
