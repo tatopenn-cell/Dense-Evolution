@@ -38,6 +38,8 @@ pre-commit install
 pre-commit run --all-files
 ```
 
+Note: the project's CI runs pre-commit as part of the test workflow. If a CI job fails due to formatting or lint errors, run the commands above locally to auto-fix and re-commit before reopening the PR.
+
 ## Running tests
 
 ```bash
