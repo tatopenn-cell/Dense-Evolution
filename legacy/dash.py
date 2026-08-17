@@ -2238,7 +2238,6 @@ import numpy as np
 import hashlib
 import pandas as pd
 import plotly.graph_objects as go # Added for build_3d_helix_patch
-
 def _run_vqe_mock_simulation(
     epochs: int,
     lr: float,
