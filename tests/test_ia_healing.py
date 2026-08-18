@@ -15,11 +15,14 @@ class TestEnhancedDenseHealingHybrid(unittest.TestCase):
         # a bare ModuleNotFoundError with no hint this function needed it.
         # Force a REAL ImportError (not a monkeypatched downstream
         # consequence) via builtins.__import__, matching how this failure
-        # actually happens at import time.
+        # actually happens at import time. (Phase 4: vector_healing.py now
+        # imports from the canonical dense_evolution.mitigation.healing
+        # path rather than the flat backward-compat shim -- intercept that
+        # exact name, matching what actually gets imported.)
         real_import = builtins.__import__
 
         def fake_import(name, *args, **kwargs):
-            if name == 'dense_evolution.healing':
+            if name == 'dense_evolution.mitigation.healing':
                 raise ImportError('simulated missing module')
             return real_import(name, *args, **kwargs)
 
