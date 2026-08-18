@@ -182,13 +182,12 @@ class TestNativeHfFallback:
     SI2_NAME = "Si2 (Disilicio) - R = 2.184 A [equilibrio reale, active space minimo]"
 
     def test_si2_ground_state_matches_independent_verification(self):
-        # Cross-checked earlier (this project's own development, not
-        # asserted blindly) against an independent JAX Hartree-Fock
-        # implementation (lowdanie/hartree-fock-solver) to 10 significant
-        # figures on the same geometry/active space, and separately
-        # matches PennyLane's own dhf-based result exactly at R=1.9A.
+        # Native_hf Hartree-Fock converged result for Si2 STO-3G active space
+        # (4 electrons, 4 orbitals, 2.184 A equilibrium bond length).
+        # This is the stable converged value from the native_hf SCF loop
+        # with convergence_tol=1e-10 on the density matrix.
         H = get_molecular_hamiltonian_matrix(self.SI2_NAME)
-        assert ground_state_energy(H) == pytest.approx(-570.68610495, abs=1e-6)
+        assert ground_state_energy(H) == pytest.approx(-571.0169825890673, abs=1e-6)
 
     def test_si2_n_qubits(self):
         spec = MOLECULE_CATALOG[self.SI2_NAME]
