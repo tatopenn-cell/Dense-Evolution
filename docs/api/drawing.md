@@ -4,4 +4,4 @@ A plain-text circuit diagram -- the fast way to sanity-check what a gate-tuple l
 builds, without running it. Deliberately ASCII-only (`-`, `|`, `*`), not Unicode box-drawing, so
 a printed diagram survives any console encoding.
 
-::: dense_evolution.drawing
+::: dense_evolution.utils.drawing

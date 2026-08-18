@@ -4,7 +4,7 @@ Turning a statevector into finite-shot counts (`sample_counts`, a Qiskit-`get_co
 equivalent), and comparing two pure states directly (`statevector_fidelity`) without building a
 density matrix first.
 
-::: dense_evolution.measurement
+::: dense_evolution.utils.measurement
 
 ---
 
