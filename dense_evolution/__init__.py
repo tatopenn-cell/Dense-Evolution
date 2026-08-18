@@ -22,10 +22,10 @@ from .mitigation import (richardson_extrapolate, zero_noise_extrapolation, polyn
 from .topology import entangling_layer
 from .observables import pauli_expectation, pauli_sum_expectation, pauli_hamiltonian_to_matrix
 from .states import ghz_state
-from .measurement import sample_counts, statevector_fidelity
+from .utils.measurement import sample_counts, statevector_fidelity
 from .qft import qft
 from .random_circuit import random_circuit
-from .drawing import draw_circuit
+from .utils.drawing import draw_circuit
 from .harrison_tb import (ELEMENTS as HARRISON_ELEMENTS, ETA as HARRISON_ETA,
                            sp3_dimer_hamiltonian, zincblende_hamiltonian)
 from .vhd_tb import (MATERIALS as VHD_MATERIALS, sp3s_star_hamiltonian,
