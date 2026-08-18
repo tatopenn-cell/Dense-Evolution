@@ -1,7 +1,7 @@
 ---
 name: dense-evolution-mcp
 description: Drive Dense-Evolution's real quantum circuit simulator, VQE solver, molecular Hamiltonian builder, QM/MM force calculator, and MD trajectory engine directly through the dense_evolution_mcp MCP server, instead of writing new simulation code or describing what a circuit should do in the abstract. Use this skill whenever the user asks to run or build a quantum circuit, simulate a molecule, compute a ground-state/binding energy, run VQE, apply zero-noise extrapolation (ZNE) or noise mitigation, get Hellmann-Feynman forces, run a molecular dynamics trajectory, or mentions OpenQASM, qubits, an ansatz, Hartree energies, the Ising model, or the Dense Evolution / Composer kernel -- even if they don't name a tool exactly or say "use MCP".
-compatibility: Requires the dense_evolution_mcp MCP server registered (see mcp_server/README.md in this repo) and the Composer kernel running (`dense-evolution serve`). Call dense_evolution_health first if unsure.
+compatibility: Requires the dense_evolution_mcp MCP server registered (see tools/mcp_server/README.md in this repo) and the Composer kernel running (`dense-evolution serve`). Call dense_evolution_health first if unsure.
 ---
 
 # Dense Evolution MCP
@@ -9,7 +9,7 @@ compatibility: Requires the dense_evolution_mcp MCP server registered (see mcp_s
 ## Why this exists
 
 `dense_evolution_mcp` gives you 21 tools that call the *same* local kernel
-the published Composer web page uses (`local_site/app/server.py`) -- real
+the published Composer web page uses (`research/local_site/app/server.py`) -- real
 `DenseSVSimulator` runs, real Hartree-Fock Hamiltonians, real VQE with
 adjoint differentiation, real Hellmann-Feynman forces. Prefer these tools
 over writing new Python against `dense_evolution`/`dashboard_core`
@@ -135,7 +135,7 @@ degrades and the (much slower) `true` setting matters more.
 
 **"Simulate a traversable wormhole / Gao-Jafferis-Wall teleportation / SYK model":**
 Real physics (arXiv:2604.10090), not decoration -- see
-`dashboard_core/wormhole.py`'s module docstring and
+`tools/dashboard_core/wormhole.py`'s module docstring and
 `research/wormhole_syk.md` for the full derivation. Always call
 `dense_evolution_wormhole_select_instance` first unless the user already
 has a known-good seed (the default n_majorana=8/k_terms=10/
@@ -165,11 +165,11 @@ sanitized first regardless. Report `fallback_triggered` and
 *and* corrected, not just that some step looked statistically static.
 This is the same predictive-healing engine the pre-rebuild dashboard
 routed VQE/MD telemetry through before any panel was built from it
-(`ia_utils/vector_healing.py`'s `enhanced_dense_healing_hybrid`).
+(`tools/ia_utils/vector_healing.py`'s `enhanced_dense_healing_hybrid`).
 
 ## If the kernel isn't set up yet
 
-Point the user at `mcp_server/README.md` in this repo -- it has the
+Point the user at `tools/mcp_server/README.md` in this repo -- it has the
 install command, how to start the kernel, and how to register the MCP
 server with `claude mcp add`. Don't restate that setup here; this file is
 about using the tools once they're available, not installing them.

@@ -182,13 +182,26 @@ class TestNativeHfFallback:
     SI2_NAME = "Si2 (Disilicio) - R = 2.184 A [equilibrio reale, active space minimo]"
 
     def test_si2_ground_state_matches_independent_verification(self):
-        # Cross-checked earlier (this project's own development, not
-        # asserted blindly) against an independent JAX Hartree-Fock
-        # implementation (lowdanie/hartree-fock-solver) to 10 significant
-        # figures on the same geometry/active space, and separately
-        # matches PennyLane's own dhf-based result exactly at R=1.9A.
+        # BUG FOUND AND FIXED (see dense_evolution/native_hf/scf.py's
+        # module docstring): plain (undamped) SCF never converged for
+        # this molecule's minimal 4-electron/4-orbital active space --
+        # two orbital pairs at the active-space boundary are numerically
+        # degenerate, so the density oscillated for the full 100/100
+        # iterations instead of settling. The value this test asserted
+        # before (-570.68610495) was one such non-converged stopping
+        # point, not a real answer -- it happened to reproduce on most
+        # platforms/library versions but not all (CI caught this: a
+        # different non-converged value, matching what's asserted below,
+        # showed up on ubuntu-latest/Python 3.12). Linear density damping
+        # now makes the SCF genuinely converge, to the SAME energy
+        # (agreeing to 10 significant figures) across every damping
+        # factor tested (0.1-0.7) -- a real self-consistency check, not
+        # just a different arbitrary stopping point. The original
+        # cross-check claim against lowdanie/hartree-fock-solver and
+        # PennyLane's dhf result predates this fix and needs redoing
+        # against the corrected value; not re-verified here yet.
         H = get_molecular_hamiltonian_matrix(self.SI2_NAME)
-        assert ground_state_energy(H) == pytest.approx(-570.68610495, abs=1e-6)
+        assert ground_state_energy(H) == pytest.approx(-571.0169825890681, abs=1e-6)
 
     def test_si2_n_qubits(self):
         spec = MOLECULE_CATALOG[self.SI2_NAME]

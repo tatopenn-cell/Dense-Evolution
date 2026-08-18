@@ -660,9 +660,9 @@ is static — it talks to a local kernel that runs on your own machine, not
 a shared server. Get the kernel running with the installer for your OS
 (walks you through what it does before doing anything, no silent steps):
 
-- Windows: [`installer/install-composer.bat`](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/installer/install-composer.bat)
-- macOS / Linux: [`installer/install-composer.sh`](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/installer/install-composer.sh)
-- Uninstall: [`installer/uninstall-composer.bat`](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/installer/uninstall-composer.bat) / [`installer/uninstall-composer.sh`](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/installer/uninstall-composer.sh)
+- Windows: [`installer/install-composer.bat`](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/tools/installer/install-composer.bat)
+- macOS / Linux: [`installer/install-composer.sh`](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/tools/installer/install-composer.sh)
+- Uninstall: [`installer/uninstall-composer.bat`](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/tools/installer/uninstall-composer.bat) / [`installer/uninstall-composer.sh`](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/tools/installer/uninstall-composer.sh)
 
 The installer's only real job is `pip install dense-evolution[composer]`
 plus some optional shortcuts — the kernel itself is one plain console

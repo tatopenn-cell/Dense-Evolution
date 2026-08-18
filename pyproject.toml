@@ -135,6 +135,16 @@ dense-evolution = "dense_evolution.cli:main"
 [tool.setuptools]
 packages = ["dense_evolution", "dense_evolution.native_hf", "ia_utils", "dashboard_core", "local_site", "local_site.app", "mcp_server"]
 
+# Physical location moved under tools/ and research/ (root cleanup) --
+# import names stay exactly as-is (`import dashboard_core` etc. still
+# work unchanged everywhere) via this explicit dir mapping.
+[tool.setuptools.package-dir]
+ia_utils = "tools/ia_utils"
+dashboard_core = "tools/dashboard_core"
+mcp_server = "tools/mcp_server"
+local_site = "research/local_site"
+"local_site.app" = "research/local_site/app"
+
 [tool.setuptools.package-data]
 "dense_evolution" = ["*.py"]
 "ia_utils" = ["*.py"]
@@ -164,8 +174,8 @@ target-version = ['py39', 'py310', 'py311', 'py312']
 # `--cov` was passed.
 source = ["."]
 omit = [
-    "tests/*", "experiments/*", "app_dashboard.py",
-    "legacy/*", "build/*", "dist/*", "notebooks/*",
+    "tests/*", "research/experiments/*", "tools/app_dashboard.py",
+    "research/legacy/*", "build/*", "dist/*", "research/notebooks/*",
 ]
 relative_files = true
 

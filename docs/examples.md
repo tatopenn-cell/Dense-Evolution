@@ -4,7 +4,7 @@ Four runnable, end-to-end examples, each lifted from real experiments/tests alre
 the repository rather than written fresh for this page:
 
 - [Density-matrix ZNE healing](#density-matrix-zne-healing) — from
-  [`experiments/matrix_healing_zne.py`](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/experiments/matrix_healing_zne.py),
+  [`experiments/matrix_healing_zne.py`](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/research/experiments/matrix_healing_zne.py),
   the exact script `zne_density_matrix`'s docstring reports measured numbers from.
 - [MPS for low-entanglement circuits](#mps-for-low-entanglement-circuits) — from
   `tests/test_mps.py::test_run_circuit_jit_ghz_chain`.
