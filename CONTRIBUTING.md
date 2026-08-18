@@ -27,6 +27,17 @@ cd Dense-Evolution
 pip install -e .[full]
 ```
 
+### Pre-commit (recommended)
+
+We use pre-commit to run black/isort/ruff/mypy locally. Install and enable hooks:
+
+```bash
+pip install pre-commit
+pre-commit install
+# run checks across the repo before opening a PR
+pre-commit run --all-files
+```
+
 ## Running tests
 
 ```bash
