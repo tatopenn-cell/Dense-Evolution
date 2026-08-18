@@ -1,3 +1,3 @@
 # Autodiff
 
-::: dense_evolution.autodiff
+::: dense_evolution.solvers.autodiff
