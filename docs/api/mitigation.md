@@ -5,7 +5,7 @@ Standard error-mitigation entry points, named the way the field already names th
 extension (physical-cone projection, Uhlmann fidelity) and a `jax.jit`-compatible variant
 of every entry point.
 
-::: dense_evolution.mitigation
+::: dense_evolution.mitigation.zne
 
 ---
 

@@ -250,7 +250,7 @@ def test_uhlmann_fidelity_gradient_is_finite_at_degenerate_eigenvalues():
     # against the plain-jnp.linalg.eigh formula below, which really does
     # still produce NaN (the pre-fix behavior), so this isn't a vacuous test.
     import jax
-    from dense_evolution.mitigation import _uhlmann_fidelity_core
+    from dense_evolution.mitigation.zne import _uhlmann_fidelity_core
 
     d = 4
     rho_a = jnp.eye(d, dtype=jnp.complex128) / d
@@ -401,7 +401,7 @@ def test_zne_density_matrix_jit_actually_compiles_under_jit():
     rho_at_scales = jnp.asarray(np.stack(mats), dtype=jnp.complex128)
     noise_factors = jnp.asarray([1.0, 2.0, 3.0], dtype=jnp.float64)
 
-    from dense_evolution.mitigation import _zne_density_matrix_core
+    from dense_evolution.mitigation.zne import _zne_density_matrix_core
     import functools
     outer_jit = jax.jit(functools.partial(_zne_density_matrix_core, degree=2))
     result = outer_jit(rho_at_scales, noise_factors)
@@ -496,7 +496,7 @@ def test_full_pipeline_composes_under_a_single_outer_jax_jit():
     # these functions called together inside ONE outer jax.jit (e.g. a
     # step function passed to jax.lax.scan), not each jitted in isolation.
     import jax
-    from dense_evolution.mitigation import (
+    from dense_evolution.mitigation.zne import (
         _zero_noise_extrapolation_healing_core, _zne_density_matrix_core, _uhlmann_fidelity_core,
     )
 
