@@ -1,3 +1,3 @@
 # Simulator
 
-::: dense_evolution.simulator
+::: dense_evolution.backends.statevector

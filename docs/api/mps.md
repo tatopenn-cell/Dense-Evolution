@@ -1,6 +1,6 @@
 # MPS Simulator
 
-::: dense_evolution.mps
+::: dense_evolution.backends.mps
 
 ---
 

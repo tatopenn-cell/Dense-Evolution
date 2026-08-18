@@ -16,7 +16,7 @@ import jax
 import jax.numpy as jnp
 
 import dense_evolution as de
-from dense_evolution.mps import (
+from dense_evolution.backends.mps import (
     MPSSimulator, _jsd_vectors, _vectorized_chi_search, _expand_nonlocal_2q_positions,
 )
 

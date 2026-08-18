@@ -2,7 +2,7 @@
 Dense-Evolution
 High-performance quantum statevector simulator optimized for NISQ circuits.
 """
-from .simulator import DenseSVSimulator
+from .backends.statevector import DenseSVSimulator
 from .circuits.parser import QASMParser, QASMCircuit
 from .circuits.compiler import QuantumTranspiler
 from .circuits.registry import NoiseModel, NoiseSpec, QuantumHardwareRegistry
@@ -13,7 +13,7 @@ from .interop import (
     noise_model_from_qiskit_backend, to_stim,
 )
 from .autodiff import circuit_to_energy_fn
-from .mps import MPSSimulator
+from .backends.mps import MPSSimulator
 from .mitigation import (richardson_extrapolate, zero_noise_extrapolation, polynomial_extrapolate,
                           project_to_physical, uhlmann_fidelity, zne_density_matrix,
                           jsd_predictive_zne_density_matrix,
