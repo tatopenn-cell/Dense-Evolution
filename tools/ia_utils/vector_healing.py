@@ -90,7 +90,7 @@ def enhanced_dense_healing_hybrid(
     """
     try:
         import jax.numpy as jnp
-        from dense_evolution.healing import (
+        from dense_evolution.mitigation.healing import (
             calculate_phi_ab,
             calculate_vettore_dinamico,
             evaluate_phi_trigger,

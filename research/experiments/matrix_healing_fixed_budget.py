@@ -20,7 +20,7 @@ import jax.numpy as jnp
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import dense_evolution as de
-from dense_evolution.registry import NoiseModel
+from dense_evolution.circuits.registry import NoiseModel
 from dense_evolution.mitigation import (
     uhlmann_fidelity, richardson_extrapolate, project_to_physical, zne_density_matrix,
 )

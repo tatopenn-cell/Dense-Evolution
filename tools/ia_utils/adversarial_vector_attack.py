@@ -37,7 +37,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-from dense_evolution.healing import calculate_phi_ab, calculate_vettore_dinamico, GLOBAL_CONSTANTS
+from dense_evolution.mitigation.healing import calculate_phi_ab, calculate_vettore_dinamico, GLOBAL_CONSTANTS
 
 __all__ = ['craft_adversarial_healing_perturbation']
 
