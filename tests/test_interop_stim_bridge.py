@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 import dense_evolution as de
-from dense_evolution import interop
+from dense_evolution.interop import qiskit_pennylane as interop
 from dense_evolution.interop import to_stim
 from dense_evolution.simulator import DenseSVSimulator
 

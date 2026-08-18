@@ -12,8 +12,8 @@ import numpy as np
 import pytest
 
 import dense_evolution as de
-from dense_evolution import interop
-from dense_evolution.interop import (
+from dense_evolution.interop import qiskit_pennylane as interop
+from dense_evolution.interop.qiskit_pennylane import (
     from_qiskit, from_pennylane, run_qiskit_circuit, run_pennylane_circuit,
     _to_qiskit_bit_order,
 )

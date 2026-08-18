@@ -142,7 +142,7 @@ sim.run_chunk(circuit_ops, chunk_size_gates=500)   # SafeMemoryGuard active
 ## ▍ Architecture
 
 ```
-dense_evolution/
+dense_evolution/                  (flat package root -- see "Architectural refactor in progress" note below)
 ├── registry.py       hardware detection · JAX/CuPy/NumPy flags · NoiseModel (Kraus channels)
 ├── gates.py          GATES{} · PARAMETRIC_GATES{} · GATE_IDS{}
 ├── healing.py        predictive state engine · Phi_AB · vettore dinamico · MemoryReflectionEngine
@@ -153,9 +153,12 @@ dense_evolution/
 ├── mps.py            MPSSimulator — matrix-product-state backend, JAX-backed
 ├── autodiff.py        circuit_to_energy_fn — the real, public VQE gradient engine
 ├── mitigation.py      Zero-Noise Extrapolation — richardson_extrapolate, zero_noise_extrapolation, zne_density_matrix, jsd_predictive_zne_density_matrix (+ jit variants)
-├── interop.py         run_qiskit_circuit / run_pennylane_circuit / from_qiskit / from_pennylane
+├── interop/            [subpackage] `dense_evolution.interop` still works unchanged (compat shim)
+│   └── qiskit_pennylane.py   run_qiskit_circuit / run_pennylane_circuit / from_qiskit / from_pennylane
 ├── observables.py     Pauli-string expectation values, O(2ⁿ) direct from a statevector
-├── measurement.py     statevector → finite-shot counts, sampling helpers
+├── utils/              [subpackage] `dense_evolution.drawing`/`.measurement` still work unchanged (compat shims)
+│   ├── drawing.py       plain-text circuit diagrams (ASCII, console-safe)
+│   └── measurement.py   statevector → finite-shot counts, sampling helpers
 ├── states.py          common state-preparation circuits (Bell, GHZ, W, ...) as gate tuples
 ├── topology.py        entangling_layer — linear/circular/full/star/brick patterns
 ├── qft.py             Quantum Fourier Transform circuit builder
@@ -163,35 +166,38 @@ dense_evolution/
 ├── entropy.py         partial_trace · von_neumann_entropy · mutual_information (multi-qubit, MSB-first)
 ├── trotter.py         pauli_rotation_ops · trotter_evolve_ops — real-time Hamiltonian evolution as gates
 ├── random_circuit.py  random circuit generation for benchmarking/fuzz-testing
-├── drawing.py         plain-text circuit diagrams (ASCII, console-safe)
 ├── harrison_tb.py     sp3 tight-binding Hamiltonians, Harrison universal parameter table
 ├── vhd_tb.py          sp3s* tight-binding, Vogl-Hjalmarson-Dow material-specific parameters
 └── cli.py             `dense-evolution` console script — serve · offline-composer · mcp
 
-ia_utils/
-└── vector_healing.py   median_healing · enhanced_dense_healing_hybrid (NaN/Inf-safe, lazy JAX import)
+tools/                              (apps built on the library, not part of it — see prog.txt Sezione 1)
+├── ia_utils/
+│   └── vector_healing.py   median_healing · enhanced_dense_healing_hybrid (NaN/Inf-safe, lazy JAX import)
+├── dashboard_core/
+│   ├── engine.py                     run_circuit_from_qasm — real DenseSVSimulator execution, shared by app_dashboard.py and local_site/app/server.py
+│   ├── graphical_builder.py          drag-and-drop grid ops → native gate tuples (app_dashboard.py's Graphical Builder tab)
+│   ├── circuit_builder_component.py  Streamlit component backing that grid
+│   ├── circuit_diagram.py            plain matplotlib circuit diagrams (no Qiskit QuantumCircuit ever constructed)
+│   ├── state_visuals.py              native statevector histogram / Bloch / Q-sphere rendering
+│   ├── visuals.py                    circuit/histogram/qsphere/Bloch figure wrappers used by app_dashboard.py
+│   ├── qasm_library.py               preset OpenQASM circuits (Bell, GHZ, ...)
+│   ├── system_limits.py              RAM-based safe qubit ceiling
+│   ├── hamiltonians.py                real molecular Hamiltonians (PennyLane Hartree-Fock) — served by local_site/app/server.py, not app_dashboard.py
+│   ├── vqe.py                         VQE engine — served by local_site/app/server.py, not app_dashboard.py
+│   ├── qmmm.py                        Hellmann-Feynman QM/MM forces + MD trajectories — served by local_site/app/server.py, not app_dashboard.py
+│   ├── mitigation.py                  Zero-Noise Extrapolation (statevector + density-matrix) — served by local_site/app/server.py, not app_dashboard.py
+│   ├── vector_healing.py              dense_evolution.healing / ia_utils.vector_healing bridge — served by the MCP server, not app_dashboard.py
+│   └── wormhole.py                    binary sparse SYK model — traversable-wormhole-inspired teleportation (see "MCP Server" below)
+├── app_dashboard.py                   Streamlit "Quantum Composer" clone — Graphical Builder/Circuit/Statevector/Probabilities/Q-sphere tabs only, `streamlit run tools/app_dashboard.py`
+└── mcp_server/server.py               dense_evolution_mcp — MCP adapter over the Composer kernel (see "MCP Server" below)
 
-dashboard_core/
-├── engine.py                     run_circuit_from_qasm — real DenseSVSimulator execution, shared by app_dashboard.py and local_site/app/server.py
-├── graphical_builder.py          drag-and-drop grid ops → native gate tuples (app_dashboard.py's Graphical Builder tab)
-├── circuit_builder_component.py  Streamlit component backing that grid
-├── circuit_diagram.py            plain matplotlib circuit diagrams (no Qiskit QuantumCircuit ever constructed)
-├── state_visuals.py              native statevector histogram / Bloch / Q-sphere rendering
-├── visuals.py                    circuit/histogram/qsphere/Bloch figure wrappers used by app_dashboard.py
-├── qasm_library.py               preset OpenQASM circuits (Bell, GHZ, ...)
-├── system_limits.py              RAM-based safe qubit ceiling
-├── hamiltonians.py                real molecular Hamiltonians (PennyLane Hartree-Fock) — served by local_site/app/server.py, not app_dashboard.py
-├── vqe.py                         VQE engine — served by local_site/app/server.py, not app_dashboard.py
-├── qmmm.py                        Hellmann-Feynman QM/MM forces + MD trajectories — served by local_site/app/server.py, not app_dashboard.py
-├── mitigation.py                  Zero-Noise Extrapolation (statevector + density-matrix) — served by local_site/app/server.py, not app_dashboard.py
-├── vector_healing.py              dense_evolution.healing / ia_utils.vector_healing bridge — served by the MCP server, not app_dashboard.py
-└── wormhole.py                    binary sparse SYK model — traversable-wormhole-inspired teleportation (see "MCP Server" below)
-app_dashboard.py                   Streamlit "Quantum Composer" clone — Graphical Builder/Circuit/Statevector/Probabilities/Q-sphere tabs only, `streamlit run app_dashboard.py`
-local_site/app/server.py           Composer's local FastAPI compute kernel — full feature set: VQE, molecular Hamiltonians, QM/MM, MD, mitigation, wormhole teleportation, vector healing (see "Composer" below)
-mcp_server/server.py               dense_evolution_mcp — MCP adapter over the Composer kernel (see "MCP Server" below)
-research/wormhole_syk.py           the original wormhole research reproduction + its own verification suite, reference only (not installed as a module — see research/wormhole_syk.md)
-legacy/dash.py                     original Colab notebook, reference only (not installed as a module)
+research/                           (not installed as a module -- reference/experimentation only)
+├── local_site/app/server.py       Composer's local FastAPI compute kernel — full feature set: VQE, molecular Hamiltonians, QM/MM, MD, mitigation, wormhole teleportation, vector healing (see "Composer" below)
+├── wormhole_syk.py                 the original wormhole research reproduction + its own verification suite, reference only (see research/wormhole_syk.md)
+└── legacy/dash.py                  original Colab notebook, reference only
 ```
+
+**Architectural refactor in progress** (tracking issue [#76](https://github.com/tatopenn-cell/Dense-Evolution/issues/76)): `dense_evolution/` is being split into thematic subpackages (`utils/`, `interop/` done so far; `physics/`, `circuits/`, `backends/`, `mitigation/`, `solvers/` planned next), one PR per subpackage. Every moved module keeps a backward-compatible shim at its old top-level path, so nothing above marked "compat shim" requires any code change on your end.
 
 **Data flow per run (`app_dashboard.py`):**
 
