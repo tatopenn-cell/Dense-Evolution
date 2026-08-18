@@ -46,7 +46,7 @@ Validated against real experimental gaps (GaAs, Si, Ge) -- see the
 [Dense-Evolution-Discovery validation page](https://tatopenn-cell.github.io/Dense-Evolution-Discovery/harrison_tight_binding/)
 for the full writeup and numbers.
 
-::: dense_evolution.vhd_tb
+::: dense_evolution.solvers.vhd_tb
 
 ---
 

@@ -66,7 +66,7 @@ fix). Validation numbers against real experimental gaps (GaAs, Si, Ge) are
 tracked in
 [Dense-Evolution-Discovery](https://tatopenn-cell.github.io/Dense-Evolution-Discovery/harrison_tight_binding/).
 
-::: dense_evolution.harrison_tb
+::: dense_evolution.solvers.harrison_tb
 
 ---
 

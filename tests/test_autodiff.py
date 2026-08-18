@@ -8,10 +8,20 @@ import numpy as np
 import pytest
 
 import dense_evolution as de
-from dense_evolution import autodiff
+from dense_evolution.solvers import autodiff
 
 jax = pytest.importorskip("jax")
 import jax.numpy as jnp
+
+
+def test_backward_compat_shim_autodiff_reexports_circuit_to_energy_fn():
+    # dense_evolution.autodiff is the Phase 2 backward-compat shim left at
+    # the old top-level path -- nothing else in this suite imports through
+    # it (the tests above target dense_evolution.solvers.autodiff directly,
+    # for the HAS_JAX monkeypatch), so without this the shim'''s own lines
+    # go uncovered and a broken shim would go undetected by CI.
+    from dense_evolution.autodiff import circuit_to_energy_fn as shim_ctef
+    assert shim_ctef is autodiff.circuit_to_energy_fn
 
 
 VQE_QASM = (
