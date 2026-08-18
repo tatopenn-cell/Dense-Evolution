@@ -2,7 +2,7 @@
 
 State-preparation circuits returned as gate-tuple lists, ready for `run_circuit`.
 
-::: dense_evolution.states
+::: dense_evolution.physics.states
 
 ---
 

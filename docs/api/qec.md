@@ -16,7 +16,7 @@ it emerges from the brute-force search itself (more heralded qubits than
 the code can resolve typically yields zero or multiple syndrome-matching
 assignments, so the function returns `None` — never a guess).
 
-::: dense_evolution.qec
+::: dense_evolution.physics.qec
 
 ---
 

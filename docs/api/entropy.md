@@ -20,7 +20,7 @@ cannot, since it depends on the joint state of two subsystems, not
 either one alone. Verified against the exact textbook value for a Bell
 pair (`I = 2*ln(2)`, maximal) and a GHZ state.
 
-::: dense_evolution.entropy
+::: dense_evolution.physics.entropy
 
 ---
 

@@ -3,7 +3,7 @@
 Exact expectation values of Pauli strings, computed directly from a statevector in O(dim) via
 bit manipulation -- the 2^n_qubits Hamiltonian matrix is never built.
 
-::: dense_evolution.observables
+::: dense_evolution.physics.observables
 
 ---
 
