@@ -36,3 +36,38 @@ from .circuits.trotter import pauli_rotation_ops, trotter_evolve_ops
 from .physics.qec import pauli_commutes, compute_syndrome, erasure_aware_decode
 
 __version__ = "8.1.60"
+
+__all__ = [
+    "__version__",
+    # Backends -- the compute engines
+    "DenseSVSimulator", "MPSSimulator",
+    # Circuits -- representation, parsing, compilation
+    "QASMParser", "QASMCircuit", "QuantumTranspiler",
+    "NoiseModel", "NoiseSpec", "QuantumHardwareRegistry",
+    "GATES", "PARAMETRIC_GATES", "GATE_IDS",
+    "entangling_layer", "qft",
+    "pauli_rotation_ops", "trotter_evolve_ops",
+    # Chunking / anti-OOM
+    "Chunk",
+    # Interop -- Qiskit / PennyLane / STIM bridges
+    "from_qiskit", "from_pennylane", "run_qiskit_circuit", "run_pennylane_circuit",
+    "noise_model_from_qiskit_backend", "to_stim",
+    # Solvers -- VQE/autodiff, tight-binding
+    "circuit_to_energy_fn",
+    "HARRISON_ELEMENTS", "HARRISON_ETA", "sp3_dimer_hamiltonian", "zincblende_hamiltonian",
+    "VHD_MATERIALS", "sp3s_star_hamiltonian", "direct_gap_at_gamma", "band_extrema_along_path",
+    # Mitigation -- Zero-Noise Extrapolation
+    "richardson_extrapolate", "zero_noise_extrapolation", "polynomial_extrapolate",
+    "project_to_physical", "uhlmann_fidelity", "zne_density_matrix",
+    "jsd_predictive_zne_density_matrix",
+    "richardson_extrapolate_jit", "zero_noise_extrapolation_jit",
+    "polynomial_extrapolate_jit", "uhlmann_fidelity_jit", "zne_density_matrix_jit",
+    # Physics -- states, observables, entropy, fermions, QEC
+    "ghz_state",
+    "pauli_expectation", "pauli_sum_expectation", "pauli_hamiltonian_to_matrix",
+    "partial_trace", "von_neumann_entropy", "mutual_information",
+    "majorana_pauli_terms",
+    "pauli_commutes", "compute_syndrome", "erasure_aware_decode",
+    # Utils -- drawing, measurement, random circuits
+    "draw_circuit", "sample_counts", "statevector_fidelity", "random_circuit",
+]
