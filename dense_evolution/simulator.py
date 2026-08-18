@@ -1,15 +1,15 @@
 import warnings
 import numpy as np
 from typing import List, Tuple, Optional
-from .registry import HAS_JAX
-from .gates import GATES, PARAMETRIC_GATES, GATE_IDS, _TWO_QUBIT_PARAMETRIC_GATES
-from .compiler import QuantumTranspiler
+from .circuits.registry import HAS_JAX
+from .circuits.gates import GATES, PARAMETRIC_GATES, GATE_IDS, _TWO_QUBIT_PARAMETRIC_GATES
+from .circuits.compiler import QuantumTranspiler
 
 if HAS_JAX:
     import jax
     import jax.numpy as jnp
     jax.config.update("jax_enable_x64", True)
-    from .compiler import _compile_and_run_circuit_jit, _compile_and_run_circuit_jit_donated
+    from .circuits.compiler import _compile_and_run_circuit_jit, _compile_and_run_circuit_jit_donated
 
 
 # ─────────────────────────────────────────────────────────────────────────────

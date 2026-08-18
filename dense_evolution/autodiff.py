@@ -1,14 +1,14 @@
 from typing import Callable, Optional, Tuple
 
-from .parser import QASMCircuit
-from .gates import GATE_IDS
-from .compiler import QuantumTranspiler
-from .registry import HAS_JAX, NoiseModel, NoiseSpec
+from .circuits.parser import QASMCircuit
+from .circuits.gates import GATE_IDS
+from .circuits.compiler import QuantumTranspiler
+from .circuits.registry import HAS_JAX, NoiseModel, NoiseSpec
 
 if HAS_JAX:
     import jax
     import jax.numpy as jnp
-    from .compiler import _compile_and_run_circuit_jit
+    from .circuits.compiler import _compile_and_run_circuit_jit
 else:
     jnp = None
 

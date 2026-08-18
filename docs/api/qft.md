@@ -4,4 +4,4 @@ The standard H + controlled-phase cascade plus trailing qubit-order swap, return
 gate-tuple list. Verified against the brute-force analytic DFT matrix (max error 1.4e-15
 across 1-4 qubits) and a QFT-then-inverse-QFT round trip.
 
-::: dense_evolution.qft
+::: dense_evolution.circuits.qft

@@ -1,3 +1,3 @@
 # Registry & Noise Models
 
-::: dense_evolution.registry
+::: dense_evolution.circuits.registry
