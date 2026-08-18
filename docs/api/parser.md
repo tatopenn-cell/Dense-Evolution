@@ -1,3 +1,3 @@
 # QASM Parser
 
-::: dense_evolution.parser
+::: dense_evolution.circuits.parser

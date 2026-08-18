@@ -4,7 +4,7 @@ Named entangling-layer connectivity patterns for variational circuits (`linear`,
 `full`, `star`, `brick`) -- the same role Qiskit's `TwoLocal(entanglement=...)` or PennyLane's
 `qml.broadcast(pattern=...)` play, returning a plain gate-tuple list ready for `run_circuit`.
 
-::: dense_evolution.topology
+::: dense_evolution.circuits.topology
 
 ---
 

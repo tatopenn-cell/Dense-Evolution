@@ -55,7 +55,7 @@ import warnings
 from typing import Optional, Tuple
 import numpy as np
 
-from ..parser import QASMParser, QASMCircuit
+from ..circuits.parser import QASMParser, QASMCircuit
 from ..simulator import DenseSVSimulator
 
 try:

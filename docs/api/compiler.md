@@ -1,3 +1,3 @@
 # Compiler
 
-::: dense_evolution.compiler
+::: dense_evolution.circuits.compiler

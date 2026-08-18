@@ -17,7 +17,7 @@ per doubling of steps against a real, non-trivial multi-qubit
 Hamiltonian, consistent with the expected quadratic convergence of
 first-order Trotter error in state overlap.
 
-::: dense_evolution.trotter
+::: dense_evolution.circuits.trotter
 
 ---
 

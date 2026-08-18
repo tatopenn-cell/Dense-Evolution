@@ -1,3 +1,3 @@
 # Gates
 
-::: dense_evolution.gates
+::: dense_evolution.circuits.gates

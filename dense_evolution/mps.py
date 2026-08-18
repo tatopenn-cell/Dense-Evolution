@@ -307,8 +307,8 @@ def _compile_mps_ops(ops, n_qubits: int) -> List[List[float]]:
     for why: decomposing would mean 3 SVD truncations per swap instead
     of 1, defeating the point of the chain in the first place.
     """
-    from .compiler import QuantumTranspiler
-    from .gates import GATE_IDS
+    from .circuits.compiler import QuantumTranspiler
+    from .circuits.gates import GATE_IDS
 
     # CCX has no entry in GATE_IDS (it's not a 1- or 2-qubit gate) -- reuse
     # the same Barenco H/CX/T/Tdg decomposition compiler.py/chunk.py's own

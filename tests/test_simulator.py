@@ -492,7 +492,7 @@ class TestBeastModeDonateArgnums:
         # dev machine's 8.5GB RAM budget.
         import gc
         import psutil
-        from dense_evolution.compiler import (
+        from dense_evolution.circuits.compiler import (
             _compile_and_run_circuit_jit, _compile_and_run_circuit_jit_donated,
         )
 

@@ -6,7 +6,7 @@ The GHZ-state snippet in particular -- `[('h', 0), ('cx', 0, 1), ('cx', 1,
 experiment and test script built on this package; `ghz_state` is that
 snippet, written once.
 """
-from ..topology import entangling_layer
+from ..circuits.topology import entangling_layer
 
 __all__ = ['ghz_state']
 
