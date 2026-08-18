@@ -133,7 +133,7 @@ Repository = "https://github.com/tatopenn-cell/Dense-Evolution"
 dense-evolution = "dense_evolution.cli:main"
 
 [tool.setuptools]
-packages = ["dense_evolution", "dense_evolution.native_hf", "dense_evolution.utils", "dense_evolution.interop", "dense_evolution.physics", "dense_evolution.circuits", "ia_utils", "dashboard_core", "local_site", "local_site.app", "mcp_server"]
+packages = ["dense_evolution", "dense_evolution.native_hf", "dense_evolution.utils", "dense_evolution.interop", "dense_evolution.physics", "dense_evolution.circuits", "dense_evolution.backends", "ia_utils", "dashboard_core", "local_site", "local_site.app", "mcp_server"]
 
 # Physical location moved under tools/ and research/ (root cleanup) --
 # import names stay exactly as-is (`import dashboard_core` etc. still

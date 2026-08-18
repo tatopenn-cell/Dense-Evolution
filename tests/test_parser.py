@@ -13,6 +13,20 @@ from dense_evolution import DenseSVSimulator, QASMParser, QASMCircuit, Chunk, Qu
 
 from _helpers import probs
 
+
+def test_backward_compat_shim_parser_reexports_qasmparser_and_qasmcircuit():
+    # dense_evolution.parser is the Phase 2 backward-compat shim left at
+    # the old top-level path -- nothing else in this suite imports through
+    # it (this file, like everything else, gets QASMParser/QASMCircuit via
+    # the top-level dense_evolution package, which now sources them from
+    # dense_evolution.circuits.parser directly), so without this the
+    # shim'''s own lines go uncovered and a broken shim would go undetected
+    # by CI.
+    from dense_evolution.parser import QASMParser as shim_qasmparser, QASMCircuit as shim_qasmcircuit
+    assert shim_qasmparser is QASMParser
+    assert shim_qasmcircuit is QASMCircuit
+
+
 # ─────────────────────────────────────────────────────────────
 # QASM RANGE SYNTAX
 # ─────────────────────────────────────────────────────────────

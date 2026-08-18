@@ -10,6 +10,17 @@ from dense_evolution import majorana_pauli_terms
 from dense_evolution.observables import pauli_hamiltonian_to_matrix
 
 
+def test_backward_compat_shim_fermions_reexports_majorana_pauli_terms():
+    # dense_evolution.fermions is the Phase 2 backward-compat shim left at
+    # the old top-level path -- nothing in this suite imports through it
+    # directly (everything sources majorana_pauli_terms from the top-level
+    # dense_evolution package instead, which now gets it from
+    # dense_evolution.physics.fermions), so without this the shim'''s own
+    # lines go uncovered and a broken shim would go undetected by CI.
+    from dense_evolution.fermions import majorana_pauli_terms as shim_mpt
+    assert shim_mpt is majorana_pauli_terms
+
+
 def _chi_matrix(mode_index, n_qubits):
     coeff, pauli_dict = majorana_pauli_terms(mode_index, n_qubits)
     return coeff * pauli_hamiltonian_to_matrix([(1.0, pauli_dict)], n_qubits)

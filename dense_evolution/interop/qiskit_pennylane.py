@@ -56,7 +56,7 @@ from typing import Optional, Tuple
 import numpy as np
 
 from ..circuits.parser import QASMParser, QASMCircuit
-from ..simulator import DenseSVSimulator
+from ..backends.statevector import DenseSVSimulator
 
 try:
     import qiskit.qasm2 as _qasm2

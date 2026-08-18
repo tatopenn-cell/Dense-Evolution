@@ -16,9 +16,19 @@ import jax
 import jax.numpy as jnp
 
 import dense_evolution as de
-from dense_evolution.mps import (
+from dense_evolution.backends.mps import (
     MPSSimulator, _jsd_vectors, _vectorized_chi_search, _expand_nonlocal_2q_positions,
 )
+
+def test_backward_compat_shim_mps_reexports_mpssimulator():
+    # dense_evolution.mps is the Phase 2 backward-compat shim left at the
+    # old top-level path -- nothing else in this suite imports through it
+    # (the tests above target dense_evolution.backends.mps directly, for
+    # the private helpers), so without this the shim'''s own lines go
+    # uncovered and a broken shim would go undetected by CI.
+    from dense_evolution.mps import MPSSimulator as shim_mpssimulator
+    assert shim_mpssimulator is MPSSimulator
+
 
 INV2 = 1.0 / np.sqrt(2.0)
 H_GATE = INV2 * np.array([[1, 1], [1, -1]], dtype=complex)

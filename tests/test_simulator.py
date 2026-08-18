@@ -784,7 +784,7 @@ class TestMeasurement:
         # silently fall through or hit a NameError on an unimported
         # `jax` module. Simulated here via monkeypatching HAS_JAX
         # (this environment always has real JAX installed).
-        import dense_evolution.simulator as sim_mod
+        import dense_evolution.backends.statevector as sim_mod
         monkeypatch.setattr(sim_mod, "HAS_JAX", False)
         sim = DenseSVSimulator(n_qubits=1, use_gpu=False, use_float32=False)
         with pytest.raises(ValueError, match="requires JAX"):
