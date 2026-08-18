@@ -12,7 +12,7 @@ Combine the returned Pauli term with
 Majorana-operator Hamiltonian as a dense matrix, e.g. a sparse
 Sachdev-Ye-Kitaev (SYK) model: `H = sum_{ijkl} J_ijkl * chi_i*chi_j*chi_k*chi_l`.
 
-::: dense_evolution.fermions
+::: dense_evolution.physics.fermions
 
 ---
 
