@@ -10,6 +10,19 @@ import pytest
 from dense_evolution import DenseSVSimulator, partial_trace, von_neumann_entropy, mutual_information
 
 
+def test_backward_compat_shim_entropy_reexports_public_api():
+    # dense_evolution.entropy is the Phase 2 backward-compat shim left at
+    # the old top-level path -- nothing in this suite imports through it
+    # directly (everything sources these three from the top-level
+    # dense_evolution package instead, which now gets them from
+    # dense_evolution.physics.entropy), so without this the shim'''s own
+    # lines go uncovered and a broken shim would go undetected by CI.
+    from dense_evolution.entropy import partial_trace as shim_pt, von_neumann_entropy as shim_vne, mutual_information as shim_mi
+    assert shim_pt is partial_trace
+    assert shim_vne is von_neumann_entropy
+    assert shim_mi is mutual_information
+
+
 def _bell_state():
     sim = DenseSVSimulator(2, use_gpu=False, use_float32=False)
     sim.run_circuit([('h', 0), ('cx', 0, 1)])
