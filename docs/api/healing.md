@@ -10,7 +10,7 @@ own docstring for which parts carry a real information-theoretic reading
 which are a geometric construction instead (`calculate_phi_ab`), so as
 not to overclaim either way.
 
-**Applied layer**: [`ia_utils.vector_healing.enhanced_dense_healing_hybrid`](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/ia_utils/vector_healing.py)
+**Applied layer**: [`ia_utils.vector_healing.enhanced_dense_healing_hybrid`](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/tools/ia_utils/vector_healing.py)
 is what actually calls these primitives on a real `(n_steps, dim)`
 sequence — per step, runs the Phi-Trigger against a local baseline
 window and either keeps the value (genuine dynamics) or replaces it with
