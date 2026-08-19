@@ -29,18 +29,24 @@ Claude Code (or any agent with file access) can open directly. Large
 numeric arrays (statevector, probabilities) are similarly truncated to
 their most significant entries rather than dumped in full -- the kernel's
 own response can be tens of thousands of floats for a 20+ qubit circuit.
+
+Structure (Phase 1 of the modularization in prog.txt Sezione 3): settings
+live in config.py, the HTTP client + error handling in client.py, and the
+Pydantic input schemas in models.py. This file keeps the MCPServer
+instance, the tool functions themselves, and the small helpers
+(image saving/truncation, molecule-name resolution) that only these tools
+use. Splitting the tools themselves into per-topic modules
+(tools/system_tools.py, tools/circuit_tools.py, ...) is Phase 3, not done
+here.
 """
 
 import asyncio
 import base64
 import json
-import os
 import time
 from pathlib import Path
 from typing import Optional
 
-import httpx
-from pydantic import BaseModel, ConfigDict, Field
 # mcp>=2.0.0 renamed FastMCP -> MCPServer and moved it from
 # mcp.server.fastmcp to mcp.server.mcpserver (re-exported at mcp.server
 # directly). Everything else -- @mcp.tool(name=..., annotations={...}) with
@@ -48,117 +54,22 @@ from pydantic import BaseModel, ConfigDict, Field
 # the two; this was the only line that needed to move.
 from mcp.server import MCPServer
 
+from .client import _request, catch_errors
+from .config import COMPUTE, IMAGE_MAX_FILES, IMAGE_OUTPUT_DIR, READ_ONLY_IDEMPOTENT
+from .models import (
+    BuildCircuitInput, CustomMoleculeInput, EnergyScanInput, ListMoleculesInput,
+    MdTrajectoryInput, MitigateDensityMatrixInput, MitigateZneInput, MixMoleculesInput,
+    MoleculeEnergyInput, QmmmForcesInput, RunCircuitInput, RunVqeInput, VectorHealingInput,
+    WormholeScanInput, WormholeSelectInstanceInput, WormholeTeleportationInput,
+)
+
 mcp = MCPServer("dense_evolution_mcp")
 
-KERNEL_URL = os.environ.get("DENSE_EVOLUTION_KERNEL_URL", "http://127.0.0.1:8800").rstrip("/")
-IMAGE_OUTPUT_DIR = Path(
-    os.environ.get("DENSE_EVOLUTION_MCP_IMAGE_DIR", str(Path.home() / ".dense_evolution_mcp" / "images"))
-)
-# Every include_visualizations=True call writes a new timestamped PNG with
-# no cleanup -- a long-running MCP session (or an agent looping over many
-# circuits) grows this directory without bound. Cap it to the most
-# recently written files; 0 or negative disables pruning entirely.
-IMAGE_MAX_FILES = int(os.environ.get("DENSE_EVOLUTION_MCP_IMAGE_MAX_FILES", "500"))
-
-READ_ONLY_IDEMPOTENT = {
-    "readOnlyHint": True,
-    "destructiveHint": False,
-    "idempotentHint": True,
-    "openWorldHint": False,
-}
-# Circuit/VQE/MD runs don't mutate any stored resource -- nothing server-side
-# persists between calls -- so they're "read-only" in the MCP sense too, but
-# re-running with the same seed can differ slightly run-to-run (floating
-# point reduction order in the linear-algebra backend), so idempotentHint
-# is left False for anything that actually executes a simulation.
-COMPUTE = {
-    "readOnlyHint": True,
-    "destructiveHint": False,
-    "idempotentHint": False,
-    "openWorldHint": False,
-}
-
 
 # --------------------------------------------------------------------------
-# Shared utilities
+# Shared utilities (image saving/pruning, truncation) -- only these tools
+# use them, so they stay here rather than moving to config/client/models.
 # --------------------------------------------------------------------------
-
-# Set by tests to route through httpx.ASGITransport straight into the real,
-# in-process local_site.app.server.app (see tests/integration/test_mcp_server.py) --
-# None here means "use a real TCP connection to KERNEL_URL", unchanged from
-# before this existed. This is the one seam in the whole adapter: it lets
-# tests exercise every tool function against the real FastAPI kernel (real
-# DenseSVSimulator, real PennyLane Hamiltonians -- no mocked physics) without
-# a live subprocess bound to a real port in CI.
-_TEST_TRANSPORT = None
-
-# Lazily-created, reused across calls -- _request used to open a fresh
-# httpx.AsyncClient (TCP handshake to the kernel) per tool call, real
-# overhead for an MCP session that calls many tools in a row. Keyed on
-# (_TEST_TRANSPORT identity, KERNEL_URL): production code never changes
-# KERNEL_URL after import (it's a plain module-level constant read once
-# from os.environ), but the test suite mutates both mcp_adapter.KERNEL_URL
-# and _TEST_TRANSPORT directly to exercise the unreachable-kernel path,
-# and its autouse fixture swaps _TEST_TRANSPORT to a fresh ASGITransport
-# before every test and back to None after -- a client cached against a
-# stale transport or base_url must not be reused across either kind of
-# swap. Verified by rerunning the full mcp_server test suite, not just
-# assumed safe from reading the fixture.
-_shared_client: Optional[httpx.AsyncClient] = None
-_shared_client_key = None  # (transport identity, base_url) the cached client was built with
-
-
-_DEFAULT_TIMEOUT = 60.0  # fallback for any call site that doesn't pass timeout= explicitly
-
-
-def _get_client() -> httpx.AsyncClient:
-    global _shared_client, _shared_client_key
-    current_key = (id(_TEST_TRANSPORT), KERNEL_URL)
-    if _shared_client is None or _shared_client_key != current_key:
-        # Client-level timeout is just the fallback ceiling -- every real
-        # call site below passes its own timeout= to _request, sized to
-        # that endpoint's actual expected cost (a health check and a
-        # 10-minute VQE run have nothing in common). A single flat 180s
-        # here used to either cut off legitimate long VQE/MD runs too
-        # early or leave fast health-check calls waiting needlessly long
-        # once the kernel is actually down.
-        _shared_client = httpx.AsyncClient(base_url=KERNEL_URL, transport=_TEST_TRANSPORT, timeout=_DEFAULT_TIMEOUT)
-        _shared_client_key = current_key
-    return _shared_client
-
-
-async def _request(method: str, path: str, timeout: float = _DEFAULT_TIMEOUT, **kwargs) -> dict:
-    """Reusable request helper for every tool below. `timeout` (seconds)
-    should be sized to the specific endpoint's real expected cost -- see
-    each tool's own call site."""
-    client = _get_client()
-    try:
-        resp = await client.request(method, path, timeout=timeout, **kwargs)
-    except httpx.ConnectError:
-        raise RuntimeError(
-            f"Dense Evolution kernel not reachable at {KERNEL_URL}. Start it with "
-            "`dense-evolution serve` (or `python -m local_site.app.server` from the "
-            "repo root), then retry. Use dense_evolution_health to check connectivity."
-        )
-    except httpx.TimeoutException:
-        raise RuntimeError(
-            f"Request to the Dense Evolution kernel timed out after {timeout:g}s -- the "
-            "simulation may be too large or slow for this request (e.g. high qubit "
-            "count, many VQE iterations, or a long MD trajectory). Try reducing its size."
-        )
-    if resp.status_code >= 400:
-        try:
-            detail = resp.json().get("detail", resp.text)
-        except Exception:
-            detail = resp.text
-        raise RuntimeError(f"Dense Evolution kernel returned HTTP {resp.status_code}: {detail}")
-    return resp.json()
-
-
-def _handle_error(e: Exception) -> str:
-    """Consistent error formatting across all tools."""
-    return f"Error: {e}"
-
 
 def _prune_old_images() -> None:
     """Keep at most IMAGE_MAX_FILES PNGs in IMAGE_OUTPUT_DIR, deleting the
@@ -257,6 +168,7 @@ async def _resolve_molecule_name(name: str) -> str:
 # --------------------------------------------------------------------------
 
 @mcp.tool(name="dense_evolution_health", annotations={"title": "Check Dense Evolution kernel status", **READ_ONLY_IDEMPOTENT})
+@catch_errors
 async def dense_evolution_health() -> str:
     """Check whether the local Dense Evolution Composer kernel is running and reachable.
 
@@ -270,13 +182,11 @@ async def dense_evolution_health() -> str:
         total_ram_gb, available_ram_gb, ram_percent_free}, or an
         "Error: ..." string if the kernel is not running.
     """
-    try:
-        return json.dumps(await _request("GET", "/api/health", timeout=5.0), indent=2)
-    except Exception as e:
-        return _handle_error(e)
+    return json.dumps(await _request("GET", "/api/health", timeout=5.0), indent=2)
 
 
 @mcp.tool(name="dense_evolution_system_limits", annotations={"title": "Get max safe qubit count", **READ_ONLY_IDEMPOTENT})
+@catch_errors
 async def dense_evolution_system_limits() -> str:
     """Get the maximum qubit count this machine can currently simulate with
     a dense statevector, computed from actual free RAM right now (not a
@@ -285,10 +195,7 @@ async def dense_evolution_system_limits() -> str:
     Returns:
         str: JSON describing the current safe qubit ceiling for the dense backend.
     """
-    try:
-        return json.dumps(await _request("GET", "/api/system_limits", timeout=5.0), indent=2)
-    except Exception as e:
-        return _handle_error(e)
+    return json.dumps(await _request("GET", "/api/system_limits", timeout=5.0), indent=2)
 
 
 # --------------------------------------------------------------------------
@@ -296,6 +203,7 @@ async def dense_evolution_system_limits() -> str:
 # --------------------------------------------------------------------------
 
 @mcp.tool(name="dense_evolution_list_presets", annotations={"title": "List preset OpenQASM circuits", **READ_ONLY_IDEMPOTENT})
+@catch_errors
 async def dense_evolution_list_presets() -> str:
     """List the built-in example OpenQASM circuits bundled with the Composer
     (e.g. Bell state, GHZ, QFT) -- useful as ready-made input for
@@ -304,13 +212,11 @@ async def dense_evolution_list_presets() -> str:
     Returns:
         str: JSON mapping preset names to their OpenQASM source text.
     """
-    try:
-        return json.dumps(await _request("GET", "/api/presets", timeout=5.0), indent=2)
-    except Exception as e:
-        return _handle_error(e)
+    return json.dumps(await _request("GET", "/api/presets", timeout=5.0), indent=2)
 
 
 @mcp.tool(name="dense_evolution_list_gates", annotations={"title": "List available quantum gates", **READ_ONLY_IDEMPOTENT})
+@catch_errors
 async def dense_evolution_list_gates() -> str:
     """List every gate the graphical circuit builder (and therefore
     `dense_evolution_build_circuit`) supports, with their display metadata.
@@ -318,13 +224,11 @@ async def dense_evolution_list_gates() -> str:
     Returns:
         str: JSON gate palette (name, symbol, qubit arity, etc. per gate).
     """
-    try:
-        return json.dumps(await _request("GET", "/api/palette", timeout=5.0), indent=2)
-    except Exception as e:
-        return _handle_error(e)
+    return json.dumps(await _request("GET", "/api/palette", timeout=5.0), indent=2)
 
 
 @mcp.tool(name="dense_evolution_list_noise_models", annotations={"title": "List available noise models", **READ_ONLY_IDEMPOTENT})
+@catch_errors
 async def dense_evolution_list_noise_models() -> str:
     """List the real Kraus-channel noise models available for
     `dense_evolution_run_circuit` and the mitigation tools (e.g.
@@ -333,22 +237,11 @@ async def dense_evolution_list_noise_models() -> str:
     Returns:
         str: JSON mapping noise model names to their parameters/description.
     """
-    try:
-        return json.dumps(await _request("GET", "/api/noise_models", timeout=5.0), indent=2)
-    except Exception as e:
-        return _handle_error(e)
-
-
-class ListMoleculesInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    mapping: str = Field(
-        default="jordan_wigner",
-        description="Fermion-to-qubit mapping: 'jordan_wigner' or 'bravyi_kitaev'. Both represent "
-        "the identical physical Hamiltonian (same spectrum) in a different qubit basis.",
-    )
+    return json.dumps(await _request("GET", "/api/noise_models", timeout=5.0), indent=2)
 
 
 @mcp.tool(name="dense_evolution_list_molecules", annotations={"title": "List catalog molecules", **READ_ONLY_IDEMPOTENT})
+@catch_errors
 async def dense_evolution_list_molecules(params: ListMoleculesInput) -> str:
     """List every molecule in the built-in Hartree-Fock catalog, each with
     its real qubit count under the requested mapping. Use this to find valid
@@ -367,26 +260,15 @@ async def dense_evolution_list_molecules(params: ListMoleculesInput) -> str:
     Returns:
         str: JSON list of {id, full_name, symbols, geometry, charge, n_qubits} per molecule.
     """
-    try:
-        return json.dumps(await _get_annotated_molecule_catalog(params.mapping), indent=2)
-    except Exception as e:
-        return _handle_error(e)
+    return json.dumps(await _get_annotated_molecule_catalog(params.mapping), indent=2)
 
 
 # --------------------------------------------------------------------------
 # Tools: circuit building and execution
 # --------------------------------------------------------------------------
 
-class BuildCircuitInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    n_qubits: int = Field(..., ge=1, description="Number of qubits in the circuit.")
-    ops: list = Field(
-        ..., description="List of graphical-builder gate operations to convert into OpenQASM. "
-        "Get valid gate names from dense_evolution_list_gates first."
-    )
-
-
 @mcp.tool(name="dense_evolution_build_circuit", annotations={"title": "Build OpenQASM from gate operations", **READ_ONLY_IDEMPOTENT})
+@catch_errors
 async def dense_evolution_build_circuit(params: BuildCircuitInput) -> str:
     """Convert a list of gate operations (as used by the graphical circuit
     builder) into real OpenQASM text, ready to pass to `dense_evolution_run_circuit`.
@@ -397,31 +279,12 @@ async def dense_evolution_build_circuit(params: BuildCircuitInput) -> str:
     Returns:
         str: JSON {"qasm": "..."} on success, or "Error: ..." if the op list is invalid.
     """
-    try:
-        data = await _request("POST", "/api/build_from_ops", timeout=30.0, json=params.model_dump())
-        return json.dumps(data, indent=2)
-    except Exception as e:
-        return _handle_error(e)
-
-
-class RunCircuitInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    qasm: str = Field(..., min_length=1, description="OpenQASM 2.0 circuit source to simulate.")
-    shots: int = Field(default=1000, ge=1, le=1_000_000, description="Number of measurement shots for the counts histogram.")
-    seed: int = Field(default=42, description="Random seed for sampling/noise reproducibility.")
-    noise_model: str = Field(default="ideal", description="Noise model name from dense_evolution_list_noise_models, or 'ideal'.")
-    noise_p: float = Field(default=0.0, ge=0.0, le=1.0, description="Noise channel error probability (ignored if noise_model='ideal').")
-    backend: str = Field(default="dense", description="'dense' (exact statevector, up to the safe qubit ceiling) or 'mps' "
-                         "(matrix-product-state, approximate top-k states, for larger circuits).")
-    include_visualizations: bool = Field(
-        default=False,
-        description="If true, also render and save circuit/histogram/Q-sphere/Bloch PNGs to disk and "
-        "return their file paths. Leave false unless you actually need to view an image -- "
-        "rendering costs extra time and the paths are not useful without viewing them.",
-    )
+    data = await _request("POST", "/api/build_from_ops", timeout=30.0, json=params.model_dump())
+    return json.dumps(data, indent=2)
 
 
 @mcp.tool(name="dense_evolution_run_circuit", annotations={"title": "Run an OpenQASM circuit", **COMPUTE})
+@catch_errors
 async def dense_evolution_run_circuit(params: RunCircuitInput) -> str:
     """Run real OpenQASM on dense_evolution's DenseSVSimulator (or the MPS
     backend for large circuits) and return measurement counts, probabilities,
@@ -444,11 +307,8 @@ async def dense_evolution_run_circuit(params: RunCircuitInput) -> str:
         For circuits above the dense limit on the 'mps' backend, returns a
         differently-shaped {"large_scale": true, "top_k_states": [...], ...} response.
     """
-    try:
-        payload = params.model_dump(exclude={"include_visualizations"})
-        data = await _request("POST", "/api/run", timeout=60.0, json=payload)
-    except Exception as e:
-        return _handle_error(e)
+    payload = params.model_dump(exclude={"include_visualizations"})
+    data = await _request("POST", "/api/run", timeout=60.0, json=payload)
 
     if data.get("large_scale"):
         result = {k: v for k, v in data.items() if k != "circuit_png"}
@@ -479,16 +339,8 @@ async def dense_evolution_run_circuit(params: RunCircuitInput) -> str:
 # Tools: molecular Hamiltonians
 # --------------------------------------------------------------------------
 
-class MoleculeEnergyInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    name: str = Field(
-        ..., description="Catalog molecule -- short id (e.g. 'H2', 'LiH', 'HeH+') or the full catalog "
-        "name. See dense_evolution_list_molecules."
-    )
-    mapping: str = Field(default="jordan_wigner", description="'jordan_wigner' or 'bravyi_kitaev'.")
-
-
 @mcp.tool(name="dense_evolution_molecule_energy", annotations={"title": "Get catalog molecule ground-state energy", **COMPUTE})
+@catch_errors
 async def dense_evolution_molecule_energy(params: MoleculeEnergyInput) -> str:
     """Compute the exact ground-state energy of a catalog molecule via real
     Hartree-Fock + Jordan-Wigner/Bravyi-Kitaev Hamiltonian construction and
@@ -502,25 +354,13 @@ async def dense_evolution_molecule_energy(params: MoleculeEnergyInput) -> str:
         "Error: ..." with a 404-style message if `name` is not in the catalog
         (call dense_evolution_list_molecules to see valid names/ids).
     """
-    try:
-        resolved = await _resolve_molecule_name(params.name)
-        payload = {**params.model_dump(), "name": resolved}
-        return json.dumps(await _request("POST", "/api/hamiltonian/molecule", timeout=60.0, json=payload), indent=2)
-    except Exception as e:
-        return _handle_error(e)
-
-
-class MixMoleculesInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    name_a: str = Field(..., description="First catalog molecule -- short id or full catalog name.")
-    name_b: str = Field(..., description="Second catalog molecule -- short id or full catalog name. "
-                         "Must have the same qubit count as name_a.")
-    weight_a: float = Field(default=0.5, description="Weight of the first Hamiltonian in the mix.")
-    weight_b: float = Field(default=0.5, description="Weight of the second Hamiltonian in the mix.")
-    mapping: str = Field(default="jordan_wigner", description="'jordan_wigner' or 'bravyi_kitaev'.")
+    resolved = await _resolve_molecule_name(params.name)
+    payload = {**params.model_dump(), "name": resolved}
+    return json.dumps(await _request("POST", "/api/hamiltonian/molecule", timeout=60.0, json=payload), indent=2)
 
 
 @mcp.tool(name="dense_evolution_mix_molecules", annotations={"title": "Mix two catalog Hamiltonians", **COMPUTE})
+@catch_errors
 async def dense_evolution_mix_molecules(params: MixMoleculesInput) -> str:
     """Compute H_mix = weight_a*H_a + weight_b*H_b for two catalog molecules
     that share the same qubit count (same electron space), and diagonalize
@@ -534,24 +374,14 @@ async def dense_evolution_mix_molecules(params: MixMoleculesInput) -> str:
     Returns:
         str: JSON with n_qubits, energy_a, energy_b, energy_mixed (all in Hartree).
     """
-    try:
-        name_a = await _resolve_molecule_name(params.name_a)
-        name_b = await _resolve_molecule_name(params.name_b)
-        payload = {**params.model_dump(), "name_a": name_a, "name_b": name_b}
-        return json.dumps(await _request("POST", "/api/hamiltonian/mix", timeout=60.0, json=payload), indent=2)
-    except Exception as e:
-        return _handle_error(e)
-
-
-class CustomMoleculeInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    symbols: list = Field(..., min_length=1, description="Atomic symbols, e.g. ['H', 'H', 'O'].")
-    geometry: list = Field(..., min_length=1, description="[[x, y, z], ...] coordinates in Angstrom, one row per symbol.")
-    charge: int = Field(default=0, description="Total molecular charge.")
-    mapping: str = Field(default="jordan_wigner", description="'jordan_wigner' or 'bravyi_kitaev'.")
+    name_a = await _resolve_molecule_name(params.name_a)
+    name_b = await _resolve_molecule_name(params.name_b)
+    payload = {**params.model_dump(), "name_a": name_a, "name_b": name_b}
+    return json.dumps(await _request("POST", "/api/hamiltonian/mix", timeout=60.0, json=payload), indent=2)
 
 
 @mcp.tool(name="dense_evolution_custom_molecule_energy", annotations={"title": "Get custom molecule ground-state energy", **COMPUTE})
+@catch_errors
 async def dense_evolution_custom_molecule_energy(params: CustomMoleculeInput) -> str:
     """Compute the ground-state energy of an arbitrary molecule (not in the
     catalog) from its atomic symbols and geometry, via the same Hartree-Fock
@@ -567,32 +397,11 @@ async def dense_evolution_custom_molecule_energy(params: CustomMoleculeInput) ->
         str: JSON with n_qubits, ground_state_energy_hartree, or "Error: ..."
         if the molecule needs more than 12 qubits.
     """
-    try:
-        return json.dumps(await _request("POST", "/api/hamiltonian/custom", timeout=60.0, json=params.model_dump()), indent=2)
-    except Exception as e:
-        return _handle_error(e)
-
-
-class EnergyScanInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    symbols: list = Field(..., min_length=1, description="Atomic symbols shared by every point in the scan, e.g. ['H', 'H'].")
-    geometries: list = Field(
-        ..., min_length=1, max_length=50,
-        description="List of [[x,y,z], ...] geometries (Angstrom) to evaluate, one per scan point -- "
-        "e.g. a bond-length or angle sweep. Each geometry must have the same number of rows as `symbols`. "
-        "Capped at 50 points per call to keep one request's kernel load bounded.",
-    )
-    charge: int = Field(default=0, description="Molecular charge, shared by every point.")
-    mapping: str = Field(default="jordan_wigner", description="'jordan_wigner' or 'bravyi_kitaev'.")
-    labels: Optional[list] = Field(
-        default=None,
-        description="Optional label per point (e.g. bond lengths in Angstrom: [0.4, 0.5, ...]) shown "
-        "alongside each result. Defaults to the point's index (0, 1, 2, ...) if omitted. Must be the "
-        "same length as `geometries` if given.",
-    )
+    return json.dumps(await _request("POST", "/api/hamiltonian/custom", timeout=60.0, json=params.model_dump()), indent=2)
 
 
 @mcp.tool(name="dense_evolution_energy_scan", annotations={"title": "Scan ground-state energy over several geometries", **COMPUTE})
+@catch_errors
 async def dense_evolution_energy_scan(params: EnergyScanInput) -> str:
     """Compute the ground-state energy at each of several geometries in one
     call -- e.g. a bond-length dissociation curve or a bond-angle sweep --
@@ -614,9 +423,7 @@ async def dense_evolution_energy_scan(params: EnergyScanInput) -> str:
         }
     """
     if params.labels is not None and len(params.labels) != len(params.geometries):
-        return _handle_error(ValueError(
-            f"{len(params.labels)} labels but {len(params.geometries)} geometries -- must match."
-        ))
+        raise ValueError(f"{len(params.labels)} labels but {len(params.geometries)} geometries -- must match.")
     labels = params.labels if params.labels is not None else list(range(len(params.geometries)))
 
     async def _one_point(label, geometry):
@@ -641,27 +448,8 @@ async def dense_evolution_energy_scan(params: EnergyScanInput) -> str:
 # Tools: VQE
 # --------------------------------------------------------------------------
 
-class RunVqeInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    name: Optional[str] = Field(default=None, description="Catalog molecule -- short id or full catalog name. "
-                                 "Provide this OR symbols+geometry, not both.")
-    symbols: Optional[list] = Field(default=None, description="Atomic symbols for a custom molecule.")
-    geometry: Optional[list] = Field(default=None, description="[[x, y, z], ...] in Angstrom for a custom molecule.")
-    charge: int = Field(default=0, description="Molecular charge (custom molecule only).")
-    ansatz_type: str = Field(
-        default="hardware_efficient",
-        description="'hardware_efficient' (generic n_layers-deep RY+CNOT template) or 'uccsd' "
-        "(chemically-motivated, fewer parameters but much deeper circuits per iteration).",
-    )
-    n_layers: int = Field(default=8, ge=1, description="Ansatz depth (hardware_efficient only).")
-    maxiter: int = Field(default=200, ge=1, le=5000, description="Maximum Adam optimizer iterations.")
-    step_size: float = Field(default=0.1, gt=0, description="Adam optimizer learning rate.")
-    beta1: float = Field(default=0.9, description="Adam optimizer beta1.")
-    beta2: float = Field(default=0.999, description="Adam optimizer beta2.")
-    seed: int = Field(default=0, description="Random seed for the initial variational parameters.")
-
-
 @mcp.tool(name="dense_evolution_run_vqe", annotations={"title": "Run VQE ground-state optimization", **COMPUTE})
+@catch_errors
 async def dense_evolution_run_vqe(params: RunVqeInput) -> str:
     """Run real VQE (Adam gradient descent with adjoint differentiation)
     against a molecule's Jordan-Wigner Hamiltonian, from a fresh random
@@ -679,26 +467,18 @@ async def dense_evolution_run_vqe(params: RunVqeInput) -> str:
         optimized parameters. "Error: ..." if neither name nor
         symbols+geometry is provided, or the molecule is unknown.
     """
-    try:
-        payload = params.model_dump()
-        if params.name:
-            payload["name"] = await _resolve_molecule_name(params.name)
-        return json.dumps(await _request("POST", "/api/vqe", timeout=600.0, json=payload), indent=2)
-    except Exception as e:
-        return _handle_error(e)
+    payload = params.model_dump()
+    if params.name:
+        payload["name"] = await _resolve_molecule_name(params.name)
+    return json.dumps(await _request("POST", "/api/vqe", timeout=600.0, json=payload), indent=2)
 
 
 # --------------------------------------------------------------------------
 # Tools: QM/MM forces and molecular dynamics
 # --------------------------------------------------------------------------
 
-class QmmmForcesInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    name: str = Field(..., description="Catalog molecule -- short id or full catalog name. See dense_evolution_list_molecules.")
-    mapping: str = Field(default="jordan_wigner", description="'jordan_wigner' or 'bravyi_kitaev'.")
-
-
 @mcp.tool(name="dense_evolution_qmmm_forces", annotations={"title": "Compute Hellmann-Feynman nuclear forces", **COMPUTE})
+@catch_errors
 async def dense_evolution_qmmm_forces(params: QmmmForcesInput) -> str:
     """Compute real Hellmann-Feynman nuclear forces (F = -d<psi|H(R)|psi>/dR
     via PennyLane autodiff, not finite differences) on a catalog molecule's
@@ -710,29 +490,13 @@ async def dense_evolution_qmmm_forces(params: QmmmForcesInput) -> str:
     Returns:
         str: JSON with per-atom force vectors and related energetics.
     """
-    try:
-        resolved = await _resolve_molecule_name(params.name)
-        payload = {**params.model_dump(), "name": resolved}
-        return json.dumps(await _request("POST", "/api/qmmm_forces", timeout=120.0, json=payload), indent=2)
-    except Exception as e:
-        return _handle_error(e)
-
-
-class MdTrajectoryInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    name: str = Field(..., description="Catalog molecule -- short id or full catalog name. See dense_evolution_list_molecules.")
-    n_steps: int = Field(default=20, ge=1, le=200, description="Number of MD steps (capped at 200 to bound request cost).")
-    dt_fs: float = Field(default=0.5, gt=0, description="Timestep in femtoseconds.")
-    mapping: str = Field(default="jordan_wigner", description="'jordan_wigner' or 'bravyi_kitaev'.")
-    recompute_electronic_state: bool = Field(
-        default=False,
-        description="If true, re-solves real Hartree-Fock at every step (true ab-initio MD, much more "
-        "expensive; n_steps capped at 30 in that case). If false, holds the initial "
-        "electronic state fixed throughout (accurate only close to the starting geometry).",
-    )
+    resolved = await _resolve_molecule_name(params.name)
+    payload = {**params.model_dump(), "name": resolved}
+    return json.dumps(await _request("POST", "/api/qmmm_forces", timeout=120.0, json=payload), indent=2)
 
 
 @mcp.tool(name="dense_evolution_md_trajectory", annotations={"title": "Run a molecular dynamics trajectory", **COMPUTE})
+@catch_errors
 async def dense_evolution_md_trajectory(params: MdTrajectoryInput) -> str:
     """Run a real Velocity-Verlet MD trajectory driven by Hellmann-Feynman
     forces at every step, for a catalog molecule.
@@ -747,33 +511,17 @@ async def dense_evolution_md_trajectory(params: MdTrajectoryInput) -> str:
         str: JSON with the trajectory (positions/energies per step).
         "Error: ..." if n_steps is out of range for the chosen mode.
     """
-    try:
-        resolved = await _resolve_molecule_name(params.name)
-        payload = {**params.model_dump(), "name": resolved}
-        return json.dumps(await _request("POST", "/api/md_trajectory", timeout=600.0, json=payload), indent=2)
-    except Exception as e:
-        return _handle_error(e)
+    resolved = await _resolve_molecule_name(params.name)
+    payload = {**params.model_dump(), "name": resolved}
+    return json.dumps(await _request("POST", "/api/md_trajectory", timeout=600.0, json=payload), indent=2)
 
 
 # --------------------------------------------------------------------------
 # Tools: error mitigation
 # --------------------------------------------------------------------------
 
-class MitigateZneInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    qasm: str = Field(..., min_length=1, description="OpenQASM circuit to run under noise and mitigate.")
-    pauli_string: str = Field(..., description="Pauli observable to measure and mitigate, e.g. 'ZZI'.")
-    noise_model: str = Field(..., description="Noise model name -- see dense_evolution_list_noise_models.")
-    noise_p: float = Field(..., ge=0.0, le=1.0, description="Base noise channel error probability.")
-    seed: int = Field(default=42, description="Random seed for the stochastic Kraus draws.")
-    extrapolation_method: str = Field(
-        default="richardson",
-        description="'richardson' (exact, through 1x/2x/3x noise_p) or 'polynomial' "
-        "(degree-2 least-squares fit through 5 noise scales).",
-    )
-
-
 @mcp.tool(name="dense_evolution_mitigate_zne", annotations={"title": "Zero-Noise Extrapolation on an expectation value", **COMPUTE})
+@catch_errors
 async def dense_evolution_mitigate_zne(params: MitigateZneInput) -> str:
     """Run real Zero-Noise Extrapolation: measure a Pauli expectation value
     at several noise scales under a real Kraus noise channel, then
@@ -787,21 +535,11 @@ async def dense_evolution_mitigate_zne(params: MitigateZneInput) -> str:
         str: JSON with n_qubits, ideal_expectation, noise_factors,
         noisy_expectations, zne_extrapolated, extrapolation_method.
     """
-    try:
-        return json.dumps(await _request("POST", "/api/mitigate", timeout=120.0, json=params.model_dump()), indent=2)
-    except Exception as e:
-        return _handle_error(e)
-
-
-class MitigateDensityMatrixInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    qasm: str = Field(..., min_length=1, description="OpenQASM circuit to run under noise and mitigate.")
-    noise_model: str = Field(..., description="Noise model name -- see dense_evolution_list_noise_models.")
-    noise_p: float = Field(..., ge=0.0, le=1.0, description="Base noise channel error probability.")
-    seed: int = Field(default=42, description="Random seed for the Monte-Carlo density-matrix estimate.")
+    return json.dumps(await _request("POST", "/api/mitigate", timeout=120.0, json=params.model_dump()), indent=2)
 
 
 @mcp.tool(name="dense_evolution_mitigate_density_matrix", annotations={"title": "Density-matrix Zero-Noise Extrapolation", **COMPUTE})
+@catch_errors
 async def dense_evolution_mitigate_density_matrix(params: MitigateDensityMatrixInput) -> str:
     """Run real density-matrix ZNE: Monte-Carlo density-matrix estimate at
     1x/2x/3x noise_p, extrapolated and projected onto the nearest physical
@@ -813,25 +551,11 @@ async def dense_evolution_mitigate_density_matrix(params: MitigateDensityMatrixI
     Returns:
         str: JSON with n_qubits, noise_factors, fidelity_raw, fidelity_corrected.
     """
-    try:
-        return json.dumps(await _request("POST", "/api/mitigate_matrix", timeout=120.0, json=params.model_dump()), indent=2)
-    except Exception as e:
-        return _handle_error(e)
-
-
-class VectorHealingInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    vectors: list = Field(..., description="(n_steps, dim) sequence of equal-length numeric rows to heal -- "
-                           "e.g. a VQE parameter/energy trajectory, MD telemetry, or any other noisy vector "
-                           "sequence. NaN/Inf entries are sanitized automatically.")
-    radius_baseline: int | None = Field(
-        default=None,
-        description="Fixed radius for the local baseline window used to judge each step. If omitted, "
-        "computed adaptively as min(20, max(3, n_steps // 3)).",
-    )
+    return json.dumps(await _request("POST", "/api/mitigate_matrix", timeout=120.0, json=params.model_dump()), indent=2)
 
 
 @mcp.tool(name="dense_evolution_vector_healing", annotations={"title": "Heal a noisy vector sequence", **COMPUTE})
+@catch_errors
 async def dense_evolution_vector_healing(params: VectorHealingInput) -> str:
     """Run a real predictive-healing pass over a noisy (n_steps, dim)
     vector sequence -- e.g. VQE convergence telemetry or an MD
@@ -847,30 +571,16 @@ async def dense_evolution_vector_healing(params: VectorHealingInput) -> str:
         str: JSON with healed_vectors, fallback_triggered,
         adaptive_radius_used, reconstruction_error.
     """
-    try:
-        return json.dumps(await _request("POST", "/api/vector_healing", timeout=30.0, json=params.model_dump()), indent=2)
-    except Exception as e:
-        return _handle_error(e)
+    return json.dumps(await _request("POST", "/api/vector_healing", timeout=30.0, json=params.model_dump()), indent=2)
 
 
 # --------------------------------------------------------------------------
 # Tools: traversable-wormhole-inspired quantum teleportation (SYK model)
 # --------------------------------------------------------------------------
 
-class WormholeSelectInstanceInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    n_majorana: int = Field(default=8, ge=4, description="Number of Majorana modes per side (must be even). "
-                             "8 matches arXiv:2604.10090's own experiment (4 qubits/side).")
-    k_terms: int = Field(default=10, ge=1, description="Number of sparse 4-Majorana coupling terms to keep, "
-                          "out of C(n_majorana,4) possible -- 10 matches the paper's K=10.")
-    J: float = Field(default=1.4142135623730951, description="SYK coupling strength (paper's J=sqrt(2)).")
-    n_candidates: int = Field(default=200, ge=1, le=2000, description="Number of random seeds to screen.")
-    target_commuting: int = Field(default=34, description="Target commuting-pair count out of C(k_terms,2) pairs "
-                                   "-- 34 (out of 45) is the paper's own selected instance's ratio for K=10.")
-
-
 @mcp.tool(name="dense_evolution_wormhole_select_instance",
           annotations={"title": "Select a good SYK instance for wormhole teleportation", **COMPUTE})
+@catch_errors
 async def dense_evolution_wormhole_select_instance(params: WormholeSelectInstanceInput) -> str:
     """Find a binary-sparse-SYK random-instance seed suitable for the
     traversable-wormhole-inspired teleportation protocol
@@ -901,37 +611,12 @@ async def dense_evolution_wormhole_select_instance(params: WormholeSelectInstanc
         target_commuting} -- pass `seed` straight into
         dense_evolution_wormhole_teleportation / _wormhole_scan.
     """
-    try:
-        return json.dumps(await _request("POST", "/api/wormhole_select_instance", timeout=60.0, json=params.model_dump()), indent=2)
-    except Exception as e:
-        return _handle_error(e)
-
-
-class WormholeTeleportationInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    n_majorana: int = Field(default=8, ge=4, description="Number of Majorana modes per side (must be even).")
-    k_terms: int = Field(default=10, ge=1, description="Number of sparse 4-Majorana coupling terms per side.")
-    J: float = Field(default=1.4142135623730951, description="SYK coupling strength (paper's J=sqrt(2)).")
-    mu: float = Field(default=12.0, description="L-R coupling strength exp(i*mu*V). Sign matters -- the "
-                       "protocol's signature is the difference in teleported mutual information between "
-                       "+mu and -mu (call twice, or use dense_evolution_wormhole_scan for a batch sweep).")
-    t0: float = Field(default=0.3, description="Pre-coupling evolution time under H_L+H_R.")
-    t1: float = Field(default=0.6, description="Post-coupling evolution time under H_L+H_R. The known signal "
-                       "peak for seed=61/n_majorana=8/k_terms=10 is at t1=0.60.")
-    seed: int = Field(default=61, description="SYK instance seed -- use dense_evolution_wormhole_select_instance "
-                       "to find a good one for other (n_majorana, k_terms) combinations; 61 is the verified "
-                       "match for the defaults.")
-    with_message: bool = Field(default=True, description="Inject the reference qubit's message into the L "
-                                "register (swap). False = no message injected, a baseline/control run.")
-    backend: str = Field(default="exact", description="'exact' (matrix exponentiation, cheap, exact) or "
-                          "'trotter' (real Trotterized gate circuit, closer to actual hardware execution, "
-                          "verified to reproduce the exact backend's result closely).")
-    n_steps_evolution: int = Field(default=8, ge=1, description="Trotter steps for the t0/t1 evolution (trotter backend only).")
-    n_steps_coupling: int = Field(default=16, ge=1, description="Trotter steps for the mu coupling (trotter backend only).")
+    return json.dumps(await _request("POST", "/api/wormhole_select_instance", timeout=60.0, json=params.model_dump()), indent=2)
 
 
 @mcp.tool(name="dense_evolution_wormhole_teleportation",
           annotations={"title": "Run traversable-wormhole-inspired quantum teleportation", **COMPUTE})
+@catch_errors
 async def dense_evolution_wormhole_teleportation(params: WormholeTeleportationInput) -> str:
     """Run one point of the real traversable-wormhole-inspired quantum
     teleportation protocol (Gao-Jafferis-Wall theory, arXiv:2604.10090)
@@ -962,34 +647,12 @@ async def dense_evolution_wormhole_teleportation(params: WormholeTeleportationIn
         str: JSON {mutual_information_pt, backend, n_majorana, k_terms,
         mu, t0, t1, seed, with_message}.
     """
-    try:
-        return json.dumps(await _request("POST", "/api/wormhole_teleportation", timeout=120.0, json=params.model_dump()), indent=2)
-    except Exception as e:
-        return _handle_error(e)
-
-
-class WormholeScanInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    n_majorana: int = Field(default=8, ge=4, description="Number of Majorana modes per side (must be even).")
-    k_terms: int = Field(default=10, ge=1, description="Number of sparse 4-Majorana coupling terms per side.")
-    J: float = Field(default=1.4142135623730951, description="SYK coupling strength (paper's J=sqrt(2)).")
-    mu_magnitude: float = Field(default=12.0, ge=0, description="Both +mu_magnitude and -mu_magnitude are "
-                                 "run at every t1 point -- this is the wormhole signal's defining comparison.")
-    t0: float = Field(default=0.3, description="Pre-coupling evolution time under H_L+H_R, shared by every point.")
-    t1_values: list = Field(..., min_length=1, max_length=20, description="List of post-coupling evolution "
-                             "times to sweep. Capped at 20 points (each point runs backend twice, +mu and "
-                             "-mu, sequentially -- unlike dense_evolution_energy_scan this is NOT cheap: "
-                             "each single teleportation call takes several seconds, so a full sweep can "
-                             "take a few minutes; see the tool's own docstring).")
-    seed: int = Field(default=61, description="SYK instance seed -- use dense_evolution_wormhole_select_instance first.")
-    with_message: bool = Field(default=True, description="Inject the reference qubit's message into L.")
-    backend: str = Field(default="exact", description="'exact' or 'trotter' -- see dense_evolution_wormhole_teleportation.")
-    n_steps_evolution: int = Field(default=8, ge=1, description="Trotter steps for t0/t1 evolution (trotter backend only).")
-    n_steps_coupling: int = Field(default=16, ge=1, description="Trotter steps for the mu coupling (trotter backend only).")
+    return json.dumps(await _request("POST", "/api/wormhole_teleportation", timeout=120.0, json=params.model_dump()), indent=2)
 
 
 @mcp.tool(name="dense_evolution_wormhole_scan",
           annotations={"title": "Sweep the wormhole teleportation signal over t1", **COMPUTE})
+@catch_errors
 async def dense_evolution_wormhole_scan(params: WormholeScanInput) -> str:
     """Sweep `t1_values` for the traversable-wormhole-inspired
     teleportation protocol, running both +mu_magnitude and -mu_magnitude

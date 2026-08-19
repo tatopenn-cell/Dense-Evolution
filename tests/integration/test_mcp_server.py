@@ -2,7 +2,7 @@
 Tests for mcp_server/server.py -- the dense_evolution_mcp MCP adapter.
 
 Routes every request through httpx.ASGITransport straight into the real,
-in-process local_site.app.server.app (see server._TEST_TRANSPORT) instead
+in-process local_site.app.server.app (see client._TEST_TRANSPORT) instead
 of a live subprocess kernel bound to a real port. That means every test
 below still exercises the real DenseSVSimulator / real PennyLane
 Hartree-Fock Hamiltonians -- no mocked physics, only the network hop is
@@ -25,6 +25,7 @@ import httpx  # noqa: E402
 
 from local_site.app import server as kernel  # noqa: E402
 from mcp_server import server as mcp_adapter  # noqa: E402
+from mcp_server import client as mcp_client  # noqa: E402
 
 H2 = "H2 (Idrogeno) - R = 0.7414 A [equilibrio reale]"
 EXACT_H2_ENERGY_HARTREE = -1.1372701748786913
@@ -45,13 +46,13 @@ def run(coro):
 
 @pytest.fixture(autouse=True)
 def route_through_real_kernel_in_process():
-    mcp_adapter._TEST_TRANSPORT = httpx.ASGITransport(app=kernel.app)
+    mcp_client._TEST_TRANSPORT = httpx.ASGITransport(app=kernel.app)
     # A fresh molecule-alias cache per test: several tests below rely on
     # the real /api/hamiltonians catalog being (re)fetched, not whatever a
     # previous test happened to populate.
     mcp_adapter._molecule_alias_cache = None
     yield
-    mcp_adapter._TEST_TRANSPORT = None
+    mcp_client._TEST_TRANSPORT = None
     mcp_adapter._molecule_alias_cache = None
 
 
@@ -354,15 +355,15 @@ def test_run_vqe_hardware_efficient_converges_close_to_exact_for_h2():
 
 
 def test_kernel_unreachable_gives_actionable_error_not_a_traceback():
-    mcp_adapter._TEST_TRANSPORT = None  # force a real (failing) TCP attempt
-    original_url = mcp_adapter.KERNEL_URL
-    mcp_adapter.KERNEL_URL = "http://127.0.0.1:1"  # nothing listens here
+    mcp_client._TEST_TRANSPORT = None  # force a real (failing) TCP attempt
+    original_url = mcp_client.KERNEL_URL
+    mcp_client.KERNEL_URL = "http://127.0.0.1:1"  # nothing listens here
     try:
         result = run(mcp_adapter.dense_evolution_health())
         assert result.startswith("Error:")
         assert "dense-evolution serve" in result
     finally:
-        mcp_adapter.KERNEL_URL = original_url
+        mcp_client.KERNEL_URL = original_url
 
 
 def test_kernel_timeout_gives_actionable_error_not_a_traceback(monkeypatch):
@@ -370,7 +371,7 @@ def test_kernel_timeout_gives_actionable_error_not_a_traceback(monkeypatch):
         async def request(self, method, path, **kwargs):
             raise httpx.TimeoutException("simulated timeout")
 
-    monkeypatch.setattr(mcp_adapter, "_get_client", lambda: _TimeoutClient())
+    monkeypatch.setattr(mcp_client, "_get_client", lambda: _TimeoutClient())
     result = run(mcp_adapter.dense_evolution_health())
     assert result.startswith("Error:")
     assert "timed out" in result
@@ -392,7 +393,7 @@ def test_kernel_error_response_with_non_json_body_falls_back_to_raw_text(monkeyp
         async def request(self, method, path, **kwargs):
             return _FakeResponse()
 
-    monkeypatch.setattr(mcp_adapter, "_get_client", lambda: _ErrorClient())
+    monkeypatch.setattr(mcp_client, "_get_client", lambda: _ErrorClient())
     result = run(mcp_adapter.dense_evolution_health())
     assert result.startswith("Error:")
     assert "<html>Bad Gateway</html>" in result
@@ -476,26 +477,26 @@ def test_request_reuses_the_same_client_across_calls():
     # they don't within a single test (the autouse fixture only swaps
     # _TEST_TRANSPORT between tests, not within one).
     run(mcp_adapter.dense_evolution_health())
-    client_after_first_call = mcp_adapter._shared_client
+    client_after_first_call = mcp_client._shared_client
     run(mcp_adapter.dense_evolution_health())
-    assert mcp_adapter._shared_client is client_after_first_call
+    assert mcp_client._shared_client is client_after_first_call
 
 
 def test_request_rebuilds_client_when_transport_or_url_changes():
     run(mcp_adapter.dense_evolution_health())
-    stale_client = mcp_adapter._shared_client
+    stale_client = mcp_client._shared_client
 
-    original_transport = mcp_adapter._TEST_TRANSPORT
-    original_url = mcp_adapter.KERNEL_URL
+    original_transport = mcp_client._TEST_TRANSPORT
+    original_url = mcp_client.KERNEL_URL
     try:
-        mcp_adapter._TEST_TRANSPORT = None
-        mcp_adapter.KERNEL_URL = "http://127.0.0.1:1"
+        mcp_client._TEST_TRANSPORT = None
+        mcp_client.KERNEL_URL = "http://127.0.0.1:1"
         result = run(mcp_adapter.dense_evolution_health())
         assert result.startswith("Error:")  # confirms it actually hit the new (broken) target
-        assert mcp_adapter._shared_client is not stale_client
+        assert mcp_client._shared_client is not stale_client
     finally:
-        mcp_adapter._TEST_TRANSPORT = original_transport
-        mcp_adapter.KERNEL_URL = original_url
+        mcp_client._TEST_TRANSPORT = original_transport
+        mcp_client.KERNEL_URL = original_url
 
 
 def test_per_tool_timeouts_reach_the_real_http_call(monkeypatch):
