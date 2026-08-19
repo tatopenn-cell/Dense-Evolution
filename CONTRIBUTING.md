@@ -44,9 +44,9 @@ pre-commit run --all-files
 pytest tests/ -v
 ```
 
-`tests/test_interop.py` needs `qiskit`/`pennylane` installed (skips cleanly via `pytest.importorskip` if they aren't). CI (`.github/workflows/ci.yml`) runs the full suite on Python 3.10/3.11/3.12 on every push/PR to `main` — check it's green before asking for a review.
+`tests/integration/test_interop.py` needs `qiskit`/`pennylane` installed (skips cleanly via `pytest.importorskip` if they aren't). CI (`.github/workflows/ci.yml`) runs the full suite on Python 3.10/3.11/3.12 on every push/PR to `main` — check it's green before asking for a review.
 
-Tests are organized one file per source module (`tests/test_simulator.py` ↔ `dense_evolution/simulator.py`, and so on) — add new tests to the matching file rather than a catch-all.
+Tests are organized one file per source module, split into `tests/unit/` (a single `dense_evolution/` module in isolation, e.g. `tests/unit/test_simulator.py` ↔ `dense_evolution/backends/statevector.py`) and `tests/integration/` (multiple modules wired together, or a `tools/` app) — add new tests to the matching file rather than a catch-all, and pick the subdirectory matching what the new test actually exercises.
 
 ## Making changes
 

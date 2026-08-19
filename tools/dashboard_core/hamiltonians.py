@@ -302,7 +302,7 @@ def _pennylane_hamiltonian_to_pauli_terms(H, n_qubits):
     PennyLane itself uses internally, just handed over in the plain form
     dense_evolution.pauli_hamiltonian_to_matrix accepts, so this
     project's own engine builds the dense matrix instead of going through
-    qml.matrix(). Verified (see dense_evolution/tests/test_observables.py
+    qml.matrix(). Verified (see tests/unit/test_observables.py
     and this session's own cross-checks) to reproduce qml.matrix(H)
     exactly for H2/HeH+/H3+, not an approximation."""
     coeffs, ops = H.terms()

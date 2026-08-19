@@ -7,7 +7,7 @@ Standard convention, one qubit per two Majorana modes:
 mode_index is 1-indexed (chi_1 .. chi_{2*n_qubits}). Each chi_i is
 Hermitian and satisfies chi_i^2 = I by this normalization; the anticommutation
 relation {chi_a, chi_b} = 2*delta_ab*I holds exactly (verified in
-tests/test_fermions.py against the actual matrices, not assumed from the
+tests/unit/test_fermions.py against the actual matrices, not assumed from the
 textbook formula alone).
 
 Originated in research/wormhole_syk.py (a traversable-wormhole-inspired

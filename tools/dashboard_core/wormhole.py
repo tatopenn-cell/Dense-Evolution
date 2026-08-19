@@ -37,7 +37,7 @@ S2: "we consider J=sqrt(2), q=4, and beta=3") instead of the other two
 backends' beta=0 simplification (plain L_i-R_i Bell pairs, the
 infinite-temperature limit). beta=0 recovers the other backends'
 initial state exactly (exp(0)=identity, verified in
-tests/test_wormhole.py) -- the finite-beta path is a strict
+tests/integration/test_wormhole.py) -- the finite-beta path is a strict
 generalization, not a different protocol.
 
 Central, honest finding carried over from the research reproduction: the
@@ -334,7 +334,7 @@ def _prepare_finite_beta_tfd_sv(n_side, n_full, L, R, P, Q, eigvals, eigvecs, be
     compute that 92.7% fidelity number, not an approximation of one.
 
     beta=0 must reproduce _initial_state_ops's plain Bell-pair state
-    exactly (exp(0)=identity) -- verified in tests/test_wormhole.py,
+    exactly (exp(0)=identity) -- verified in tests/integration/test_wormhole.py,
     not just assumed.
     """
     sim = de.DenseSVSimulator(n_full)

@@ -18,7 +18,7 @@ straight into any future feature needing exp(-i*H*t) as gates (a
 Trotterized VQE-adjacent ansatz, quench dynamics, etc.).
 
 pauli_rotation_ops is exact for a single Pauli-string term (fidelity
-1.0 against scipy.linalg.expm, verified in tests/test_trotter.py for
+1.0 against scipy.linalg.expm, verified in tests/unit/test_trotter.py for
 1-4 qubit mixed X/Y/Z strings, not just Z-strings); trotter_evolve_ops
 composes many such terms via the first-order product formula by default,
 which is an *approximation* whose error shrinks as n_steps grows (also
@@ -31,7 +31,7 @@ instead -- each step applies the terms forward at half the angle, then
 backward (reversed order) at half the angle again:
 [prod_k exp(-i*c_k*P_k*dt/2)] * [prod_k(reversed) exp(-i*c_k*P_k*dt/2)],
 which cancels the first-order formula's leading error term (verified in
-tests/test_trotter.py: infidelity drops roughly 16x per doubling of
+tests/unit/test_trotter.py: infidelity drops roughly 16x per doubling of
 steps, consistent with the expected quartic convergence of second-order
 Trotter error in state overlap, vs. order=1's ~4x). Costs 2x the gates
 of order=1 for the same n_steps -- the standard second-order tradeoff,

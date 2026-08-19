@@ -73,7 +73,7 @@ def mutual_information(state, n_qubits, qubits_a, qubits_b):
     single-qubit readout can get around it. Mutual information *can*
     reveal correlations a marginal expectation value structurally cannot,
     because it depends on the *joint* state of A and B, not either one
-    alone. Verified in tests/test_entropy.py against the exact textbook
+    alone. Verified in tests/unit/test_entropy.py against the exact textbook
     value for a Bell pair (I = 2*ln(2), maximal) and a GHZ state.
     """
     s_a = von_neumann_entropy(partial_trace(state, n_qubits, qubits_a))

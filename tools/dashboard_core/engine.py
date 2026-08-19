@@ -12,7 +12,7 @@ No Qiskit QuantumCircuit is ever constructed here, not even for the
 Circuit-diagram panel: qiskit.circuit.QuantumCircuit.__init__ itself
 segfaults (SIGSEGV, inside qiskit's own compiled extension) on macOS,
 independent of *how* the circuit is built or what's done with it
-afterwards -- see tests/test_interop.py::TestQiskitInterop for the full
+afterwards -- see tests/integration/test_interop.py::TestQiskitInterop for the full
 reproduction story (QuantumCircuit(3) alone, no QASM, no method calls,
 still crashes there). SimulationResult/LargeScaleMPSResult below carry
 the plain gate tuples instead, and dashboard_core.circuit_diagram draws

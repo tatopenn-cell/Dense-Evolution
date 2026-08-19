@@ -119,8 +119,8 @@ the only place this logic lives:
   reusable — Majorana JW mapping, partial-trace/von-Neumann-entropy/
   mutual-information, and `pauli_rotation_ops`/`trotter_evolve_ops` —
   now live in `dense_evolution.fermions`, `.entropy`, `.trotter`
-  respectively, each with its own real tests (`tests/test_fermions.py`,
-  `tests/test_entropy.py`, `tests/test_trotter.py`) checked against
+  respectively, each with its own real tests (`tests/unit/test_fermions.py`,
+  `tests/unit/test_entropy.py`, `tests/unit/test_trotter.py`) checked against
   known-exact cases, not just imported and trusted.
 - The SYK/wormhole-specific logic (sparse Hamiltonian construction, the
   paper's instance-selection criterion, the two-sided protocol itself)
