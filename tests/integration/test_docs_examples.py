@@ -20,7 +20,7 @@ import pathlib
 import numpy as np
 import pytest
 
-REPO_ROOT = pathlib.Path(__file__).parent.parent
+REPO_ROOT = pathlib.Path(__file__).parent.parent.parent
 
 
 def _extract_section_code(md_path, heading):
