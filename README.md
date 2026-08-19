@@ -142,37 +142,54 @@ sim.run_chunk(circuit_ops, chunk_size_gates=500)   # SafeMemoryGuard active
 ## ▍ Architecture
 
 ```
-dense_evolution/                  (flat package root -- see "Architectural refactor in progress" note below)
-├── registry.py       hardware detection · JAX/CuPy/NumPy flags · NoiseModel (Kraus channels)
-├── gates.py          GATES{} · PARAMETRIC_GATES{} · GATE_IDS{}
-├── healing.py        predictive state engine · Phi_AB · vettore dinamico · MemoryReflectionEngine
-├── parser.py         QASMParser · QASMCircuit · OpenQASM 2.0 / 3.0
-├── compiler.py       QuantumTranspiler · _apply_gate_fast_step (jit) · gate decomposition
-├── chunk.py          SafeMemoryGuard · MemoryChunker · CircuitChunker · Chunk (Anti-OOM)
-├── simulator.py      DenseSVSimulator · run_batch_jit · vmap batch VQE
-├── mps.py            MPSSimulator — matrix-product-state backend, JAX-backed
-├── autodiff.py        circuit_to_energy_fn — the real, public VQE gradient engine
-├── mitigation.py      Zero-Noise Extrapolation — richardson_extrapolate, zero_noise_extrapolation, zne_density_matrix, jsd_predictive_zne_density_matrix (+ jit variants)
-├── interop/            [subpackage] `dense_evolution.interop` still works unchanged (compat shim)
+dense_evolution/
+├── circuits/            [subpackage] gate-level primitives
+│   ├── gates.py            GATES{} · PARAMETRIC_GATES{} · GATE_IDS{}
+│   ├── registry.py         hardware detection · JAX/CuPy/NumPy flags · NoiseModel (Kraus channels)
+│   ├── parser.py           QASMParser · QASMCircuit · OpenQASM 2.0 / 3.0
+│   ├── compiler.py         QuantumTranspiler · _apply_gate_fast_step (jit) · gate decomposition
+│   ├── topology.py         entangling_layer — linear/circular/full/star/brick patterns
+│   ├── qft.py              Quantum Fourier Transform circuit builder
+│   └── trotter.py          pauli_rotation_ops · trotter_evolve_ops — real-time Hamiltonian evolution as gates
+├── backends/             [subpackage] statevector execution engines
+│   ├── statevector.py      DenseSVSimulator · run_batch_jit · vmap batch VQE
+│   └── mps.py              MPSSimulator — matrix-product-state backend, JAX-backed
+├── physics/              [subpackage] quantum-information primitives
+│   ├── entropy.py          partial_trace · von_neumann_entropy · mutual_information (multi-qubit, MSB-first)
+│   ├── observables.py      Pauli-string expectation values, O(2ⁿ) direct from a statevector
+│   ├── states.py           common state-preparation circuits (Bell, GHZ, W, ...) as gate tuples
+│   ├── fermions.py         majorana_pauli_terms — Majorana-fermion → qubit (Jordan-Wigner) mapping
+│   └── qec.py              pauli_commutes · compute_syndrome · erasure_aware_decode (code-agnostic stabilizer QEC)
+├── mitigation/           [subpackage] error mitigation and density-matrix diagnostics
+│   ├── zne.py               richardson_extrapolate · zero_noise_extrapolation · zne_density_matrix · jsd_predictive_zne_density_matrix · uhlmann_fidelity (+ jit variants)
+│   ├── healing.py            predictive state engine · Phi_AB · vettore dinamico · MemoryReflectionEngine
+│   ├── renyi.py              sandwiched_renyi_divergence — non-commuting-aware density-matrix divergence (fixed from a Colab bug, Dense-Evolution-Discovery Experiment 29)
+│   └── magic_entropy.py      magic_entropy — single-qubit non-stabilizerness via the real Key Unitary construction (Dense-Evolution-Discovery Experiment 30)
+├── solvers/              [subpackage] variational/chemistry solvers
+│   ├── autodiff.py         circuit_to_energy_fn — the real, public VQE gradient engine
+│   ├── harrison_tb.py      sp3 tight-binding Hamiltonians, Harrison universal parameter table
+│   └── vhd_tb.py           sp3s* tight-binding, Vogl-Hjalmarson-Dow material-specific parameters
+├── native_hf/            [subpackage] from-scratch Hartree-Fock (elements outside PennyLane's STO-3G table)
+│   ├── scf.py               self-consistent-field loop
+│   ├── bridge.py            hands off the converged result to PennyLane's fermionic_observable/jordan_wigner
+│   └── boys.py, gaussians.py, overlap.py, kinetic.py, coulomb.py, assembly.py, cartesian.py, basis.py   Obara-Saika integral machinery
+├── interop/              [subpackage]
 │   └── qiskit_pennylane.py   run_qiskit_circuit / run_pennylane_circuit / from_qiskit / from_pennylane
-├── observables.py     Pauli-string expectation values, O(2ⁿ) direct from a statevector
-├── utils/              [subpackage] `dense_evolution.drawing`/`.measurement` still work unchanged (compat shims)
-│   ├── drawing.py       plain-text circuit diagrams (ASCII, console-safe)
-│   └── measurement.py   statevector → finite-shot counts, sampling helpers
-├── states.py          common state-preparation circuits (Bell, GHZ, W, ...) as gate tuples
-├── topology.py        entangling_layer — linear/circular/full/star/brick patterns
-├── qft.py             Quantum Fourier Transform circuit builder
-├── fermions.py        majorana_pauli_terms — Majorana-fermion → qubit (Jordan-Wigner) mapping
-├── entropy.py         partial_trace · von_neumann_entropy · mutual_information (multi-qubit, MSB-first)
-├── trotter.py         pauli_rotation_ops · trotter_evolve_ops — real-time Hamiltonian evolution as gates
-├── random_circuit.py  random circuit generation for benchmarking/fuzz-testing
-├── harrison_tb.py     sp3 tight-binding Hamiltonians, Harrison universal parameter table
-├── vhd_tb.py          sp3s* tight-binding, Vogl-Hjalmarson-Dow material-specific parameters
-└── cli.py             `dense-evolution` console script — serve · offline-composer · mcp
+├── utils/                [subpackage]
+│   ├── drawing.py           plain-text circuit diagrams (ASCII, console-safe)
+│   └── measurement.py       statevector → finite-shot counts, sampling helpers
+├── chunk.py              SafeMemoryGuard · MemoryChunker · CircuitChunker · Chunk (Anti-OOM) — not moved into a subpackage
+├── cli.py                `dense-evolution` console script — serve · offline-composer · mcp — not moved into a subpackage
+└── random_circuit.py     random circuit generation for benchmarking/fuzz-testing — not moved into a subpackage
+```
 
+**Every module has a backward-compatible shim at its old top-level path** (e.g. `dense_evolution/mitigation.py`, `dense_evolution/entropy.py`, `dense_evolution/healing.py`, `dense_evolution/mps.py`, `dense_evolution/simulator.py`, `dense_evolution/observables.py`, `dense_evolution/states.py`, `dense_evolution/qec.py`, `dense_evolution/fermions.py`, `dense_evolution/gates.py`, `dense_evolution/registry.py`, `dense_evolution/parser.py`, `dense_evolution/compiler.py`, `dense_evolution/topology.py`, `dense_evolution/qft.py`, `dense_evolution/trotter.py`, `dense_evolution/autodiff.py`, `dense_evolution/harrison_tb.py`, `dense_evolution/vhd_tb.py`, `dense_evolution/drawing.py`, `dense_evolution/measurement.py`) — a ~10-line re-export, nothing else. `from dense_evolution.mps import MPSSimulator` keeps working unchanged, identically to before the split. `renyi.py`/`magic_entropy.py` are new (never had an old top-level path, so no shim needed); import them from `dense_evolution.mitigation` directly. Full history: the 7-subpackage split (tracking issue [#76](https://github.com/tatopenn-cell/Dense-Evolution/issues/76)) shipped completely in **v8.1.61**; `native_hf/` was added separately in **v8.1.59**.
+
+```
 tools/                              (apps built on the library, not part of it — see prog.txt Sezione 1)
 ├── ia_utils/
-│   └── vector_healing.py   median_healing · enhanced_dense_healing_hybrid (NaN/Inf-safe, lazy JAX import)
+│   ├── vector_healing.py            median_healing · enhanced_dense_healing_hybrid (NaN/Inf-safe, lazy JAX import; trigger_mode='phi'|'adaptive')
+│   └── adversarial_vector_attack.py  craft_adversarial_healing_perturbation — gradient-based red-teaming against the differentiable Phi-Trigger
 ├── dashboard_core/
 │   ├── engine.py                     run_circuit_from_qasm — real DenseSVSimulator execution, shared by app_dashboard.py and local_site/app/server.py
 │   ├── graphical_builder.py          drag-and-drop grid ops → native gate tuples (app_dashboard.py's Graphical Builder tab)
@@ -193,11 +210,10 @@ tools/                              (apps built on the library, not part of it �
 
 research/                           (not installed as a module -- reference/experimentation only)
 ├── local_site/app/server.py       Composer's local FastAPI compute kernel — full feature set: VQE, molecular Hamiltonians, QM/MM, MD, mitigation, wormhole teleportation, vector healing (see "Composer" below)
+├── experiments/                    exploratory scripts not promoted to the library (matrix-healing budget/ZNE variants, vector-healing outlier correction)
 ├── wormhole_syk.py                 the original wormhole research reproduction + its own verification suite, reference only (see research/wormhole_syk.md)
 └── legacy/dash.py                  original Colab notebook, reference only
 ```
-
-**Architectural refactor in progress** (tracking issue [#76](https://github.com/tatopenn-cell/Dense-Evolution/issues/76)): `dense_evolution/` is being split into thematic subpackages (`utils/`, `interop/` done so far; `physics/`, `circuits/`, `backends/`, `mitigation/`, `solvers/` planned next), one PR per subpackage. Every moved module keeps a backward-compatible shim at its old top-level path, so nothing above marked "compat shim" requires any code change on your end.
 
 **Data flow per run (`app_dashboard.py`):**
 
