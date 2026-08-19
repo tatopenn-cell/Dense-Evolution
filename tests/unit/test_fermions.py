@@ -15,7 +15,7 @@ def test_backward_compat_shim_fermions_reexports_majorana_pauli_terms():
     # the old top-level path -- nothing in this suite imports through it
     # directly (everything sources majorana_pauli_terms from the top-level
     # dense_evolution package instead, which now gets it from
-    # dense_evolution.physics.fermions), so without this the shim'''s own
+    # dense_evolution.physics.fermions), so without this the shim's own
     # lines go uncovered and a broken shim would go undetected by CI.
     from dense_evolution.fermions import majorana_pauli_terms as shim_mpt
     assert shim_mpt is majorana_pauli_terms

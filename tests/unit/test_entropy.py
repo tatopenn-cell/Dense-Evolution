@@ -15,7 +15,7 @@ def test_backward_compat_shim_entropy_reexports_public_api():
     # the old top-level path -- nothing in this suite imports through it
     # directly (everything sources these three from the top-level
     # dense_evolution package instead, which now gets them from
-    # dense_evolution.physics.entropy), so without this the shim'''s own
+    # dense_evolution.physics.entropy), so without this the shim's own
     # lines go uncovered and a broken shim would go undetected by CI.
     from dense_evolution.entropy import partial_trace as shim_pt, von_neumann_entropy as shim_vne, mutual_information as shim_mi
     assert shim_pt is partial_trace
