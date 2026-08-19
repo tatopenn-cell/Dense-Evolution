@@ -7,10 +7,10 @@ the repository rather than written fresh for this page:
   [`experiments/matrix_healing_zne.py`](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/research/experiments/matrix_healing_zne.py),
   the exact script `zne_density_matrix`'s docstring reports measured numbers from.
 - [MPS for low-entanglement circuits](#mps-for-low-entanglement-circuits) — from
-  `tests/test_mps.py::test_run_circuit_jit_ghz_chain`.
+  `tests/unit/test_mps.py::test_run_circuit_jit_ghz_chain`.
 - [Differentiable VQE](#differentiable-vqe) — from
-  `tests/test_autodiff.py::TestCircuitToEnergyFn`.
-- [Vector healing](#vector-healing) — from `tests/test_ia_healing.py`, healing a noisy
+  `tests/unit/test_autodiff.py::TestCircuitToEnergyFn`.
+- [Vector healing](#vector-healing) — from `tests/integration/test_ia_healing.py`, healing a noisy
   vector sequence (not to be confused with density-matrix ZNE healing above).
 
 ## Density-matrix ZNE healing

@@ -84,7 +84,7 @@ COMPUTE = {
 # --------------------------------------------------------------------------
 
 # Set by tests to route through httpx.ASGITransport straight into the real,
-# in-process local_site.app.server.app (see tests/test_mcp_server.py) --
+# in-process local_site.app.server.app (see tests/integration/test_mcp_server.py) --
 # None here means "use a real TCP connection to KERNEL_URL", unchanged from
 # before this existed. This is the one seam in the whole adapter: it lets
 # tests exercise every tool function against the real FastAPI kernel (real

@@ -4,7 +4,7 @@ QuantumCircuit. Replaces qiskit's circuit.draw(output='mpl') for exactly
 the reason documented in dashboard_core/engine.py's module docstring:
 qiskit.circuit.QuantumCircuit.__init__ itself segfaults (SIGSEGV) on
 macOS CI runners, on the simplest possible call (QuantumCircuit(3) alone,
-no QASM, no methods called on it) -- see tests/test_interop.py::
+no QASM, no methods called on it) -- see tests/integration/test_interop.py::
 TestQiskitInterop for the full reproduction story. There is no way to
 keep using Qiskit's own drawer without constructing that object, so this
 module draws directly from the same (name, *qubits[, param]) gate-tuple

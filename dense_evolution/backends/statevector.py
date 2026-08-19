@@ -304,7 +304,7 @@ class DenseSVSimulator:
         # reshape-based indexing, silently reading/collapsing the WRONG
         # qubit's marginal whenever qubit_idx != n-1-qubit_idx. Verified
         # directly: X on qubit 0 of a 2-qubit register, then measure(0),
-        # returned 0 instead of 1 before this fix (see tests/test_simulator.py's
+        # returned 0 instead of 1 before this fix (see tests/unit/test_simulator.py's
         # TestMeasurement class).
         phys   = self.n - 1 - qubit_idx
         stride = 1 << phys
