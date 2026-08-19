@@ -1,28 +1,15 @@
-"""Central configuration for the dense_evolution_mcp adapter: environment-
-derived settings and the MCP tool-annotation presets shared across every
-tool.
+"""Central configuration for the dense_evolution_mcp adapter: the MCP
+tool-annotation presets shared across every tool, plus DEFAULT_TIMEOUT.
 
-KERNEL_URL is deliberately NOT here despite conceptually belonging
-alongside these -- it's defined directly in client.py instead, since
-tests/integration/test_mcp_server.py mutates it directly
-(`mcp_client.KERNEL_URL = "http://127.0.0.1:1"`, to exercise the
-unreachable-kernel path) and that mutation has to be visible to
-_get_client/_request, which read it as their own module global. A
-`from .config import KERNEL_URL` copy here would silently stop seeing that
-mutation the moment client.py became a separate module from server.py --
-see client.py's own module docstring for the full explanation.
+Two settings that conceptually belong here are deliberately NOT here,
+because the test suite mutates them directly and that mutation has to
+reach the specific function that reads them as its own module global (a
+`from .config import X` copy elsewhere would silently stop seeing the
+mutation): KERNEL_URL/_TEST_TRANSPORT live in client.py (see its
+docstring), and IMAGE_OUTPUT_DIR/IMAGE_MAX_FILES live in utils/images.py
+(see its docstring) since that's where _save_png/_prune_old_images moved
+in Phase 2 of the refactor (prog.txt Sezione 3).
 """
-import os
-from pathlib import Path
-
-IMAGE_OUTPUT_DIR = Path(
-    os.environ.get("DENSE_EVOLUTION_MCP_IMAGE_DIR", str(Path.home() / ".dense_evolution_mcp" / "images"))
-)
-# Every include_visualizations=True call writes a new timestamped PNG with
-# no cleanup -- a long-running MCP session (or an agent looping over many
-# circuits) grows this directory without bound. Cap it to the most
-# recently written files; 0 or negative disables pruning entirely.
-IMAGE_MAX_FILES = int(os.environ.get("DENSE_EVOLUTION_MCP_IMAGE_MAX_FILES", "500"))
 
 READ_ONLY_IDEMPOTENT = {
     "readOnlyHint": True,

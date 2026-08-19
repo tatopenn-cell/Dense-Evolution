@@ -37,6 +37,14 @@ class RunCircuitInput(BaseModel):
     noise_p: float = Field(default=0.0, ge=0.0, le=1.0, description="Noise channel error probability (ignored if noise_model='ideal').")
     backend: str = Field(default="dense", description="'dense' (exact statevector, up to the safe qubit ceiling) or 'mps' "
                          "(matrix-product-state, approximate top-k states, for larger circuits).")
+    top_k: int = Field(
+        default=25, ge=1, le=500,
+        description="How many of the largest-magnitude statevector amplitudes / highest-probability "
+        "basis states to include in the response (the rest are summarized by 'total_*'/'shown' "
+        "counts, not dropped from the kernel's own computation). Raise this if you need to see "
+        "further down the tail; lower it to save context on a circuit with many comparably-sized "
+        "amplitudes.",
+    )
     include_visualizations: bool = Field(
         default=False,
         description="If true, also render and save circuit/histogram/Q-sphere/Bloch PNGs to disk and "

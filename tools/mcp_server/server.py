@@ -30,22 +30,18 @@ numeric arrays (statevector, probabilities) are similarly truncated to
 their most significant entries rather than dumped in full -- the kernel's
 own response can be tens of thousands of floats for a 20+ qubit circuit.
 
-Structure (Phase 1 of the modularization in prog.txt Sezione 3): settings
-live in config.py, the HTTP client + error handling in client.py, and the
-Pydantic input schemas in models.py. This file keeps the MCPServer
-instance, the tool functions themselves, and the small helpers
-(image saving/truncation, molecule-name resolution) that only these tools
-use. Splitting the tools themselves into per-topic modules
-(tools/system_tools.py, tools/circuit_tools.py, ...) is Phase 3, not done
-here.
+Structure (prog.txt Sezione 3): settings live in config.py, the HTTP
+client + error handling in client.py, the Pydantic input schemas in
+models.py (Phase 1), and image saving/truncation/molecule-catalog caching
+in utils/ (Phase 2). This file keeps the MCPServer instance, the tool
+functions themselves, and molecule-name resolution (thin glue between the
+tools and the utils/cache.py-backed catalog cache). Splitting the tools
+themselves into per-topic modules (tools/system_tools.py,
+tools/circuit_tools.py, ...) is Phase 3, not done here.
 """
 
 import asyncio
-import base64
 import json
-import time
-from pathlib import Path
-from typing import Optional
 
 # mcp>=2.0.0 renamed FastMCP -> MCPServer and moved it from
 # mcp.server.fastmcp to mcp.server.mcpserver (re-exported at mcp.server
@@ -55,64 +51,18 @@ from typing import Optional
 from mcp.server import MCPServer
 
 from .client import _request, catch_errors
-from .config import COMPUTE, IMAGE_MAX_FILES, IMAGE_OUTPUT_DIR, READ_ONLY_IDEMPOTENT
+from .config import COMPUTE, READ_ONLY_IDEMPOTENT
 from .models import (
     BuildCircuitInput, CustomMoleculeInput, EnergyScanInput, ListMoleculesInput,
     MdTrajectoryInput, MitigateDensityMatrixInput, MitigateZneInput, MixMoleculesInput,
     MoleculeEnergyInput, QmmmForcesInput, RunCircuitInput, RunVqeInput, VectorHealingInput,
     WormholeScanInput, WormholeSelectInstanceInput, WormholeTeleportationInput,
 )
+from .utils.cache import TTLCache
+from .utils.images import _save_png
+from .utils.truncation import _truncate_probabilities, _truncate_statevector
 
 mcp = MCPServer("dense_evolution_mcp")
-
-
-# --------------------------------------------------------------------------
-# Shared utilities (image saving/pruning, truncation) -- only these tools
-# use them, so they stay here rather than moving to config/client/models.
-# --------------------------------------------------------------------------
-
-def _prune_old_images() -> None:
-    """Keep at most IMAGE_MAX_FILES PNGs in IMAGE_OUTPUT_DIR, deleting the
-    oldest by mtime first. Read at call time (not module import) so tests
-    that monkeypatch IMAGE_OUTPUT_DIR/IMAGE_MAX_FILES take effect."""
-    if IMAGE_MAX_FILES <= 0:
-        return
-    files = sorted(IMAGE_OUTPUT_DIR.glob("*.png"), key=lambda p: p.stat().st_mtime)
-    excess_count = len(files) - IMAGE_MAX_FILES
-    for path in files[:excess_count]:
-        path.unlink(missing_ok=True)
-
-
-def _save_png(b64_png: Optional[str], name: str) -> Optional[str]:
-    """Decode a base64 PNG from the kernel and write it to disk, returning
-    the path instead of the raw base64 -- see module docstring."""
-    if not b64_png:
-        return None
-    IMAGE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    path = IMAGE_OUTPUT_DIR / f"{name}_{int(time.time() * 1000)}.png"
-    path.write_bytes(base64.b64decode(b64_png))
-    _prune_old_images()
-    return str(path)
-
-
-def _truncate_statevector(rows: list, top_k: int = 25) -> dict:
-    """Full statevectors can be thousands of entries; agents almost always
-    care about the dominant amplitudes, not the full dense array."""
-    sorted_rows = sorted(rows, key=lambda r: -r["abs"])
-    return {
-        "total_nonzero_amplitudes": len(rows),
-        "shown": min(top_k, len(rows)),
-        "top_amplitudes_by_magnitude": sorted_rows[:top_k],
-    }
-
-
-def _truncate_probabilities(probs: list, top_k: int = 25) -> dict:
-    indexed = sorted(enumerate(probs), key=lambda t: -t[1])[:top_k]
-    return {
-        "total_basis_states": len(probs),
-        "shown": min(top_k, len(probs)),
-        "top_states_by_probability": [{"index": i, "probability": p} for i, p in indexed],
-    }
 
 
 # --------------------------------------------------------------------------
@@ -128,8 +78,17 @@ def _truncate_probabilities(probs: list, top_k: int = 25) -> dict:
 # (e.g. "H2", "LiH", "HeH+") and accepts either form everywhere a molecule
 # `name` is expected. Derived from the live catalog, not hardcoded, so it
 # stays correct if the catalog grows.
+#
+# Cached per mapping via TTLCache (utils/cache.py) instead of a plain dict
+# that only ever got reset by test code -- BUG FIX: the pre-Phase-2 cache
+# never expired on its own, so a long-running MCP server process would
+# never pick up a real catalog change (e.g. after a kernel restart with a
+# different build). A failed fetch is also cached briefly, so a tight loop
+# of tool calls made while the kernel is down doesn't each wait out their
+# own connection/timeout error.
 
-_molecule_alias_cache: dict | None = None  # short id (lowercased) -> full catalog key
+_molecule_catalog_cache = TTLCache(ttl_seconds=300.0, failure_ttl_seconds=10.0)
+# cache value per mapping: (annotated_catalog_list, {short_id_lower: full_key})
 
 
 def _short_id(full_key: str) -> str:
@@ -137,16 +96,23 @@ def _short_id(full_key: str) -> str:
 
 
 async def _get_annotated_molecule_catalog(mapping: str) -> list:
-    """Catalog entries with a short `id` field added, and refreshes the
-    alias cache used by _resolve_molecule_name."""
-    global _molecule_alias_cache
-    catalog = await _request("GET", "/api/hamiltonians", timeout=10.0, params={"mapping": mapping})
-    _molecule_alias_cache = {}
+    """Catalog entries with a short `id` field added. See the cache note
+    in this section's module comment above."""
+    cached = _molecule_catalog_cache.get(mapping)
+    if cached is not None:
+        return cached[0]
+    try:
+        catalog = await _request("GET", "/api/hamiltonians", timeout=10.0, params={"mapping": mapping})
+    except Exception as e:
+        _molecule_catalog_cache.set_failure(mapping, e)
+        raise
+    aliases = {}
     annotated = []
     for full_key, spec in catalog.items():
         short = _short_id(full_key)
-        _molecule_alias_cache[short.lower()] = full_key
+        aliases[short.lower()] = full_key
         annotated.append({"id": short, "full_name": full_key, **spec})
+    _molecule_catalog_cache.set(mapping, (annotated, aliases))
     return annotated
 
 
@@ -155,12 +121,14 @@ async def _resolve_molecule_name(name: str) -> str:
     the full catalog key the kernel expects. Falls back to returning the
     input unchanged if it's neither -- the kernel's own 404 (with the name
     as given) is a clearer error than silently guessing."""
-    global _molecule_alias_cache
-    if _molecule_alias_cache is None:
+    cached = _molecule_catalog_cache.get("jordan_wigner")
+    if cached is None:
         await _get_annotated_molecule_catalog("jordan_wigner")
-    if name in _molecule_alias_cache.values():
+        cached = _molecule_catalog_cache.get("jordan_wigner")
+    _, aliases = cached
+    if name in aliases.values():
         return name
-    return _molecule_alias_cache.get(name.lower(), name)
+    return aliases.get(name.lower(), name)
 
 
 # --------------------------------------------------------------------------
@@ -299,7 +267,7 @@ async def dense_evolution_run_circuit(params: RunCircuitInput) -> str:
 
     Args:
         params (RunCircuitInput): qasm, shots, seed, noise_model, noise_p, backend,
-            include_visualizations (see field descriptions).
+            top_k, include_visualizations (see field descriptions).
 
     Returns:
         str: JSON with n_qubits, backend, counts, truncated probabilities/statevector,
@@ -307,31 +275,37 @@ async def dense_evolution_run_circuit(params: RunCircuitInput) -> str:
         For circuits above the dense limit on the 'mps' backend, returns a
         differently-shaped {"large_scale": true, "top_k_states": [...], ...} response.
     """
-    payload = params.model_dump(exclude={"include_visualizations"})
+    payload = params.model_dump(exclude={"include_visualizations", "top_k"})
     data = await _request("POST", "/api/run", timeout=60.0, json=payload)
+
+    image_metadata = {
+        "tool": "dense_evolution_run_circuit", "qasm": params.qasm, "shots": params.shots,
+        "seed": params.seed, "noise_model": params.noise_model, "noise_p": params.noise_p,
+        "backend": params.backend,
+    }
 
     if data.get("large_scale"):
         result = {k: v for k, v in data.items() if k != "circuit_png"}
         if params.include_visualizations:
-            result["circuit_png_path"] = _save_png(data.get("circuit_png"), "circuit_large_scale")
+            result["circuit_png_path"] = _save_png(data.get("circuit_png"), "circuit_large_scale", metadata=image_metadata)
         return json.dumps(result, indent=2)
 
     result = {
         "n_qubits": data["n_qubits"],
         "backend": data["backend"],
         "counts": data["counts"],
-        "probabilities": _truncate_probabilities(data["probabilities"]),
-        "statevector": _truncate_statevector(data["statevector"]),
+        "probabilities": _truncate_probabilities(data["probabilities"], top_k=params.top_k),
+        "statevector": _truncate_statevector(data["statevector"], top_k=params.top_k),
         "fidelity_vs_ideal": data.get("fidelity_vs_ideal"),
         "mps_max_bond_used": data.get("mps_max_bond_used"),
         "mps_memory_mb": data.get("mps_memory_mb"),
         "mps_avg_jsd": data.get("mps_avg_jsd"),
     }
     if params.include_visualizations:
-        result["circuit_png_path"] = _save_png(data.get("circuit_png"), "circuit")
-        result["histogram_png_path"] = _save_png(data.get("histogram_png"), "histogram")
-        result["qsphere_png_path"] = _save_png(data.get("qsphere_png"), "qsphere")
-        result["bloch_png_path"] = _save_png(data.get("bloch_png"), "bloch")
+        result["circuit_png_path"] = _save_png(data.get("circuit_png"), "circuit", metadata=image_metadata)
+        result["histogram_png_path"] = _save_png(data.get("histogram_png"), "histogram", metadata=image_metadata)
+        result["qsphere_png_path"] = _save_png(data.get("qsphere_png"), "qsphere", metadata=image_metadata)
+        result["bloch_png_path"] = _save_png(data.get("bloch_png"), "bloch", metadata=image_metadata)
     return json.dumps(result, indent=2)
 
 
