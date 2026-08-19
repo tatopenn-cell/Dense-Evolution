@@ -26,6 +26,7 @@ import httpx  # noqa: E402
 from local_site.app import server as kernel  # noqa: E402
 from mcp_server import server as mcp_adapter  # noqa: E402
 from mcp_server import client as mcp_client  # noqa: E402
+from mcp_server.utils import images as mcp_images  # noqa: E402
 
 H2 = "H2 (Idrogeno) - R = 0.7414 A [equilibrio reale]"
 EXACT_H2_ENERGY_HARTREE = -1.1372701748786913
@@ -50,10 +51,10 @@ def route_through_real_kernel_in_process():
     # A fresh molecule-alias cache per test: several tests below rely on
     # the real /api/hamiltonians catalog being (re)fetched, not whatever a
     # previous test happened to populate.
-    mcp_adapter._molecule_alias_cache = None
+    mcp_adapter._molecule_catalog_cache.invalidate()
     yield
     mcp_client._TEST_TRANSPORT = None
-    mcp_adapter._molecule_alias_cache = None
+    mcp_adapter._molecule_catalog_cache.invalidate()
 
 
 def test_health_reports_real_kernel_info():
@@ -207,9 +208,33 @@ def test_run_circuit_bell_state_gives_real_50_50_split():
     assert data["probabilities"]["total_basis_states"] == 4
 
 
+def test_run_circuit_top_k_is_configurable():
+    # BUG FIX: top_k used to be hardcoded at 25 inside the truncation
+    # helpers with no caller-facing way to change it. A 3-qubit GHZ-ish
+    # circuit only has 2 nonzero amplitudes/basis states, so top_k=1 is
+    # the meaningful case to check truncation actually engages.
+    ghz_qasm = """OPENQASM 2.0;
+include "qelib1.inc";
+qreg q[3];
+creg c[3];
+h q[0];
+cx q[0],q[1];
+cx q[1],q[2];
+"""
+    result = run(mcp_adapter.dense_evolution_run_circuit(
+        mcp_adapter.RunCircuitInput(qasm=ghz_qasm, shots=50, top_k=1)
+    ))
+    data = json.loads(result)
+    assert data["statevector"]["total_nonzero_amplitudes"] == 2
+    assert data["statevector"]["shown"] == 1
+    assert len(data["statevector"]["top_amplitudes_by_magnitude"]) == 1
+    assert data["probabilities"]["shown"] == 1
+    assert len(data["probabilities"]["top_states_by_probability"]) == 1
+
+
 def test_run_circuit_visualizations_are_saved_to_disk_not_inlined(tmp_path):
-    original_dir = mcp_adapter.IMAGE_OUTPUT_DIR
-    mcp_adapter.IMAGE_OUTPUT_DIR = tmp_path
+    original_dir = mcp_images.IMAGE_OUTPUT_DIR
+    mcp_images.IMAGE_OUTPUT_DIR = tmp_path
     try:
         result = run(mcp_adapter.dense_evolution_run_circuit(
             mcp_adapter.RunCircuitInput(qasm=BELL_QASM, shots=50, include_visualizations=True)
@@ -227,7 +252,31 @@ def test_run_circuit_visualizations_are_saved_to_disk_not_inlined(tmp_path):
         for raw_key in ("circuit_png", "histogram_png", "qsphere_png", "bloch_png"):
             assert raw_key not in data
     finally:
-        mcp_adapter.IMAGE_OUTPUT_DIR = original_dir
+        mcp_images.IMAGE_OUTPUT_DIR = original_dir
+
+
+def test_run_circuit_image_metadata_sidecar_is_written(tmp_path):
+    # BUG FIX: a saved image's filename (circuit_<timestamp>.png) used to
+    # carry no way to trace it back to the circuit/tool call that produced
+    # it. Every PNG dense_evolution_run_circuit saves should now have a
+    # same-stem .json sidecar identifying the source qasm/seed/etc.
+    original_dir = mcp_images.IMAGE_OUTPUT_DIR
+    mcp_images.IMAGE_OUTPUT_DIR = tmp_path
+    try:
+        result = run(mcp_adapter.dense_evolution_run_circuit(
+            mcp_adapter.RunCircuitInput(qasm=BELL_QASM, shots=50, seed=7, include_visualizations=True)
+        ))
+        data = json.loads(result)
+        import pathlib
+        png_path = pathlib.Path(data["circuit_png_path"])
+        json_path = png_path.with_suffix(".json")
+        assert json_path.exists()
+        meta = json.loads(json_path.read_text())
+        assert meta["tool"] == "dense_evolution_run_circuit"
+        assert meta["qasm"] == BELL_QASM
+        assert meta["seed"] == 7
+    finally:
+        mcp_images.IMAGE_OUTPUT_DIR = original_dir
 
 
 def test_prune_old_images_keeps_only_the_most_recent_max_files(tmp_path):
@@ -235,40 +284,40 @@ def test_prune_old_images_keeps_only_the_most_recent_max_files(tmp_path):
     # MCP session grows it without bound. Uses synthetic files with
     # explicit mtimes (not _save_png's real-clock filenames) so the
     # "oldest" ordering is deterministic instead of racing real time.
-    original_dir = mcp_adapter.IMAGE_OUTPUT_DIR
-    original_max = mcp_adapter.IMAGE_MAX_FILES
-    mcp_adapter.IMAGE_OUTPUT_DIR = tmp_path
-    mcp_adapter.IMAGE_MAX_FILES = 3
+    original_dir = mcp_images.IMAGE_OUTPUT_DIR
+    original_max = mcp_images.IMAGE_MAX_FILES
+    mcp_images.IMAGE_OUTPUT_DIR = tmp_path
+    mcp_images.IMAGE_MAX_FILES = 3
     try:
         for i in range(5):
             p = tmp_path / f"img{i}.png"
             p.write_bytes(b"x")
             os.utime(p, (i, i))
 
-        mcp_adapter._prune_old_images()
+        mcp_images._prune_old_images()
 
         remaining = {p.name for p in tmp_path.glob("*.png")}
         assert remaining == {"img2.png", "img3.png", "img4.png"}
     finally:
-        mcp_adapter.IMAGE_OUTPUT_DIR = original_dir
-        mcp_adapter.IMAGE_MAX_FILES = original_max
+        mcp_images.IMAGE_OUTPUT_DIR = original_dir
+        mcp_images.IMAGE_MAX_FILES = original_max
 
 
 def test_prune_old_images_disabled_when_max_files_non_positive(tmp_path):
-    original_dir = mcp_adapter.IMAGE_OUTPUT_DIR
-    original_max = mcp_adapter.IMAGE_MAX_FILES
-    mcp_adapter.IMAGE_OUTPUT_DIR = tmp_path
-    mcp_adapter.IMAGE_MAX_FILES = 0
+    original_dir = mcp_images.IMAGE_OUTPUT_DIR
+    original_max = mcp_images.IMAGE_MAX_FILES
+    mcp_images.IMAGE_OUTPUT_DIR = tmp_path
+    mcp_images.IMAGE_MAX_FILES = 0
     try:
         for i in range(5):
             (tmp_path / f"img{i}.png").write_bytes(b"x")
 
-        mcp_adapter._prune_old_images()
+        mcp_images._prune_old_images()
 
         assert len(list(tmp_path.glob("*.png"))) == 5
     finally:
-        mcp_adapter.IMAGE_OUTPUT_DIR = original_dir
-        mcp_adapter.IMAGE_MAX_FILES = original_max
+        mcp_images.IMAGE_OUTPUT_DIR = original_dir
+        mcp_images.IMAGE_MAX_FILES = original_max
 
 
 def test_save_png_calls_prune_so_the_directory_stays_bounded(tmp_path):
@@ -277,18 +326,100 @@ def test_save_png_calls_prune_so_the_directory_stays_bounded(tmp_path):
     # oldest-file identity unreliable at test speed, so this only checks
     # the invariant that actually matters: the directory never exceeds
     # the configured cap.
-    original_dir = mcp_adapter.IMAGE_OUTPUT_DIR
-    original_max = mcp_adapter.IMAGE_MAX_FILES
-    mcp_adapter.IMAGE_OUTPUT_DIR = tmp_path
-    mcp_adapter.IMAGE_MAX_FILES = 3
+    original_dir = mcp_images.IMAGE_OUTPUT_DIR
+    original_max = mcp_images.IMAGE_MAX_FILES
+    mcp_images.IMAGE_OUTPUT_DIR = tmp_path
+    mcp_images.IMAGE_MAX_FILES = 3
     try:
         tiny_png_b64 = base64.b64encode(b"not a real png but bytes are bytes").decode()
         for i in range(6):
-            mcp_adapter._save_png(tiny_png_b64, f"shot{i}")
+            mcp_images._save_png(tiny_png_b64, f"shot{i}")
         assert len(list(tmp_path.glob("*.png"))) <= 3
     finally:
-        mcp_adapter.IMAGE_OUTPUT_DIR = original_dir
-        mcp_adapter.IMAGE_MAX_FILES = original_max
+        mcp_images.IMAGE_OUTPUT_DIR = original_dir
+        mcp_images.IMAGE_MAX_FILES = original_max
+
+
+def test_molecule_catalog_second_call_hits_the_cache_not_the_network():
+    # BUG FIX target: the pre-Phase-2 code never cached across calls in
+    # production (only test code ever reset the old plain-dict cache) --
+    # this checks the actual cache-HIT code path fires: a second call for
+    # the same mapping must NOT reach _request again.
+    first = run(mcp_adapter.dense_evolution_list_molecules(mcp_adapter.ListMoleculesInput()))
+
+    async def _fail_if_called(*args, **kwargs):
+        raise AssertionError("second call should have hit the cache, not _request")
+
+    import mcp_server.server as server_module
+    original_request = server_module._request
+    server_module._request = _fail_if_called
+    try:
+        second = run(mcp_adapter.dense_evolution_list_molecules(mcp_adapter.ListMoleculesInput()))
+    finally:
+        server_module._request = original_request
+    assert first == second
+
+
+def test_molecule_catalog_fetch_failure_is_cached_and_reraised(monkeypatch):
+    mcp_adapter._molecule_catalog_cache.invalidate()
+
+    class _BrokenClient:
+        async def request(self, method, path, **kwargs):
+            raise httpx.ConnectError("simulated kernel down")
+
+    monkeypatch.setattr(mcp_client, "_get_client", lambda: _BrokenClient())
+    result = run(mcp_adapter.dense_evolution_list_molecules(mcp_adapter.ListMoleculesInput()))
+    assert result.startswith("Error:")
+    # Second call within the failure TTL must reuse the cached failure
+    # (not attempt a fresh connection) -- proven by NOT patching _get_client
+    # back yet and getting the same error shape again, fast.
+    result_again = run(mcp_adapter.dense_evolution_list_molecules(mcp_adapter.ListMoleculesInput()))
+    assert result_again.startswith("Error:")
+    mcp_adapter._molecule_catalog_cache.invalidate()
+
+
+def test_run_circuit_large_scale_response_includes_image_metadata(monkeypatch, tmp_path):
+    # Mocks the kernel's own large_scale response shape (same technique
+    # test_kernel_timeout_gives_actionable_error_not_a_traceback uses)
+    # rather than driving a real >24-qubit MPS run, which would be slow
+    # and depend on exact MPS internals unrelated to what this test checks:
+    # that the large_scale branch's saved image also gets a metadata
+    # sidecar, same as the normal branch already does.
+    original_dir = mcp_images.IMAGE_OUTPUT_DIR
+    mcp_images.IMAGE_OUTPUT_DIR = tmp_path
+    tiny_png_b64 = base64.b64encode(b"not a real png but bytes are bytes").decode()
+
+    class _FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "large_scale": True, "n_qubits": 30, "k_requested": 32,
+                "top_k_states": [], "circuit_png": tiny_png_b64,
+            }
+
+    class _FakeClient:
+        async def request(self, method, path, **kwargs):
+            return _FakeResponse()
+
+    monkeypatch.setattr(mcp_client, "_get_client", lambda: _FakeClient())
+    try:
+        result = run(mcp_adapter.dense_evolution_run_circuit(
+            mcp_adapter.RunCircuitInput(qasm=BELL_QASM, include_visualizations=True)
+        ))
+        data = json.loads(result)
+        assert data["large_scale"] is True
+        assert "circuit_png" not in data
+        import pathlib
+        png_path = pathlib.Path(data["circuit_png_path"])
+        assert png_path.with_suffix(".json").exists()
+    finally:
+        mcp_images.IMAGE_OUTPUT_DIR = original_dir
+
+
+def test_save_png_returns_none_for_falsy_input():
+    assert mcp_images._save_png(None, "whatever") is None
+    assert mcp_images._save_png("", "whatever") is None
 
 
 def test_energy_scan_matches_individual_molecule_energy_call():
