@@ -154,12 +154,12 @@ local_site = "research/local_site"
 # Phase 4b (see prog.txt): tests/ is now split into tests/unit/ and
 # tests/integration/, but tests/_helpers.py stays at tests/ root as shared
 # infra. Without __init__.py files (a deliberate choice -- keeps test
-# collection simple), pytest'''s default "prepend" import mode only adds
-# each test file'''s OWN directory to sys.path, which would break the bare
-# `from _helpers import probs` used by a few test files once they'''re no
+# collection simple), pytest's default "prepend" import mode only adds
+# each test file's OWN directory to sys.path, which would break the bare
+# `from _helpers import probs` used by a few test files once they're no
 # longer siblings of _helpers.py. This adds tests/ to sys.path
 # unconditionally regardless of which subdirectory the running test file
-# lives in -- pytest'''s own sanctioned mechanism for exactly this case.
+# lives in -- pytest's own sanctioned mechanism for exactly this case.
 pythonpath = ["tests"]
 
 [tool.black]
