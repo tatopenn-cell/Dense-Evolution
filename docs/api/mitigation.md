@@ -1,4 +1,4 @@
-# Mitigation (Zero-Noise Extrapolation)
+# Mitigation (Zero-Noise Extrapolation & Density-Matrix Diagnostics)
 
 Standard error-mitigation entry points, named the way the field already names them
 (Richardson extrapolation, noise factors, zero-noise extrapolation), plus a density-matrix
@@ -6,6 +6,21 @@ extension (physical-cone projection, Uhlmann fidelity) and a `jax.jit`-compatibl
 of every entry point.
 
 ::: dense_evolution.mitigation.zne
+
+---
+
+## Density-matrix diagnostics
+
+Two further density-matrix diagnostics, both originated as Colab proposals with real bugs,
+fixed and validated in [Dense-Evolution-Discovery](https://github.com/tatopenn-cell/Dense-Evolution-Discovery)
+before promotion here: a non-commuting-aware divergence (`sandwiched_renyi_divergence`) and a
+single-qubit non-stabilizerness measure (`magic_entropy`). Both are validation-only, like
+`uhlmann_fidelity` above -- meant to grade a correction against a known reference state, not to
+feed into one.
+
+::: dense_evolution.mitigation.renyi
+
+::: dense_evolution.mitigation.magic_entropy
 
 ---
 
