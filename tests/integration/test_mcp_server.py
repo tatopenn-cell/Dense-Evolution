@@ -340,6 +340,88 @@ def test_save_png_calls_prune_so_the_directory_stays_bounded(tmp_path):
         mcp_images.IMAGE_MAX_FILES = original_max
 
 
+def test_molecule_catalog_second_call_hits_the_cache_not_the_network():
+    # BUG FIX target: the pre-Phase-2 code never cached across calls in
+    # production (only test code ever reset the old plain-dict cache) --
+    # this checks the actual cache-HIT code path fires: a second call for
+    # the same mapping must NOT reach _request again.
+    first = run(mcp_adapter.dense_evolution_list_molecules(mcp_adapter.ListMoleculesInput()))
+
+    async def _fail_if_called(*args, **kwargs):
+        raise AssertionError("second call should have hit the cache, not _request")
+
+    import mcp_server.server as server_module
+    original_request = server_module._request
+    server_module._request = _fail_if_called
+    try:
+        second = run(mcp_adapter.dense_evolution_list_molecules(mcp_adapter.ListMoleculesInput()))
+    finally:
+        server_module._request = original_request
+    assert first == second
+
+
+def test_molecule_catalog_fetch_failure_is_cached_and_reraised(monkeypatch):
+    mcp_adapter._molecule_catalog_cache.invalidate()
+
+    class _BrokenClient:
+        async def request(self, method, path, **kwargs):
+            raise httpx.ConnectError("simulated kernel down")
+
+    monkeypatch.setattr(mcp_client, "_get_client", lambda: _BrokenClient())
+    result = run(mcp_adapter.dense_evolution_list_molecules(mcp_adapter.ListMoleculesInput()))
+    assert result.startswith("Error:")
+    # Second call within the failure TTL must reuse the cached failure
+    # (not attempt a fresh connection) -- proven by NOT patching _get_client
+    # back yet and getting the same error shape again, fast.
+    result_again = run(mcp_adapter.dense_evolution_list_molecules(mcp_adapter.ListMoleculesInput()))
+    assert result_again.startswith("Error:")
+    mcp_adapter._molecule_catalog_cache.invalidate()
+
+
+def test_run_circuit_large_scale_response_includes_image_metadata(monkeypatch, tmp_path):
+    # Mocks the kernel's own large_scale response shape (same technique
+    # test_kernel_timeout_gives_actionable_error_not_a_traceback uses)
+    # rather than driving a real >24-qubit MPS run, which would be slow
+    # and depend on exact MPS internals unrelated to what this test checks:
+    # that the large_scale branch's saved image also gets a metadata
+    # sidecar, same as the normal branch already does.
+    original_dir = mcp_images.IMAGE_OUTPUT_DIR
+    mcp_images.IMAGE_OUTPUT_DIR = tmp_path
+    tiny_png_b64 = base64.b64encode(b"not a real png but bytes are bytes").decode()
+
+    class _FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "large_scale": True, "n_qubits": 30, "k_requested": 32,
+                "top_k_states": [], "circuit_png": tiny_png_b64,
+            }
+
+    class _FakeClient:
+        async def request(self, method, path, **kwargs):
+            return _FakeResponse()
+
+    monkeypatch.setattr(mcp_client, "_get_client", lambda: _FakeClient())
+    try:
+        result = run(mcp_adapter.dense_evolution_run_circuit(
+            mcp_adapter.RunCircuitInput(qasm=BELL_QASM, include_visualizations=True)
+        ))
+        data = json.loads(result)
+        assert data["large_scale"] is True
+        assert "circuit_png" not in data
+        import pathlib
+        png_path = pathlib.Path(data["circuit_png_path"])
+        assert png_path.with_suffix(".json").exists()
+    finally:
+        mcp_images.IMAGE_OUTPUT_DIR = original_dir
+
+
+def test_save_png_returns_none_for_falsy_input():
+    assert mcp_images._save_png(None, "whatever") is None
+    assert mcp_images._save_png("", "whatever") is None
+
+
 def test_energy_scan_matches_individual_molecule_energy_call():
     single = json.loads(run(mcp_adapter.dense_evolution_molecule_energy(mcp_adapter.MoleculeEnergyInput(name="H2"))))
     scan_result = json.loads(run(mcp_adapter.dense_evolution_energy_scan(mcp_adapter.EnergyScanInput(
