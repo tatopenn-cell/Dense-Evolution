@@ -98,6 +98,108 @@ class TestEnhancedDenseHealingHybrid(unittest.TestCase):
         self.assertTrue(meta['fallback_triggered'])
 
 
+class TestAdaptiveTriggerMode(unittest.TestCase):
+    # Dense-Evolution-Discovery Experiment 27: the shipped ''phi'' trigger
+    # (calculate_phi_ab / calculate_vettore_dinamico / evaluate_phi_trigger,
+    # fixed |v_dinamic| > 0.01 threshold) fires (marks a row static/noise,
+    # replacing it) on ~85-90% of ordinary noisy-but-uncorrupted rows --
+    # confirmed empirically across 4 corruption scenarios x 40 seeds. The
+    # ''adaptive'' trigger_mode is an opt-in, NaN/Inf-aware, MAD-adaptive
+    # local-deviation replacement that cuts the false-positive rate to
+    # ~10-13% while matching or exceeding the phi trigger''s recall on every
+    # corruption type tested (single spikes, NaN runs, scattered outliers,
+    # spike+NaN combinations). Kept opt-in (default stays ''phi'') because
+    # ia_utils.adversarial_vector_attack''s gradient-based red-teaming
+    # specifically targets the differentiable phi mechanism -- the adaptive
+    # trigger uses np.median/np.std and is not differentiable the same way.
+
+    def test_rejects_unknown_trigger_mode(self):
+        vettori = np.random.default_rng(0).normal(size=(10, 4))
+        with self.assertRaises(ValueError) as ctx:
+            enhanced_dense_healing_hybrid(vettori, trigger_mode='sideways')
+        self.assertIn('trigger_mode', str(ctx.exception))
+
+    def test_metadata_reports_the_trigger_mode_used(self):
+        vettori = np.random.default_rng(0).normal(size=(10, 4))
+        _, meta_phi = enhanced_dense_healing_hybrid(vettori, trigger_mode='phi')
+        _, meta_adaptive = enhanced_dense_healing_hybrid(vettori, trigger_mode='adaptive')
+        self.assertEqual(meta_phi['trigger_mode'], 'phi')
+        self.assertEqual(meta_adaptive['trigger_mode'], 'adaptive')
+
+    def test_default_trigger_mode_is_phi_bit_identical_to_explicit_phi(self):
+        vettori = np.random.default_rng(5).normal(size=(30, 8))
+        out_default, meta_default = enhanced_dense_healing_hybrid(vettori)
+        out_explicit, meta_explicit = enhanced_dense_healing_hybrid(vettori, trigger_mode='phi')
+        np.testing.assert_array_equal(out_default, out_explicit)
+        self.assertEqual(meta_default['trigger_mode'], 'phi')
+
+    def test_adaptive_mode_output_has_no_nan_or_inf(self):
+        rng = np.random.default_rng(42)
+        vettori = rng.normal(size=(30, 8))
+        vettori[5, 2] = np.nan
+        vettori[10, 3] = np.inf
+        vettori[20, 0] = -np.inf
+
+        out, meta = enhanced_dense_healing_hybrid(vettori, trigger_mode='adaptive')
+
+        self.assertFalse(np.isnan(out).any())
+        self.assertFalse(np.isinf(out).any())
+        self.assertTrue(np.isfinite(meta['reconstruction_error']))
+
+    def test_adaptive_mode_always_heals_raw_nan_or_inf_rows(self):
+        # Regression guard for the exact failure mode found in Discovery
+        # Experiment 27: a pure deviation-threshold design missed 100% of
+        # NaN-run corruption, because column-mean imputation can land close
+        # enough to the local window that the deviation statistic alone
+        # never crosses the adaptive threshold. The row-level raw NaN/Inf
+        # override must force healing regardless.
+        rng = np.random.default_rng(7)
+        vettori = rng.normal(size=(50, 16)) + np.sin(np.linspace(0, 4 * np.pi, 50))[:, None]
+        nan_idx = 25
+        vettori[nan_idx:nan_idx + 3] = np.nan
+
+        out, meta = enhanced_dense_healing_hybrid(vettori, trigger_mode='adaptive')
+
+        raw_sanitized_col_mean_rows = out[nan_idx:nan_idx + 3]
+        # Healed rows must differ from a plain column-mean fallback (proof
+        # the median-of-window correction actually fired, not just the
+        # NaN-to-column-mean sanitization pass).
+        col_means = np.nanmean(np.where(np.isnan(vettori), np.nan, vettori), axis=0)
+        for row in raw_sanitized_col_mean_rows:
+            self.assertFalse(np.allclose(row, col_means))
+
+    def test_adaptive_mode_false_positive_rate_is_far_below_phi_on_clean_data(self):
+        # Direct regression test for the bug this mode exists to fix:
+        # on ordinary noisy (non-corrupted) data, 'phi' should replace
+        # (mark static) a large majority of rows, while 'adaptive' should
+        # replace only a small minority. Uses a smooth trend + noise
+        # trajectory matching Discovery Experiment 27's own setup.
+        rng = np.random.default_rng(11)
+        t = np.linspace(0, 4 * np.pi, 50)
+        trend = np.sin(t)[:, None] * np.ones((1, 32))
+        vettori = rng.normal(loc=0.0, scale=0.1, size=(50, 32)) + trend
+
+        _, meta_phi = enhanced_dense_healing_hybrid(vettori.copy(), trigger_mode='phi')
+        out_adaptive, meta_adaptive = enhanced_dense_healing_hybrid(vettori.copy(), trigger_mode='adaptive')
+
+        # fallback_triggered is gated on had_nan_or_inf (False here for
+        # clean data), so we check the actual replacement rate directly by
+        # comparing the healed output row-by-row against the input.
+        n_replaced_phi = sum(
+            1 for i in range(2, len(vettori)) if not np.allclose(
+                enhanced_dense_healing_hybrid(vettori.copy(), trigger_mode='phi')[0][i], vettori[i])
+        )
+        n_replaced_adaptive = sum(
+            1 for i in range(2, len(vettori)) if not np.allclose(out_adaptive[i], vettori[i])
+        )
+        self.assertLess(n_replaced_adaptive, n_replaced_phi)
+        # Loose bound matching the validated Experiment 27 order of
+        # magnitude (phi ~85-90%, adaptive ~10-13%) without being brittle
+        # to exact percentages on this specific seed.
+        self.assertLess(n_replaced_adaptive / 48, 0.35)
+        self.assertGreater(n_replaced_phi / 48, 0.5)
+
+
 class TestBaselineMeanSlidingWindow(unittest.TestCase):
     # BUG FIX (perf): baseline_mean inside enhanced_dense_healing_hybrid's
     # loop used to recompute np.mean(processed_vettori[lo:i]) from scratch

@@ -60,6 +60,7 @@ def median_healing(vettori: np.ndarray, radius_baseline: int = None) -> (np.ndar
 def enhanced_dense_healing_hybrid(
     vettori: np.ndarray,
     radius_baseline: int = None,
+    trigger_mode: str = 'phi',
 ) -> (np.ndarray, dict):
     """
     Applica una strategia di healing ibrida combinando la logica di dense_evolution
@@ -74,6 +75,33 @@ def enhanced_dense_healing_hybrid(
                                          Se `None`, il raggio viene calcolato dinamicamente
                                          come `min(20, max(3, n_tokens // 3))`.
                                          Defaults to None.
+        trigger_mode (str, optional): Quale meccanismo decide se un dato passo è
+                                       movimento genuino (mantenuto com'è) o
+                                       rumore/corruzione (sostituito con la mediana
+                                       locale). Uno tra:
+                                       - 'phi' (default): il Phi-Trigger originale
+                                         (dense_evolution.mitigation.healing.evaluate_phi_trigger),
+                                         soglia fissa |v_dinamic| > 0.01. Mantenuto
+                                         come default per piena compatibilità
+                                         all'indietro -- è anche il meccanismo esatto
+                                         preso di mira dal red-teaming a gradiente di
+                                         ia_utils.adversarial_vector_attack, dato che
+                                         calculate_phi_ab/calculate_vettore_dinamico
+                                         sono funzioni JAX differenziabili.
+                                       - 'adaptive': trigger a deviazione locale
+                                         adattiva (MAD), consapevole di NaN/Inf
+                                         (Dense-Evolution-Discovery Esperimento 27).
+                                         Validato: riduce il tasso di falsi positivi
+                                         (sostituzioni su dati rumorosi ma non
+                                         corrotti) dall'~90% al ~12%, mantenendo un
+                                         tasso di rilevamento delle corruzioni reali
+                                         pari o superiore al Phi-Trigger su ogni tipo
+                                         testato (picchi singoli, sequenze di NaN,
+                                         outlier sparsi, corruzioni combinate). Non
+                                         differenziabile (usa np.median/np.std), quindi
+                                         il red-teaming a gradiente non si applica
+                                         allo stesso modo.
+                                       Defaults to 'phi'.
 
     Returns:
         tuple: Contiene:
@@ -82,47 +110,62 @@ def enhanced_dense_healing_hybrid(
                     - 'fallback_triggered' (bool): `True` solo se l'input originale conteneva
                                                    NaN/Inf E il fallback mediano è stato applicato
                                                    almeno una volta per correggerlo. Non riflette
-                                                   correzioni del Phi-Trigger su dati validi ma
+                                                   correzioni del trigger su dati validi ma
                                                    "staticamente" rumorosi (nessuna corruzione reale).
                     - 'adaptive_radius_used' (int): Il raggio effettivamente calcolato e applicato.
                     - 'reconstruction_error' (float): La norma media di variazione (errore di ricostruzione)
                                                       introdotta rispetto ai vettori originali (potenzialmente corrotti).
+                    - 'trigger_mode' (str): Il meccanismo di trigger effettivamente usato.
     """
-    try:
-        import jax.numpy as jnp
-        from dense_evolution.mitigation.healing import (
-            calculate_phi_ab,
-            calculate_vettore_dinamico,
-            evaluate_phi_trigger,
-            GLOBAL_CONSTANTS,
-        )
-    except ImportError as _import_error:
-        # jax is a core dependency of dense-evolution (see pyproject.toml),
-        # so this shouldn't fail on a normal install -- but ia_utils could
-        # be used standalone outside the full package (e.g. a stripped or
-        # vendored copy missing dense_evolution.healing, or an environment
-        # missing jax), where the bare ModuleNotFoundError gives no hint
-        # this module needs them.
-        raise ImportError(
-            "enhanced_dense_healing_hybrid requires jax and dense_evolution.healing "
-            f"(failed to import: {_import_error}). Install the full dense-evolution "
-            "package (which depends on jax) to use this function."
-        ) from _import_error
+    if trigger_mode not in ('phi', 'adaptive'):
+        raise ValueError(f"trigger_mode must be 'phi' or 'adaptive', got {trigger_mode!r}")
+
+    if trigger_mode == 'phi':
+        try:
+            import jax.numpy as jnp
+            from dense_evolution.mitigation.healing import (
+                calculate_phi_ab,
+                calculate_vettore_dinamico,
+                evaluate_phi_trigger,
+                GLOBAL_CONSTANTS,
+            )
+        except ImportError as _import_error:
+            # jax is a core dependency of dense-evolution (see pyproject.toml),
+            # so this shouldn't fail on a normal install -- but ia_utils could
+            # be used standalone outside the full package (e.g. a stripped or
+            # vendored copy missing dense_evolution.healing, or an environment
+            # missing jax), where the bare ModuleNotFoundError gives no hint
+            # this module needs them.
+            raise ImportError(
+                "enhanced_dense_healing_hybrid requires jax and dense_evolution.healing "
+                f"(failed to import: {_import_error}). Install the full dense-evolution "
+                "package (which depends on jax) to use this function."
+            ) from _import_error
 
     n, hidden_dim = vettori.shape
 
     if n == 0:
-        return np.empty((0, hidden_dim)), {'fallback_triggered': False, 'adaptive_radius_used': 0, 'reconstruction_error': 0.0}
+        return np.empty((0, hidden_dim)), {'fallback_triggered': False, 'adaptive_radius_used': 0,
+                                            'reconstruction_error': 0.0, 'trigger_mode': trigger_mode}
 
     # Computed on the RAW input, before any sanitization -- fallback_triggered
     # in the returned metadata is gated on this (see below), so it reflects
     # "there was genuine NaN/Inf corruption AND the median fallback fired",
-    # not just "the Phi-Trigger's internal heuristic called some row static".
-    # That heuristic alone also fires on structurally noisy-but-valid data
-    # (e.g. pure IID random input with no coherent trend for it to recognize
-    # as genuine motion) -- verified directly: clean random Gaussian input
-    # with zero NaN/Inf still tripped the un-gated flag.
+    # not just "the trigger's internal heuristic called some row static".
+    # The 'phi' heuristic alone also fires on structurally noisy-but-valid
+    # data (e.g. pure IID random input with no coherent trend for it to
+    # recognize as genuine motion) -- verified directly: clean random
+    # Gaussian input with zero NaN/Inf still tripped the un-gated flag.
     had_nan_or_inf = bool(np.isnan(vettori).any() or np.isinf(vettori).any())
+    # Per-row raw corruption flag ('adaptive' mode only): forces healing at
+    # any row that was originally NaN/Inf, regardless of the deviation
+    # statistic -- after NaN/Inf sanitization below, a corrupted row is
+    # replaced by the (column-wise) global mean, which can look
+    # statistically unremarkable relative to the LOCAL window and evade a
+    # purely deviation-based trigger. Verified in Discovery Experiment 27:
+    # the adaptive trigger without this row-level override missed 100% of
+    # NaN-run corruption for exactly this reason.
+    raw_nan_or_inf_row = np.isnan(vettori).any(axis=1) | np.isinf(vettori).any(axis=1)
 
     processed_vettori = np.copy(vettori)
     processed_vettori[np.isinf(processed_vettori)] = np.nan
@@ -164,6 +207,12 @@ def enhanced_dense_healing_hybrid(
     window_sum = np.sum(processed_vettori[max(0, 2 - adaptive_radius_used):2], axis=0)
     window_lo = max(0, 2 - adaptive_radius_used)
 
+    # 'adaptive' mode only: running history of each step's own local
+    # deviation (norm from its window mean, normalized by sqrt(hidden_dim)),
+    # reused as the recent-deviation sample for later steps' adaptive
+    # threshold instead of recomputing it from scratch each time.
+    deviation_history = []
+
     for i in range(2, n):
         lo = max(0, i - adaptive_radius_used)
         if i > 2:
@@ -173,25 +222,49 @@ def enhanced_dense_healing_hybrid(
             window_lo = lo
         baseline_mean = window_sum / (i - lo)
 
-        state_A = jnp.array(baseline_mean)
-        state_B = jnp.array(processed_vettori[i])
+        if trigger_mode == 'phi':
+            state_A = jnp.array(baseline_mean)
+            state_B = jnp.array(processed_vettori[i])
 
-        ipg_raw = processed_vettori[i-1] - processed_vettori[i-2]
-        norm_ipg_raw = np.linalg.norm(ipg_raw)
-        ipg_vector = jnp.array(ipg_raw / norm_ipg_raw) if norm_ipg_raw > 1e-9 else jnp.array(ipg_raw)
+            ipg_raw = processed_vettori[i-1] - processed_vettori[i-2]
+            norm_ipg_raw = np.linalg.norm(ipg_raw)
+            ipg_vector = jnp.array(ipg_raw / norm_ipg_raw) if norm_ipg_raw > 1e-9 else jnp.array(ipg_raw)
 
-        phi_ab = calculate_phi_ab(state_A, state_B, ipg_vector)
-        E_A = jnp.linalg.norm(state_A)
-        E_B = jnp.linalg.norm(state_B)
+            phi_ab = calculate_phi_ab(state_A, state_B, ipg_vector)
+            E_A = jnp.linalg.norm(state_A)
+            E_B = jnp.linalg.norm(state_B)
 
-        v_dinamic = calculate_vettore_dinamico(E_A, E_B, phi_ab)
-        trigger, _, _ = evaluate_phi_trigger(v_dinamic)
+            v_dinamic = calculate_vettore_dinamico(E_A, E_B, phi_ab)
+            trigger, _, _ = evaluate_phi_trigger(v_dinamic)
 
-        if float(trigger) > GLOBAL_CONSTANTS['NON_STATIC_THRESHOLD_A']:
             # trigger == 1.0: ciclo aperto/dinamico -> cambio genuino, si tiene il valore
+            # trigger == 0.0: ciclo chiuso/statico -> rumore, si sostituisce con la mediana locale
+            is_dynamic = float(trigger) > GLOBAL_CONSTANTS['NON_STATIC_THRESHOLD_A']
+        else:  # trigger_mode == 'adaptive'
+            current_deviation = np.linalg.norm(processed_vettori[i] - baseline_mean) / np.sqrt(hidden_dim)
+
+            recent = deviation_history[-adaptive_radius_used:] if adaptive_radius_used > 0 else []
+            if len(recent) > 1:
+                recent_arr = np.array(recent)
+                local_median = np.median(recent_arr)
+                # Median Absolute Deviation, scaled by 1.4826 to be a
+                # consistent estimator of std under normality -- robust to
+                # the very outliers it is meant to help detect (a raw std
+                # over a window containing an outlier is itself inflated by
+                # that outlier, which is exactly what let scattered-outlier
+                # corruption partially evade a std-based version of this
+                # trigger in Discovery Experiment 27).
+                local_spread = 1.4826 * np.median(np.abs(recent_arr - local_median))
+            else:
+                local_median, local_spread = 0.1, 0.05
+            adaptive_threshold = max(local_median + 3.5 * local_spread, 0.25)
+
+            is_dynamic = (current_deviation < adaptive_threshold) and not raw_nan_or_inf_row[i]
+            deviation_history.append(current_deviation)
+
+        if is_dynamic:
             healed_vector = processed_vettori[i]
         else:
-            # trigger == 0.0: ciclo chiuso/statico -> rumore, si sostituisce con la mediana locale
             healed_vector = np.median(processed_vettori[lo:i], axis=0)
             fallback_triggered_at_all = True
 
@@ -204,6 +277,7 @@ def enhanced_dense_healing_hybrid(
         'fallback_triggered': fallback_triggered_at_all and had_nan_or_inf,
         'adaptive_radius_used': adaptive_radius_used,
         'reconstruction_error': mean_reconstruction_error,
+        'trigger_mode': trigger_mode,
     }
 
     return out, metadata
