@@ -2,9 +2,11 @@
 Tests for mcp_server/server.py -- the dense_evolution_mcp MCP adapter.
 
 Routes every request through httpx.ASGITransport straight into the real,
-in-process local_site.app.server.app (see client._TEST_TRANSPORT) instead
-of a live subprocess kernel bound to a real port. That means every test
-below still exercises the real DenseSVSimulator / real PennyLane
+in-process local_site.app.server.app (client._TEST_TRANSPORT, swapped via
+monkeypatch.setattr in the autouse fixture below -- not a raw manual
+global mutation, for automatic restoration even if a test fails partway
+through) instead of a live subprocess kernel bound to a real port. That
+means every test below still exercises the real DenseSVSimulator / real PennyLane
 Hartree-Fock Hamiltonians -- no mocked physics, only the network hop is
 swapped for an in-process one, for the same reason test_local_site_server.py
 uses FastAPI's TestClient rather than a live server.
@@ -48,14 +50,13 @@ def run(coro):
 
 
 @pytest.fixture(autouse=True)
-def route_through_real_kernel_in_process():
-    mcp_client._TEST_TRANSPORT = httpx.ASGITransport(app=kernel.app)
+def route_through_real_kernel_in_process(monkeypatch):
+    monkeypatch.setattr(mcp_client, "_TEST_TRANSPORT", httpx.ASGITransport(app=kernel.app))
     # A fresh molecule-alias cache per test: several tests below rely on
     # the real /api/hamiltonians catalog being (re)fetched, not whatever a
     # previous test happened to populate.
     mcp_molecules._molecule_catalog_cache.invalidate()
     yield
-    mcp_client._TEST_TRANSPORT = None
     mcp_molecules._molecule_catalog_cache.invalidate()
 
 
@@ -504,16 +505,12 @@ def test_run_vqe_hardware_efficient_converges_close_to_exact_for_h2():
     assert abs(result["vqe_energy_hartree"] - result["exact_energy_hartree"]) < 0.01
 
 
-def test_kernel_unreachable_gives_actionable_error_not_a_traceback():
-    mcp_client._TEST_TRANSPORT = None  # force a real (failing) TCP attempt
-    original_url = mcp_client.KERNEL_URL
-    mcp_client.KERNEL_URL = "http://127.0.0.1:1"  # nothing listens here
-    try:
-        result = run(mcp_adapter.dense_evolution_health())
-        assert result.startswith("Error:")
-        assert "dense-evolution serve" in result
-    finally:
-        mcp_client.KERNEL_URL = original_url
+def test_kernel_unreachable_gives_actionable_error_not_a_traceback(monkeypatch):
+    monkeypatch.setattr(mcp_client, "_TEST_TRANSPORT", None)  # force a real (failing) TCP attempt
+    monkeypatch.setattr(mcp_client, "KERNEL_URL", "http://127.0.0.1:1")  # nothing listens here
+    result = run(mcp_adapter.dense_evolution_health())
+    assert result.startswith("Error:")
+    assert "dense-evolution serve" in result
 
 
 def test_kernel_timeout_gives_actionable_error_not_a_traceback(monkeypatch):
@@ -632,21 +629,15 @@ def test_request_reuses_the_same_client_across_calls():
     assert mcp_client._shared_client is client_after_first_call
 
 
-def test_request_rebuilds_client_when_transport_or_url_changes():
+def test_request_rebuilds_client_when_transport_or_url_changes(monkeypatch):
     run(mcp_adapter.dense_evolution_health())
     stale_client = mcp_client._shared_client
 
-    original_transport = mcp_client._TEST_TRANSPORT
-    original_url = mcp_client.KERNEL_URL
-    try:
-        mcp_client._TEST_TRANSPORT = None
-        mcp_client.KERNEL_URL = "http://127.0.0.1:1"
-        result = run(mcp_adapter.dense_evolution_health())
-        assert result.startswith("Error:")  # confirms it actually hit the new (broken) target
-        assert mcp_client._shared_client is not stale_client
-    finally:
-        mcp_client._TEST_TRANSPORT = original_transport
-        mcp_client.KERNEL_URL = original_url
+    monkeypatch.setattr(mcp_client, "_TEST_TRANSPORT", None)
+    monkeypatch.setattr(mcp_client, "KERNEL_URL", "http://127.0.0.1:1")
+    result = run(mcp_adapter.dense_evolution_health())
+    assert result.startswith("Error:")  # confirms it actually hit the new (broken) target
+    assert mcp_client._shared_client is not stale_client
 
 
 def test_per_tool_timeouts_reach_the_real_http_call(monkeypatch):
