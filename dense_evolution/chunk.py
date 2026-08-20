@@ -821,7 +821,6 @@ class Chunk:
     chunk_size_gates  : gate-slice size for JIT compilation (default 500)
     memory_threshold  : free-RAM fraction below which execution is blocked
                         (default 0.15 = 15%)
-    use_gpu           : forwarded to DenseSVSimulator
     use_float32       : forwarded to DenseSVSimulator
     """
 
@@ -830,7 +829,6 @@ class Chunk:
         n_qubits: int,
         chunk_size_gates:  int   = 500,
         memory_threshold:  float = 0.15,
-        use_gpu:           bool  = False,
         use_float32:       bool  = False,
     ):
         # 1. Geometry — purely RAM-based, no JAX allocation yet
@@ -850,7 +848,6 @@ class Chunk:
             # 4a. Physical simulator sized to what RAM can actually hold
             self._inner_sim = DenseSVSimulator(
                 safe_q,
-                use_gpu=use_gpu,
                 use_float32=use_float32,
             )
             self._chunk_sims = None
@@ -880,7 +877,7 @@ class Chunk:
             # at all-zero (direct .sv assignment — set_state/set_initial_state
             # reject zero-norm vectors by design).
             self._chunk_sims = [
-                DenseSVSimulator(self._mem_chunker.chunk_size_bits, use_gpu=use_gpu, use_float32=use_float32)
+                DenseSVSimulator(self._mem_chunker.chunk_size_bits, use_float32=use_float32)
                 for _ in range(num_chunks)
             ]
             for sim in self._chunk_sims[1:]:

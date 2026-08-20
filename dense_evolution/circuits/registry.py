@@ -9,12 +9,6 @@ import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 
-try:
-    import cupy as cp
-    HAS_CUPY = True
-except ImportError:
-    HAS_CUPY = False
-
 # JAX is now a mandatory dependency of dense_evolution (no numpy fallback
 # detection) -- the numpy code paths below are kept as-is for reference/
 # reuse, they are just never selected anymore.
@@ -29,7 +23,6 @@ class QuantumHardwareRegistry:
         self.processor = platform.processor()
         self.ram_total = psutil.virtual_memory().total / (1024**3)
         self.ram_avail = psutil.virtual_memory().available / (1024**3)
-        self.has_cupy = HAS_CUPY
         self.has_jax = HAS_JAX
         self.has_gpu = self._detect_gpu()
         self.max_dense_qubits = self._get_qubit_limit()

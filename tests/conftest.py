@@ -45,14 +45,14 @@ def pytest_sessionfinish(session, exitstatus):
 @pytest.fixture
 def sim2():
     """Fresh 2-qubit simulator (NumPy CPU, float64)"""
-    return DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
+    return DenseSVSimulator(n_qubits=2, use_float32=False)
 
 @pytest.fixture
 def sim3():
     """Fresh 3-qubit simulator (NumPy CPU, float64)"""
-    return DenseSVSimulator(n_qubits=3, use_gpu=False, use_float32=False)
+    return DenseSVSimulator(n_qubits=3, use_float32=False)
 
 @pytest.fixture
 def sim4():
     """Fresh 4-qubit simulator (NumPy CPU, float64)"""
-    return DenseSVSimulator(n_qubits=4, use_gpu=False, use_float32=False)
+    return DenseSVSimulator(n_qubits=4, use_float32=False)

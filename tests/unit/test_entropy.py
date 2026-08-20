@@ -24,13 +24,13 @@ def test_backward_compat_shim_entropy_reexports_public_api():
 
 
 def _bell_state():
-    sim = DenseSVSimulator(2, use_gpu=False, use_float32=False)
+    sim = DenseSVSimulator(2, use_float32=False)
     sim.run_circuit([('h', 0), ('cx', 0, 1)])
     return sim.get_statevector()
 
 
 def _ghz_state(n_qubits):
-    sim = DenseSVSimulator(n_qubits, use_gpu=False, use_float32=False)
+    sim = DenseSVSimulator(n_qubits, use_float32=False)
     ops = [('h', 0)] + [('cx', i, i + 1) for i in range(n_qubits - 1)]
     sim.run_circuit(ops)
     return sim.get_statevector()
@@ -38,7 +38,7 @@ def _ghz_state(n_qubits):
 
 def _product_state(n_qubits):
     """|+>|0>|0>... -- fully separable, zero entanglement anywhere."""
-    sim = DenseSVSimulator(n_qubits, use_gpu=False, use_float32=False)
+    sim = DenseSVSimulator(n_qubits, use_float32=False)
     sim.run_circuit([('h', 0)])
     return sim.get_statevector()
 

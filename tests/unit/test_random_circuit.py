@@ -27,7 +27,7 @@ class TestRandomCircuit:
 
     def test_runs_cleanly_on_the_real_simulator(self):
         circuit = random_circuit(5, 50, seed=7)
-        sim = DenseSVSimulator(5, use_gpu=False, use_float32=False)
+        sim = DenseSVSimulator(5, use_float32=False)
         sim.run_circuit(circuit)
         probs = sim.get_probabilities()
         assert abs(probs.sum() - 1.0) < 1e-9
