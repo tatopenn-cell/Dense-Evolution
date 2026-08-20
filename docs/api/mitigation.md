@@ -24,6 +24,19 @@ feed into one.
 
 ---
 
+## Shadow-based estimation
+
+A classical-shadows-based estimator for `magic_entropy` above, estimating it from randomized
+measurement snapshots instead of the exact density matrix. Different API shape from everything
+else on this page -- sampling (`sample_classical_shadow`) and estimation
+(`magic_entropy_from_shadows`) are separate steps, since shadow data can come from this
+simulator's own Born-rule oracle sampling or, in principle, real hardware measurement logs
+reconstructed the same way. Not `jax.jit`-compatible (median-of-means uses `numpy.median`).
+
+::: dense_evolution.mitigation.magic_entropy_shadows
+
+---
+
 **See also**: [`dense_evolution.healing`](healing.md) for the predictive-healing primitives
 (`calculate_delta_preemp`) the healing-adapted extrapolation branch is built on, and
 [`NoiseModel`](registry.md) for the Kraus-channel noise used to build the noisy ensembles
