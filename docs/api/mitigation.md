@@ -37,6 +37,21 @@ reconstructed the same way. Not `jax.jit`-compatible (median-of-means uses `nump
 
 ---
 
+## Classical distribution divergence
+
+The classical Kullback-Leibler divergence over probability distributions (Kullback & Leibler,
+1951) -- distinct from `sandwiched_renyi_divergence` above, which operates on density
+*matrices* via matrix logarithms; this operates directly on probability *vectors* (e.g. a
+measurement-outcome distribution `jnp.abs(psi) ** 2`), no eigendecomposition needed. Additive
+to [`dense_evolution.healing`](healing.md)'s existing scalar log-ratio signal, not a
+replacement for it -- validated in
+[Dense-Evolution-Discovery, Experiment 32](https://tatopenn-cell.github.io/Dense-Evolution-Discovery/kullback_leibler_divergence/)
+to be a genuinely different signal on the same states, not a rescaling.
+
+::: dense_evolution.mitigation.kl_divergence
+
+---
+
 **See also**: [`dense_evolution.healing`](healing.md) for the predictive-healing primitives
 (`calculate_delta_preemp`) the healing-adapted extrapolation branch is built on, and
 [`NoiseModel`](registry.md) for the Kraus-channel noise used to build the noisy ensembles
