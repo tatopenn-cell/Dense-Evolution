@@ -4,7 +4,7 @@ Unit tests for dense_evolution/random_circuit.py.
 import pytest
 
 from dense_evolution import DenseSVSimulator
-from dense_evolution.random_circuit import random_circuit
+from dense_evolution.circuits.random_circuit import random_circuit
 
 
 class TestRandomCircuit:

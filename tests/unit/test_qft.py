@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from dense_evolution import DenseSVSimulator
-from dense_evolution.qft import qft
+from dense_evolution.circuits.qft import qft
 
 
 def _dft_matrix(dim):
