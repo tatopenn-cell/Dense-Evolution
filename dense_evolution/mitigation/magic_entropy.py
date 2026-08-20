@@ -34,13 +34,11 @@ is built for n=1-qubit registers specifically; a multi-qubit
 generalization would need a larger Key Unitary circuit (n-qubit
 registers, Definition 7 in general) not implemented here.
 
-A shadow-measurement-based estimator for this same quantity (using the
-classical-shadows multi-copy U-statistic trick) was explored and
-validated in Dense-Evolution-Discovery Experiment 31, but is NOT promoted
-here yet -- it uses plain averaging rather than the paper's full
-median-of-means robustness treatment, and needs its own API shape
-(measurement snapshots in, not a density matrix), not just a function
-alongside this one.
+A shadow-measurement-based estimator for this same quantity, using
+randomized measurement snapshots instead of the exact density matrix, is
+promoted alongside this module in magic_entropy_shadows.py -- see that
+module for why it has its own API shape (measurement snapshots in, not a
+density matrix) rather than a function alongside this one.
 """
 import jax
 import jax.numpy as jnp
