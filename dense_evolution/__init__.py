@@ -24,7 +24,7 @@ from .physics.observables import pauli_expectation, pauli_sum_expectation, pauli
 from .physics.states import ghz_state
 from .utils.measurement import sample_counts, statevector_fidelity
 from .circuits.qft import qft
-from .random_circuit import random_circuit
+from .circuits.random_circuit import random_circuit
 from .utils.drawing import draw_circuit
 from .solvers.harrison_tb import (ELEMENTS as HARRISON_ELEMENTS, ETA as HARRISON_ETA,
                                    sp3_dimer_hamiltonian, zincblende_hamiltonian)

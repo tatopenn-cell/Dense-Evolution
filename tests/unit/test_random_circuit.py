@@ -4,7 +4,7 @@ Unit tests for dense_evolution/random_circuit.py.
 import pytest
 
 from dense_evolution import DenseSVSimulator
-from dense_evolution.random_circuit import random_circuit
+from dense_evolution.circuits.random_circuit import random_circuit
 
 
 class TestRandomCircuit:
@@ -56,3 +56,26 @@ class TestRandomCircuit:
     def test_rejects_out_of_range_two_qubit_prob(self):
         with pytest.raises(ValueError):
             random_circuit(3, 5, two_qubit_prob=1.5)
+
+    def test_gate_set_leaving_no_usable_gates_raises(self):
+        # An empty gate_set: no unknown-name error (nothing to be unknown),
+        # but one_q_static/one_q_param/two_q are all filtered from an empty
+        # list too -- the genuine "no usable gates" case. NOTE: when
+        # gate_set is given explicitly, two_q is NOT filtered by n_qubits
+        # (that guard only applies to the default gate_set=None branch) --
+        # confirmed directly after an initial attempt with
+        # gate_set=['cx'] at n_qubits=1 raised a different error instead
+        # (cx stays in the two_q pool regardless of n_qubits there).
+        with pytest.raises(ValueError, match="no usable gates"):
+            random_circuit(3, 5, gate_set=[])
+
+    def test_flat_shim_path_still_works_and_matches_the_real_module(self):
+        # dense_evolution/random_circuit.py is a backward-compatibility
+        # shim (see its own docstring, and the qft/random_circuit
+        # module-shadowing fix) -- kept so external consumers (e.g.
+        # Dense-Evolution-Discovery) importing the flat path keep working.
+        # Imported here, inside the test body rather than at module level,
+        # so this file's own top-level import of the real subpackage path
+        # (line 7) is unaffected either way.
+        from dense_evolution.random_circuit import random_circuit as shim_random_circuit
+        assert shim_random_circuit(4, 10, seed=7) == random_circuit(4, 10, seed=7)
