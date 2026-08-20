@@ -27,6 +27,8 @@ from local_site.app import server as kernel  # noqa: E402
 from mcp_server import server as mcp_adapter  # noqa: E402
 from mcp_server import client as mcp_client  # noqa: E402
 from mcp_server.utils import images as mcp_images  # noqa: E402
+from mcp_server import models as mcp_models  # noqa: E402
+from mcp_server import molecules as mcp_molecules  # noqa: E402
 
 H2 = "H2 (Idrogeno) - R = 0.7414 A [equilibrio reale]"
 EXACT_H2_ENERGY_HARTREE = -1.1372701748786913
@@ -51,10 +53,10 @@ def route_through_real_kernel_in_process():
     # A fresh molecule-alias cache per test: several tests below rely on
     # the real /api/hamiltonians catalog being (re)fetched, not whatever a
     # previous test happened to populate.
-    mcp_adapter._molecule_catalog_cache.invalidate()
+    mcp_molecules._molecule_catalog_cache.invalidate()
     yield
     mcp_client._TEST_TRANSPORT = None
-    mcp_adapter._molecule_catalog_cache.invalidate()
+    mcp_molecules._molecule_catalog_cache.invalidate()
 
 
 def test_health_reports_real_kernel_info():
@@ -86,26 +88,26 @@ def test_list_noise_models_includes_depolarizing():
 
 def test_build_circuit_from_ops_round_trips_to_valid_qasm():
     ops = [{"gate": "h", "qubits": [0]}, {"gate": "cx", "qubits": [0, 1]}]
-    result = run(mcp_adapter.dense_evolution_build_circuit(mcp_adapter.BuildCircuitInput(n_qubits=2, ops=ops)))
+    result = run(mcp_adapter.dense_evolution_build_circuit(mcp_models.BuildCircuitInput(n_qubits=2, ops=ops)))
     data = json.loads(result)
     assert "OPENQASM" in data["qasm"]
     assert "h q[0]" in data["qasm"]
 
 
 def test_custom_molecule_energy_matches_catalog_h2():
-    result = json.loads(run(mcp_adapter.dense_evolution_custom_molecule_energy(mcp_adapter.CustomMoleculeInput(
+    result = json.loads(run(mcp_adapter.dense_evolution_custom_molecule_energy(mcp_models.CustomMoleculeInput(
         symbols=["H", "H"], geometry=[[0, 0, 0], [0, 0, 0.7414]],
     ))))
     assert result["ground_state_energy_hartree"] == pytest.approx(EXACT_H2_ENERGY_HARTREE, abs=1e-6)
 
 
 def test_qmmm_forces_returns_real_force_vectors():
-    result = json.loads(run(mcp_adapter.dense_evolution_qmmm_forces(mcp_adapter.QmmmForcesInput(name="H2"))))
+    result = json.loads(run(mcp_adapter.dense_evolution_qmmm_forces(mcp_models.QmmmForcesInput(name="H2"))))
     assert "forces" in result or "force_norm" in result or "energy_hartree" in result
 
 
 def test_md_trajectory_runs_a_few_fixed_electronic_state_steps():
-    result = json.loads(run(mcp_adapter.dense_evolution_md_trajectory(mcp_adapter.MdTrajectoryInput(
+    result = json.loads(run(mcp_adapter.dense_evolution_md_trajectory(mcp_models.MdTrajectoryInput(
         name="H2", n_steps=2, recompute_electronic_state=False,
     ))))
     assert "error" not in result
@@ -128,7 +130,7 @@ def test_mitigate_zne_richardson_extrapolates_toward_ideal():
     zne_gaps = []
     noisiest_gaps = []
     for seed in range(5):
-        result = json.loads(run(mcp_adapter.dense_evolution_mitigate_zne(mcp_adapter.MitigateZneInput(
+        result = json.loads(run(mcp_adapter.dense_evolution_mitigate_zne(mcp_models.MitigateZneInput(
             qasm=BELL_QASM, pauli_string="ZZ", noise_model="depolarizing", noise_p=0.05, seed=seed,
         ))))
         ideal_ok = ideal_ok and (result["ideal_expectation"] == pytest.approx(1.0, abs=1e-6))
@@ -143,7 +145,7 @@ def test_mitigate_zne_richardson_extrapolates_toward_ideal():
 
 def test_mitigate_density_matrix_reports_fidelity_improvement():
     result = json.loads(run(mcp_adapter.dense_evolution_mitigate_density_matrix(
-        mcp_adapter.MitigateDensityMatrixInput(qasm=BELL_QASM, noise_model="depolarizing", noise_p=0.05)
+        mcp_models.MitigateDensityMatrixInput(qasm=BELL_QASM, noise_model="depolarizing", noise_p=0.05)
     )))
     assert 0.0 <= result["fidelity_raw"] <= 1.0
     assert 0.0 <= result["fidelity_corrected"] <= 1.0
@@ -152,7 +154,7 @@ def test_mitigate_density_matrix_reports_fidelity_improvement():
 def test_vector_healing_replaces_an_outlier_with_the_local_median():
     vectors = [[1.0, 2.0], [1.1, 2.1], [1.05, 2.05], [50.0, -30.0], [1.08, 2.08], [1.02, 2.02]]
     result = json.loads(run(mcp_adapter.dense_evolution_vector_healing(
-        mcp_adapter.VectorHealingInput(vectors=vectors)
+        mcp_models.VectorHealingInput(vectors=vectors)
     )))
     assert len(result["healed_vectors"]) == 6
     assert result["healed_vectors"][3] != vectors[3]
@@ -160,7 +162,7 @@ def test_vector_healing_replaces_an_outlier_with_the_local_median():
 
 
 def test_list_molecules_includes_short_ids():
-    data = json.loads(run(mcp_adapter.dense_evolution_list_molecules(mcp_adapter.ListMoleculesInput())))
+    data = json.loads(run(mcp_adapter.dense_evolution_list_molecules(mcp_models.ListMoleculesInput())))
     by_id = {m["id"]: m for m in data}
     assert "H2" in by_id
     assert by_id["H2"]["full_name"] == H2
@@ -168,26 +170,26 @@ def test_list_molecules_includes_short_ids():
 
 
 def test_molecule_energy_accepts_short_id():
-    result = run(mcp_adapter.dense_evolution_molecule_energy(mcp_adapter.MoleculeEnergyInput(name="H2")))
+    result = run(mcp_adapter.dense_evolution_molecule_energy(mcp_models.MoleculeEnergyInput(name="H2")))
     data = json.loads(result)
     assert data["ground_state_energy_hartree"] == pytest.approx(EXACT_H2_ENERGY_HARTREE, abs=1e-6)
 
 
 def test_molecule_energy_accepts_full_catalog_name():
-    result = run(mcp_adapter.dense_evolution_molecule_energy(mcp_adapter.MoleculeEnergyInput(name=H2)))
+    result = run(mcp_adapter.dense_evolution_molecule_energy(mcp_models.MoleculeEnergyInput(name=H2)))
     data = json.loads(result)
     assert data["ground_state_energy_hartree"] == pytest.approx(EXACT_H2_ENERGY_HARTREE, abs=1e-6)
 
 
 def test_molecule_energy_unknown_name_is_a_clear_error_not_a_crash():
-    result = run(mcp_adapter.dense_evolution_molecule_energy(mcp_adapter.MoleculeEnergyInput(name="Unobtainium")))
+    result = run(mcp_adapter.dense_evolution_molecule_energy(mcp_models.MoleculeEnergyInput(name="Unobtainium")))
     assert result.startswith("Error:")
     assert "Unobtainium" in result
 
 
 def test_mix_molecules_accepts_short_ids():
     result = run(mcp_adapter.dense_evolution_mix_molecules(
-        mcp_adapter.MixMoleculesInput(name_a="H2", name_b="HeH+", weight_a=0.5, weight_b=0.5)
+        mcp_models.MixMoleculesInput(name_a="H2", name_b="HeH+", weight_a=0.5, weight_b=0.5)
     ))
     # H2 (4 qubits) and HeH+ (4 qubits) share a qubit count -- a real,
     # meaningful mix; the tool should resolve both short ids and succeed.
@@ -197,7 +199,7 @@ def test_mix_molecules_accepts_short_ids():
 
 def test_run_circuit_bell_state_gives_real_50_50_split():
     result = run(mcp_adapter.dense_evolution_run_circuit(
-        mcp_adapter.RunCircuitInput(qasm=BELL_QASM, shots=500, seed=42)
+        mcp_models.RunCircuitInput(qasm=BELL_QASM, shots=500, seed=42)
     ))
     data = json.loads(result)
     assert data["n_qubits"] == 2
@@ -222,7 +224,7 @@ cx q[0],q[1];
 cx q[1],q[2];
 """
     result = run(mcp_adapter.dense_evolution_run_circuit(
-        mcp_adapter.RunCircuitInput(qasm=ghz_qasm, shots=50, top_k=1)
+        mcp_models.RunCircuitInput(qasm=ghz_qasm, shots=50, top_k=1)
     ))
     data = json.loads(result)
     assert data["statevector"]["total_nonzero_amplitudes"] == 2
@@ -237,7 +239,7 @@ def test_run_circuit_visualizations_are_saved_to_disk_not_inlined(tmp_path):
     mcp_images.IMAGE_OUTPUT_DIR = tmp_path
     try:
         result = run(mcp_adapter.dense_evolution_run_circuit(
-            mcp_adapter.RunCircuitInput(qasm=BELL_QASM, shots=50, include_visualizations=True)
+            mcp_models.RunCircuitInput(qasm=BELL_QASM, shots=50, include_visualizations=True)
         ))
         data = json.loads(result)
         for key in ("circuit_png_path", "histogram_png_path", "qsphere_png_path", "bloch_png_path"):
@@ -264,7 +266,7 @@ def test_run_circuit_image_metadata_sidecar_is_written(tmp_path):
     mcp_images.IMAGE_OUTPUT_DIR = tmp_path
     try:
         result = run(mcp_adapter.dense_evolution_run_circuit(
-            mcp_adapter.RunCircuitInput(qasm=BELL_QASM, shots=50, seed=7, include_visualizations=True)
+            mcp_models.RunCircuitInput(qasm=BELL_QASM, shots=50, seed=7, include_visualizations=True)
         ))
         data = json.loads(result)
         import pathlib
@@ -345,37 +347,36 @@ def test_molecule_catalog_second_call_hits_the_cache_not_the_network():
     # production (only test code ever reset the old plain-dict cache) --
     # this checks the actual cache-HIT code path fires: a second call for
     # the same mapping must NOT reach _request again.
-    first = run(mcp_adapter.dense_evolution_list_molecules(mcp_adapter.ListMoleculesInput()))
+    first = run(mcp_adapter.dense_evolution_list_molecules(mcp_models.ListMoleculesInput()))
 
     async def _fail_if_called(*args, **kwargs):
         raise AssertionError("second call should have hit the cache, not _request")
 
-    import mcp_server.server as server_module
-    original_request = server_module._request
-    server_module._request = _fail_if_called
+    original_request = mcp_molecules._request
+    mcp_molecules._request = _fail_if_called
     try:
-        second = run(mcp_adapter.dense_evolution_list_molecules(mcp_adapter.ListMoleculesInput()))
+        second = run(mcp_adapter.dense_evolution_list_molecules(mcp_models.ListMoleculesInput()))
     finally:
-        server_module._request = original_request
+        mcp_molecules._request = original_request
     assert first == second
 
 
 def test_molecule_catalog_fetch_failure_is_cached_and_reraised(monkeypatch):
-    mcp_adapter._molecule_catalog_cache.invalidate()
+    mcp_molecules._molecule_catalog_cache.invalidate()
 
     class _BrokenClient:
         async def request(self, method, path, **kwargs):
             raise httpx.ConnectError("simulated kernel down")
 
     monkeypatch.setattr(mcp_client, "_get_client", lambda: _BrokenClient())
-    result = run(mcp_adapter.dense_evolution_list_molecules(mcp_adapter.ListMoleculesInput()))
+    result = run(mcp_adapter.dense_evolution_list_molecules(mcp_models.ListMoleculesInput()))
     assert result.startswith("Error:")
     # Second call within the failure TTL must reuse the cached failure
     # (not attempt a fresh connection) -- proven by NOT patching _get_client
     # back yet and getting the same error shape again, fast.
-    result_again = run(mcp_adapter.dense_evolution_list_molecules(mcp_adapter.ListMoleculesInput()))
+    result_again = run(mcp_adapter.dense_evolution_list_molecules(mcp_models.ListMoleculesInput()))
     assert result_again.startswith("Error:")
-    mcp_adapter._molecule_catalog_cache.invalidate()
+    mcp_molecules._molecule_catalog_cache.invalidate()
 
 
 def test_run_circuit_large_scale_response_includes_image_metadata(monkeypatch, tmp_path):
@@ -405,7 +406,7 @@ def test_run_circuit_large_scale_response_includes_image_metadata(monkeypatch, t
     monkeypatch.setattr(mcp_client, "_get_client", lambda: _FakeClient())
     try:
         result = run(mcp_adapter.dense_evolution_run_circuit(
-            mcp_adapter.RunCircuitInput(qasm=BELL_QASM, include_visualizations=True)
+            mcp_models.RunCircuitInput(qasm=BELL_QASM, include_visualizations=True)
         ))
         data = json.loads(result)
         assert data["large_scale"] is True
@@ -423,8 +424,8 @@ def test_save_png_returns_none_for_falsy_input():
 
 
 def test_energy_scan_matches_individual_molecule_energy_call():
-    single = json.loads(run(mcp_adapter.dense_evolution_molecule_energy(mcp_adapter.MoleculeEnergyInput(name="H2"))))
-    scan_result = json.loads(run(mcp_adapter.dense_evolution_energy_scan(mcp_adapter.EnergyScanInput(
+    single = json.loads(run(mcp_adapter.dense_evolution_molecule_energy(mcp_models.MoleculeEnergyInput(name="H2"))))
+    scan_result = json.loads(run(mcp_adapter.dense_evolution_energy_scan(mcp_models.EnergyScanInput(
         symbols=["H", "H"],
         geometries=[[[0, 0, 0], [0, 0, 0.7414]]],
         labels=["equilibrium"],
@@ -437,7 +438,7 @@ def test_energy_scan_matches_individual_molecule_energy_call():
 
 
 def test_energy_scan_finds_h2_minimum_near_known_equilibrium():
-    result = json.loads(run(mcp_adapter.dense_evolution_energy_scan(mcp_adapter.EnergyScanInput(
+    result = json.loads(run(mcp_adapter.dense_evolution_energy_scan(mcp_models.EnergyScanInput(
         symbols=["H", "H"],
         geometries=[[[0, 0, 0], [0, 0, r]] for r in (0.5, 0.7414, 1.2)],
         labels=[0.5, 0.7414, 1.2],
@@ -451,7 +452,7 @@ def test_energy_scan_isolates_a_failing_point_from_the_rest():
     # so this point must fail while the small, valid point still succeeds.
     big_symbols = ["H"] * 13
     big_geometry = [[0, 0, float(i)] for i in range(13)]
-    result = json.loads(run(mcp_adapter.dense_evolution_energy_scan(mcp_adapter.EnergyScanInput(
+    result = json.loads(run(mcp_adapter.dense_evolution_energy_scan(mcp_models.EnergyScanInput(
         symbols=["H", "H"],
         geometries=[[[0, 0, 0], [0, 0, 0.7414]]],
         labels=["ok"],
@@ -460,7 +461,7 @@ def test_energy_scan_isolates_a_failing_point_from_the_rest():
 
     # Mismatched symbols/geometry length within one scan point is caught
     # before ever calling the kernel, and reported per-point.
-    mismatched = json.loads(run(mcp_adapter.dense_evolution_energy_scan(mcp_adapter.EnergyScanInput(
+    mismatched = json.loads(run(mcp_adapter.dense_evolution_energy_scan(mcp_models.EnergyScanInput(
         symbols=["H", "H", "H"],
         geometries=[[[0, 0, 0], [0, 0, 0.7414]]],  # only 2 rows for 3 symbols
         labels=["bad"],
@@ -469,8 +470,26 @@ def test_energy_scan_isolates_a_failing_point_from_the_rest():
     assert mismatched["minimum"] is None
 
 
+def test_energy_scan_isolates_a_real_kernel_error_from_the_rest():
+    # Distinct from test_energy_scan_isolates_a_failing_point_from_the_rest,
+    # which only exercises the LOCAL symbols/geometry length check (never
+    # reaches the kernel at all). This one needs a point where that local
+    # check passes but the kernel itself rejects the request (13 H atoms
+    # needs far more than the real, documented 12-qubit exact-diagonalization
+    # cap) -- the try/except around the real _request call inside _one_point.
+    big_symbols = ["H"] * 13
+    big_geometry = [[0, 0, float(i)] for i in range(13)]
+    result = json.loads(run(mcp_adapter.dense_evolution_energy_scan(mcp_models.EnergyScanInput(
+        symbols=big_symbols,
+        geometries=[big_geometry],
+        labels=["too_big"],
+    ))))
+    assert "error" in result["results"][0]
+    assert result["minimum"] is None
+
+
 def test_energy_scan_rejects_mismatched_labels_length():
-    result = run(mcp_adapter.dense_evolution_energy_scan(mcp_adapter.EnergyScanInput(
+    result = run(mcp_adapter.dense_evolution_energy_scan(mcp_models.EnergyScanInput(
         symbols=["H", "H"],
         geometries=[[[0, 0, 0], [0, 0, 0.7]], [[0, 0, 0], [0, 0, 0.8]]],
         labels=["only-one-label"],
@@ -479,7 +498,7 @@ def test_energy_scan_rejects_mismatched_labels_length():
 
 
 def test_run_vqe_hardware_efficient_converges_close_to_exact_for_h2():
-    result = json.loads(run(mcp_adapter.dense_evolution_run_vqe(mcp_adapter.RunVqeInput(
+    result = json.loads(run(mcp_adapter.dense_evolution_run_vqe(mcp_models.RunVqeInput(
         name="H2", ansatz_type="hardware_efficient", n_layers=4, maxiter=150, seed=0,
     ))))
     assert abs(result["vqe_energy_hartree"] - result["exact_energy_hartree"]) < 0.01
@@ -532,7 +551,7 @@ def test_kernel_error_response_with_non_json_body_falls_back_to_raw_text(monkeyp
 
 def test_wormhole_select_instance_finds_the_known_seed_61():
     data = json.loads(run(mcp_adapter.dense_evolution_wormhole_select_instance(
-        mcp_adapter.WormholeSelectInstanceInput(
+        mcp_models.WormholeSelectInstanceInput(
             n_majorana=8, k_terms=10, J=2 ** 0.5, n_candidates=200, target_commuting=34,
         )
     )))
@@ -546,10 +565,10 @@ def test_wormhole_teleportation_exact_backend_matches_known_reference_values():
     (exact backend) -- same values pinned in tests/test_local_site_server.py,
     checked again here through the MCP adapter's own request path."""
     pos = json.loads(run(mcp_adapter.dense_evolution_wormhole_teleportation(
-        mcp_adapter.WormholeTeleportationInput(mu=12.0, t0=0.3, t1=0.6, seed=61, backend="exact")
+        mcp_models.WormholeTeleportationInput(mu=12.0, t0=0.3, t1=0.6, seed=61, backend="exact")
     )))
     neg = json.loads(run(mcp_adapter.dense_evolution_wormhole_teleportation(
-        mcp_adapter.WormholeTeleportationInput(mu=-12.0, t0=0.3, t1=0.6, seed=61, backend="exact")
+        mcp_models.WormholeTeleportationInput(mu=-12.0, t0=0.3, t1=0.6, seed=61, backend="exact")
     )))
     assert pos["mutual_information_pt"] == pytest.approx(0.01326, abs=1e-5)
     assert neg["mutual_information_pt"] == pytest.approx(0.01793, abs=1e-5)
@@ -557,10 +576,10 @@ def test_wormhole_teleportation_exact_backend_matches_known_reference_values():
 
 def test_wormhole_teleportation_trotter_backend_matches_known_reference_values():
     pos = json.loads(run(mcp_adapter.dense_evolution_wormhole_teleportation(
-        mcp_adapter.WormholeTeleportationInput(mu=12.0, t0=0.3, t1=0.6, seed=61, backend="trotter")
+        mcp_models.WormholeTeleportationInput(mu=12.0, t0=0.3, t1=0.6, seed=61, backend="trotter")
     )))
     neg = json.loads(run(mcp_adapter.dense_evolution_wormhole_teleportation(
-        mcp_adapter.WormholeTeleportationInput(mu=-12.0, t0=0.3, t1=0.6, seed=61, backend="trotter")
+        mcp_models.WormholeTeleportationInput(mu=-12.0, t0=0.3, t1=0.6, seed=61, backend="trotter")
     )))
     assert pos["mutual_information_pt"] == pytest.approx(0.01301, abs=1e-5)
     assert neg["mutual_information_pt"] == pytest.approx(0.01821, abs=1e-5)
@@ -568,7 +587,7 @@ def test_wormhole_teleportation_trotter_backend_matches_known_reference_values()
 
 def test_wormhole_teleportation_invalid_backend_gives_error_not_a_traceback():
     result = run(mcp_adapter.dense_evolution_wormhole_teleportation(
-        mcp_adapter.WormholeTeleportationInput(backend="not-a-backend")
+        mcp_models.WormholeTeleportationInput(backend="not-a-backend")
     ))
     assert result.startswith("Error:")
 
@@ -579,7 +598,7 @@ def test_wormhole_scan_sweeps_t1_and_finds_the_known_peak():
     is known to land at t1=0.60 (delta=+0.00468, exact backend) from the
     original research reproduction's 11-point sweep."""
     result = json.loads(run(mcp_adapter.dense_evolution_wormhole_scan(
-        mcp_adapter.WormholeScanInput(
+        mcp_models.WormholeScanInput(
             mu_magnitude=12.0, t0=0.3, t1_values=[0.10, 0.30, 0.60, 0.85, 1.20],
             seed=61, backend="exact",
         )
@@ -592,7 +611,7 @@ def test_wormhole_scan_sweeps_t1_and_finds_the_known_peak():
 
 def test_wormhole_scan_reports_per_point_errors_without_aborting():
     result = json.loads(run(mcp_adapter.dense_evolution_wormhole_scan(
-        mcp_adapter.WormholeScanInput(
+        mcp_models.WormholeScanInput(
             n_majorana=200, t0=0.3, t1_values=[0.5], seed=61, backend="exact",
         )
     )))
@@ -648,7 +667,7 @@ def test_per_tool_timeouts_reach_the_real_http_call(monkeypatch):
     monkeypatch.setattr(httpx.AsyncClient, "request", _spy_request)
 
     run(mcp_adapter.dense_evolution_health())
-    run(mcp_adapter.dense_evolution_run_vqe(mcp_adapter.RunVqeInput(
+    run(mcp_adapter.dense_evolution_run_vqe(mcp_models.RunVqeInput(
         name="H2", ansatz_type="hardware_efficient", n_layers=1, maxiter=1,
     )))
 
