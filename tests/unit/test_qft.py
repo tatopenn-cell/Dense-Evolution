@@ -22,7 +22,7 @@ class TestQft:
         dim = 2 ** n_qubits
         M = _dft_matrix(dim)
         for j in range(dim):
-            sim = DenseSVSimulator(n_qubits, use_gpu=False, use_float32=False)
+            sim = DenseSVSimulator(n_qubits, use_float32=False)
             init = np.zeros(dim, dtype=complex)
             init[j] = 1.0
             sim.set_initial_state(init)
@@ -32,7 +32,7 @@ class TestQft:
 
     def test_qft_of_zero_state_is_uniform_superposition(self):
         n_qubits = 3
-        sim = DenseSVSimulator(n_qubits, use_gpu=False, use_float32=False)
+        sim = DenseSVSimulator(n_qubits, use_float32=False)
         sim.run_circuit(qft(n_qubits))
         probs = sim.get_probabilities()
         assert np.allclose(probs, 1.0 / 2 ** n_qubits, atol=1e-9)
@@ -44,7 +44,7 @@ class TestQft:
         psi0 = rng.normal(size=dim) + 1j * rng.normal(size=dim)
         psi0 /= np.linalg.norm(psi0)
 
-        sim = DenseSVSimulator(n_qubits, use_gpu=False, use_float32=False)
+        sim = DenseSVSimulator(n_qubits, use_float32=False)
         sim.set_initial_state(psi0.copy())
         sim.run_circuit(qft(n_qubits) + qft(n_qubits, inverse=True))
         assert np.max(np.abs(sim.get_statevector() - psi0)) < 1e-9

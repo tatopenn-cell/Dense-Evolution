@@ -61,18 +61,18 @@ class TestPauliExpectation:
             pauli_expectation(psi, 'XIIZ'), abs=1e-9)
 
     def test_bell_state_zz_is_perfectly_correlated(self):
-        sim = DenseSVSimulator(2, use_gpu=False, use_float32=False)
+        sim = DenseSVSimulator(2, use_float32=False)
         sim.run_circuit([('h', 0), ('cx', 0, 1)])
         assert pauli_expectation(sim.get_statevector(), 'ZZ') == pytest.approx(1.0, abs=1e-9)
 
     def test_bell_state_xx_is_perfectly_correlated(self):
-        sim = DenseSVSimulator(2, use_gpu=False, use_float32=False)
+        sim = DenseSVSimulator(2, use_float32=False)
         sim.run_circuit([('h', 0), ('cx', 0, 1)])
         assert pauli_expectation(sim.get_statevector(), 'XX') == pytest.approx(1.0, abs=1e-9)
 
     def test_ghz3_zzz_vanishes(self):
         # <GHZ3|ZZZ|GHZ3> = 0.5*(<000|ZZZ|000> + <111|ZZZ|111>) = 0.5*(1-1) = 0
-        sim = DenseSVSimulator(3, use_gpu=False, use_float32=False)
+        sim = DenseSVSimulator(3, use_float32=False)
         sim.run_circuit([('h', 0), ('cx', 0, 1), ('cx', 1, 2)])
         assert pauli_expectation(sim.get_statevector(), 'ZZZ') == pytest.approx(0.0, abs=1e-9)
 
@@ -141,7 +141,7 @@ class TestPauliHamiltonianToMatrix:
         assert via_matrix == pytest.approx(via_direct, abs=1e-9)
 
     def test_bell_state_zz_ground_truth(self):
-        sim = DenseSVSimulator(2, use_gpu=False, use_float32=False)
+        sim = DenseSVSimulator(2, use_float32=False)
         sim.run_circuit([('h', 0), ('cx', 0, 1)])
         psi = sim.get_statevector()
         H = pauli_hamiltonian_to_matrix([(1.0, 'ZZ')], n_qubits=2)

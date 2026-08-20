@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "dense-evolution"
 version = "8.1.62"
-description = "Micro-optimized High-Performance NISQ Statevector Quantum Circuit Simulator (Hardware-Adaptive Integration of Native NumPy, CUDA-Accelerated CuPy, and Linear Kernel Fusion via JAX JIT/XLA Compilation)"
+description = "Micro-optimized High-Performance NISQ Statevector Quantum Circuit Simulator (Hardware-Adaptive Integration of Native NumPy and CPU/GPU/TPU JAX JIT/XLA Compilation, with Linear Kernel Fusion)"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "Business Source License 1.1" }
@@ -54,7 +54,7 @@ jax = [
     "jaxlib>=0.4.0"
 ]
 gpu = [
-    "cupy-cuda12x>=12.0.0"
+    "jax[cuda12]>=0.4.0"
 ]
 dashboard = [
     "streamlit>=1.30.0",

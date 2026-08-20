@@ -35,7 +35,7 @@ H_GATE = INV2 * np.array([[1, 1], [1, -1]], dtype=complex)
 
 
 def _entangling_circuit_probs_dense(n, seed=7, layers=4):
-    sim = de.DenseSVSimulator(n_qubits=n, use_gpu=False, use_float32=False)
+    sim = de.DenseSVSimulator(n_qubits=n, use_float32=False)
     ops = [["h", q, -1] for q in range(n)]
     rng = np.random.default_rng(seed)
     for _ in range(layers):
@@ -170,7 +170,7 @@ def test_nonlocal_2q_gate_ctrl_greater_than_tgt_matches_dense_simulator():
            ["cx", 4, 0],   # non-adjacent, ctrl > tgt -- the buggy case
            ["cx", 3, 1],   # non-adjacent, ctrl > tgt -- again
            ["cx", 0, 4]]   # non-adjacent, ctrl < tgt, for contrast
-    sim = de.DenseSVSimulator(n_qubits=n, use_gpu=False, use_float32=False)
+    sim = de.DenseSVSimulator(n_qubits=n, use_float32=False)
     sim.run_circuit_jit(ops)
     prob_dense = np.array(sim.get_probabilities())
 
@@ -659,7 +659,7 @@ def test_run_circuit_jit_matches_dense_simulator(n_qubits, max_bond, jsd_budget,
         for q in range(1, n_qubits - 1, 2):
             ops.append(["cx", q + 1, q])
 
-    sim_dense = de.DenseSVSimulator(n_qubits=n_qubits, use_gpu=False, use_float32=False)
+    sim_dense = de.DenseSVSimulator(n_qubits=n_qubits, use_float32=False)
     sim_dense.run_circuit_jit(ops)
     prob_dense = np.array(sim_dense.get_probabilities())
 

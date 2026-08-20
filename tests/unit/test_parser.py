@@ -176,7 +176,7 @@ class TestQASMForLoop:
         sim3.run_circuit(circ.to_tuples())
         p_with_loop = probs(sim3)
 
-        ref = DenseSVSimulator(n_qubits=3, use_gpu=False, use_float32=False)
+        ref = DenseSVSimulator(n_qubits=3, use_float32=False)
         ref_circ = QASMParser().parse('qreg q[3]; cx q[0], q[1];')
         ref.run_circuit(ref_circ.to_tuples())
         p_ref = probs(ref)

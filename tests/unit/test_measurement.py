@@ -12,13 +12,13 @@ from dense_evolution.measurement import sample_counts, statevector_fidelity
 class TestSampleCounts:
 
     def test_counts_sum_to_n_shots(self):
-        sim = DenseSVSimulator(2, use_gpu=False, use_float32=False)
+        sim = DenseSVSimulator(2, use_float32=False)
         sim.run_circuit([('h', 0), ('cx', 0, 1)])
         counts = sample_counts(sim.get_statevector(), 5000, rng=np.random.default_rng(0))
         assert sum(counts.values()) == 5000
 
     def test_bell_state_only_populates_00_and_11(self):
-        sim = DenseSVSimulator(2, use_gpu=False, use_float32=False)
+        sim = DenseSVSimulator(2, use_float32=False)
         sim.run_circuit([('h', 0), ('cx', 0, 1)])
         counts = sample_counts(sim.get_statevector(), 5000, rng=np.random.default_rng(1))
         assert set(counts) <= {'00', '11'}
@@ -28,7 +28,7 @@ class TestSampleCounts:
     def test_bitstring_matches_deterministic_basis_state(self):
         # X on qubit 1 alone -> deterministic |01>, verifies qubit-0-is-MSB
         # bitstring convention directly (no ambiguity from superposition)
-        sim = DenseSVSimulator(2, use_gpu=False, use_float32=False)
+        sim = DenseSVSimulator(2, use_float32=False)
         sim.run_circuit([('x', 1)])
         counts = sample_counts(sim.get_statevector(), 10)
         assert counts == {'01': 10}
@@ -51,7 +51,7 @@ class TestSampleCounts:
 class TestStatevectorFidelity:
 
     def test_self_fidelity_is_one(self):
-        sim = DenseSVSimulator(2, use_gpu=False, use_float32=False)
+        sim = DenseSVSimulator(2, use_float32=False)
         sim.run_circuit([('h', 0), ('cx', 0, 1)])
         sv = sim.get_statevector()
         assert statevector_fidelity(sv, sv) == pytest.approx(1.0, abs=1e-9)
@@ -62,7 +62,7 @@ class TestStatevectorFidelity:
         assert statevector_fidelity(a, b) == pytest.approx(0.0, abs=1e-9)
 
     def test_bell_vs_basis_state_is_half(self):
-        sim = DenseSVSimulator(2, use_gpu=False, use_float32=False)
+        sim = DenseSVSimulator(2, use_float32=False)
         sim.run_circuit([('h', 0), ('cx', 0, 1)])
         bell = sim.get_statevector()
         basis_11 = np.array([0, 0, 0, 1.0], dtype=complex)

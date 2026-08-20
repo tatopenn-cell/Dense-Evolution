@@ -65,7 +65,7 @@ class TestEntanglingLayer:
         # entangling_layer's output must be directly usable by run_circuit
         # -- exercise every named pattern end to end, not just as data.
         from dense_evolution import DenseSVSimulator
-        sim = DenseSVSimulator(5, use_gpu=False, use_float32=False)
+        sim = DenseSVSimulator(5, use_float32=False)
         sim.run_circuit([('h', 0)] + entangling_layer(5, pattern=pattern))
         probs = sim.get_probabilities()
         assert abs(probs.sum() - 1.0) < 1e-9

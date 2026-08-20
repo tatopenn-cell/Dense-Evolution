@@ -664,7 +664,7 @@ class TestParametricGates:
 
     def test_norm_preserved_after_parametric(self, sim2):
         for theta in [0.1, np.pi / 4, np.pi / 2, np.pi]:
-            sim2_local = DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
+            sim2_local = DenseSVSimulator(n_qubits=2, use_float32=False)
             sim2_local.apply_rx(0, theta)
             assert abs(norm(sim2_local) - 1.0) < 1e-12
 
@@ -686,7 +686,7 @@ class TestParametricGates:
         assert abs(norm(sim2) - 1.0) < 1e-12
 
         from dense_evolution.gates import PARAMETRIC_GATES
-        sim_direct = DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
+        sim_direct = DenseSVSimulator(n_qubits=2, use_float32=False)
         sim_direct.apply_gate_1q(np.asarray(PARAMETRIC_GATES['u2'](0.3, 0.7)), 0)
         np.testing.assert_allclose(np.asarray(sim2.get_statevector()),
                                     np.asarray(sim_direct.get_statevector()), atol=1e-10)
@@ -695,11 +695,11 @@ class TestParametricGates:
         # Regression check for the same dispatch rewrite: cp/crz (2 qubits,
         # 1 param) must still be applied as 2-qubit gates, not broken by
         # switching from arg-count to name-based dispatch.
-        sim = DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
+        sim = DenseSVSimulator(n_qubits=2, use_float32=False)
         sim.run_circuit([('x', 0), ('x', 1), ('cp', 0, 1, 0.9)], transpile=True)
 
         from dense_evolution.gates import PARAMETRIC_GATES
-        sim_direct = DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
+        sim_direct = DenseSVSimulator(n_qubits=2, use_float32=False)
         sim_direct.apply_gate_1q(GATES['x'], 0)
         sim_direct.apply_gate_1q(GATES['x'], 1)
         sim_direct.apply_gate_2q(np.asarray(PARAMETRIC_GATES['cp'](0.9)), 0, 1)
@@ -710,7 +710,7 @@ class TestParametricGates:
         # run_batch_jit's cp/crz/cphase branch -- a 2-qubit
         # parametric gate, distinct from the 1-qubit rx/ry/rz/p/u1 and
         # non-parametric cx/cz/swap/cy branches exercised elsewhere.
-        sim = DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
+        sim = DenseSVSimulator(n_qubits=2, use_float32=False)
         sim.apply_gate_1q(GATES['h'], 0)
         sim.apply_gate_1q(GATES['h'], 1)
         out = sim.run_batch_jit([('cp', 0, 1, None)], np.array([[0.5]]))
@@ -725,34 +725,34 @@ class TestParametricGates:
 class TestMeasurement:
 
     def test_measure_zero_state_returns_zero(self):
-        sim = DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
+        sim = DenseSVSimulator(n_qubits=2, use_float32=False)
         result = sim.measure(0)
         assert result == 0
 
     def test_measure_one_state_returns_one(self):
-        sim = DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
+        sim = DenseSVSimulator(n_qubits=2, use_float32=False)
         sim.apply_gate_1q(GATES['x'], 0)
         result = sim.measure(0)
         assert result == 1
 
     def test_measure_collapses_state_norm(self):
-        sim = DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
+        sim = DenseSVSimulator(n_qubits=2, use_float32=False)
         sim.apply_gate_1q(GATES['h'], 0)
         sim.measure(0)
         assert abs(norm(sim) - 1.0) < 1e-12
 
     def test_measure_returns_binary_value(self):
-        sim = DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
+        sim = DenseSVSimulator(n_qubits=2, use_float32=False)
         sim.apply_gate_1q(GATES['h'], 0)
         results = set()
         for _ in range(30):
-            s = DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
+            s = DenseSVSimulator(n_qubits=2, use_float32=False)
             s.apply_gate_1q(GATES['h'], 0)
             results.add(s.measure(0))
         assert results == {0, 1}
 
     def test_measure_out_of_bounds_raises(self):
-        sim = DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
+        sim = DenseSVSimulator(n_qubits=2, use_float32=False)
         with pytest.raises(ValueError):
             sim.measure(5)
 
@@ -762,7 +762,7 @@ class TestMeasurement:
         # via JAX) -- same key on a fresh simulator in the same
         # superposition state must give the same outcome every time.
         def make_plus_state():
-            sim = DenseSVSimulator(n_qubits=1, use_gpu=False, use_float32=False)
+            sim = DenseSVSimulator(n_qubits=1, use_float32=False)
             sim.apply_gate_1q(GATES['h'], 0)
             return sim
 
@@ -773,7 +773,7 @@ class TestMeasurement:
     def test_measure_jax_key_none_keeps_default_behavior(self):
         # Default (no jax_key) must be unchanged: still returns a valid
         # binary outcome via the original np.random.choice path.
-        sim = DenseSVSimulator(n_qubits=1, use_gpu=False, use_float32=False)
+        sim = DenseSVSimulator(n_qubits=1, use_float32=False)
         sim.apply_gate_1q(GATES['h'], 0)
         result = sim.measure(0)
         assert result in (0, 1)
@@ -786,7 +786,7 @@ class TestMeasurement:
         # (this environment always has real JAX installed).
         import dense_evolution.backends.statevector as sim_mod
         monkeypatch.setattr(sim_mod, "HAS_JAX", False)
-        sim = DenseSVSimulator(n_qubits=1, use_gpu=False, use_float32=False)
+        sim = DenseSVSimulator(n_qubits=1, use_float32=False)
         with pytest.raises(ValueError, match="requires JAX"):
             sim.measure(0, jax_key=object())
 
@@ -800,7 +800,7 @@ class TestCircuitChunking:
 
     def test_chunking_preserves_norm(self):
         """5000 H + 5000 CNOT on 4 qubits: norm must stay 1.0"""
-        sim = DenseSVSimulator(n_qubits=4, use_gpu=False, use_float32=False)
+        sim = DenseSVSimulator(n_qubits=4, use_float32=False)
         n_gates = 500  # ridotto per velocità in CI
         circuit = [('h', i % 4) for i in range(n_gates // 2)]
         circuit += [('cx', i % 3, (i % 3) + 1) for i in range(n_gates // 2)]
@@ -808,7 +808,7 @@ class TestCircuitChunking:
         assert abs(norm(sim) - 1.0) < 1e-10
 
     def test_run_circuit_with_chunking_exists(self):
-        sim = DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
+        sim = DenseSVSimulator(n_qubits=2, use_float32=False)
         assert hasattr(sim, 'run_circuit_with_chunking') or hasattr(sim, 'run_circuit')
 
 # ─────────────────────────────────────────────────────────────
@@ -818,13 +818,13 @@ class TestCircuitChunking:
 class TestMemory:
 
     def test_memory_mb_12_qubits(self):
-        sim = DenseSVSimulator(n_qubits=12, use_gpu=False, use_float32=False)
+        sim = DenseSVSimulator(n_qubits=12, use_float32=False)
         mb = sim.memory_mb()
         expected = (2**12 * 16) / 1e6
         assert abs(mb - expected) < 0.01
 
     def test_memory_mb_float32(self):
-        sim = DenseSVSimulator(n_qubits=12, use_gpu=False, use_float32=True)
+        sim = DenseSVSimulator(n_qubits=12, use_float32=True)
         mb = sim.memory_mb()
         expected = (2**12 * 8) / 1e6
         assert abs(mb - expected) < 0.01
@@ -840,7 +840,7 @@ class TestMemory:
 class TestDeprecatedAliases:
 
     def test_run_circuit_jit_beast_mode_still_works_and_warns(self):
-        sim = DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
+        sim = DenseSVSimulator(n_qubits=2, use_float32=False)
         with pytest.deprecated_call():
             sim.run_circuit_jit_beast_mode([('h', 0), ('cx', 0, 1)])
         p = probs(sim)
@@ -849,15 +849,15 @@ class TestDeprecatedAliases:
 
     def test_run_circuit_jit_beast_mode_matches_new_name(self):
         circuit = [('h', 0), ('cx', 0, 1), ('rz', 1, 0.6)]
-        old = DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
-        new = DenseSVSimulator(n_qubits=2, use_gpu=False, use_float32=False)
+        old = DenseSVSimulator(n_qubits=2, use_float32=False)
+        new = DenseSVSimulator(n_qubits=2, use_float32=False)
         with pytest.deprecated_call():
             old.run_circuit_jit_beast_mode(circuit)
         new.run_circuit_jit(circuit)
         assert probs(old) == pytest.approx(probs(new), abs=1e-9)
 
     def test_run_parametric_batch_jit_still_works_and_warns(self):
-        sim = DenseSVSimulator(n_qubits=1, use_gpu=False, use_float32=False)
+        sim = DenseSVSimulator(n_qubits=1, use_float32=False)
         with pytest.deprecated_call():
             out = sim.run_parametric_batch_jit([('rx', 0, None)], np.array([[0.0]]))
         assert np.asarray(out).shape == (1, 2)
@@ -865,8 +865,8 @@ class TestDeprecatedAliases:
     def test_run_parametric_batch_jit_matches_new_name(self):
         circuit = [('rx', 0, None), ('cx', 0, 2)]
         batch = np.array([[0.5]])
-        sim_old = DenseSVSimulator(n_qubits=3, use_gpu=False, use_float32=False)
-        sim_new = DenseSVSimulator(n_qubits=3, use_gpu=False, use_float32=False)
+        sim_old = DenseSVSimulator(n_qubits=3, use_float32=False)
+        sim_new = DenseSVSimulator(n_qubits=3, use_float32=False)
         with pytest.deprecated_call():
             out_old = sim_old.run_parametric_batch_jit(circuit, batch)
         out_new = sim_new.run_batch_jit(circuit, batch)

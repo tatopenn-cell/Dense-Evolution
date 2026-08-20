@@ -69,17 +69,18 @@ class DenseSVSimulator:
     Dense statevector quantum circuit simulator.
 
     Qubit ordering: MSB-first (qubit 0 is the most significant bit).
-    Backends: NumPy (CPU), JAX XLA JIT (CPU/GPU/TPU).
+    Backends: NumPy (CPU), JAX XLA JIT (CPU/GPU/TPU) -- GPU dispatch is
+    automatic whenever a CUDA-enabled jaxlib is installed and a GPU is
+    present (jax.devices() reports it); no flag on this class selects it,
+    JAX's own default-device placement does.
 
     Parameters
     ----------
     n_qubits   : number of qubits
-    use_gpu    : reserved for future CuPy/JAX GPU dispatch
     use_float32: use complex64 instead of complex128
     """
 
     def __init__(self, n_qubits: int,
-                 use_gpu:     bool = False,
                  use_float32: bool = False):
         if n_qubits < 1 or n_qubits > 34:
             raise ValueError(f"n_qubits must be in [1, 34], got {n_qubits}")

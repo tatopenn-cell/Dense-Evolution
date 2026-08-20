@@ -18,7 +18,7 @@ class TestGhzState:
 
     @pytest.mark.parametrize('n_qubits', [2, 3, 4, 5])
     def test_produces_equal_superposition_of_all_zero_and_all_one(self, n_qubits):
-        sim = DenseSVSimulator(n_qubits, use_gpu=False, use_float32=False)
+        sim = DenseSVSimulator(n_qubits, use_float32=False)
         sim.run_circuit(ghz_state(n_qubits))
         probs = sim.get_probabilities()
         dim = 2 ** n_qubits

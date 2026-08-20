@@ -27,7 +27,7 @@ def _exact_rotation_matrix(pauli_dict, angle, n_qubits):
 
 
 def _run_ops_on_state(psi, n_qubits, ops):
-    sim = DenseSVSimulator(n_qubits, use_gpu=False, use_float32=False)
+    sim = DenseSVSimulator(n_qubits, use_float32=False)
     sim.set_initial_state(psi)
     sim.run_circuit(ops)
     return sim.get_statevector()
