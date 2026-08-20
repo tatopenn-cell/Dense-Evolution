@@ -1,9 +1,10 @@
 """Mitigation subpackage: Zero-Noise Extrapolation (zne) and the
 predictive-healing primitives (healing) it composes, plus density-matrix
 diagnostics validated in Dense-Evolution-Discovery: the sandwiched
-quantum Renyi divergence (renyi), magic entropy (magic_entropy), and a
+quantum Renyi divergence (renyi), magic entropy (magic_entropy), a
 classical-shadows-based estimator for magic entropy from measurement
-snapshots (magic_entropy_shadows)."""
+snapshots (magic_entropy_shadows), and the classical Kullback-Leibler
+divergence over probability distributions (kl_divergence)."""
 from .zne import (
     richardson_extrapolate, zero_noise_extrapolation, polynomial_extrapolate,
     project_to_physical, uhlmann_fidelity, zne_density_matrix,
@@ -22,6 +23,7 @@ from .magic_entropy_shadows import (
     sample_classical_shadow, magic_entropy_from_shadows,
     approx_shadow_std, fit_shadow_sample_complexity,
 )
+from .kl_divergence import kl_divergence, kl_divergence_jit
 
 __all__ = [
     "richardson_extrapolate", "zero_noise_extrapolation", "polynomial_extrapolate",
@@ -36,4 +38,5 @@ __all__ = [
     "magic_entropy", "magic_entropy_jit",
     "sample_classical_shadow", "magic_entropy_from_shadows",
     "approx_shadow_std", "fit_shadow_sample_complexity",
+    "kl_divergence", "kl_divergence_jit",
 ]
