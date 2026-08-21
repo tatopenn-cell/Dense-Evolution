@@ -41,6 +41,47 @@ def _dense_matrix_commuting_pair_count(terms, n_qubits):
 T0, MU, T1 = 0.3, 12.0, 0.60
 
 
+class TestBuildSparseSykTerms:
+    """BUG FIX: coefficients used to carry a complex128 dtype (from
+    _multiply_pauli_dicts's phase, which is genuinely complex for
+    intermediate same-qubit Pauli products) all the way downstream into
+    trotter.py's pauli_rotation_ops, where they were silently truncated
+    to real with a numpy ComplexWarning at the point they're finally used
+    as a gate 'rz' angle -- found investigating that warning during
+    integration test runs, not from a wrong physics result (the value was
+    always exactly real; only the dtype was complex). A bare product of 4
+    anticommuting Majoranas is Hermitian by construction (see this
+    function's own docstring), so this is real by construction, not
+    merely real-valued by coincidence -- now asserted and cast at the
+    source instead of silently truncated far downstream."""
+
+    def test_coefficients_are_plain_python_floats_not_complex(self):
+        _, terms = build_sparse_syk_terms(N_MAJORANA, K_TERMS, J, SEED)
+        for coeff, _ in terms:
+            assert isinstance(coeff, float), f"expected float, got {type(coeff)}: {coeff!r}"
+
+    def test_coefficient_magnitude_matches_the_paper_definition(self):
+        # +-J/sqrt(k_terms), the paper's K=10, J=sqrt(2) definition.
+        _, terms = build_sparse_syk_terms(N_MAJORANA, K_TERMS, J, SEED)
+        expected_magnitude = J / np.sqrt(K_TERMS)
+        for coeff, _ in terms:
+            assert abs(abs(coeff) - expected_magnitude) < 1e-12
+
+    def test_no_complex_warning_when_used_as_a_trotter_gate_angle(self):
+        """The actual regression check: building a Trotter circuit from
+        these terms must not raise/warn on the 'rz' angle cast."""
+        import warnings
+        from dense_evolution.circuits.trotter import trotter_evolve_ops
+
+        _, terms = build_sparse_syk_terms(N_MAJORANA, K_TERMS, J, SEED)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            ops = trotter_evolve_ops(terms, t=0.3, n_steps=2)
+        complex_warnings = [w for w in caught if "Complex" in str(w.category)]
+        assert not complex_warnings, f"unexpected ComplexWarning(s): {complex_warnings}"
+        assert len(ops) > 0
+
+
 class TestRunWormholeProtocolFiniteBeta:
 
     def test_beta_zero_matches_existing_beta_zero_backend(self):

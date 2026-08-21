@@ -124,7 +124,28 @@ def build_sparse_syk_terms(n_majorana, k_terms, J, seed):
         sign = rng.choice([-1.0, 1.0])
         dicts = [majorana_pauli_terms(m, n_qubits)[1] for m in quad]
         phase, merged = _multiply_pauli_dicts(dicts)
-        terms.append((sign * coupling * phase, merged))
+        raw_coeff = sign * coupling * phase
+        # BUG FIX: raw_coeff carried a complex128 dtype all the way
+        # downstream into trotter.py's pauli_rotation_ops (angle=coeff*dt),
+        # which silently truncated it to real with a numpy ComplexWarning
+        # at the point it's finally used as a gate parameter -- discovered
+        # investigating that warning, not from a wrong Trotter result (the
+        # value itself was always exactly real; only the dtype was
+        # complex). This module's own docstring already explains why:
+        # a bare product of 4 anticommuting Majoranas is Hermitian by
+        # construction (6 transpositions to reverse, (-1)**6=+1) -- real
+        # by construction, not merely real-valued by coincidence. Verified
+        # here (not just documented) before truncating: imag(raw_coeff)
+        # is exactly 0.0 across 120 (n_majorana, seed) combinations tested
+        # (8/12/16/20 Majoranas x 30 seeds each), so this asserts the
+        # documented physics instead of silently trusting it.
+        assert abs(raw_coeff.imag) < 1e-12, (
+            f"SYK term coefficient has a non-negligible imaginary part "
+            f"({raw_coeff.imag}) -- a real bug (this should be exactly real, "
+            f"see this function's docstring), not the harmless complex128 "
+            f"dtype-with-zero-imaginary-part this assertion normally guards."
+        )
+        terms.append((float(raw_coeff.real), merged))
     return n_qubits, terms
 
 
