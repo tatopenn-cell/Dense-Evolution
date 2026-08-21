@@ -65,7 +65,7 @@ import numpy as np
 try:
     import pymatching
     HAS_PYMATCHING = True
-except ImportError:
+except ImportError:  # pragma: no cover -- pymatching is always installed in CI (same as stim's equivalent branch in dense_evolution/interop/qiskit_pennylane.py)
     HAS_PYMATCHING = False
 
 
