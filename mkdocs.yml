@@ -116,7 +116,7 @@ nav:
       - Entropy (partial trace, mutual information): api/entropy.md
       - Trotter (Hamiltonian evolution as gates): api/trotter.md
       - Native Hartree-Fock (Obara-Saika, JAX): api/native_hf.md
-      - QEC (erasure-aware stabilizer decoding): api/qec.md
+      - "QEC (erasure-aware, MWPM, blind decoding)": api/qec.md
       - "Dashboard Core — Wormhole (SYK teleportation)": api/dashboard_core_wormhole.md
       - "Dashboard Core — VQE": api/dashboard_core_vqe.md
       - "Dashboard Core — Hamiltonians": api/dashboard_core_hamiltonians.md
