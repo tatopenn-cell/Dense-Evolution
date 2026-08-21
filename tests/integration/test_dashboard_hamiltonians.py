@@ -15,7 +15,7 @@ from dashboard_core.hamiltonians import (
     linear_chain_geometry, ring_geometry, MOLECULE_CATALOG,
     build_molecular_hamiltonian, get_molecule_n_qubits, get_all_molecules,
     get_compatible_molecules, get_molecular_hamiltonian_matrix, ground_state_energy,
-    mix_hamiltonians,
+    ground_state_energy_sparse, mix_hamiltonians,
 )
 
 H2_SYMBOLS = ['H', 'H']
@@ -107,6 +107,38 @@ class TestBuildMolecularHamiltonian:
         H_jw, _ = build_molecular_hamiltonian(H2_SYMBOLS, H2_GEOMETRY, charge=0, mapping="jordan_wigner")
         H_bk, _ = build_molecular_hamiltonian(H2_SYMBOLS, H2_GEOMETRY, charge=0, mapping="bravyi_kitaev")
         assert ground_state_energy(H_jw) == pytest.approx(ground_state_energy(H_bk), abs=1e-9)
+
+
+class TestGroundStateEnergySparse:
+    """prog.txt Sezione 4.1 -- matrix-free ground state via
+    dense_evolution.pauli_sum_matvec + scipy.sparse.linalg.eigsh, the fix
+    for the PRIORITARIO gap (ground_state_energy/build_molecular_hamiltonian
+    only had a dense np.linalg.eigvalsh path, blocked concretely on Si2).
+    Same known reference values as TestBuildMolecularHamiltonian above --
+    this must agree with the dense path to machine precision, not just be
+    plausible."""
+
+    def test_h2_matches_known_dense_value(self):
+        e = ground_state_energy_sparse(H2_SYMBOLS, H2_GEOMETRY, charge=0)
+        assert e == pytest.approx(-1.1372701748786913, abs=1e-6)
+
+    def test_hehp_matches_known_dense_value(self):
+        e = ground_state_energy_sparse(HEHP_SYMBOLS, HEHP_GEOMETRY, charge=1)
+        assert e == pytest.approx(-3.0156651781733883, abs=1e-6)
+
+    def test_matches_dense_build_molecular_hamiltonian_path_exactly(self):
+        # Same molecule, both code paths -- not just close to a hardcoded
+        # literature value, but agreeing with the sibling dense function
+        # on the SAME real Hamiltonian object.
+        H_dense, _ = build_molecular_hamiltonian(H2_SYMBOLS, H2_GEOMETRY, charge=0)
+        dense_e = ground_state_energy(H_dense)
+        sparse_e = ground_state_energy_sparse(H2_SYMBOLS, H2_GEOMETRY, charge=0)
+        assert sparse_e == pytest.approx(dense_e, abs=1e-8)
+
+    def test_jordan_wigner_and_bravyi_kitaev_share_the_same_spectrum(self):
+        e_jw = ground_state_energy_sparse(H2_SYMBOLS, H2_GEOMETRY, charge=0, mapping="jordan_wigner")
+        e_bk = ground_state_energy_sparse(H2_SYMBOLS, H2_GEOMETRY, charge=0, mapping="bravyi_kitaev")
+        assert e_jw == pytest.approx(e_bk, abs=1e-8)
 
 
 class TestGeometryValidation:

@@ -20,7 +20,10 @@ of this internal bit-position detail.
 """
 import numpy as np
 
-__all__ = ['pauli_expectation', 'pauli_sum_expectation', 'pauli_hamiltonian_to_matrix']
+__all__ = [
+    'pauli_expectation', 'pauli_sum_expectation', 'pauli_hamiltonian_to_matrix',
+    'pauli_sum_matvec',
+]
 
 _PAULI_MATRICES = {
     'I': np.eye(2, dtype=np.complex128),
@@ -53,6 +56,40 @@ def _normalize_terms(pauli_terms, n_qubits=None):
         if q < 0:
             raise ValueError(f"qubit index {q} must be >= 0")
     return terms
+
+
+def _apply_pauli_term(statevector, terms, inferred_n_qubits):
+    """P|psi> for a single already-normalized Pauli term (terms: plain
+    dict {qubit: 'X'|'Y'|'Z'}, identity qubits already dropped), computed
+    in O(dim) via the same flip-mask/phase technique pauli_expectation
+    uses -- factored out here so both pauli_expectation (which reduces
+    this to a scalar via vdot) and pauli_sum_matvec (which needs the
+    vector itself, not a scalar) share one tested implementation instead
+    of two copies of the same bit-twiddling."""
+    if not terms:
+        return statevector
+
+    def bit_pos(q):
+        return inferred_n_qubits - 1 - q
+
+    flip_mask = 0
+    for q, p in terms.items():
+        if p in ('X', 'Y'):
+            flip_mask |= (1 << bit_pos(q))
+
+    dim = statevector.shape[0]
+    indices = np.arange(dim)
+    source_idx = indices ^ flip_mask
+
+    coeff = np.ones(dim, dtype=np.complex128)
+    for q, p in terms.items():
+        bit = (source_idx >> bit_pos(q)) & 1
+        if p == 'Y':
+            coeff = coeff * np.where(bit == 0, 1j, -1j)
+        elif p == 'Z':
+            coeff = coeff * np.where(bit == 0, 1.0, -1.0)
+
+    return statevector[source_idx] * coeff
 
 
 def pauli_expectation(statevector, pauli_terms, n_qubits=None):
@@ -106,37 +143,7 @@ def pauli_expectation(statevector, pauli_terms, n_qubits=None):
             f"pauli_terms references qubit {max(terms)}, but the statevector "
             f"only spans {inferred_n_qubits} qubits")
 
-    if not terms:
-        # Identity on every qubit: <psi|I|psi> = <psi|psi>, i.e. the norm
-        # (1.0 for a properly normalized state, computed rather than
-        # assumed so a mis-normalized input surfaces as a wrong answer,
-        # not a silently hidden bug).
-        return float(np.real(np.vdot(statevector, statevector)))
-
-    def bit_pos(q):
-        # qubit q -> bit position in the index (qubit 0 = MSB, see module
-        # docstring).
-        return inferred_n_qubits - 1 - q
-
-    flip_mask = 0
-    for q, p in terms.items():
-        if p in ('X', 'Y'):
-            flip_mask |= (1 << bit_pos(q))
-
-    indices = np.arange(dim)
-    source_idx = indices ^ flip_mask  # source_idx[out] = out ^ flip_mask
-
-    coeff = np.ones(dim, dtype=np.complex128)
-    for q, p in terms.items():
-        bit = (source_idx >> bit_pos(q)) & 1
-        if p == 'Y':
-            coeff = coeff * np.where(bit == 0, 1j, -1j)
-        elif p == 'Z':
-            coeff = coeff * np.where(bit == 0, 1.0, -1.0)
-        # 'X' flips the bit (already folded into flip_mask) and
-        # contributes a coefficient of 1 -- no further action needed.
-
-    p_psi = statevector[source_idx] * coeff
+    p_psi = _apply_pauli_term(statevector, terms, inferred_n_qubits)
     return float(np.real(np.vdot(statevector, p_psi)))
 
 
@@ -236,3 +243,64 @@ def pauli_hamiltonian_to_matrix(terms, n_qubits):
         H += coeff * term_matrix
 
     return H
+
+
+def pauli_sum_matvec(vector, terms, n_qubits=None):
+    """
+    H @ vector for a Hamiltonian given as a weighted sum of Pauli strings,
+    computed in O(dim * n_terms) WITHOUT ever building the (2**n_qubits,
+    2**n_qubits) matrix pauli_hamiltonian_to_matrix materializes -- the
+    matrix-free counterpart needed for an iterative/sparse eigensolver
+    (e.g. scipy.sparse.linalg.eigsh via a LinearOperator wrapping this
+    function), where pauli_hamiltonian_to_matrix's O(dim**2) memory is
+    exactly the thing being avoided.
+
+    Same qubit-0-is-MSB convention as the rest of this module: this
+    agrees with pauli_hamiltonian_to_matrix(terms, n_qubits) @ vector to
+    floating-point precision for the same terms -- same underlying
+    per-term application as pauli_expectation, just returning the vector
+    P|psi> instead of reducing it to <psi|P|psi>.
+
+    Parameters
+    ----------
+    vector : array-like, shape (2**n_qubits,)
+        Not required to be normalized (this is a linear map, not an
+        expectation value) -- e.g. an intermediate Lanczos vector, not
+        necessarily a physical statevector.
+    terms : iterable of (coeff, pauli_terms)
+        Same format pauli_sum_expectation/pauli_hamiltonian_to_matrix
+        accept.
+    n_qubits : int, optional
+        Only used to validate string-form terms' length; inferred from
+        vector's length otherwise (same convention as pauli_expectation).
+
+    Returns
+    -------
+    numpy.ndarray, shape (2**n_qubits,), dtype complex128
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> terms = [(1.0, 'ZZ'), (0.5, {0: 'X'})]
+    >>> v = np.array([1, 0, 0, 0], dtype=complex)
+    >>> pauli_sum_matvec(v, terms, n_qubits=2)
+    array([1. +0.j, 0. +0.j, 0. +0.j, 0.5+0.j])
+    >>> pauli_hamiltonian_to_matrix(terms, n_qubits=2) @ v
+    array([1. +0.j, 0. +0.j, 0. +0.j, 0.5+0.j])
+    """
+    vector = np.asarray(vector, dtype=np.complex128)
+    dim = vector.shape[0]
+    inferred_n_qubits = dim.bit_length() - 1
+    if 1 << inferred_n_qubits != dim:
+        raise ValueError(f"vector length {dim} is not a power of 2")
+
+    result = np.zeros(dim, dtype=np.complex128)
+    for coeff, pauli_terms in terms:
+        normalized = _normalize_terms(pauli_terms, n_qubits)
+        if normalized and max(normalized) >= inferred_n_qubits:
+            raise ValueError(
+                f"term references qubit {max(normalized)}, but vector only "
+                f"spans {inferred_n_qubits} qubits")
+        result += coeff * _apply_pauli_term(vector, normalized, inferred_n_qubits)
+
+    return result
