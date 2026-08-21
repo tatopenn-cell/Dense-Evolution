@@ -17,7 +17,10 @@ import itertools
 import numpy as np
 import pytest
 
-from dense_evolution.qec import compute_syndrome, erasure_aware_decode, pauli_commutes, pymatching_decode
+from dense_evolution.qec import (
+    compute_syndrome, erasure_aware_decode, pauli_commutes, pymatching_decode,
+    blind_minimum_weight_decode,
+)
 from dense_evolution.physics import qec as qec_module
 
 # Steane [[7,1,3]] stabilizer generators (Hamming[7,4,3]-derived), same
@@ -312,3 +315,103 @@ class TestPymatchingDecode:
                 pymatching_decode((0, 0), ['ZZI', 'IZZ'], n_qubits=3, error_type='X')
         finally:
             qec_module.HAS_PYMATCHING = original
+
+
+class TestBlindMinimumWeightDecode:
+    """prog.txt Sezione 4.4 -- blind (no erasure locations) decoding for
+    codes pymatching_decode structurally cannot handle, like Steane
+    (verified in TestPymatchingDecode above: its weight-4 stabilizers
+    check qubit 6 three times, violating pymatching's <=2-checks-per-qubit
+    graph requirement)."""
+
+    def test_steane_recovers_every_single_qubit_error(self):
+        """The exact case pymatching_decode cannot do at all for Steane --
+        blind decoding (no known erasure locations) of every possible
+        single-qubit X/Y/Z error, using the full X+Z stabilizer set (same
+        set TestErasureAwareDecode's erasure tests use, needed here too:
+        a single stabilizer family alone can't distinguish Y from Z or
+        X from Y at the same qubit -- see the ambiguity test below)."""
+        all_stabilizers = STEANE_X_STABILIZERS + STEANE_Z_STABILIZERS
+        for q in range(N_STEANE):
+            for pauli in ('X', 'Y', 'Z'):
+                error = ['I'] * N_STEANE
+                error[q] = pauli
+                error = ''.join(error)
+                syndrome = compute_syndrome(error, all_stabilizers)
+                result = blind_minimum_weight_decode(syndrome, N_STEANE, all_stabilizers)
+                assert result == error, f"failed to recover single {pauli} error at qubit {q}"
+
+    def test_naive_erasure_aware_with_every_qubit_heralded_does_not_work(self):
+        """Documents the real reason this function exists instead of just
+        calling erasure_aware_decode(syndrome, range(n_qubits), ...):
+        with no qubit assumed error-free, many stabilizer-equivalent
+        full-length errors share the same syndrome, so
+        erasure_aware_decode's "exactly one match total" criterion is
+        essentially always violated -- verified here to actually fail
+        (not assumed), on the simplest possible case."""
+        all_stabilizers = STEANE_X_STABILIZERS + STEANE_Z_STABILIZERS
+        error = ['I'] * N_STEANE
+        error[3] = 'Z'
+        error = ''.join(error)
+        syndrome = compute_syndrome(error, all_stabilizers)
+
+        naive_result = erasure_aware_decode(syndrome, list(range(N_STEANE)), N_STEANE, all_stabilizers)
+        assert naive_result is None, "expected the naive all-heralded trick to fail (ambiguous)"
+
+        real_result = blind_minimum_weight_decode(syndrome, N_STEANE, all_stabilizers)
+        assert real_result == error
+
+    def test_no_error_gives_trivial_correction(self):
+        all_stabilizers = STEANE_X_STABILIZERS + STEANE_Z_STABILIZERS
+        syndrome = compute_syndrome('I' * N_STEANE, all_stabilizers)
+        assert blind_minimum_weight_decode(syndrome, N_STEANE, all_stabilizers) == 'I' * N_STEANE
+
+    def test_single_stabilizer_family_alone_is_ambiguous_not_a_wrong_guess(self):
+        """Mirrors TestErasureAwareDecode's identical-purpose test: X
+        stabilizers alone can't tell a Y error from a Z error at the same
+        qubit (both anticommute with X identically) -- must return None,
+        not silently pick one."""
+        error = ['I'] * N_STEANE
+        error[3] = 'Z'
+        syndrome = compute_syndrome(''.join(error), STEANE_X_STABILIZERS)
+        result = blind_minimum_weight_decode(syndrome, N_STEANE, STEANE_X_STABILIZERS)
+        assert result is None
+
+    def test_repetition_code_z_stabilizers_cannot_distinguish_x_from_y(self):
+        """Real, discovered-not-assumed finding from building this
+        function: Z-type stabilizers alone (e.g. a bit-flip repetition
+        code) anticommute identically with X and Y, so a blind decoder
+        genuinely cannot tell them apart here -- correctly returns None,
+        this is not a bug (see this test file's very first doctest
+        iteration, which hit exactly this before being fixed to use
+        Steane's full stabilizer set instead)."""
+        stabilizers = ['ZZI', 'IZZ']
+        syndrome = compute_syndrome('IXI', stabilizers)
+        assert blind_minimum_weight_decode(syndrome, 3, stabilizers) is None
+
+    def test_max_weight_limits_the_search(self):
+        """max_weight=0 means only the trivial (no-error) case can ever be
+        explained -- a real single-qubit error's syndrome is unreachable
+        at weight 0 (the search never even looks at weight 1), but
+        recovered as soon as max_weight allows weight 1."""
+        all_stabilizers = STEANE_X_STABILIZERS + STEANE_Z_STABILIZERS
+        error = ['I'] * N_STEANE
+        error[2] = 'X'
+        error = ''.join(error)
+        syndrome = compute_syndrome(error, all_stabilizers)
+
+        assert blind_minimum_weight_decode(syndrome, N_STEANE, all_stabilizers, max_weight=0) is None
+        assert blind_minimum_weight_decode(syndrome, N_STEANE, all_stabilizers, max_weight=1) == error
+
+    def test_invalid_max_weight_raises(self):
+        with pytest.raises(ValueError, match="max_weight"):
+            blind_minimum_weight_decode((0, 0, 0, 0, 0, 0), N_STEANE, STEANE_X_STABILIZERS + STEANE_Z_STABILIZERS,
+                                         max_weight=N_STEANE + 1)
+
+    def test_syndrome_length_mismatch_raises(self):
+        with pytest.raises(ValueError, match="observed_syndrome"):
+            blind_minimum_weight_decode((0, 0, 0), n_qubits=3, stabilizers=['ZZI', 'IZZ'])
+
+    def test_stabilizer_length_mismatch_raises(self):
+        with pytest.raises(ValueError, match="n_qubits"):
+            blind_minimum_weight_decode((0, 0), n_qubits=3, stabilizers=['ZZ', 'IZZ'])

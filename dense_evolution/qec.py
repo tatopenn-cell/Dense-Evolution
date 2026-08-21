@@ -6,6 +6,10 @@ unchanged. Import from dense_evolution.physics.qec directly in new code.
 """
 from dense_evolution.physics.qec import (
     pauli_commutes, compute_syndrome, erasure_aware_decode, pymatching_decode,
+    blind_minimum_weight_decode,
 )
 
-__all__ = ['pauli_commutes', 'compute_syndrome', 'erasure_aware_decode', 'pymatching_decode']
+__all__ = [
+    'pauli_commutes', 'compute_syndrome', 'erasure_aware_decode', 'pymatching_decode',
+    'blind_minimum_weight_decode',
+]
