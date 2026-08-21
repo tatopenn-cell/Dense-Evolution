@@ -74,6 +74,9 @@ pennylane = [
 stim = [
     "stim>=1.13.0"
 ]
+pymatching = [
+    "pymatching>=2.0.0"
+]
 composer = [
     "fastapi>=0.110.0",
     "uvicorn>=0.29.0",

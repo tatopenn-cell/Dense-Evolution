@@ -17,7 +17,8 @@ import itertools
 import numpy as np
 import pytest
 
-from dense_evolution.qec import compute_syndrome, erasure_aware_decode, pauli_commutes
+from dense_evolution.qec import compute_syndrome, erasure_aware_decode, pauli_commutes, pymatching_decode
+from dense_evolution.physics import qec as qec_module
 
 # Steane [[7,1,3]] stabilizer generators (Hamming[7,4,3]-derived), same
 # convention as Dense-Evolution-Discovery's steane_code_block1/4/6.py.
@@ -206,3 +207,108 @@ class TestErasureAwareDecode:
             "expected a real nonzero failure rate here (~25% at full scale); "
             "re-check the test setup rather than assuming both decoders tied"
         )
+
+
+class TestPymatchingDecode:
+    """prog.txt Sezione 4.3 -- MWPM decoding via `pymatching`, no erasure
+    locations needed (the complementary case to TestErasureAwareDecode
+    above, which always returns None with zero heralded qubits)."""
+
+    def test_repetition_code_recovers_single_x_error(self):
+        # 3-qubit repetition code, Z-type stabilizers decode X errors --
+        # hand-traceable ground truth (see this function's own docstring
+        # example, verified directly against real pymatching output).
+        stabilizers = ['ZZI', 'IZZ']
+        for q in range(3):
+            error = ['I'] * 3
+            error[q] = 'X'
+            error = ''.join(error)
+            syndrome = compute_syndrome(error, stabilizers)
+            result = pymatching_decode(syndrome, stabilizers, n_qubits=3, error_type='X')
+            assert result == error
+
+    def test_no_error_gives_trivial_correction(self):
+        stabilizers = ['ZZI', 'IZZ']
+        syndrome = compute_syndrome('III', stabilizers)
+        assert pymatching_decode(syndrome, stabilizers, n_qubits=3, error_type='X') == 'III'
+
+    def test_steane_stabilizers_rejected_more_than_2_checks_per_qubit(self):
+        """Real, verified-not-assumed constraint: pymatching's matching
+        graph needs every qubit checked by AT MOST 2 stabilizers (each
+        potential error is a graph edge between at most 2 detector nodes).
+        Steane's weight-4 stabilizers are a genuine counterexample -- qubit
+        6 is checked by all 3 X-stabilizers ('IIIXXXX', 'IXXIIXX',
+        'XIXIXIX' all have 'X' at index 6). Discovered directly (this call
+        used to raise pymatching's own less-specific ValueError before the
+        upfront check_matrix.sum(axis=0) guard was added) -- kept as a
+        test so this real limitation stays documented and doesn't regress
+        into a confusing raw library traceback."""
+        error = ['I'] * N_STEANE
+        error[3] = 'Z'
+        syndrome = compute_syndrome(''.join(error), STEANE_X_STABILIZERS)
+        with pytest.raises(ValueError, match="AT MOST 2 stabilizers"):
+            pymatching_decode(syndrome, STEANE_X_STABILIZERS, n_qubits=N_STEANE, error_type='Z')
+
+    @staticmethod
+    def _repetition_code_stabilizers(n):
+        """n-qubit repetition code: n-1 stabilizers Z_iZ_{i+1}, each qubit
+        checked by at most 2 (the two codes it's the property of), matching
+        pymatching's real graph structure -- unlike Steane above."""
+        return [
+            ''.join('Z' if q in (i, i + 1) else 'I' for q in range(n))
+            for i in range(n - 1)
+        ]
+
+    def test_repetition_code_recovers_every_single_qubit_x_error(self):
+        """Exhaustive, graph-compatible analogue of the Steane exhaustive
+        test above -- every single-qubit error on a real (larger) repetition
+        code, cross-checked against a from-scratch brute-force decoder that
+        shares no code with pymatching_decode's check-matrix construction."""
+        n = 9
+        stabilizers = TestPymatchingDecode._repetition_code_stabilizers(n)
+
+        def standard_decode(true_error_str):
+            synd = compute_syndrome(true_error_str, stabilizers)
+            for q in range(n):
+                cand = ['I'] * n
+                cand[q] = 'X'
+                if compute_syndrome(''.join(cand), stabilizers) == synd:
+                    return ''.join(cand)
+            return 'I' * n
+
+        for q in range(n):
+            error = ['I'] * n
+            error[q] = 'X'
+            error = ''.join(error)
+            syndrome = compute_syndrome(error, stabilizers)
+            mwpm_result = pymatching_decode(syndrome, stabilizers, n_qubits=n, error_type='X')
+            brute_force_result = standard_decode(error)
+            assert mwpm_result == brute_force_result == error
+
+    def test_wrong_stabilizer_type_for_error_type_raises_clear_error(self):
+        # X-type stabilizers can never detect X errors (they commute) --
+        # the all-zero check matrix guard should fire, not silently
+        # return an all-identity "correction".
+        with pytest.raises(ValueError, match="wrong generator type"):
+            pymatching_decode((0, 0, 0), STEANE_X_STABILIZERS, N_STEANE, error_type='X')
+
+    def test_invalid_error_type_raises(self):
+        with pytest.raises(ValueError, match="error_type"):
+            pymatching_decode((0, 0), ['ZZI', 'IZZ'], n_qubits=3, error_type='W')
+
+    def test_syndrome_length_mismatch_raises(self):
+        with pytest.raises(ValueError, match="observed_syndrome"):
+            pymatching_decode((0, 0, 0), ['ZZI', 'IZZ'], n_qubits=3, error_type='X')
+
+    def test_stabilizer_length_mismatch_raises(self):
+        with pytest.raises(ValueError, match="n_qubits"):
+            pymatching_decode((0, 0), ['ZZ', 'IZZ'], n_qubits=3, error_type='X')
+
+    def test_clear_import_error_when_pymatching_is_missing(self):
+        original = qec_module.HAS_PYMATCHING
+        qec_module.HAS_PYMATCHING = False
+        try:
+            with pytest.raises(ImportError, match="pymatching"):
+                pymatching_decode((0, 0), ['ZZI', 'IZZ'], n_qubits=3, error_type='X')
+        finally:
+            qec_module.HAS_PYMATCHING = original

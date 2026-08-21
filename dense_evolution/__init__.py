@@ -33,7 +33,7 @@ from .solvers.vhd_tb import (MATERIALS as VHD_MATERIALS, sp3s_star_hamiltonian,
 from .physics.fermions import majorana_pauli_terms
 from .physics.entropy import partial_trace, von_neumann_entropy, mutual_information
 from .circuits.trotter import pauli_rotation_ops, trotter_evolve_ops
-from .physics.qec import pauli_commutes, compute_syndrome, erasure_aware_decode
+from .physics.qec import pauli_commutes, compute_syndrome, erasure_aware_decode, pymatching_decode
 
 __version__ = "8.1.63"
 
@@ -67,7 +67,7 @@ __all__ = [
     "pauli_expectation", "pauli_sum_expectation", "pauli_hamiltonian_to_matrix", "pauli_sum_matvec",
     "partial_trace", "von_neumann_entropy", "mutual_information",
     "majorana_pauli_terms",
-    "pauli_commutes", "compute_syndrome", "erasure_aware_decode",
+    "pauli_commutes", "compute_syndrome", "erasure_aware_decode", "pymatching_decode",
     # Utils -- drawing, measurement, random circuits
     "draw_circuit", "sample_counts", "statevector_fidelity", "random_circuit",
 ]
