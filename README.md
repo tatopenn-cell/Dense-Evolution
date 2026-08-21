@@ -159,7 +159,7 @@ dense_evolution/
 │   ├── observables.py      Pauli-string expectation values, O(2ⁿ) direct from a statevector
 │   ├── states.py           common state-preparation circuits (Bell, GHZ, W, ...) as gate tuples
 │   ├── fermions.py         majorana_pauli_terms — Majorana-fermion → qubit (Jordan-Wigner) mapping
-│   └── qec.py              pauli_commutes · compute_syndrome · erasure_aware_decode (code-agnostic stabilizer QEC)
+│   └── qec.py              pauli_commutes · compute_syndrome · erasure_aware_decode · pymatching_decode (MWPM) · blind_minimum_weight_decode (code-agnostic stabilizer QEC)
 ├── mitigation/           [subpackage] error mitigation and density-matrix diagnostics
 │   ├── zne.py               richardson_extrapolate · zero_noise_extrapolation · zne_density_matrix · jsd_predictive_zne_density_matrix · uhlmann_fidelity (+ jit variants)
 │   ├── healing.py            predictive state engine · Phi_AB · vettore dinamico · MemoryReflectionEngine
@@ -249,7 +249,7 @@ research/                           (not installed as a module -- reference/expe
 | **Adversarial Robustness Testing** | `ia_utils.adversarial_vector_attack.craft_adversarial_healing_perturbation` — PGD-style minimal perturbation, flips the healing Phi-Trigger either direction |
 | **STIM Bridge** | `to_stim` — Clifford-only op-list → `stim.Circuit`, for cross-validation against STIM's stabilizer simulator/decoder tooling |
 | **Native Hartree-Fock** | `dense_evolution.native_hf` — from-scratch JAX/Obara-Saika ab-initio HF engine for elements outside PennyLane's own STO-3G table (H–Ne), auto-used by the Hamiltonian Library for e.g. Si2 |
-| **Erasure-Aware QEC Decoding** | `dense_evolution.qec` — code-agnostic Pauli commutation/syndrome primitives plus a decoder that corrects up to *d*-1 known-location (erasure) errors on a distance-*d* stabilizer code, vs. floor((*d*-1)/2) for a standard syndrome-only decoder (Grassl, Beth & Pellizzari 1997); validated on the Steane [[7,1,3]] code against STIM's `HERALDED_ERASE` channel, 0 failures on >60,000 double-erasure shots |
+| **QEC Decoding** | `dense_evolution.qec` — code-agnostic Pauli commutation/syndrome primitives, an erasure-aware decoder (corrects up to *d*-1 known-location errors on a distance-*d* code, Grassl/Beth/Pellizzari 1997), a real MWPM decoder (`pymatching_decode`, via `pymatching`) for graph-like/topological codes, and a blind minimum-weight brute-force decoder (`blind_minimum_weight_decode`) for the small codes MWPM structurally can't handle (e.g. Steane) |
 | **Backend Agnostic** | NumPy CPU · JAX XLA CPU/GPU/TPU — GPU dispatch is automatic whenever a CUDA-enabled `jax[cuda12]` is installed and a GPU is present, zero code changes |
 | **Live Dashboard** | `app_dashboard.py` — Streamlit Quantum-Composer clone, 5 tabs (Graphical Builder/Circuit/Statevector/Probabilities/Q-sphere) per simulation run |
 
@@ -549,16 +549,20 @@ healed = de.zero_noise_extrapolation([e1, e2, e3], [1.0, 2.0, 3.0],
 
 ---
 
-## ▍ Erasure-Aware QEC Decoding — `dense_evolution.qec`
+## ▍ QEC Decoding — `dense_evolution.qec`
 
-Code-agnostic stabilizer-code primitives plus a decoder that corrects known-location (erasure) errors past a standard decoder's reach. Full math, citations, and validation details: [docs/api/qec.md](https://tatopenn-cell.github.io/Dense-Evolution/api/qec/).
+Code-agnostic stabilizer-code primitives plus three decoders: erasure-aware (known error locations), MWPM (`pymatching_decode`, blind, graph-like/topological codes only), and a blind minimum-weight brute-force decoder (`blind_minimum_weight_decode`) for small codes MWPM can't handle. Full math, citations, and validation details: [docs/api/qec.md](https://tatopenn-cell.github.io/Dense-Evolution/api/qec/).
 
 ```python
-from dense_evolution import compute_syndrome, erasure_aware_decode
+from dense_evolution import compute_syndrome, erasure_aware_decode, blind_minimum_weight_decode
 
 stabilizers = ['IIIXXXX', 'IXXIIXX', 'XIXIXIX', 'IIIZZZZ', 'IZZIIZZ', 'ZIZIZIZ']  # Steane [[7,1,3]]
 syndrome = compute_syndrome('IIIZIII', stabilizers)                              # Z error on qubit 3
+
+# Known error location:
 corrected = erasure_aware_decode(syndrome, heralded_qubits=[3], n_qubits=7, stabilizers=stabilizers)
+# Blind (no known location) -- pymatching_decode can't be used for Steane at all (see docs):
+corrected = blind_minimum_weight_decode(syndrome, n_qubits=7, stabilizers=stabilizers)
 ```
 
 ---
