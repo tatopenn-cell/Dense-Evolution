@@ -35,7 +35,7 @@ from .physics.entropy import partial_trace, von_neumann_entropy, mutual_informat
 from .circuits.trotter import pauli_rotation_ops, trotter_evolve_ops
 from .physics.qec import pauli_commutes, compute_syndrome, erasure_aware_decode, pymatching_decode, blind_minimum_weight_decode
 
-__version__ = "8.1.63"
+__version__ = "8.1.64"
 
 __all__ = [
     "__version__",
