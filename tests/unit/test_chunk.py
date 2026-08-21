@@ -798,7 +798,15 @@ class TestChunkStreaming:
         #   cy(0,1)      both chunk-select, only ctrl-set pairs touched  =  4
         #   crz(3,1,.4)  ctrl local/tgt chunk, all 4 pairs, masked        =  8
         #   cx(3,4)      both local, every chunk touched                 =  8
-        #                                                          total = 68
+        #                                                    subtotal    = 68
+        #   + index_cache population (_local_index_arrays): one extra
+        #     device_put per DISTINCT (case, qubit-position) key seen for
+        #     the first time -- h(3), h(4), h(5) each have a different
+        #     local_phys stride, crz's ctrl_phys and cx's (ctrl_phys,
+        #     tgt_phys) are each new keys too -> +5 (h(0..2) are the
+        #     chunk-select branch, which doesn't use the index cache at
+        #     all; cy is the "both chunk-select" case, same)
+        #                                                       total    = 73
         import dense_evolution.chunk as chunk_mod
 
         force_chunk_bits(3)
@@ -813,8 +821,44 @@ class TestChunkStreaming:
         monkeypatch.setattr(chunk_mod.jax, "device_put", counting_device_put)
         circuit = [('h', q) for q in range(6)] + [('cy', 0, 1), ('crz', 3, 1, 0.4), ('cx', 3, 4)]
         c.run_chunk_streaming(circuit)
-        assert len(counts) == 68, (
-            f"{len(counts)} device_put calls, expected exactly 68 (see the "
+        assert len(counts) == 73, (
+            f"{len(counts)} device_put calls, expected exactly 73 (see the "
             f"hand-derived breakdown above) -- the per-gate transfer pattern "
             f"changed, re-derive and update this count if that was intentional"
+        )
+
+    def test_index_cache_is_reused_across_repeated_qubits(self, force_chunk_bits, monkeypatch):
+        # The regression this guards against: np.arange(chunk_dim) (and
+        # the derived xor/mask arrays) used to be recomputed on the HOST,
+        # from scratch, on every single gate call -- catastrophic at
+        # realistic chunk_dim (confirmed on a real Colab GPU: 404s for a
+        # 100-gate circuit at chunk_dim=2**27). Fixed by moving these to
+        # JAX/device arrays, cached per (case, qubit-position) key for the
+        # lifetime of one run_chunk_streaming() call. This test proves the
+        # cache actually gets HIT, not just built: a layered ansatz
+        # repeating the same few qubits many times should populate the
+        # cache once per distinct key and then reuse it, not grow linearly
+        # with circuit length.
+        import dense_evolution.chunk as chunk_mod
+
+        force_chunk_bits(3)
+        c = Chunk(6, streaming=True)
+        original_local_index_arrays = c._local_index_arrays
+        build_calls = []
+
+        def counting_local_index_arrays(cache, key, device, chunk_dim, builder):
+            def counting_builder():
+                build_calls.append(key)
+                return builder()
+            return original_local_index_arrays(cache, key, device, chunk_dim, counting_builder)
+
+        monkeypatch.setattr(c, "_local_index_arrays", counting_local_index_arrays)
+        # 20 repetitions of 'rz' on the SAME local qubit (q=3) -- one
+        # distinct key, should build the cache entry exactly once.
+        circuit = [('rz', 3, float(i) * 0.1) for i in range(20)]
+        c.run_chunk_streaming(circuit)
+        assert build_calls == [('1q_local', 4)], (  # stride = 1 << local_phys = 1 << 2 = 4
+            f"expected the index-cache builder to run exactly once (for the "
+            f"one distinct qubit/case key), got {len(build_calls)} calls: "
+            f"{build_calls} -- the cache isn't being reused across repeated gates"
         )
