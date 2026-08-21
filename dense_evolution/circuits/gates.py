@@ -36,6 +36,7 @@ GATE_IDS = {
     'rx': 9, 'ry': 10, 'rz': 11,
     'p': 12, 'u1': 12, 'phase': 12,   # already had a kernel entry (index 12), just no name reached it
     'sx': 13,
+    'gphase': 14,   # e^{ia}*I, scalar phase on the whole state -- only emitted by QuantumTranspiler.decompose_u3 (U2/U3 -> Rz/Ry/Rz/GPhase)
     'cx': 20, 'cz': 21, 'cp': 22, 'cphase': 22,
     # 23 = swap, reserved (never dispatched here: QuantumTranspiler.transpile
     # always decomposes 'swap' into 3xCX before a gate name reaches this table)
@@ -64,5 +65,8 @@ PARAMETRIC_GATES = {
     'u3': lambda theta, phi, lam: xp.array([[xp.cos(theta/2), -xp.exp(1j*lam)*xp.sin(theta/2)], [xp.exp(1j*phi)*xp.sin(theta/2), xp.exp(1j*(phi+lam))*xp.cos(theta/2)]], dtype=complex),
     'u2': lambda phi, lam: xp.array([[1.0, -xp.exp(1j*lam)], [xp.exp(1j*phi), xp.exp(1j*(phi+lam))]], dtype=complex) * INV2,
     'u1': lambda lam: xp.array([[1.0, 0.0], [0.0, xp.exp(1j*lam)]], dtype=complex),
-    'p': lambda lam: xp.array([[1.0, 0.0], [0.0, xp.exp(1j*lam)]], dtype=complex)
+    'p': lambda lam: xp.array([[1.0, 0.0], [0.0, xp.exp(1j*lam)]], dtype=complex),
+    # e^{ia}*I -- a scalar phase on the whole state (see GATE_IDS['gphase']
+    # and QuantumTranspiler.decompose_u3 for why this exists).
+    'gphase': lambda alpha: xp.exp(1j * alpha) * xp.eye(2, dtype=complex),
 }

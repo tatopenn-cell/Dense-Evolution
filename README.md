@@ -305,7 +305,7 @@ sim = DenseSVSimulator(
 | Method | Description |
 |---|---|
 | `set_initial_state(state=None)` | Reset to `\|0⟩ⁿ` or inject custom statevector |
-| `run_circuit(circuit, transpile=True)` | Plain (non-JIT) gate execution — takes the tuple format below |
+| `run_circuit(circuit, transpile=True)` | Auto-delegates to `run_circuit_jit` whenever every gate (post-transpile) is JIT-supported (6x+ faster; that's every gate the library defines as of 8.1.64) — falls back to the plain per-gate eager loop only for a genuinely unrecognized gate name. Takes the tuple format below |
 | `run_circuit_jit(circuit)` | JIT-compiled gate execution — primary execution path (renamed from `run_circuit_jit_beast_mode` in 8.1.46; old name still works, deprecated) |
 | `run_circuit_with_chunking(circuit, chunk_size=500)` | Chunked execution for long circuits |
 | `run_batch_jit(base_circuit, parameter_batch)` | `vmap` over parameter grid — returns full batch of statevectors (renamed from `run_parametric_batch_jit` in 8.1.46; old name still works, deprecated) |
