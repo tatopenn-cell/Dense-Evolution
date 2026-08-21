@@ -156,7 +156,7 @@ dense_evolution/
 │   └── mps.py              MPSSimulator — matrix-product-state backend, JAX-backed
 ├── physics/              [subpackage] quantum-information primitives
 │   ├── entropy.py          partial_trace · von_neumann_entropy · mutual_information (multi-qubit, MSB-first)
-│   ├── observables.py      Pauli-string expectation values, O(2ⁿ) direct from a statevector
+│   ├── observables.py      Pauli-string expectation values, O(2ⁿ) direct from a statevector · pauli_sum_matvec (matrix-free H·v)
 │   ├── states.py           common state-preparation circuits (Bell, GHZ, W, ...) as gate tuples
 │   ├── fermions.py         majorana_pauli_terms — Majorana-fermion → qubit (Jordan-Wigner) mapping
 │   └── qec.py              pauli_commutes · compute_syndrome · erasure_aware_decode (code-agnostic stabilizer QEC)

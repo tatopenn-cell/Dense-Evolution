@@ -22,6 +22,17 @@ range, not an interior point. Stated in the catalog entry's own comment
 rather than silently picking a geometry that flatters the active-space
 choice.
 
+**Ground state without the dense matrix**: `ground_state_energy` needs a
+dense `(2**n_qubits, 2**n_qubits)` Hamiltonian, which is exactly what
+blocked Si2 in practice (805 MB required, refused by `SafeMemoryGuard` on
+modest hardware). `ground_state_energy_sparse` never builds it —
+`scipy.sparse.linalg.eigsh` (Lanczos) against a `LinearOperator` wrapping
+[`pauli_sum_matvec`](observables.md), matrix-free by construction. Purely
+additive: `ground_state_energy`/`build_molecular_hamiltonian` are
+unchanged, this is a separate opt-in path for systems too large to
+densify at all — verified to match the dense path to ~1e-15 on H2/HeH+,
+and to actually succeed on Si2 where the dense path fails.
+
 ::: dashboard_core.hamiltonians
 
 ---
