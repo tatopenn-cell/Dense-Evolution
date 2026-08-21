@@ -35,6 +35,7 @@ jobs:
           pip install basis_set_exchange # dashboard_core.hamiltonians' native_hf fallback (e.g. Si2 -- PennyLane's own STO-3G table stops at Ne)
           pip install qiskit-ibm-runtime # tests/integration/test_interop_calibration_noise.py -- FakeSherbrooke, real historical IBM Eagle-127 calibration data, offline/no account needed
           pip install stim # tests/integration/test_interop_stim_bridge.py -- to_stim() correctness tests were being silently skipped in CI without this (pytest.importorskip), leaving the real logic uncovered
+          pip install pymatching # tests/unit/test_qec.py::TestPymatchingDecode -- pymatching_decode's real MWPM logic, not just the "missing package" ImportError path, needs the actual package installed here (same reasoning as stim above)
           pip install streamlit>=1.30.0 ipywidgets>=8.0.0
           pip install fastapi uvicorn pydantic httpx2 # composer extra -- local_site/app/server.py + tests/integration/test_local_site_server.py (httpx2: starlette.testclient's current required client)
           pip install mcp httpx # mcp extra -- mcp_server/server.py + tests/integration/test_mcp_server.py (real httpx, not the httpx2 alias above -- the MCP adapter imports httpx directly)
