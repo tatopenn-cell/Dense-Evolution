@@ -388,6 +388,55 @@ class TestChunkUtilities:
         bits = get_dynamic_chunk(np.float32)
         assert 16 <= bits <= 27
 
+    def test_get_dynamic_chunk_reads_device_memory_stats_when_present(self, monkeypatch):
+        # get_dynamic_chunk/SafeMemoryGuard used to read psutil.virtual_
+        # memory() (HOST RAM) unconditionally -- correct on CPU (the
+        # compute device IS the host) but wrong on GPU/TPU, where the
+        # data actually lives in separate, usually smaller, device
+        # memory. Verified on a real Colab T4: chunk_size_bits sized off
+        # host RAM (often >11GB free) while chunks lived in the T4's
+        # 11-15GB VRAM pool caused MemoryPressureError/real OOM well
+        # before the GPU's own VRAM was exhausted. A fake device with
+        # memory_stats() proves get_dynamic_chunk now prefers that over
+        # psutil whenever it's available.
+        import dense_evolution.chunk as chunk_mod
+
+        class FakeDevice:
+            def memory_stats(self):
+                return {"bytes_limit": 200 * 1024 * 1024, "bytes_in_use": 10 * 1024 * 1024}
+
+        monkeypatch.setattr(chunk_mod.jax, "devices", lambda: [FakeDevice()])
+        bits = chunk_mod.get_dynamic_chunk(np.complex64)
+        # 190MB free * 0.85 / 8 bytes ~= 2.02e7 elements -> floor(log2(..)) = 24
+        assert bits == 24
+
+    def test_get_dynamic_chunk_falls_back_to_host_ram_without_memory_stats(self, monkeypatch):
+        # A device with no memory_stats() attribute at all (the real
+        # shape of a plain CPU backend) must fall back to
+        # psutil.virtual_memory() exactly as before -- no CPU regression.
+        import dense_evolution.chunk as chunk_mod
+
+        class CpuLikeDevice:
+            pass
+
+        monkeypatch.setattr(chunk_mod.jax, "devices", lambda: [CpuLikeDevice()])
+        bits = chunk_mod.get_dynamic_chunk(np.complex64)
+        assert 16 <= bits <= 27
+
+    def test_safe_memory_guard_status_reads_device_memory_when_present(self, monkeypatch):
+        import dense_evolution.chunk as chunk_mod
+
+        class FakeDevice:
+            def memory_stats(self):
+                return {"bytes_limit": 12 * 1024**3, "bytes_in_use": 8 * 1024**3}
+
+        monkeypatch.setattr(chunk_mod.jax, "devices", lambda: [FakeDevice()])
+        guard = chunk_mod.SafeMemoryGuard(threshold_pct=0.15)
+        s = guard.status()
+        assert abs(s["total_mb"] - 12 * 1024) < 1
+        assert abs(s["available_mb"] - 4 * 1024) < 1
+        assert abs(s["free_pct"] - (4 / 12 * 100)) < 0.1
+
     def test_safe_memory_guard_rejects_invalid_threshold(self):
         from dense_evolution.chunk import SafeMemoryGuard
         with pytest.raises(ValueError):

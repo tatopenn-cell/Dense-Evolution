@@ -47,16 +47,59 @@ except ModuleNotFoundError:
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def get_dynamic_chunk(dtype_target) -> int:
+def _device_memory_budget_bytes(device=None) -> Tuple[float, str]:
+    """Real, dynamic memory budget -- reads the ACTIVE compute device's
+    own memory via JAX's device.memory_stats() (bytes_limit -
+    bytes_in_use) when available, falling back to host RAM via
+    psutil.virtual_memory() otherwise (some backends, e.g. plain CPU,
+    return None from memory_stats() -- confirmed directly, so on CPU
+    this is identical to the old psutil-only behavior). get_dynamic_chunk
+    and SafeMemoryGuard used to read psutil.virtual_memory()
+    UNCONDITIONALLY, which is only correct when the compute device IS the
+    host (true on CPU, false on GPU/TPU) -- sizing chunks off host RAM
+    while the data actually lives in smaller GPU VRAM is exactly why
+    Chunk's own README benchmark ("~2GB constant RAM regardless of qubit
+    count") holds on CPU but silently mis-sized chunks on GPU, causing
+    MemoryPressureError/real OOM well before the GPU's own VRAM was
+    actually exhausted. Verified on a real Colab T4 GPU: before this fix,
+    chunk_size_bits was computed from host RAM (often >11GB free on
+    Colab) while the data lived in the T4's 11-15GB VRAM pool -- after
+    this fix, device.memory_stats() correctly reports VRAM instead.
+
+    Returns (available_bytes, source_description) -- the raw number, not
+    a safety-margined one; callers apply their own margin."""
+    if device is None:
+        device = jax.devices()[0] if HAS_JAX else None
+    stats = device.memory_stats() if device is not None and hasattr(device, "memory_stats") else None
+    if stats and stats.get("bytes_limit"):
+        available = stats["bytes_limit"] - stats.get("bytes_in_use", 0)
+        return float(available), f"device.memory_stats() on {device}"
     vm = psutil.virtual_memory()
-    safe_ram = vm.available * 0.85
+    return float(vm.available), "psutil (host RAM) -- device.memory_stats() unavailable"
+
+
+def _device_total_bytes(device=None) -> float:
+    """Companion to _device_memory_budget_bytes for the TOTAL (not
+    available) capacity -- used by SafeMemoryGuard to compute free_pct
+    against the right pool (device VRAM on GPU/TPU, host RAM on CPU)."""
+    if device is None:
+        device = jax.devices()[0] if HAS_JAX else None
+    stats = device.memory_stats() if device is not None and hasattr(device, "memory_stats") else None
+    if stats and stats.get("bytes_limit"):
+        return float(stats["bytes_limit"])
+    return float(psutil.virtual_memory().total)
+
+
+def get_dynamic_chunk(dtype_target) -> int:
+    available_bytes, _source = _device_memory_budget_bytes()
+    safe_bytes = available_bytes * 0.85
     if HAS_JAX and dtype_target is jnp.complex128:
         bpe = 16
     elif dtype_target is np.complex128:
         bpe = 16
     else:
         bpe = 8
-    max_elements = safe_ram / bpe
+    max_elements = safe_bytes / bpe
     max_bits = int(np.floor(np.log2(max(max_elements, 2.0))))
     return max(16, min(max_bits, 27))
 
@@ -92,16 +135,19 @@ class SafeMemoryGuard:
             raise ValueError(f"threshold_pct must be in (0, 1), got {threshold_pct}")
         self.threshold_pct   = threshold_pct
         self.gc_before_check = gc_before_check
-        self._total_mb       = psutil.virtual_memory().total / (1024 * 1024)
+        # Device VRAM total on GPU/TPU, host RAM total on CPU (identical
+        # to the old psutil-only value there) -- see
+        # _device_memory_budget_bytes's docstring for why this matters.
+        self._total_mb       = _device_total_bytes() / (1024 * 1024)
 
     def status(self) -> dict:
-        vm = psutil.virtual_memory()
-        available_mb = vm.available / (1024 * 1024)
-        free_pct     = vm.available / vm.total
+        available_bytes, _source = _device_memory_budget_bytes()
+        available_mb = available_bytes / (1024 * 1024)
+        free_pct     = available_mb / self._total_mb if self._total_mb > 0 else 0.0
         return {
             "total_mb"    : self._total_mb,
             "available_mb": available_mb,
-            "used_pct"    : vm.percent,
+            "used_pct"    : (1.0 - free_pct) * 100.0,
             "free_pct"    : free_pct * 100.0,
             "safe"        : free_pct >= self.threshold_pct,
         }
