@@ -638,6 +638,8 @@ print(sim)
 #       chunk_size_bits=27, mem_per_chunk=2048.0 MB, ram_free=42.3%, has_jax=True)
 ```
 
+The table above was measured on CPU, where the compute device *is* the host -- `get_dynamic_chunk`/`SafeMemoryGuard` size chunks against the same RAM pool the data lives in. On a GPU/TPU that used to be wrong: both read `psutil.virtual_memory()` unconditionally, sizing `chunk_size_bits` off host RAM while the actual chunk data lives in the device's own, usually smaller, VRAM -- causing `MemoryPressureError`/real OOM well before the GPU's VRAM was actually exhausted. Fixed: both now read the active device's own memory via `jax.devices()[0].memory_stats()` when running on GPU/TPU, falling back to host RAM exactly as before on CPU. `run_chunk()` itself is unchanged -- it still holds every chunk in memory simultaneously, so total memory always equals `2**n_qubits * bytes_per_element` regardless of `chunk_size_bits`; this fix makes that ceiling reliable on GPU, not higher than a single device's own VRAM allows.
+
 ### Distributed dispatch across a device mesh — `run_chunk_distributed`
 
 `run_chunk()`'s multi-chunk path (`num_chunks > 1`) solves "RAM of one process" — every chunk lives in the same machine's memory, even though the kernel that moves them is JIT-fused. `run_chunk_distributed()` solves a different constraint: "more qubits than fit on one device," with one physical chunk pinned to its own JAX device (v1 scope: `jax.device_count()` must be `>= num_chunks`, exactly one chunk per device — a hybrid multi-chunk-per-device scheme is future work).
