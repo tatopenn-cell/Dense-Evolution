@@ -335,6 +335,38 @@ class TestChunkMultiPieceJIT:
             print(f"\n[multi-chunk JIT speed] n_qubits={n_qubits} num_chunks=4 "
                   f"200 gates: {elapsed:.4f}s (pre-fix Python-loop dispatch: ~2.2s)")
 
+    @pytest.mark.parametrize("gate_op", [
+        ("u3", ('u3', 2, 0.3, 0.5, 0.7)),
+        ("u2", ('u2', 2, 0.4, 0.9)),
+        ("ecr", ('ecr', 2, 3)),
+        ("iswap", ('iswap', 2, 3)),
+    ], ids=lambda p: p[0])
+    def test_gphase_derived_gates_match_reference(self, force_chunk_bits, gate_op):
+        # Regression test: QuantumTranspiler.transpile decomposes u2/u3/ecr/
+        # iswap into sequences that include a 'gphase' op (GATE_IDS['gphase']
+        # = 14). This kernel's own 1-qubit jax.lax.switch table used to be
+        # clipped to jnp.clip(g_id, 0, 13) -- one branch short of the 15
+        # _apply_gate_fast_step (compiler.py) has -- so gate_id 14 silently
+        # aliased to branch 13 (SX) instead of applying e^{i*alpha}*I. Caught
+        # by forcing num_chunks>1 (the bug only lives in this multi-chunk
+        # kernel, not the single-chunk path, which just forwards to
+        # DenseSVSimulator) and comparing against it as ground truth.
+        _, op = gate_op
+        force_chunk_bits(4)
+        n = 6
+        circuit = [('h', 0), ('cx', 0, 1), op, ('h', 4), ('cx', 4, 5)]
+
+        chunk_sim = Chunk(n, use_float32=False)
+        assert chunk_sim.num_chunks > 1
+        chunk_sim.run_chunk(circuit)
+        sv_chunk = np.asarray(chunk_sim.get_statevector())
+
+        ref = DenseSVSimulator(n, use_float32=False)
+        ref.run_circuit(circuit, transpile=True)
+        sv_ref = np.asarray(ref.get_statevector())
+
+        np.testing.assert_allclose(sv_chunk, sv_ref, atol=1e-9)
+
 
 class TestChunkUtilities:
     """Coverage-driven tests for chunk.py's smaller utility surfaces --
@@ -559,3 +591,19 @@ class TestChunkDistributed:
         monkeypatch.setattr(jax, "device_count", lambda: 4)
         with pytest.raises(RuntimeError, match="devices"):
             c.run_chunk_distributed([('h', 0)])
+
+    @pytest.mark.parametrize("gate_op", [
+        ("u3", ('u3', 4, 0.3, 0.5, 0.7)),
+        ("ecr", ('ecr', 4, 5)),
+    ], ids=lambda p: p[0])
+    def test_gphase_derived_gates_match_reference(self, force_chunk_bits, gate_op):
+        # Same GATE_IDS['gphase']=14 staleness bug as
+        # TestChunkMultiPieceJIT.test_gphase_derived_gates_match_reference,
+        # but in _build_distributed_chunk_step's own separately-duplicated
+        # 1-qubit switch table (a third copy of the same table, independent
+        # of the non-distributed kernel's).
+        _, op = gate_op
+        force_chunk_bits(3)  # n_qubits=6 -> num_chunks=8, m=3
+        sv_dist, sv_ref = self._compare_to_reference(
+            6, [('h', 0), ('h', 1), ('h', 2), op])
+        np.testing.assert_allclose(sv_dist, sv_ref, atol=1e-9)

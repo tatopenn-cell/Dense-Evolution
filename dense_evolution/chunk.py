@@ -278,7 +278,7 @@ if HAS_JAX:
             exp_neg_half = jnp.exp(-1j * half_p).astype(dtype)
 
             # 1-qubit gate matrix — identical table to _apply_gate_fast_step
-            safe_gid = jnp.clip(g_id, 0, 13)
+            safe_gid = jnp.clip(g_id, 0, 14)
             g_1q = jax.lax.switch(
                 safe_gid,
                 [
@@ -296,6 +296,10 @@ if HAS_JAX:
                     lambda _: jnp.array([[jnp.exp(-1j * half_p), 0.0 + 0j], [0.0 + 0j, jnp.exp(1j * half_p)]], dtype=dtype),
                     lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, exp_pos]], dtype=dtype),
                     lambda _: jnp.array([[0.5 + 0.5j, 0.5 - 0.5j], [0.5 - 0.5j, 0.5 + 0.5j]], dtype=dtype),
+                    # 14  GPhase(alpha) = e^{i*alpha} * I -- see compiler.py's
+                    # _apply_gate_fast_step index 14 for the derivation; this
+                    # table must stay in sync with that one (see comment above).
+                    lambda _: jnp.array([[exp_pos, 0.0 + 0j], [0.0 + 0j, exp_pos]], dtype=dtype),
                 ],
                 operand=None,
             )
@@ -486,7 +490,7 @@ if HAS_JAX:
             exp_pos_half = jnp.exp(1j * half_p).astype(dtype)
             exp_neg_half = jnp.exp(-1j * half_p).astype(dtype)
 
-            safe_gid = jnp.clip(g_id, 0, 13)
+            safe_gid = jnp.clip(g_id, 0, 14)
             g_1q = jax.lax.switch(
                 safe_gid,
                 [
@@ -504,6 +508,10 @@ if HAS_JAX:
                     lambda _: jnp.array([[jnp.exp(-1j * half_p), 0.0 + 0j], [0.0 + 0j, jnp.exp(1j * half_p)]], dtype=dtype),
                     lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, exp_pos]], dtype=dtype),
                     lambda _: jnp.array([[0.5 + 0.5j, 0.5 - 0.5j], [0.5 - 0.5j, 0.5 + 0.5j]], dtype=dtype),
+                    # 14  GPhase(alpha) = e^{i*alpha} * I -- must stay in sync
+                    # with _apply_gate_fast_step (compiler.py) and the
+                    # non-distributed copy of this table above.
+                    lambda _: jnp.array([[exp_pos, 0.0 + 0j], [0.0 + 0j, exp_pos]], dtype=dtype),
                 ],
                 operand=None,
             )
