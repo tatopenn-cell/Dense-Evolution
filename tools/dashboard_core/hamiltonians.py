@@ -28,7 +28,7 @@ import dense_evolution as de
 __all__ = [
     'MOLECULE_CATALOG', 'build_molecular_hamiltonian',
     'get_compatible_molecules', 'get_all_molecules', 'get_molecule_n_qubits',
-    'get_molecular_hamiltonian_matrix', 'ground_state_energy',
+    'get_molecular_hamiltonian_matrix', 'ground_state_energy', 'ground_state_energy_sparse',
     'linear_chain_geometry', 'ring_geometry',
 ]
 
@@ -427,6 +427,69 @@ def ground_state_energy(H_dense) -> float:
     checkable number (Hartree) for a Hamiltonian this small (H2/HeH+/H3+
     all fit well within exact diagonalization), not an estimate."""
     eigvals = np.linalg.eigvalsh(H_dense)
+    return float(eigvals.min())
+
+
+def ground_state_energy_sparse(symbols, geometry, charge: int = 0, mapping: str = "jordan_wigner",
+                                active_electrons=None, active_orbitals=None) -> float:
+    """Ground-state energy without ever materializing the dense
+    (2**n_qubits, 2**n_qubits) Hamiltonian matrix build_molecular_hamiltonian
+    + ground_state_energy require -- the fix for the PRIORITARIO gap
+    recorded in prog.txt (Sezione 4.1): that pair was blocked concretely
+    on Si2 (12 qubits, 805MB needed, SafeMemoryGuard refused it with only
+    1.37GB free). This path uses scipy.sparse.linalg.eigsh (Lanczos, ARPACK)
+    against a LinearOperator wrapping dense_evolution.pauli_sum_matvec --
+    same real Pauli terms _get_hamiltonian/_pennylane_hamiltonian_to_pauli_terms
+    already produce, just never densified. Memory need drops from O(dim**2)
+    to O(dim * ncv) (ncv = ARPACK's Lanczos basis size, a small constant),
+    the same qualitative jump the wormhole/VQE code already relies on
+    elsewhere in this file for anything past ~12-14 qubits on modest
+    hardware.
+
+    Same caveat as build_molecular_hamiltonian: mapping choice (Jordan-
+    Wigner vs Bravyi-Kitaev) only changes the qubit basis, never the
+    energy spectrum this returns.
+
+    Not a drop-in replacement for ground_state_energy: that function
+    still exists unchanged for callers that already have a small dense
+    H_dense (e.g. an already-built/cached catalog matrix) and want the
+    exact, non-iterative answer -- this is the new, separate opt-in path
+    for systems too large to densify at all, not a behavior change to
+    the existing one.
+    """
+    import scipy.sparse.linalg as sla
+
+    H, n_qubits = _get_hamiltonian(symbols, geometry, charge, mapping, active_electrons, active_orbitals)
+    terms = _pennylane_hamiltonian_to_pauli_terms(H, n_qubits)
+    dim = 2 ** n_qubits
+
+    if dim < 4:
+        # ARPACK's eigsh needs k < N-1; below 4 basis states there isn't
+        # room for even k=1 -- these sizes are exact-diagonalization
+        # territory anyway (ground_state_energy on a dense matrix this
+        # small costs nothing), not what this function exists for.
+        raise ValueError(
+            f"ground_state_energy_sparse needs at least 2 qubits (dim >= 4), got "
+            f"n_qubits={n_qubits} (dim={dim}) -- use build_molecular_hamiltonian + "
+            f"ground_state_energy for systems this small."
+        )
+
+    k = 1
+    ncv = min(dim - 1, max(2 * k + 1, 20))
+    # Lanczos needs ncv vectors of length dim in memory at once (complex128
+    # = 16 bytes), on top of a few fixed-size scratch vectors ARPACK keeps --
+    # the x3 mirrors build_molecular_hamiltonian's own safety margin, sized
+    # here for what eigsh actually allocates instead of a dense matrix.
+    required_mb = dim * ncv * 16 / 1e6 * 3
+    de.chunk.SafeMemoryGuard().check_allocation(
+        required_mb, context=f"{n_qubits}-qubit molecular Hamiltonian (sparse ground state)"
+    )
+
+    def matvec(v):
+        return de.pauli_sum_matvec(v, terms, n_qubits=n_qubits)
+
+    op = sla.LinearOperator(shape=(dim, dim), matvec=matvec, dtype=np.complex128)
+    eigvals = sla.eigsh(op, k=k, which='SA', ncv=ncv, return_eigenvectors=False)
     return float(eigvals.min())
 
 

@@ -7,7 +7,9 @@ import numpy as np
 import pytest
 
 from dense_evolution import DenseSVSimulator
-from dense_evolution.observables import pauli_expectation, pauli_sum_expectation, pauli_hamiltonian_to_matrix
+from dense_evolution.observables import (
+    pauli_expectation, pauli_sum_expectation, pauli_hamiltonian_to_matrix, pauli_sum_matvec,
+)
 
 _PAULI_MATS = {
     'I': np.eye(2, dtype=complex),
@@ -154,3 +156,51 @@ class TestPauliHamiltonianToMatrix:
     def test_invalid_n_qubits_raises(self):
         with pytest.raises(ValueError):
             pauli_hamiltonian_to_matrix([(1.0, {0: 'Z'})], n_qubits=0)
+
+
+class TestPauliSumMatvec:
+    """prog.txt Sezione 4.1 -- the matrix-free H @ vector primitive behind
+    ground_state_energy_sparse's scipy.sparse.linalg.eigsh path. Must
+    agree with pauli_hamiltonian_to_matrix(terms, n_qubits) @ vector to
+    machine precision -- that's the whole point, it's the same H, just
+    never materialized as a (2**n, 2**n) array."""
+
+    def test_matches_dense_matrix_matvec(self):
+        rng = np.random.default_rng(21)
+        n_qubits, dim = 4, 16
+        letters = ['I', 'X', 'Y', 'Z']
+        for _ in range(50):
+            n_terms = rng.integers(1, 6)
+            terms = [
+                (float(rng.normal()), ''.join(rng.choice(letters) for _ in range(n_qubits)))
+                for _ in range(n_terms)
+            ]
+            v = rng.normal(size=dim) + 1j * rng.normal(size=dim)
+            H = pauli_hamiltonian_to_matrix(terms, n_qubits=n_qubits)
+            expected = H @ v
+            actual = pauli_sum_matvec(v, terms, n_qubits=n_qubits)
+            assert np.allclose(actual, expected, atol=1e-9)
+
+    def test_not_required_to_be_normalized(self):
+        # A linear map, not an expectation value -- must work on an
+        # arbitrary (non-unit-norm) vector, e.g. an intermediate Lanczos
+        # vector from eigsh, not just a physical statevector.
+        terms = [(1.0, 'ZZ'), (0.5, {0: 'X'})]
+        v = np.array([2.0, 0.0, 0.0, 0.0], dtype=complex)
+        H = pauli_hamiltonian_to_matrix(terms, n_qubits=2)
+        assert np.allclose(pauli_sum_matvec(v, terms, n_qubits=2), H @ v)
+
+    def test_bell_state_zz_ground_truth(self):
+        sim = DenseSVSimulator(2, use_float32=False)
+        sim.run_circuit([('h', 0), ('cx', 0, 1)])
+        psi = sim.get_statevector()
+        Hpsi = pauli_sum_matvec(psi, [(1.0, 'ZZ')], n_qubits=2)
+        assert float(np.real(np.conj(psi) @ Hpsi)) == pytest.approx(1.0, abs=1e-9)
+
+    def test_vector_length_not_a_power_of_two_raises(self):
+        with pytest.raises(ValueError):
+            pauli_sum_matvec(np.zeros(5, dtype=complex), [(1.0, {0: 'Z'})])
+
+    def test_qubit_out_of_range_raises(self):
+        with pytest.raises(ValueError):
+            pauli_sum_matvec(np.zeros(4, dtype=complex), [(1.0, {5: 'Z'})])

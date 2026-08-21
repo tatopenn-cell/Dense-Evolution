@@ -20,7 +20,7 @@ from .mitigation.zne import (richardson_extrapolate, zero_noise_extrapolation, p
                           richardson_extrapolate_jit, zero_noise_extrapolation_jit,
                           polynomial_extrapolate_jit, uhlmann_fidelity_jit, zne_density_matrix_jit)
 from .circuits.topology import entangling_layer
-from .physics.observables import pauli_expectation, pauli_sum_expectation, pauli_hamiltonian_to_matrix
+from .physics.observables import pauli_expectation, pauli_sum_expectation, pauli_hamiltonian_to_matrix, pauli_sum_matvec
 from .physics.states import ghz_state
 from .utils.measurement import sample_counts, statevector_fidelity
 from .circuits.qft import qft
@@ -64,7 +64,7 @@ __all__ = [
     "polynomial_extrapolate_jit", "uhlmann_fidelity_jit", "zne_density_matrix_jit",
     # Physics -- states, observables, entropy, fermions, QEC
     "ghz_state",
-    "pauli_expectation", "pauli_sum_expectation", "pauli_hamiltonian_to_matrix",
+    "pauli_expectation", "pauli_sum_expectation", "pauli_hamiltonian_to_matrix", "pauli_sum_matvec",
     "partial_trace", "von_neumann_entropy", "mutual_information",
     "majorana_pauli_terms",
     "pauli_commutes", "compute_syndrome", "erasure_aware_decode",

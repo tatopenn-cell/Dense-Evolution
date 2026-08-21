@@ -23,7 +23,7 @@ from .circuit_builder_component import mount_circuit_builder
 from .hamiltonians import (
     MOLECULE_CATALOG, build_molecular_hamiltonian, get_compatible_molecules,
     get_all_molecules, get_molecule_n_qubits,
-    get_molecular_hamiltonian_matrix, ground_state_energy,
+    get_molecular_hamiltonian_matrix, ground_state_energy, ground_state_energy_sparse,
     linear_chain_geometry, ring_geometry, mix_hamiltonians,
 )
 from .mitigation import (
@@ -50,7 +50,7 @@ __all__ = [
     'mount_circuit_builder',
     'MOLECULE_CATALOG', 'build_molecular_hamiltonian', 'get_compatible_molecules',
     'get_all_molecules', 'get_molecule_n_qubits',
-    'get_molecular_hamiltonian_matrix', 'ground_state_energy',
+    'get_molecular_hamiltonian_matrix', 'ground_state_energy', 'ground_state_energy_sparse',
     'linear_chain_geometry', 'ring_geometry', 'mix_hamiltonians',
     'MitigationResult', 'run_zne_mitigation',
     'DensityMatrixZNEResult', 'run_density_matrix_zne',
