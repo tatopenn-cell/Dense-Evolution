@@ -607,3 +607,214 @@ class TestChunkDistributed:
         sv_dist, sv_ref = self._compare_to_reference(
             6, [('h', 0), ('h', 1), ('h', 2), op])
         np.testing.assert_allclose(sv_dist, sv_ref, atol=1e-9)
+
+
+class TestChunkStreaming:
+    """Chunk(..., streaming=True) / run_chunk_streaming(): a third
+    execution mode alongside run_chunk() (every chunk allocated eagerly in
+    __init__, device memory scales with num_chunks) and
+    run_chunk_distributed() (needs jax.device_count() >= num_chunks). This
+    one keeps num_chunks chunks in HOST RAM between gates and moves at
+    most 2 onto the compute device at a time -- device memory is bounded
+    by a small, dynamically-computed budget regardless of num_chunks, at
+    the cost of one host<->device transfer per chunk-select-qubit gate.
+    Same "amplitudes sent pairwise" structure as the distributed-memory
+    literature (LaRose, arXiv:1801.01037) and the same load/compute/
+    write-back cycle IBM's secondary-storage Sycamore simulation uses
+    (Pednault et al., arXiv:1910.09534) -- see run_chunk_streaming's own
+    docstring for the full citation and the one optimization (batching
+    consecutive gates per chunk pair) it doesn't yet implement.
+
+    Correctness bar: cross-check against a plain DenseSVSimulator running
+    the identical (transpiled) circuit -- same standard the other two
+    execution modes' test classes use."""
+
+    @pytest.fixture
+    def force_chunk_bits(self, monkeypatch):
+        import dense_evolution.chunk as chunk_mod
+
+        def _force(bits):
+            monkeypatch.setattr(chunk_mod, "get_dynamic_chunk", lambda dtype_target: bits)
+
+        return _force
+
+    def _compare_to_reference(self, n_qubits, circuit, use_float32=False):
+        c = Chunk(n_qubits, use_float32=use_float32, streaming=True)
+        c.run_chunk_streaming(circuit)
+        sv_stream = np.asarray(c.get_statevector())
+
+        ref = DenseSVSimulator(n_qubits, use_float32=use_float32)
+        ref.run_circuit(circuit, transpile=True)
+        sv_ref = np.asarray(ref.get_statevector())
+        return sv_stream, sv_ref
+
+    def test_1q_local(self, force_chunk_bits):
+        force_chunk_bits(3)  # n_qubits=6 -> num_chunks=8, m=3
+        sv, ref = self._compare_to_reference(6, [('h', 3), ('rx', 4, 0.4), ('rz', 5, 0.9)])
+        np.testing.assert_allclose(sv, ref, atol=1e-9)
+
+    def test_1q_chunk_select(self, force_chunk_bits):
+        force_chunk_bits(3)
+        sv, ref = self._compare_to_reference(6, [('h', 0), ('h', 1), ('h', 2)])
+        np.testing.assert_allclose(sv, ref, atol=1e-9)
+
+    def test_2q_local_local(self, force_chunk_bits):
+        force_chunk_bits(3)
+        sv, ref = self._compare_to_reference(6, [('h', 3), ('cx', 3, 4), ('cx', 4, 5)])
+        np.testing.assert_allclose(sv, ref, atol=1e-9)
+
+    @pytest.mark.parametrize("gate", ["cx", "cz", "cy"])
+    def test_2q_control_chunk_select_target_local(self, force_chunk_bits, gate):
+        force_chunk_bits(3)
+        circuit = [('h', 0), ('h', 1), ('h', 2), ('h', 5), (gate, 0, 5)]
+        sv, ref = self._compare_to_reference(6, circuit)
+        np.testing.assert_allclose(sv, ref, atol=1e-9)
+
+    @pytest.mark.parametrize("gate", ["cx", "cz", "cy"])
+    def test_2q_control_local_target_chunk_select(self, force_chunk_bits, gate):
+        force_chunk_bits(3)
+        circuit = [('h', 5), ('h', 0), (gate, 5, 0)]
+        sv, ref = self._compare_to_reference(6, circuit)
+        np.testing.assert_allclose(sv, ref, atol=1e-9)
+
+    @pytest.mark.parametrize("gate", ["cx", "cz", "cy"])
+    def test_2q_control_chunk_select_target_chunk_select(self, force_chunk_bits, gate):
+        force_chunk_bits(3)
+        circuit = [('h', 0), ('h', 1), (gate, 0, 1)]
+        sv, ref = self._compare_to_reference(6, circuit)
+        np.testing.assert_allclose(sv, ref, atol=1e-9)
+
+    def test_parametric_2q_gates(self, force_chunk_bits):
+        force_chunk_bits(3)
+        circuit = [('h', q) for q in range(6)] + [('crz', 0, 1, 0.5), ('cp', 3, 4, 0.7)]
+        sv, ref = self._compare_to_reference(6, circuit)
+        np.testing.assert_allclose(sv, ref, atol=1e-9)
+
+    @pytest.mark.parametrize("gate_op", [
+        ("u3", ('u3', 3, 0.3, 0.5, 0.7)),
+        ("u2", ('u2', 2, 0.4, 0.9)),
+        ("ecr", ('ecr', 2, 3)),
+        ("iswap", ('iswap', 2, 3)),
+    ], ids=lambda p: p[0])
+    def test_gphase_derived_gates_match_reference(self, force_chunk_bits, gate_op):
+        _, op = gate_op
+        force_chunk_bits(3)
+        circuit = [('h', q) for q in range(6)] + [op, ('cx', 3, 4)]
+        sv, ref = self._compare_to_reference(6, circuit)
+        np.testing.assert_allclose(sv, ref, atol=1e-9)
+
+    def test_random_mixed_circuit_large_num_chunks(self, force_chunk_bits):
+        # num_chunks=128 (n_qubits=9, chunk_size_bits=2) -- stresses the
+        # "skip untouched chunks entirely" optimization in
+        # _apply_2q_streaming's ctrl-chunk-select cases at real scale, not
+        # just num_chunks=8 like the other tests in this class.
+        force_chunk_bits(2)
+        rng = np.random.default_rng(42)
+        pool_1q, pool_2q = ['h', 'x', 'y', 'z', 's', 'rx', 'ry', 'rz'], ['cx', 'cz', 'cy', 'crz', 'cp']
+        n = 9
+        circuit = []
+        for _ in range(80):
+            if rng.random() < 0.35:
+                q1, q2 = rng.choice(n, size=2, replace=False)
+                name = rng.choice(pool_2q)
+                if name in ('crz', 'cp'):
+                    circuit.append((name, int(q1), int(q2), float(rng.uniform(0, 6.28))))
+                else:
+                    circuit.append((name, int(q1), int(q2)))
+            else:
+                name = rng.choice(pool_1q)
+                q = int(rng.integers(n))
+                if name in ('rx', 'ry', 'rz'):
+                    circuit.append((name, q, float(rng.uniform(0, 6.28))))
+                else:
+                    circuit.append((name, q))
+        sv, ref = self._compare_to_reference(n, circuit)
+        np.testing.assert_allclose(sv, ref, atol=1e-9)
+
+    def test_dtype_float32(self, force_chunk_bits):
+        force_chunk_bits(2)  # n_qubits=4 -> num_chunks=4, m=2
+        circuit = [('h', 0), ('h', 1), ('cx', 0, 2), ('rz', 3, 0.6)]
+        sv, ref = self._compare_to_reference(4, circuit, use_float32=True)
+        np.testing.assert_allclose(sv, ref, atol=1e-4)
+        assert sv.dtype == np.complex64
+
+    def test_num_chunks_1_forwards_correctly(self, force_chunk_bits):
+        # streaming=True is a no-op when num_chunks==1 -- both constructor
+        # branches produce the same single inner simulator.
+        force_chunk_bits(10)  # n_qubits=4 fits in one chunk
+        c = Chunk(4, streaming=True)
+        assert c.num_chunks == 1
+        sv, ref = self._compare_to_reference(4, [('h', 0), ('cx', 0, 1), ('rz', 2, 0.5)])
+        np.testing.assert_allclose(sv, ref, atol=1e-9)
+
+    def test_run_chunk_raises_on_streaming_instance(self, force_chunk_bits):
+        force_chunk_bits(3)
+        c = Chunk(6, streaming=True)
+        with pytest.raises(RuntimeError, match="streaming"):
+            c.run_chunk([('h', 0)])
+
+    def test_dispatch_distributed_raises_on_streaming_instance(self, force_chunk_bits):
+        force_chunk_bits(3)
+        c = Chunk(6, streaming=True)
+        with pytest.raises(RuntimeError, match="streaming"):
+            c.dispatch_distributed([('h', 0)])
+
+    def test_run_chunk_streaming_raises_without_streaming_true(self, force_chunk_bits):
+        force_chunk_bits(3)
+        c = Chunk(6)  # streaming=False (default), num_chunks=8
+        with pytest.raises(RuntimeError, match="streaming=True"):
+            c.run_chunk_streaming([('h', 0)])
+
+    def test_device_budget_too_small_raises_memory_pressure_error(self, force_chunk_bits):
+        import dense_evolution.chunk as chunk_mod
+
+        force_chunk_bits(3)
+        c = Chunk(6, streaming=True)
+        with pytest.raises(chunk_mod.MemoryPressureError, match="run_chunk_streaming needs room"):
+            c.run_chunk_streaming([('h', 0)], device_budget_mb=0.0001)
+
+    def test_dynamic_default_budget_runs_without_explicit_arg(self, force_chunk_bits):
+        # No device_budget_mb passed -- must fall back to a real, computed
+        # budget (dense_evolution.chunk._device_memory_budget_bytes), not
+        # crash for lack of an explicit number.
+        force_chunk_bits(3)
+        circuit = [('h', 0), ('h', 3), ('cx', 3, 4), ('crz', 0, 4, 0.3)]
+        sv, ref = self._compare_to_reference(6, circuit)
+        np.testing.assert_allclose(sv, ref, atol=1e-9)
+
+    def test_device_transfer_count_matches_hand_derived_formula(self, force_chunk_bits, monkeypatch):
+        # Not a peak-concurrency check (self._host_chunks entries are
+        # always plain numpy between iterations -- the on-device arrays
+        # only ever exist as loop-local Python variables, invisible to any
+        # inspection of self._host_chunks; the "at most 2 chunks on-device
+        # at once" guarantee is a structural property of the code in
+        # _apply_1q_streaming/_apply_2q_streaming, verified by reading
+        # them, not by runtime instrumentation here). What IS directly
+        # measurable and worth pinning down: the TOTAL number of
+        # host<->device transfers for a known circuit, hand-derived case
+        # by case (num_chunks=8, m=3 throughout):
+        #   6x 'h' on q in {0,1,2} (chunk-select) -> 4 pairs x 2 = 8 each  = 24
+        #   6x 'h' on q in {3,4,5} (local)        -> 8 chunks x 1 each    = 24
+        #   cy(0,1)      both chunk-select, only ctrl-set pairs touched  =  4
+        #   crz(3,1,.4)  ctrl local/tgt chunk, all 4 pairs, masked        =  8
+        #   cx(3,4)      both local, every chunk touched                 =  8
+        #                                                          total = 68
+        import dense_evolution.chunk as chunk_mod
+
+        force_chunk_bits(3)
+        c = Chunk(6, streaming=True)
+        counts = []
+        original_device_put = chunk_mod.jax.device_put
+
+        def counting_device_put(x, *a, **kw):
+            counts.append(1)
+            return original_device_put(x, *a, **kw)
+
+        monkeypatch.setattr(chunk_mod.jax, "device_put", counting_device_put)
+        circuit = [('h', q) for q in range(6)] + [('cy', 0, 1), ('crz', 3, 1, 0.4), ('cx', 3, 4)]
+        c.run_chunk_streaming(circuit)
+        assert len(counts) == 68, (
+            f"{len(counts)} device_put calls, expected exactly 68 (see the "
+            f"hand-derived breakdown above) -- the per-gate transfer pattern "
+            f"changed, re-derive and update this count if that was intentional"
+        )

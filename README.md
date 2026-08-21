@@ -653,6 +653,21 @@ Cross-chunk gate mixing (a gate touching one of the top `m = n_qubits - chunk_si
 
 Requires `jax.device_count() >= num_chunks`; raises `RuntimeError` with the exact count needed otherwise. For local testing without real multi-GPU hardware, force extra simulated CPU devices via `XLA_FLAGS=--xla_force_host_platform_device_count=N` (set before the process starts — JAX's device count is fixed at first initialization, not changeable at runtime) — this validates the sharding/communication logic is correct, not real GPU-to-GPU network performance, which needs actual multi-GPU/multi-host hardware to measure honestly.
 
+### Streamed, memory-bounded dispatch on one device — `run_chunk_streaming`
+
+`run_chunk()`'s multi-chunk path allocates every chunk eagerly, in `Chunk.__init__` itself — device memory still scales with `num_chunks`, just distributed across more, smaller arrays. `run_chunk_streaming()` solves a third constraint: one physical device, a fixed memory budget, and a qubit count that's allowed to exceed what fits on that device at once — the cost is wall-clock time, not device memory. Chunks live in host RAM between gates; at most **2** chunk-sized arrays are ever resident on the compute device at a time, regardless of `num_chunks` (a gate confined to one chunk's local qubits needs only 1; a gate touching a "chunk-select" qubit mixes exactly one pair — the same pairwise-exchange structure `run_chunk_distributed` uses over a real device mesh, applied here as a sequence of host↔device round trips on a single device instead).
+
+```python
+from dense_evolution import Chunk
+
+sim = Chunk(29, streaming=True, use_float32=True)  # would OOM a single GPU eagerly
+sim.run_chunk_streaming([['h', i] for i in range(29)])
+```
+
+Requires `Chunk(..., streaming=True)` at construction (`run_chunk()`/`run_chunk_distributed()` raise a clear `RuntimeError` if called on a streaming instance, and vice versa). The device budget is computed dynamically by default — real free GPU VRAM via `jax.devices()[0].memory_stats()` when running on a GPU, host RAM via `psutil` otherwise, never a hardcoded number — or fixed explicitly with `device_budget_mb=`; either way, `run_chunk_streaming` raises `MemoryPressureError` up front if even 2 chunks won't fit, instead of failing deep inside an XLA allocation. Verified for exact correctness against `DenseSVSimulator` across all 6 gate/qubit-location cases, `u2`/`u3`/`ecr`/`iswap` (GPhase-derived gates), randomized mixed circuits up to `num_chunks=128`, and both dtypes.
+
+There's no read/write-cycle batching across gates yet (each chunk-select-qubit gate pays its own host↔device transfer) — grouping consecutive gates that touch the same chunk pair before writing back, the way large-scale out-of-core simulators do (Pednault et al., [arXiv:1910.09534](https://arxiv.org/abs/1910.09534), IBM's secondary-storage simulation of the 54-qubit Sycamore circuit), is a natural follow-up, not yet implemented.
+
 ---
 
 ## ▍ Benchmarks

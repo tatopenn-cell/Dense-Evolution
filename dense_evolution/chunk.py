@@ -19,12 +19,12 @@ HAS_JAX = True
 try:
     from simulator import DenseSVSimulator
     from compiler import QuantumTranspiler  # pragma: no cover
-    from gates import GATE_IDS  # pragma: no cover
+    from gates import GATE_IDS, GATES, PARAMETRIC_GATES  # pragma: no cover
 except ModuleNotFoundError:
     try:
         from dense_evolution.simulator import DenseSVSimulator
         from dense_evolution.compiler import QuantumTranspiler
-        from dense_evolution.gates import GATE_IDS
+        from dense_evolution.gates import GATE_IDS, GATES, PARAMETRIC_GATES
     except ModuleNotFoundError:  # pragma: no cover
         class DenseSVSimulator:  # type: ignore[no-redef]
             def __init__(self, n_qubits, **kwargs):
@@ -42,6 +42,8 @@ except ModuleNotFoundError:
             def transpile(circuit): return circuit
 
         GATE_IDS: dict = {}
+        GATES: dict = {}
+        PARAMETRIC_GATES: dict = {}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -59,6 +61,28 @@ def get_dynamic_chunk(dtype_target) -> int:
     max_elements = safe_ram / bpe
     max_bits = int(np.floor(np.log2(max(max_elements, 2.0))))
     return max(16, min(max_bits, 27))
+
+
+def _device_memory_budget_bytes(device=None) -> Tuple[float, str]:
+    """Real, dynamic memory budget for streaming execution (Chunk.
+    run_chunk_streaming) -- reads the ACTIVE compute device's own memory
+    via JAX's device.memory_stats() (bytes_limit - bytes_in_use) when
+    available, falling back to host RAM via psutil.virtual_memory()
+    otherwise (some backends, e.g. plain CPU, return None from
+    memory_stats() -- confirmed directly). This is the library version of
+    the GPU-VRAM-aware prototype first validated in test_gpu_real.py on
+    real GPU hardware (parts 4-5) before being ported in here for real.
+
+    Returns (available_bytes, source_description) -- the raw number, not
+    a safety-margined one; callers apply their own margin."""
+    if device is None:
+        device = jax.devices()[0]
+    stats = device.memory_stats() if hasattr(device, "memory_stats") else None
+    if stats and stats.get("bytes_limit"):
+        available = stats["bytes_limit"] - stats.get("bytes_in_use", 0)
+        return float(available), f"device.memory_stats() on {device}"
+    vm = psutil.virtual_memory()
+    return float(vm.available), "psutil (host RAM) -- device.memory_stats() unavailable"
 
 
 def _dtype_for_qubits(n_qubits: int):
@@ -830,6 +854,14 @@ class Chunk:
     memory_threshold  : free-RAM fraction below which execution is blocked
                         (default 0.15 = 15%)
     use_float32       : forwarded to DenseSVSimulator
+    streaming         : if True (and num_chunks>1), skip the eager
+                        num_chunks-simulators-in-RAM-at-once allocation
+                        below and instead keep chunks in host RAM, moving
+                        at most 2 onto the compute device at a time via
+                        run_chunk_streaming() -- see that method's
+                        docstring. Ignored when num_chunks==1 (nothing to
+                        stream). Default False: unchanged existing
+                        behavior, use run_chunk()/run_chunk_distributed().
     """
 
     def __init__(
@@ -838,6 +870,7 @@ class Chunk:
         chunk_size_gates:  int   = 500,
         memory_threshold:  float = 0.15,
         use_float32:       bool  = False,
+        streaming:         bool  = False,
     ):
         # 1. Geometry — purely RAM-based, no JAX allocation yet
         self._mem_chunker     = MemoryChunker(n_qubits)
@@ -847,6 +880,13 @@ class Chunk:
         self.n                = n_qubits
         self.chunk_size_gates = chunk_size_gates
         self._m                = n_qubits - self._mem_chunker.chunk_size_bits  # chunk-select qubit count (0 if num_chunks==1)
+        self._host_chunks      = None  # only set in the streaming branch below
+        # For num_chunks==1 the two constructor branches below are
+        # identical (a single self._inner_sim either way) -- streaming
+        # only actually changes anything when num_chunks>1, so the
+        # run_chunk()/run_chunk_streaming() mode guards only fire in that
+        # case (see their own checks: `self.num_chunks > 1`).
+        self._streaming         = streaming
 
         if self._mem_chunker.num_chunks == 1:
             # 3a. Pre-allocation RAM check — block here rather than inside JAX
@@ -866,6 +906,33 @@ class Chunk:
                 simulator_instance=self._inner_sim,
                 memory_threshold=memory_threshold,
             )
+        elif streaming:
+            # 3c. Pre-allocation check: HOST RAM must hold the full logical
+            # statevector (num_chunks chunk-sized numpy arrays) -- no "+2
+            # headroom" term like branch 3b below, since run_chunk_streaming
+            # never holds more than 2 chunks anywhere beyond this backing
+            # store (that check happens dynamically inside
+            # run_chunk_streaming itself, against DEVICE memory, not here).
+            num_chunks   = self._mem_chunker.num_chunks
+            per_chunk_mb = self._mem_chunker.memory_mb()
+            self._guard.check_allocation(
+                num_chunks * per_chunk_mb,
+                f"Chunk.__init__ (streaming) — allocating {num_chunks} chunks of "
+                f"{self._mem_chunker.chunk_size_bits} qubits each in host RAM",
+            )
+
+            np_dtype = np.complex64 if use_float32 else np.complex128
+            chunk_dim = self._mem_chunker.chunk_dim
+            self._host_chunks = [np.zeros(chunk_dim, dtype=np_dtype) for _ in range(num_chunks)]
+            self._host_chunks[0][0] = 1.0  # logical |0...0> lives in chunk 0, local index 0
+            self._streaming = True
+
+            self._inner_sim          = None
+            self._chunk_sims         = None
+            self._circuit_chunker    = None
+            self._multi_chunk_runner = None
+            self._distributed_runner = None
+            self._distributed_mesh   = None
         else:
             # 3b. Sized pre-allocation check: num_chunks chunk-sized simulators
             # held in RAM at once, plus ~2 chunks of headroom for the temporary
@@ -934,10 +1001,14 @@ class Chunk:
     @property
     def sv(self):
         """Current statevector. For num_chunks==1, the physical (chunk-sized)
-        simulator's own array. For num_chunks>1, the chunks concatenated in
-        ascending order — valid because of the MSB-first correspondence
-        between chunk index and the top `_m` logical qubits (see
-        _dispatch_multi's docstring)."""
+        simulator's own array. For num_chunks>1 (eager), the chunks
+        concatenated in ascending order — valid because of the MSB-first
+        correspondence between chunk index and the top `_m` logical qubits
+        (see _dispatch_multi's docstring). For num_chunks>1 (streaming),
+        same ascending-order concatenation, but of the host-RAM-backed
+        numpy chunks instead of DenseSVSimulator instances."""
+        if self._host_chunks is not None:
+            return np.concatenate(self._host_chunks)
         if self._chunk_sims is None:
             return self._inner_sim.sv
         xp = self._chunk_sims[0].xp
@@ -949,11 +1020,19 @@ class Chunk:
         NoiseModel.apply_to_sv called on `.sv`) and writes it back through
         to the physical storage -- the inner simulator directly for
         num_chunks==1, or split back into per-chunk slices (same ascending
-        concatenation order as the getter) for num_chunks>1."""
+        concatenation order as the getter) for num_chunks>1 (eager or
+        streaming)."""
+        chunk_dim = self._mem_chunker.chunk_dim
+        if self._host_chunks is not None:
+            value = np.asarray(value)
+            self._host_chunks = [
+                np.array(value[i * chunk_dim:(i + 1) * chunk_dim], dtype=self._host_chunks[0].dtype)
+                for i in range(self._mem_chunker.num_chunks)
+            ]
+            return
         if self._chunk_sims is None:
             self._inner_sim.sv = value
             return
-        chunk_dim = self._mem_chunker.chunk_dim
         xp = self._chunk_sims[0].xp
         value = xp.asarray(value)
         for i, sim in enumerate(self._chunk_sims):
@@ -961,6 +1040,8 @@ class Chunk:
 
     def memory_mb(self) -> float:
         """RAM used by the physical statevector(s) in MB."""
+        if self._host_chunks is not None:
+            return sum(c.nbytes for c in self._host_chunks) / 1_000_000
         if self._chunk_sims is None:
             return self._inner_sim.memory_mb()
         return sum(sim.memory_mb() for sim in self._chunk_sims)
@@ -975,10 +1056,13 @@ class Chunk:
         ONCE over the full array — NOT each chunk's own get_probabilities()
         (that would independently renormalize each chunk's partial mass to
         1, summing to num_chunks overall and destroying the relative
-        weighting between chunks)."""
-        if self._chunk_sims is None:
+        weighting between chunks). Same for streaming's host-RAM chunks."""
+        if self._host_chunks is not None:
+            full_sv = np.concatenate(self._host_chunks)
+        elif self._chunk_sims is None:
             return self._inner_sim.get_probabilities()
-        full_sv = np.concatenate([np.array(sim.sv) for sim in self._chunk_sims])
+        else:
+            full_sv = np.concatenate([np.array(sim.sv) for sim in self._chunk_sims])
         probs = np.abs(full_sv) ** 2
         probs = np.clip(probs, 0.0, 1.0)
         total = probs.sum()
@@ -990,7 +1074,10 @@ class Chunk:
         """Full complex statevector, num_qubits logical qubits long
         (2**n elements). num_chunks==1: forwards to the inner
         DenseSVSimulator. num_chunks>1: raw chunks concatenated in order
-        (see `sv` property)."""
+        (see `sv` property) -- from DenseSVSimulator instances (eager) or
+        host-RAM numpy arrays (streaming)."""
+        if self._host_chunks is not None:
+            return np.concatenate(self._host_chunks)
         if self._chunk_sims is None:
             return self._inner_sim.get_statevector()
         return np.concatenate([np.array(sim.sv, dtype=sim.dtype) for sim in self._chunk_sims])
@@ -1042,6 +1129,11 @@ class Chunk:
         (chunk_dim,) row, exchanging edge data with its stride-partner
         device via jax.lax.ppermute inside the kernel, not through this
         Python method."""
+        if self._streaming and self.num_chunks > 1:
+            raise RuntimeError(
+                "dispatch_distributed() doesn't apply to a Chunk constructed "
+                "with streaming=True -- use run_chunk_streaming() instead."
+            )
         if self._chunk_sims is None:
             raise RuntimeError(
                 "dispatch_distributed() requires num_chunks > 1 "
@@ -1076,7 +1168,11 @@ class Chunk:
         circuit: List,
         chunk_size_gates: Optional[int] = None,
     ) -> None:
-
+        if self._streaming and self.num_chunks > 1:
+            raise RuntimeError(
+                "run_chunk() doesn't apply to a Chunk constructed with "
+                "streaming=True -- use run_chunk_streaming() instead."
+            )
         if self._chunk_sims is not None:
             self._dispatch_multi(circuit)
             return
@@ -1090,6 +1186,229 @@ class Chunk:
         otherwise (see dispatch_distributed's docstring for how to test
         this with simulated multi-device CPU)."""
         self.dispatch_distributed(circuit)
+
+    # ── Streaming (sequential, device-memory-bounded) dispatch ──────────────
+    # Every gate touches at most 2 of the num_chunks chunks (see the case
+    # analysis in _apply_1q_streaming/_apply_2q_streaming below) -- the same
+    # "amplitudes are sent pairwise" structure LaRose (arXiv:1801.01037,
+    # Fig. 6/10) describes for MPI-distributed statevector simulation.
+    # Pednault et al. (arXiv:1910.09534, IBM's answer to Google's 54-qubit
+    # Sycamore supremacy claim) apply the same load/compute/write-back
+    # cycle against secondary storage, plus one optimization this does NOT
+    # yet implement: grouping consecutive gates that touch the same pair of
+    # chunks so a pair is loaded once and drained of every applicable gate
+    # before being written back, instead of one host<->device round trip
+    # per gate (their exact words: files "are never read or written
+    # multiple times in a single read or write cycle"). Without that, a
+    # circuit with many chunk-select-qubit gates pays a real, sometimes
+    # steep, cost here -- LaRose's own measurement: a communication-
+    # requiring gate can be ~10^6x slower than a purely local one on his
+    # MPI cluster. That is the accepted trade this mode makes on purpose
+    # (time, not space -- see prog.txt/this session's discussion): device
+    # memory stays bounded by a small, real, dynamically-computed budget
+    # regardless of num_chunks, at the cost of per-gate transfer overhead.
+
+    def _apply_1q_streaming(self, q: int, mat, m: int, k: int, num_chunks: int,
+                             chunk_dim: int, device) -> None:
+        g00, g01, g10, g11 = mat[0, 0], mat[0, 1], mat[1, 0], mat[1, 1]
+        if q >= m:
+            # LOCAL qubit -- every chunk transformed independently, 1 chunk
+            # on-device at a time (case_1q_local's math, chunk.py:333).
+            local_phys = (k - 1) - (q - m)
+            stride = 1 << local_phys
+            idx = np.arange(chunk_dim)
+            idx_pair = idx ^ stride
+            mask0 = (idx & stride) == 0
+            for c in range(num_chunks):
+                dc = jax.device_put(self._host_chunks[c], device)
+                amp_pair = dc[idx_pair]
+                new0 = g00 * dc + g01 * amp_pair
+                new1 = g10 * amp_pair + g11 * dc
+                self._host_chunks[c] = np.asarray(jnp.where(mask0, new0, new1))
+        else:
+            # CHUNK-SELECT qubit -- pairs of chunks mixed, 2 chunks
+            # on-device at a time (case_1q_chunk's math, chunk.py:347).
+            stride = 1 << (m - 1 - q)
+            for c0 in range(num_chunks):
+                if (c0 & stride) != 0:
+                    continue  # each pair processed once, from the bit=0 side
+                c1 = c0 ^ stride
+                d0 = jax.device_put(self._host_chunks[c0], device)
+                d1 = jax.device_put(self._host_chunks[c1], device)
+                new0 = g00 * d0 + g01 * d1
+                new1 = g10 * d0 + g11 * d1
+                self._host_chunks[c0] = np.asarray(new0)
+                self._host_chunks[c1] = np.asarray(new1)
+
+    def _apply_2q_streaming(self, q1: int, q2: int, u, m: int, k: int,
+                             num_chunks: int, chunk_dim: int, device) -> None:
+        u00, u01, u10, u11 = u[0, 0], u[0, 1], u[1, 0], u[1, 1]
+        q1_chunk, q2_chunk = q1 < m, q2 < m
+
+        if not q1_chunk and not q2_chunk:
+            # both LOCAL -- every chunk independently, 1 on-device at a
+            # time (case_2q_local_local, chunk.py:358).
+            ctrl_phys = (k - 1) - (q1 - m)
+            tgt_phys  = (k - 1) - (q2 - m)
+            idx = np.arange(chunk_dim)
+            ctrl_bit = (idx & (1 << ctrl_phys)) != 0
+            tgt_bit  = (idx & (1 << tgt_phys)) != 0
+            partner  = idx ^ (1 << tgt_phys)
+            for c in range(num_chunks):
+                dc = jax.device_put(self._host_chunks[c], device)
+                amp_partner = dc[partner]
+                new0 = u00 * dc + u01 * amp_partner
+                new1 = u10 * amp_partner + u11 * dc
+                after = jnp.where(tgt_bit, new1, new0)
+                self._host_chunks[c] = np.asarray(jnp.where(ctrl_bit, after, dc))
+
+        elif q1_chunk and not q2_chunk:
+            # ctrl CHUNK-SELECT, tgt LOCAL -- only ctrl-set chunks are
+            # touched at all (the rest are the identity, skipped entirely
+            # -- both a memory AND a real speed win over the eager kernel,
+            # which must still touch every chunk since it's vectorized),
+            # each transformed alone, 1 on-device at a time (case_2q_ctrl_
+            # chunk_tgt_local, chunk.py:374).
+            ctrl_stride = 1 << (m - 1 - q1)
+            tgt_phys = (k - 1) - (q2 - m)
+            idx = np.arange(chunk_dim)
+            tgt_bit = (idx & (1 << tgt_phys)) != 0
+            partner = idx ^ (1 << tgt_phys)
+            for c in range(num_chunks):
+                if (c & ctrl_stride) == 0:
+                    continue
+                dc = jax.device_put(self._host_chunks[c], device)
+                amp_partner = dc[partner]
+                new0 = u00 * dc + u01 * amp_partner
+                new1 = u10 * amp_partner + u11 * dc
+                self._host_chunks[c] = np.asarray(jnp.where(tgt_bit, new1, new0))
+
+        elif not q1_chunk and q2_chunk:
+            # ctrl LOCAL, tgt CHUNK-SELECT -- pairs mixed, masked by the
+            # LOCAL ctrl bit (elementwise), 2 on-device at a time
+            # (case_2q_ctrl_local_tgt_chunk, chunk.py:391).
+            ctrl_phys = (k - 1) - (q1 - m)
+            idx = np.arange(chunk_dim)
+            ctrl_bit = (idx & (1 << ctrl_phys)) != 0
+            tgt_stride = 1 << (m - 1 - q2)
+            for c0 in range(num_chunks):
+                if (c0 & tgt_stride) != 0:
+                    continue
+                c1 = c0 ^ tgt_stride
+                d0 = jax.device_put(self._host_chunks[c0], device)
+                d1 = jax.device_put(self._host_chunks[c1], device)
+                new_c0 = u00 * d0 + u01 * d1
+                new_c1 = u10 * d0 + u11 * d1
+                self._host_chunks[c0] = np.asarray(jnp.where(ctrl_bit, new_c0, d0))
+                self._host_chunks[c1] = np.asarray(jnp.where(ctrl_bit, new_c1, d1))
+
+        else:
+            # ctrl AND tgt both CHUNK-SELECT -- only ctrl-set pairs touched
+            # at all (untouched pairs skipped entirely, same win as the
+            # ctrl-chunk/tgt-local case above), 2 on-device at a time
+            # (case_2q_both_chunk, chunk.py:406).
+            ctrl_stride = 1 << (m - 1 - q1)
+            tgt_stride  = 1 << (m - 1 - q2)
+            for c0 in range(num_chunks):
+                if (c0 & ctrl_stride) == 0 or (c0 & tgt_stride) != 0:
+                    continue
+                c1 = c0 ^ tgt_stride
+                d0 = jax.device_put(self._host_chunks[c0], device)
+                d1 = jax.device_put(self._host_chunks[c1], device)
+                new_c0 = u00 * d0 + u01 * d1
+                new_c1 = u10 * d0 + u11 * d1
+                self._host_chunks[c0] = np.asarray(new_c0)
+                self._host_chunks[c1] = np.asarray(new_c1)
+
+    def run_chunk_streaming(self, circuit: List, device_budget_mb: Optional[float] = None) -> None:
+        """Sequential, device-memory-bounded execution: at most 2 chunk-
+        sized arrays are ever resident on the compute device at once (see
+        the module note above the streaming helpers for why 2 always
+        suffices, and the literature this mirrors). The num_chunks logical
+        chunks live in HOST RAM (plain numpy) between gates.
+
+        Requires Chunk(..., streaming=True) at construction -- the default
+        (eager) constructor branch already allocates every chunk up front
+        in __init__ itself, which is exactly the memory ceiling this mode
+        exists to avoid.
+
+        Parameters
+        ----------
+        circuit          : gate list, same format as run_chunk()
+        device_budget_mb : if given, a fixed cap (MB) on device memory this
+                            call is allowed to use. If None (default), the
+                            budget is computed dynamically right now from
+                            whatever memory is actually free -- GPU VRAM
+                            via device.memory_stats() on a GPU, host RAM
+                            via psutil otherwise (dense_evolution.chunk.
+                            _device_memory_budget_bytes) -- never a
+                            hardcoded number, since "2 GB" only makes sense
+                            for one specific machine, not every machine
+                            this runs on.
+
+        Raises
+        ------
+        RuntimeError if this Chunk wasn't constructed with streaming=True.
+        MemoryPressureError if even 2 chunk-sized arrays don't fit in the
+        computed (or given) device budget -- checked up front, not
+        discovered as a mid-run XLA OOM.
+        """
+        if self.num_chunks == 1:
+            # Nothing to stream (both constructor branches produce the same
+            # single self._inner_sim regardless of streaming=True/False) --
+            # forward to the exact same path run_chunk() uses.
+            size = self.chunk_size_gates
+            self._circuit_chunker.split_circuit(circuit, chunk_size=size)
+            return
+        if not self._streaming:
+            raise RuntimeError(
+                "run_chunk_streaming() requires Chunk(..., streaming=True) at "
+                "construction -- the default constructor already allocates "
+                "every chunk eagerly in __init__, which defeats the point of "
+                "this mode. Construct a new Chunk with streaming=True instead."
+            )
+
+        m, k = self._m, self._mem_chunker.chunk_size_bits
+        num_chunks, chunk_dim = self._mem_chunker.num_chunks, self._mem_chunker.chunk_dim
+        dtype = self._host_chunks[0].dtype
+        per_chunk_bytes = chunk_dim * dtype.itemsize
+
+        if device_budget_mb is None:
+            available_bytes, source = _device_memory_budget_bytes()
+            device_budget_bytes = available_bytes * 0.85  # same safety margin as get_dynamic_chunk
+        else:
+            device_budget_bytes = device_budget_mb * 1024 * 1024
+            source = "user-specified device_budget_mb"
+
+        if device_budget_bytes < 2 * per_chunk_bytes:
+            raise MemoryPressureError(
+                f"run_chunk_streaming needs room for at least 2 chunk-sized "
+                f"arrays ({2 * per_chunk_bytes / 1e6:.1f} MB) on the compute "
+                f"device, but the budget ({source}) is only "
+                f"{device_budget_bytes / 1e6:.1f} MB. Reduce chunk_size_bits "
+                f"(fewer qubits per chunk) or free up device memory."
+            )
+
+        device = jax.devices()[0]
+        target = QuantumTranspiler.transpile(circuit)
+
+        for cmd in target:
+            name = cmd[0].lower() if isinstance(cmd[0], str) else str(cmd[0]).lower()
+            if name not in GATE_IDS:
+                continue  # same silent-skip convention as _compile_multi_chunk_ops
+            args = cmd[1:]
+            if name in ('cx', 'cz', 'cp', 'cphase', 'cy', 'crz'):
+                q1, q2 = int(args[0]), int(args[1])
+                param = float(args[2]) if len(args) > 2 else 0.0
+                mat4 = PARAMETRIC_GATES[name](param) if name in PARAMETRIC_GATES else GATES[name]
+                u = np.asarray(mat4, dtype=dtype)[2:, 2:]
+                self._apply_2q_streaming(q1, q2, u, m, k, num_chunks, chunk_dim, device)
+            elif args:
+                q = int(args[0])
+                param = float(args[1]) if len(args) > 1 else 0.0
+                mat = PARAMETRIC_GATES[name](param) if name in PARAMETRIC_GATES else GATES[name]
+                mat = np.asarray(mat, dtype=dtype)
+                self._apply_1q_streaming(q, mat, m, k, num_chunks, chunk_dim, device)
 
     def __repr__(self) -> str:
         s = self._guard.status()
