@@ -38,7 +38,7 @@ Statevector/MPS engines with compilation, noise, VQE, QEC, chemistry, and agent-
 
 📖 **[Full documentation, API reference, and worked examples →](https://tatopenn-cell.github.io/Dense-Evolution/)**
 
-A Streamlit dashboard (`app_dashboard.py`) is a Quantum-Composer-style circuit editor — Graphical Builder, Circuit, Statevector, Probabilities, and Q-sphere tabs, every one backed by a real `DenseSVSimulator` run — launched locally with `streamlit run app_dashboard.py`. VQE, real molecular Hamiltonians, ZNE mitigation, QM/MM forces, MD trajectories, and vector healing live in the Composer web app's local kernel (`local_site/app/server.py`, see "Composer" below) and its MCP server (`mcp_server/`, see "MCP Server" below), not in the Streamlit dashboard. `legacy/dash.py` is the original Google Colab notebook this was ported from, kept for reference only (not installable — see the file header).
+A Streamlit dashboard (`tools/dashboard/app.py`) is a Quantum-Composer-style circuit editor — Graphical Builder, Circuit, Statevector, Probabilities, and Q-sphere tabs, every one backed by a real `DenseSVSimulator` run — launched locally with `streamlit run tools/dashboard/app.py`. VQE, real molecular Hamiltonians, ZNE mitigation, QM/MM forces, MD trajectories, and vector healing live in the Composer web app's local kernel (`local_site/app/server.py`, see "Composer" below) and its MCP server (`mcp_server/`, see "MCP Server" below), not in the Streamlit dashboard. `legacy/dash.py` is the original Google Colab notebook this was ported from, kept for reference only (not installable — see the file header).
 
 ---
 
@@ -113,7 +113,7 @@ sv    = sim.get_statevector()
 
 ```bash
 pip install "dense-evolution[dashboard]"  # JAX already included by default
-streamlit run app_dashboard.py
+streamlit run tools/dashboard/app.py
 ```
 
 **Anti-OOM for large circuits:**
@@ -179,22 +179,23 @@ tools/                              (apps built on the library, not part of it �
 ├── ia_utils/
 │   ├── vector_healing.py            median_healing · enhanced_dense_healing_hybrid (NaN/Inf-safe, lazy JAX import; trigger_mode='phi'|'adaptive')
 │   └── adversarial_vector_attack.py  craft_adversarial_healing_perturbation — gradient-based red-teaming against the differentiable Phi-Trigger
-├── dashboard_core/
-│   ├── engine.py                     run_circuit_from_qasm — real DenseSVSimulator execution, shared by app_dashboard.py and local_site/app/server.py
-│   ├── graphical_builder.py          drag-and-drop grid ops → native gate tuples (app_dashboard.py's Graphical Builder tab)
-│   ├── circuit_builder_component.py  Streamlit component backing that grid
-│   ├── circuit_diagram.py            plain matplotlib circuit diagrams (no Qiskit QuantumCircuit ever constructed)
-│   ├── state_visuals.py              native statevector histogram / Bloch / Q-sphere rendering
-│   ├── visuals.py                    circuit/histogram/qsphere/Bloch figure wrappers used by app_dashboard.py
-│   ├── qasm_library.py               preset OpenQASM circuits (Bell, GHZ, ...)
-│   ├── system_limits.py              RAM-based safe qubit ceiling
-│   ├── hamiltonians.py                real molecular Hamiltonians (PennyLane Hartree-Fock) — served by local_site/app/server.py, not app_dashboard.py
-│   ├── vqe.py                         VQE engine — served by local_site/app/server.py, not app_dashboard.py
-│   ├── qmmm.py                        Hellmann-Feynman QM/MM forces + MD trajectories — served by local_site/app/server.py, not app_dashboard.py
-│   ├── mitigation.py                  Zero-Noise Extrapolation (statevector + density-matrix) — served by local_site/app/server.py, not app_dashboard.py
-│   ├── vector_healing.py              dense_evolution.healing / ia_utils.vector_healing bridge — served by the MCP server, not app_dashboard.py
-│   └── wormhole.py                    binary sparse SYK model — traversable-wormhole-inspired teleportation (see "MCP Server" below)
-├── app_dashboard.py                   Streamlit "Quantum Composer" clone — Graphical Builder/Circuit/Statevector/Probabilities/Q-sphere tabs only, `streamlit run tools/app_dashboard.py`
+├── dashboard/                        (prog.txt Sezione 2, Fase 0 — structural home for the multi-page dashboard, ahead of the pages/ split)
+│   ├── app.py                        Streamlit "Quantum Composer" clone — Graphical Builder/Circuit/Statevector/Probabilities/Q-sphere tabs only, `streamlit run tools/dashboard/app.py`
+│   └── core/                         installed as top-level `dashboard_core` (see pyproject.toml's package-dir remap — import name unchanged)
+│       ├── engine.py                     run_circuit_from_qasm — real DenseSVSimulator execution, shared by app.py and local_site/app/server.py
+│       ├── graphical_builder.py          drag-and-drop grid ops → native gate tuples (app.py's Graphical Builder tab)
+│       ├── circuit_builder_component.py  Streamlit component backing that grid
+│       ├── circuit_diagram.py            plain matplotlib circuit diagrams (no Qiskit QuantumCircuit ever constructed)
+│       ├── state_visuals.py              native statevector histogram / Bloch / Q-sphere rendering
+│       ├── visuals.py                    circuit/histogram/qsphere/Bloch figure wrappers used by app.py
+│       ├── qasm_library.py               preset OpenQASM circuits (Bell, GHZ, ...)
+│       ├── system_limits.py              RAM-based safe qubit ceiling
+│       ├── hamiltonians.py                real molecular Hamiltonians (PennyLane Hartree-Fock) — served by local_site/app/server.py, not app.py
+│       ├── vqe.py                         VQE engine — served by local_site/app/server.py, not app.py
+│       ├── qmmm.py                        Hellmann-Feynman QM/MM forces + MD trajectories — served by local_site/app/server.py, not app.py
+│       ├── mitigation.py                  Zero-Noise Extrapolation (statevector + density-matrix) — served by local_site/app/server.py, not app.py
+│       ├── vector_healing.py              dense_evolution.healing / ia_utils.vector_healing bridge — served by the MCP server, not app.py
+│       └── wormhole.py                    binary sparse SYK model — traversable-wormhole-inspired teleportation (see "MCP Server" below)
 └── mcp_server/server.py               dense_evolution_mcp — MCP adapter over the Composer kernel (see "MCP Server" below)
 
 research/                           (not installed as a module -- reference/experimentation only)
@@ -204,7 +205,7 @@ research/                           (not installed as a module -- reference/expe
 └── legacy/dash.py                  original Colab notebook, reference only
 ```
 
-**Data flow per run (`app_dashboard.py`):**
+**Data flow per run (`tools/dashboard/app.py`):**
 
 ```
 ▶ Esegui
@@ -242,7 +243,7 @@ research/                           (not installed as a module -- reference/expe
 | **Native Hartree-Fock** | `dense_evolution.native_hf` — from-scratch JAX/Obara-Saika ab-initio HF engine for elements outside PennyLane's own STO-3G table (H–Ne), auto-used by the Hamiltonian Library for e.g. Si2 |
 | **QEC Decoding** | `dense_evolution.qec` — code-agnostic Pauli commutation/syndrome primitives, an erasure-aware decoder (corrects up to *d*-1 known-location errors on a distance-*d* code, Grassl/Beth/Pellizzari 1997), a real MWPM decoder (`pymatching_decode`, via `pymatching`) for graph-like/topological codes, and a blind minimum-weight brute-force decoder (`blind_minimum_weight_decode`) for the small codes MWPM structurally can't handle (e.g. Steane) |
 | **Backend Agnostic** | NumPy CPU · JAX XLA CPU/GPU/TPU — GPU dispatch is automatic whenever a CUDA-enabled `jax[cuda12]` is installed and a GPU is present, zero code changes |
-| **Live Dashboard** | `app_dashboard.py` — Streamlit Quantum-Composer clone, 5 tabs (Graphical Builder/Circuit/Statevector/Probabilities/Q-sphere) per simulation run |
+| **Live Dashboard** | `tools/dashboard/app.py` — Streamlit Quantum-Composer clone, 5 tabs (Graphical Builder/Circuit/Statevector/Probabilities/Q-sphere) per simulation run |
 
 ---
 
@@ -749,7 +750,7 @@ claude mcp add dense_evolution -- dense-evolution mcp
 - `dense_evolution_wormhole_select_instance` / `_wormhole_teleportation` /
   `_wormhole_scan` run a real traversable-wormhole-inspired quantum
   teleportation protocol (Gao-Jafferis-Wall theory, arXiv:2604.10090) on a
-  binary sparse SYK model — see `dashboard_core/wormhole.py` and
+  binary sparse SYK model — see `tools/dashboard/core/wormhole.py` and
   `research/wormhole_syk.md` for the physics. Unlike `_energy_scan`, the
   wormhole sweep runs sequentially, not concurrently (each call is a real
   multi-second simulation; concurrent calls were found to crash the
@@ -759,7 +760,7 @@ claude mcp add dense_evolution -- dense-evolution mcp
   `ia_utils.vector_healing.enhanced_dense_healing_hybrid`) that shipped
   with the pre-rebuild dashboard_core's Streamlit "AI healing shield"
   middleware, left behind (not removed) when dashboard_core was rebuilt
-  around the Composer kernel — see `dashboard_core/vector_healing.py`.
+  around the Composer kernel — see `tools/dashboard/core/vector_healing.py`.
   Cleans a noisy (n_steps, dim) sequence (VQE telemetry, MD trajectory,
   or any other vector sequence): per step, keeps genuine dynamics,
   replaces static noise with the local median, always sanitizes NaN/Inf.
@@ -773,7 +774,7 @@ claude mcp add dense_evolution -- dense-evolution mcp
 
 ---
 
-## ▍ Dashboard Panels (`app_dashboard.py`)
+## ▍ Dashboard Panels (`tools/dashboard/app.py`)
 
 | Tab | Contents |
 |---|---|
@@ -1149,7 +1150,7 @@ All circuits stored as OpenQASM 2.0 strings in `dashboard_core.QASM_LIBRARY`.
 
 ### v8.1.11
 - **Fixed**: `dash.py` (the original Colab notebook) was declared as an installable module (`py-modules = ["dash"]`) with the *same name* as the real Plotly `dash` package, itself listed as an optional dependency in the very same `pyproject.toml` — a genuine packaging collision, not just a local dev annoyance. It also had unconditional module-level `from google.colab import files` / `import ipywidgets`, so `import dash` crashed immediately outside Colab. Nothing in the maintained codebase (`dashboard_core.py`/`app_dashboard.py`, the real Streamlit port) imports it anymore. Moved to `legacy/dash.py` (reference only, not packaged), removed from `py-modules`. The `dashboard` extra now installs what the real dashboard actually needs (`streamlit`, `pandas`, `seaborn`, `plotly`) instead of the unused `dash` package.
-- **Docs**: README's Quick Start (the very first example in the file) passed `circuit.ops` — raw dicts — to `run_circuit_jit_beast_mode`, which expects the tuple format from `circuit.to_tuples()`; crashed with `KeyError: 0`. Fixed, and the "Dashboard" quick-start snippet now points at `streamlit run app_dashboard.py` instead of the retired Colab-only `import dash` pattern.
+- **Docs**: README's Quick Start (the very first example in the file) passed `circuit.ops` — raw dicts — to `run_circuit_jit_beast_mode`, which expects the tuple format from `circuit.to_tuples()`; crashed with `KeyError: 0`. Fixed, and the "Dashboard" quick-start snippet now points at `streamlit run tools/dashboard/app.py` instead of the retired Colab-only `import dash` pattern.
 
 ### v8.1.10
 - **Fixed**: `run_circuit_jit_beast_mode` / `run_parametric_batch_jit` — a gate referencing a qubit index out of range silently corrupted the entire statevector to zero instead of raising (verified: `get_probabilities().sum()` went from 1.0 to 0.0, no exception). `apply_gate_1q`/`apply_gate_2q` already validated qubit indices, but these two JIT fast paths build their own compiled ops and never called them. Both now validate before dispatch, matching the existing behavior of the non-JIT path.
