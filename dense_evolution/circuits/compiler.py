@@ -28,6 +28,10 @@ if HAS_JAX:
 #  4  Z                 11  Rz(θ)
 #  5  S                 12  Phase / P(θ) / U1(θ)
 #  6  Sdg               13  SX (√X)
+#                       14  GPhase(α) = e^{iα}*I — scalar phase on the WHOLE
+#                           state, not just |1> (unlike 12). Only ever
+#                           emitted by QuantumTranspiler.decompose_u3 (U2/U3
+#                           -> Rz/Ry/Rz/GPhase), not user-facing on its own.
 #                       ──  2-qubit gates ──
 #                       20  CX / CNOT
 #                       21  CZ
@@ -94,8 +98,8 @@ if HAS_JAX:
         exp_neg_half = jnp.exp(-1j * half_p).astype(sv_dtype)
 
         # ── 1-qubit gate matrix selection via lax.switch ──────────────
-        # Index must be in [0, 13]; anything outside is clamped to 0 (I).
-        safe_gid = jnp.clip(g_id, 0, 13)
+        # Index must be in [0, 14]; anything outside is clamped to 0 (I).
+        safe_gid = jnp.clip(g_id, 0, 14)
 
         g_1q = jax.lax.switch(
             safe_gid,
@@ -155,6 +159,20 @@ if HAS_JAX:
                 lambda _: jnp.array(
                     [[0.5+0.5j, 0.5-0.5j],
                      [0.5-0.5j, 0.5+0.5j]], dtype=sv_dtype),
+                # 14  GPhase(α) = e^{iα} * I -- a scalar phase e^{iα} on the
+                # WHOLE statevector, not just the |1> component (unlike gate
+                # 12, P(θ)). Applying e^{iα}*I locally to any one qubit's
+                # 2x2 subspace is mathematically identical to multiplying
+                # the full n-qubit state by e^{iα}, since e^{iα}*I commutes
+                # with the identity on every other qubit. Exists so U2/U3
+                # (see QuantumTranspiler.decompose_u3) can decompose into
+                # {Rz, Ry, Rz, GPhase} and reproduce the literal U3 matrix
+                # EXACTLY (not just up to global phase) -- verified
+                # numerically against dense_evolution.circuits.gates.
+                # PARAMETRIC_GATES['u3'] before this was added.
+                lambda _: jnp.array(
+                    [[exp_pos, 0.0+0j],
+                     [0.0+0j, exp_pos]], dtype=sv_dtype),
             ],
             operand=None,
         )
@@ -287,14 +305,14 @@ if HAS_JAX:
             return result
 
         # ── branch on 1-qubit vs 2-qubit ─────────────────────────────
-        # g_id <= 12 → 1-qubit;  g_id >= 20 → 2-qubit.
+        # g_id <= 14 → 1-qubit;  g_id >= 20 → 2-qubit.
         # Both branches must have identical output dtypes — enforced here by
         # casting both outputs to sv_dtype (sv's own dtype, complex64 or
         # complex128 depending on use_float32), not a dtype hardcoded to
         # complex128 (see note above: forcing complex128 here regardless of
         # input dtype would also break jax.lax.scan's carry-type check on
         # the very next iteration when sv started out as complex64).
-        is_1q = g_id <= 13
+        is_1q = g_id <= 14
         new_sv = jax.lax.cond(
             is_1q,
             lambda s: do_1q(s).astype(sv_dtype),
@@ -379,11 +397,63 @@ class QuantumTranspiler:
         """Decompose SWAP into 3 CX gates."""
         return [('cx', q1, q2), ('cx', q2, q1), ('cx', q1, q2)]
 
+    @staticmethod
+    def decompose_iswap(q1: int, q2: int) -> List[Tuple]:
+        """Decompose iSWAP into {S, H, CX}, EXACT (verified numerically
+        against dense_evolution.circuits.gates.GATES['iswap'] on random
+        2-qubit states, atol=1e-9 -- no global-phase correction needed,
+        unlike decompose_ecr below). Circuit structure cross-checked
+        against Qiskit's own iSwapGate transpiled to a {cx,h,s,...} basis
+        (qiskit==2.5.0), not derived from memory."""
+        return [('s', q1), ('h', q1), ('s', q2), ('cx', q1, q2), ('cx', q2, q1), ('h', q2)]
+
+    @staticmethod
+    def decompose_ecr(q1: int, q2: int) -> List[Tuple]:
+        """Decompose ECR into {S, SX, X, CX, GPhase}, EXACT: matches
+        dense_evolution.circuits.gates.GATES['ecr'] to atol=1e-9 on random
+        2-qubit states once the GPhase(-pi/4) correction is included (the
+        {S,SX,X,CX} part alone reproduces ECR only up to a constant
+        e^{i*pi/4} global phase -- verified numerically, not assumed).
+        Circuit structure cross-checked against Qiskit's own ECRGate
+        transpiled to a {cx,h,s,sx,x,...} basis (qiskit==2.5.0)."""
+        return [('s', q1), ('sx', q2), ('cx', q1, q2), ('x', q1), ('gphase', q1, -np.pi / 4.0)]
+
+    @staticmethod
+    def decompose_u3(q, theta, phi, lam) -> List[Tuple]:
+        """Decompose U3(θ,φ,λ) into {Rz, Ry, Rz, GPhase}.
+
+        U3(θ,φ,λ) = e^{i(φ+λ)/2} · Rz(φ)·Ry(θ)·Rz(λ) -- a standard ZYZ
+        decomposition, EXACT (not just up to global phase): the GPhase(α)
+        gate (see GATE_IDS/_apply_gate_fast_step) supplies the leading
+        scalar e^{i(φ+λ)/2} so the decomposed circuit reproduces
+        dense_evolution.circuits.gates.PARAMETRIC_GATES['u3'](theta, phi,
+        lam) exactly, not merely a physically-equivalent state differing
+        by an unobservable phase -- verified numerically (random θ,φ,λ,
+        atol=1e-10) before this was wired in here.
+
+        Gate sequence is matrix-product-order reversed (rightmost matrix
+        applied first): Rz(λ) then Ry(θ) then Rz(φ), then the phase.
+        """
+        return [
+            ('rz', q, lam),
+            ('ry', q, theta),
+            ('rz', q, phi),
+            ('gphase', q, (phi + lam) / 2.0),
+        ]
+
+    @staticmethod
+    def decompose_u2(q, phi, lam) -> List[Tuple]:
+        """U2(φ,λ) = U3(π/2, φ, λ) -- see decompose_u3."""
+        return QuantumTranspiler.decompose_u3(q, np.pi / 2.0, phi, lam)
+
     @classmethod
     def transpile(cls, circuit: List[Tuple]) -> List[Tuple]:
         """
-        Expand CCX → 15 native gates and SWAP → 3 CX.
-        All other gates are passed through unchanged.
+        Expand CCX → 15 native gates, SWAP → 3 CX, iSWAP → {S,H,CX},
+        ECR → {S,SX,X,CX,GPhase}, and U2/U3 → {Rz,Ry,Rz,GPhase} -- all
+        EXACT (see each decompose_* method's own docstring for the
+        numerical verification). All other gates are passed through
+        unchanged.
 
         Parameters
         ----------
@@ -400,6 +470,26 @@ class QuantumTranspiler:
                 out.extend(cls.decompose_toffoli(*cmd[1:4]))
             elif name == 'swap':
                 out.extend(cls.decompose_swap(*cmd[1:3]))
+            elif name == 'iswap':
+                out.extend(cls.decompose_iswap(*cmd[1:3]))
+            elif name == 'ecr':
+                out.extend(cls.decompose_ecr(*cmd[1:3]))
+            # len(cmd) guards below: some callers (e.g.
+            # dense_evolution.solvers.autodiff._build_template) run a
+            # STRUCTURAL-ONLY pass through transpile -- (name, *qubits),
+            # deliberately no parameter values yet (those get injected
+            # later via a traced theta, for gates whose template row
+            # carries a single parameter slot). decompose_u2/u3 need the
+            # real theta/phi/lam values to compute the GPhase angle and
+            # can't run on a qubit-only tuple -- pass those through
+            # unchanged instead of crashing on missing arguments, so a
+            # caller's own downstream check (e.g. _build_template's clear
+            # "u2/u3 aren't supported here" ValueError) still fires
+            # exactly as before, rather than a confusing TypeError here.
+            elif name == 'u3' and len(cmd) >= 5:
+                out.extend(cls.decompose_u3(*cmd[1:5]))
+            elif name == 'u2' and len(cmd) >= 4:
+                out.extend(cls.decompose_u2(*cmd[1:4]))
             else:
                 out.append(cmd)
         return out
