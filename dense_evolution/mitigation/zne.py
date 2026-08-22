@@ -20,7 +20,7 @@ from .healing import calculate_delta_preemp
 
 __all__ = ["richardson_extrapolate", "zero_noise_extrapolation", "polynomial_extrapolate",
            "project_to_physical", "uhlmann_fidelity", "zne_density_matrix",
-           "jsd_predictive_zne_density_matrix",
+           "jsd_predictive_zne_density_matrix", "global_depolarizing_channel",
            "richardson_extrapolate_jit", "zero_noise_extrapolation_jit",
            "polynomial_extrapolate_jit", "uhlmann_fidelity_jit", "zne_density_matrix_jit"]
 
@@ -400,6 +400,24 @@ def uhlmann_fidelity(rho_A: jnp.ndarray, rho_B: jnp.ndarray) -> float:
     rho_A = jnp.asarray(rho_A, dtype=jnp.complex128)
     rho_B = jnp.asarray(rho_B, dtype=jnp.complex128)
     return float(_uhlmann_fidelity_core(rho_A, rho_B))
+
+
+def global_depolarizing_channel(rho: jnp.ndarray, p: float) -> jnp.ndarray:
+    """Global n-qubit depolarizing channel, D_p(rho) = (1-p)*rho + (p/dim)*I.
+
+    Distinct from `NoiseModel`'s `'depolarizing'` model in `circuits.registry`,
+    which applies an independent PER-QUBIT local Kraus channel -- a different
+    physical map from this GLOBAL channel, which mixes the whole `dim`-
+    dimensional state toward the fully mixed state as one unit. Use this one
+    when modeling e.g. state-prep/measurement (SPAM) error reported as a
+    single joint depolarizing parameter over the whole register, not per-
+    qubit gate noise (promoted from a real reproduction of arXiv:2608.16716's
+    own SPAM model, Dense-Evolution-Discovery Experiment 33).
+    """
+    rho = jnp.asarray(rho, dtype=jnp.complex128)
+    dim = rho.shape[0]
+    identity = jnp.eye(dim, dtype=jnp.complex128)
+    return (1.0 - p) * rho + (p / dim) * identity
 
 
 def _uhlmann_fidelity_core(rho_A: jnp.ndarray, rho_B: jnp.ndarray) -> jnp.ndarray:

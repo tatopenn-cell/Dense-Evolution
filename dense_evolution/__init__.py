@@ -16,9 +16,10 @@ from .solvers.autodiff import circuit_to_energy_fn
 from .backends.mps import MPSSimulator
 from .mitigation.zne import (richardson_extrapolate, zero_noise_extrapolation, polynomial_extrapolate,
                           project_to_physical, uhlmann_fidelity, zne_density_matrix,
-                          jsd_predictive_zne_density_matrix,
+                          jsd_predictive_zne_density_matrix, global_depolarizing_channel,
                           richardson_extrapolate_jit, zero_noise_extrapolation_jit,
                           polynomial_extrapolate_jit, uhlmann_fidelity_jit, zne_density_matrix_jit)
+from .circuits.diagram import plot_circuit
 from .circuits.topology import entangling_layer
 from .physics.observables import pauli_expectation, pauli_sum_expectation, pauli_hamiltonian_to_matrix, pauli_sum_matvec
 from .physics.states import ghz_state
@@ -59,7 +60,7 @@ __all__ = [
     # Mitigation -- Zero-Noise Extrapolation
     "richardson_extrapolate", "zero_noise_extrapolation", "polynomial_extrapolate",
     "project_to_physical", "uhlmann_fidelity", "zne_density_matrix",
-    "jsd_predictive_zne_density_matrix",
+    "jsd_predictive_zne_density_matrix", "global_depolarizing_channel",
     "richardson_extrapolate_jit", "zero_noise_extrapolation_jit",
     "polynomial_extrapolate_jit", "uhlmann_fidelity_jit", "zne_density_matrix_jit",
     # Physics -- states, observables, entropy, fermions, QEC
@@ -69,5 +70,5 @@ __all__ = [
     "majorana_pauli_terms",
     "pauli_commutes", "compute_syndrome", "erasure_aware_decode", "pymatching_decode", "blind_minimum_weight_decode",
     # Utils -- drawing, measurement, random circuits
-    "draw_circuit", "sample_counts", "statevector_fidelity", "random_circuit",
+    "draw_circuit", "plot_circuit", "sample_counts", "statevector_fidelity", "random_circuit",
 ]
