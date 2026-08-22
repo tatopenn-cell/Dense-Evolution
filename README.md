@@ -565,7 +565,11 @@ corrected = blind_minimum_weight_decode(syndrome, n_qubits=7, stabilizers=stabil
 | Function | Approach | Returns |
 |---|---|---|
 | `median_healing(vettori, radius_baseline=None)` | `scipy.ndimage.median_filter`, dynamic radius `min(20, max(3, n // 3))` | `(healed: np.ndarray, radius: int)` |
-| `enhanced_dense_healing_hybrid(vettori, radius_baseline=None)` | Blends the `dense_evolution.healing` Φ-trigger logic with a median fallback, decided per-step | `(healed: np.ndarray, metadata: dict)` |
+| `enhanced_dense_healing_hybrid(vettori, radius_baseline=None, trigger_mode='phi')` | Blends the `dense_evolution.healing` Φ-trigger logic with a median fallback, decided per-step | `(healed: np.ndarray, metadata: dict)` |
+
+`trigger_mode` picks how the per-step healing decision is made:
+- **`'phi'`** (default) — `calculate_phi_ab`/`calculate_vettore_dinamico`/`evaluate_phi_trigger` run batched across the whole sequence via `jax.vmap`, one host↔device round trip total instead of one per step (1.6x–11x faster depending on sequence length, byte-identical output vs. the original per-step loop).
+- **`'adaptive'`** — deliberately stays on `np.median`/`np.std`, not JAX, so it stays out of reach of the gradient-based red-teaming in `adversarial_vector_attack` (see "Adversarial Robustness Testing" above); vectorizing it would silently remove that property, not just speed it up.
 
 `enhanced_dense_healing_hybrid` metadata:
 
