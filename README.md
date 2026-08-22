@@ -1,17 +1,6 @@
-```
-██████╗ ███████╗███╗   ██╗███████╗███████╗
-██╔══██╗██╔════╝████╗  ██║██╔════╝██╔════╝
-██║  ██║█████╗  ██╔██╗ ██║███████╗█████╗  
-██║  ██║██╔══╝  ██║╚██╗██║╚════██║██╔══╝  
-██████╔╝███████╗██║ ╚████║███████║███████╗
-╚═════╝ ╚══════╝╚═╝  ╚═══╝╚══════╝╚══════╝
-███████╗██╗   ██╗ ██████╗ ██╗     ██╗   ██╗████████╗██╗ ██████╗ ███╗   ██╗
-██╔════╝██║   ██║██╔═══██╗██║     ██║   ██║╚══██╔══╝██║██╔═══██╗████╗  ██║
-█████╗  ██║   ██║██║   ██║██║     ██║   ██║   ██║   ██║██║   ██║██╔██╗ ██║
-██╔══╝  ╚██╗ ██╔╝██║   ██║██║     ██║   ██║   ██║   ██║██║   ██║██║╚██╗██║
-███████╗ ╚████╔╝ ╚██████╔╝███████╗╚██████╔╝   ██║   ██║╚██████╔╝██║ ╚████║
-╚══════╝  ╚═══╝   ╚═════╝ ╚══════╝ ╚═════╝    ╚═╝   ╚═╝ ╚═════╝ ╚═╝  ╚═══╝
-```
+<p align="center">
+  <img src="docs/assets/banner.svg" alt="Dense Evolution — NISQ quantum simulation toolkit, JAX-native" width="900">
+</p>
 
 <!-- mcp-name: io.github.tatopenn-cell/dense-evolution -->
 **A high-performance quantum simulation toolkit
@@ -243,7 +232,9 @@ research/                           (not installed as a module -- reference/expe
 | **Shadow-Based Estimation** | `mitigation.py` — `sample_classical_shadow`/`magic_entropy_from_shadows` (median-of-means classical-shadows estimator for `magic_entropy`, from randomized measurement snapshots instead of the exact state), `approx_shadow_std`/`fit_shadow_sample_complexity` (empirically-derived error guidance) |
 | **Classical Distribution Divergence** | `mitigation.py` — `kl_divergence`/`kl_divergence_jit` (Kullback-Leibler divergence over probability distributions, e.g. measurement-outcome distributions — distinct from `sandwiched_renyi_divergence`'s density-matrix form) |
 | **VQE + ADAM** | Hellmann-Feynman gradient · positional parameter injection into any OpenQASM 2.0 circuit |
-| **Anti-OOM Engine** | `SafeMemoryGuard` blocks execution before JAX raises `RESOURCE_EXHAUSTED` |
+| **Sparse Ground-State Solver** | `ground_state_energy_sparse` — `scipy.sparse.linalg.eigsh` against a matrix-free `pauli_sum_matvec` `LinearOperator`, no dense `(2**n_qubits)²` Hamiltonian ever built; unblocks molecules too large for exact dense diagonalization (e.g. Si₂) |
+| **Auto-JIT Dispatch** | `run_circuit()` auto-delegates to the compiled `run_circuit_jit()` path whenever every gate is supported there (26/26 gate parity) — 6x+ faster, zero API change, no need to know `run_circuit_jit` exists |
+| **Anti-OOM Engine** | `SafeMemoryGuard` blocks execution before JAX raises `RESOURCE_EXHAUSTED` — reads the active compute device's own memory (GPU/TPU VRAM via `jax.devices()[0].memory_stats()`, host RAM on CPU) so the check is accurate on GPU too, not just CPU |
 | **Predictive Healing** | `healing.py` — Φ_AB alignment, dynamic vector, Σ-sync, `MemoryReflectionEngine` |
 | **Vector Sequence Healing** | `ia_utils/` — `median_healing`, `enhanced_dense_healing_hybrid` — NaN/Inf-safe, lazy JAX import |
 | **Adversarial Robustness Testing** | `ia_utils.adversarial_vector_attack.craft_adversarial_healing_perturbation` — PGD-style minimal perturbation, flips the healing Phi-Trigger either direction |
@@ -821,7 +812,14 @@ $$\frac{\partial E}{\partial \theta_i} = \left\langle\psi(\theta)\left|\frac{\pa
 ## ▍ Hamiltonian Library
 
 Real Hartree-Fock + fermion-to-qubit mapping, exact dense diagonalization
-for the ground-state energy. `_get_hamiltonian` dispatches per molecule to
+for the ground-state energy — plus a **matrix-free sparse path**,
+`ground_state_energy_sparse`, for molecules too large for that: never
+builds the dense `(2**n_qubits, 2**n_qubits)` Hamiltonian at all, instead
+running `scipy.sparse.linalg.eigsh` (Lanczos) against a `LinearOperator`
+wrapping `pauli_sum_matvec` (`H @ vector` in `O(dim * n_terms)`, matches
+the dense path to ~1e-15 on H2/HeH+). Purely additive — the dense path
+above is unchanged, this is what unblocks Si₂ in the catalog below.
+`_get_hamiltonian` dispatches per molecule to
 PennyLane's own `qchem` pipeline (Jordan-Wigner or Bravyi-Kitaev — both
 represent the identical physical Hamiltonian, just a different qubit basis)
 when every element is in PennyLane's bundled STO-3G table, or to
