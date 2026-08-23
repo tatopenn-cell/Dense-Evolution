@@ -45,7 +45,8 @@ import jax
 import jax.numpy as jnp
 from jax.scipy.linalg import expm
 
-__all__ = ['pauli_rotation_ops', 'trotter_evolve_ops', 'continuous_pulse_evolve']
+__all__ = ['pauli_rotation_ops', 'trotter_evolve_ops', 'continuous_pulse_evolve',
+           'continuous_dissipative_evolve']
 
 
 def pauli_rotation_ops(pauli_dict, angle):
@@ -208,3 +209,57 @@ def continuous_pulse_evolve(psi0, hamiltonian_fn, coeffs_t, dt, observable_fn=No
 
     final_psi, trajectory = jax.lax.scan(step, jnp.asarray(psi0), jnp.asarray(coeffs_t))
     return final_psi, trajectory
+
+
+def continuous_dissipative_evolve(rho0, channel_fn, params_t, observable_fn=None):
+    """Evolve a density matrix through a time-dependent open-system (CPTP)
+    channel via jax.lax.scan -- the dissipative counterpart of
+    `continuous_pulse_evolve`, which only ever does unitary exp(-i*H*dt)
+    steps on a pure state.
+
+    Needed because not every real time-dependent physical event is coherent.
+    E.g. a cosmic-ray/gamma impact on a superconducting qubit chip (real
+    data: McEwen et al., arXiv:2104.05219) produces a burst of quasiparticles
+    that transiently collapses the chip's effective T1 -- a rise (~10us to a
+    first plateau, ~1ms to near-saturation) followed by a ~25-30ms
+    exponential decay back to baseline, measured directly, not modeled as a
+    static before/after depolarizing parameter. That is dissipation with a
+    time-varying rate, which cannot be expressed as a coefficient inside a
+    Hermitian Hamiltonian and passed to `continuous_pulse_evolve` -- it has
+    to act on rho through an actual CPTP map at each instant.
+
+    `channel_fn` supplies that per-slice CPTP map (e.g.
+    `dense_evolution.global_depolarizing_channel`, or any other Kraus
+    channel taking a time-varying parameter), so this function is not
+    specific to any one noise mechanism, exactly like `continuous_pulse_evolve`
+    is not specific to any one Hamiltonian.
+
+    Parameters
+    ----------
+    rho0 : array_like
+        Initial density matrix, shape (dim, dim).
+    channel_fn : callable
+        (rho, param) -> rho_next, a single-slice CPTP map. Called once per
+        entry of `params_t` under jax.lax.scan, so it must be
+        JAX-traceable.
+    params_t : array_like
+        Per-slice instantaneous channel parameter (e.g. a depolarizing/
+        decay probability sampled on a time grid reproducing a measured
+        event's rise-and-decay profile).
+    observable_fn : callable, optional
+        If given, applied to rho after each slice; the stacked per-slice
+        results are returned as `trajectory`. If omitted, `trajectory` is
+        None and only the final density matrix is computed.
+
+    Returns
+    -------
+    final_rho : jnp.ndarray
+    trajectory : jnp.ndarray or None
+    """
+    def step(rho, param):
+        rho_next = channel_fn(rho, param)
+        y = observable_fn(rho_next) if observable_fn is not None else None
+        return rho_next, y
+
+    final_rho, trajectory = jax.lax.scan(step, jnp.asarray(rho0), jnp.asarray(params_t))
+    return final_rho, trajectory
