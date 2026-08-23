@@ -123,7 +123,18 @@ docs = [
     "mkdocs-material>=9.5.0",
     "mkdocstrings[python]>=0.24.0",
     "mkdocs-include-markdown-plugin>=6.0.0",
-    "ruff>=0.4.0"
+    "ruff>=0.4.0",
+    # mkdocstrings dynamically imports every documented module to introspect
+    # it -- dashboard_core/__init__.py transitively imports qmmm.py, which
+    # does `import pennylane as qml` at module level, so the docs build
+    # itself needs pennylane installed even though nothing in docs/ or
+    # dense_evolution/ imports it directly. A pre-existing gap in this
+    # extra (unrelated to the tools/dashboard/ restructure, PR #105 --
+    # dashboard_core's own content is untouched) that a floating
+    # mkdocstrings/griffe version bump surfaced as a real, reproducible
+    # docs-build failure.
+    "pennylane>=0.35.0",
+    "basis_set_exchange>=0.9"
 ]
 
 [project.urls]
