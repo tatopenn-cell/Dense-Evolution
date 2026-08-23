@@ -21,6 +21,7 @@ from .healing import calculate_delta_preemp
 __all__ = ["richardson_extrapolate", "zero_noise_extrapolation", "polynomial_extrapolate",
            "project_to_physical", "uhlmann_fidelity", "zne_density_matrix",
            "jsd_predictive_zne_density_matrix", "global_depolarizing_channel",
+           "amplitude_damping_channel",
            "richardson_extrapolate_jit", "zero_noise_extrapolation_jit",
            "polynomial_extrapolate_jit", "uhlmann_fidelity_jit", "zne_density_matrix_jit"]
 
@@ -418,6 +419,31 @@ def global_depolarizing_channel(rho: jnp.ndarray, p: float) -> jnp.ndarray:
     dim = rho.shape[0]
     identity = jnp.eye(dim, dtype=jnp.complex128)
     return (1.0 - p) * rho + (p / dim) * identity
+
+
+def amplitude_damping_channel(rho: jnp.ndarray, gamma: float) -> jnp.ndarray:
+    """Single-qubit amplitude-damping channel: E0 @ rho @ E0.conj().T +
+    E1 @ rho @ E1.conj().T, with E0=diag(1, sqrt(1-gamma)) and
+    E1=[[0,sqrt(gamma)],[0,0]] -- population only ever moves |1>->|0>,
+    never the reverse.
+
+    Distinct from `global_depolarizing_channel` (symmetric, mixes toward
+    the fully-mixed state regardless of which state is |1> or |0>) -- this
+    one is asymmetric by construction, the real signature of energy-relaxation
+    (T1) processes and of quasiparticle poisoning (promoted from a real
+    reproduction of arXiv:2104.05219's measured cosmic-ray-induced error
+    bursts, Dense-Evolution-Discovery Experiment 34, where this asymmetry is
+    exactly the mechanism's own reported signature: decay errors only, no
+    excess excitation errors).
+
+    Single-qubit only (rho must be 2x2) -- unlike `global_depolarizing_channel`,
+    this is not dimension-generic, since amplitude damping is inherently a
+    per-qubit process, not a joint-register one.
+    """
+    rho = jnp.asarray(rho, dtype=jnp.complex128)
+    e0 = jnp.array([[1.0, 0.0], [0.0, jnp.sqrt(1.0 - gamma)]], dtype=jnp.complex128)
+    e1 = jnp.array([[0.0, jnp.sqrt(gamma)], [0.0, 0.0]], dtype=jnp.complex128)
+    return e0 @ rho @ e0.conj().T + e1 @ rho @ e1.conj().T
 
 
 def _uhlmann_fidelity_core(rho_A: jnp.ndarray, rho_B: jnp.ndarray) -> jnp.ndarray:
