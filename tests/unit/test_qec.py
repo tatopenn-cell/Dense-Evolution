@@ -19,7 +19,7 @@ import pytest
 
 from dense_evolution.qec import (
     compute_syndrome, erasure_aware_decode, pauli_commutes, pymatching_decode,
-    blind_minimum_weight_decode,
+    blind_minimum_weight_decode, decode_with_erasure_fallback,
 )
 from dense_evolution.physics import qec as qec_module
 
@@ -210,6 +210,60 @@ class TestErasureAwareDecode:
             "expected a real nonzero failure rate here (~25% at full scale); "
             "re-check the test setup rather than assuming both decoders tied"
         )
+
+
+class TestDecodeWithErasureFallback:
+    """Promoted from Dense-Evolution-Discovery's cosmic-ray-burst-as-erasure
+    experiment (scripts/cosmic_ray_erasure_decoding.py), where this exact
+    fallback policy was first written inline in a Monte Carlo loop."""
+
+    def test_no_heralded_qubits_falls_back_to_blind_decode(self):
+        all_stabilizers = STEANE_X_STABILIZERS + STEANE_Z_STABILIZERS
+        error = ['I'] * N_STEANE
+        error[2] = 'X'
+        syndrome = compute_syndrome(''.join(error), all_stabilizers)
+        result = decode_with_erasure_fallback(syndrome, [], N_STEANE, all_stabilizers)
+        assert result == blind_minimum_weight_decode(syndrome, N_STEANE, all_stabilizers)
+
+    def test_resolvable_heralded_qubits_use_erasure_aware_result(self):
+        all_stabilizers = STEANE_X_STABILIZERS + STEANE_Z_STABILIZERS
+        true_error = ['I'] * N_STEANE
+        true_error[1], true_error[5] = 'X', 'Z'
+        true_error = ''.join(true_error)
+        syndrome = compute_syndrome(true_error, all_stabilizers)
+        result = decode_with_erasure_fallback(syndrome, [1, 5], N_STEANE, all_stabilizers)
+        assert result == true_error
+
+    def test_unresolvable_heralds_fall_back_to_blind_decode(self):
+        # 3 heralded qubits exceeds Steane's real d-1=2 erasure-correcting
+        # capacity -- erasure_aware_decode should return None here, and
+        # decode_with_erasure_fallback must fall back rather than
+        # propagate that None.
+        all_stabilizers = STEANE_X_STABILIZERS + STEANE_Z_STABILIZERS
+        error = ['I'] * N_STEANE
+        error[0] = 'X'
+        syndrome = compute_syndrome(''.join(error), all_stabilizers)
+        assert erasure_aware_decode(syndrome, [0, 1, 2], N_STEANE, all_stabilizers) is None
+        result = decode_with_erasure_fallback(syndrome, [0, 1, 2], N_STEANE, all_stabilizers)
+        assert result == blind_minimum_weight_decode(syndrome, N_STEANE, all_stabilizers)
+
+    def test_never_worse_than_blind_alone_over_many_random_shots(self):
+        all_stabilizers = STEANE_X_STABILIZERS + STEANE_Z_STABILIZERS
+        rng = np.random.default_rng(7)
+        for _ in range(200):
+            heralded = rng.choice(N_STEANE, size=int(rng.integers(0, 3)), replace=False).tolist()
+            q = int(rng.integers(0, N_STEANE))
+            error = ['I'] * N_STEANE
+            error[q] = str(rng.choice(['X', 'Y', 'Z']))
+            syndrome = compute_syndrome(''.join(error), all_stabilizers)
+            blind_result = blind_minimum_weight_decode(syndrome, N_STEANE, all_stabilizers)
+            fallback_result = decode_with_erasure_fallback(syndrome, heralded, N_STEANE, all_stabilizers)
+            # Whenever blind decoding alone succeeds (a unique match), the
+            # fallback-aware policy must also produce a definite answer --
+            # extra herald information should never make an already-solvable
+            # syndrome unsolvable.
+            if blind_result is not None:
+                assert fallback_result is not None
 
 
 class TestPymatchingDecode:
