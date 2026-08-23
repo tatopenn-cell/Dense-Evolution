@@ -404,3 +404,57 @@ def blind_minimum_weight_decode(
             return None
 
     return None
+
+
+def decode_with_erasure_fallback(
+    observed_syndrome: Sequence[int],
+    heralded_qubits: Sequence[int],
+    n_qubits: int,
+    stabilizers: Sequence[str],
+    max_weight: Optional[int] = None,
+) -> Optional[str]:
+    """The real-world decoding POLICY, not just a raw decoder call: use
+    `erasure_aware_decode` when there are any heralded qubits and it
+    resolves the syndrome uniquely; fall back to `blind_minimum_weight_decode`
+    otherwise (zero heralded qubits, or erasure-aware decoding can't
+    resolve it -- ambiguous, or more heralds than the code's real
+    erasure-correcting capacity).
+
+    Promoted from Dense-Evolution-Discovery's cosmic-ray-burst-as-erasure
+    experiment (scripts/cosmic_ray_erasure_decoding.py), where this exact
+    fallback logic was first written inline in a Monte Carlo loop. Never
+    worse than always calling `blind_minimum_weight_decode` directly --
+    it only uses herald information when doing so actually helps, exactly
+    the policy a real erasure-aware QEC system would run, since a
+    real-time detector (e.g. a cosmic-ray/particle-impact monitor, or a
+    photon-loss herald) only ever adds information, it doesn't obligate a
+    decoder to use it past the point where it stops being useful.
+
+    Parameters
+    ----------
+    observed_syndrome : sequence of int
+        One bit per stabilizer, same convention as `compute_syndrome`.
+    heralded_qubits : sequence of int
+        Qubits KNOWN to have been erased/disturbed this shot -- may be
+        empty (falls straight through to blind decoding).
+    n_qubits : int
+        Number of physical qubits.
+    stabilizers : sequence of str
+        The code's stabilizer generators (any mix of Pauli types).
+    max_weight : int, optional
+        Forwarded to `blind_minimum_weight_decode`'s fallback path only
+        (see its own docstring) -- `erasure_aware_decode` has no
+        equivalent parameter, its search is always exactly over the
+        heralded qubits.
+
+    Returns
+    -------
+    str or None
+        Length-`n_qubits` Pauli string (IXYZ), or `None` if neither
+        decoder can resolve the syndrome.
+    """
+    if heralded_qubits:
+        result = erasure_aware_decode(observed_syndrome, heralded_qubits, n_qubits, stabilizers)
+        if result is not None:
+            return result
+    return blind_minimum_weight_decode(observed_syndrome, n_qubits, stabilizers, max_weight=max_weight)
