@@ -41,7 +41,11 @@ where gate count directly limits how much depolarizing noise the
 circuit accumulates).
 """
 
-__all__ = ['pauli_rotation_ops', 'trotter_evolve_ops']
+import jax
+import jax.numpy as jnp
+from jax.scipy.linalg import expm
+
+__all__ = ['pauli_rotation_ops', 'trotter_evolve_ops', 'continuous_pulse_evolve']
 
 
 def pauli_rotation_ops(pauli_dict, angle):
@@ -142,3 +146,65 @@ def trotter_evolve_ops(terms, t, n_steps, order=1):
         for c, pdict in reversed(terms):
             step_ops.extend(pauli_rotation_ops(pdict, c * half_dt))
     return step_ops * n_steps
+
+
+def continuous_pulse_evolve(psi0, hamiltonian_fn, coeffs_t, dt, observable_fn=None):
+    """Evolve a statevector under a time-dependent Hamiltonian via
+    jax.lax.scan, generalized out of a pattern first written ad hoc for a
+    real time-dependent pulse (Dense-Evolution-Discovery's
+    germanium_iswap_validation.py, exact_final_state/exact_final_state_general
+    -- a 56ns raised-cosine baseband iSWAP pulse, arXiv:2608.16716). That
+    script's own Trotterized-gate-circuit version of the same pulse
+    (build_pulse_circuit) instead builds a plain Python list of gate tuples,
+    one exp(-i*H*dt) per slice via pauli_rotation_ops -- fine for producing a
+    circuit a discrete-gate simulator can run, but not what this function is
+    for: this evolves the statevector directly, slice by slice, entirely
+    inside JAX, with no Python-side list that grows with the number of
+    slices (the O(1)-per-step scan carry is the whole point -- many slices
+    for a finely-resolved pulse cost compile time, not accumulating Python
+    memory).
+
+    Not specific to any one Hamiltonian, qubit count, or pulse shape --
+    `hamiltonian_fn` supplies the (possibly qubit-count-dependent) operator
+    for a given instantaneous coefficient, and `coeffs_t` can be any sampled
+    time-dependent profile (a smooth pulse envelope, a sudden burst, a
+    constant array for a time-independent Hamiltonian, etc.).
+
+    Parameters
+    ----------
+    psi0 : array_like
+        Initial statevector, shape (2**n_qubits,).
+    hamiltonian_fn : callable
+        coeff -> Hamiltonian matrix, shape (2**n_qubits, 2**n_qubits), for
+        that instant's coefficient. Called once per entry of `coeffs_t`
+        under jax.lax.scan, so it must be JAX-traceable.
+    coeffs_t : array_like
+        Per-slice instantaneous coefficient, one entry per time slice
+        (e.g. a peak amplitude times a sampled pulse envelope). The
+        evolution applies exp(-i*hamiltonian_fn(coeff)*dt) for each entry,
+        in order.
+    dt : float
+        Duration of one slice (coeffs_t is assumed sampled on a uniform
+        grid of this spacing -- same convention as the germanium
+        experiment's dt=0.05 ns midpoint/linspace sampling).
+    observable_fn : callable, optional
+        If given, applied to the statevector after each slice; the stacked
+        per-slice results are returned as `trajectory` (mirrors the
+        experiment's own step_record, used there to plot |01>/|10>
+        occupation probability over the pulse). If omitted, `trajectory`
+        is None and only the final state is computed.
+
+    Returns
+    -------
+    final_psi : jnp.ndarray
+    trajectory : jnp.ndarray or None
+    """
+    def step(psi, coeff):
+        H_t = hamiltonian_fn(coeff)
+        U_step = expm(-1j * H_t * dt)
+        next_psi = jnp.dot(U_step, psi)
+        y = observable_fn(next_psi) if observable_fn is not None else None
+        return next_psi, y
+
+    final_psi, trajectory = jax.lax.scan(step, jnp.asarray(psi0), jnp.asarray(coeffs_t))
+    return final_psi, trajectory
