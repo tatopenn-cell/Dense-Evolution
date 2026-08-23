@@ -9,6 +9,26 @@ of every entry point.
 
 ---
 
+## Standalone density-matrix noise channels
+
+Three CPTP channels usable directly on a density matrix, independent of `NoiseModel`'s
+per-qubit gate-noise pipeline (`circuits.registry`). `global_depolarizing_channel` is
+symmetric -- it mixes the whole register toward the fully-mixed state as one unit -- promoted
+from a real reproduction of arXiv:2608.16716's SPAM model
+([Experiment 33](https://tatopenn-cell.github.io/Dense-Evolution-Discovery/germanium_iswap_validation/)).
+`amplitude_damping_channel` is the opposite kind of asymmetric: population only ever moves
+`|1>`&rarr;`|0>`, never the reverse -- the real signature of T1 decay and of quasiparticle
+poisoning, promoted from
+[Experiment 34](https://tatopenn-cell.github.io/Dense-Evolution-Discovery/cosmic_ray_burst_validation/)'s
+reproduction of a real cosmic-ray-induced error burst (arXiv:2104.05219). `cosmic_ray_burst_profile`
+is not a channel itself but the time-dependent decay-probability GENERATOR that experiment's
+real numbers were extracted into a reusable, parametrized form from -- feed its output straight
+to `amplitude_damping_channel` via [`continuous_dissipative_evolve`](trotter.md). Both are
+already covered by the `dense_evolution.mitigation.zne` API reference above -- this section
+is context, not a duplicate listing.
+
+---
+
 ## Density-matrix diagnostics
 
 Two further density-matrix diagnostics, both originated as Colab proposals with real bugs,
