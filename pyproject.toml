@@ -143,7 +143,7 @@ packages = ["dense_evolution", "dense_evolution.native_hf", "dense_evolution.uti
 # work unchanged everywhere) via this explicit dir mapping.
 [tool.setuptools.package-dir]
 ia_utils = "tools/ia_utils"
-dashboard_core = "tools/dashboard_core"
+dashboard_core = "tools/dashboard/core"
 mcp_server = "tools/mcp_server"
 local_site = "research/local_site"
 "local_site.app" = "research/local_site/app"
@@ -190,7 +190,7 @@ target-version = ['py39', 'py310', 'py311', 'py312']
 source = ["."]
 omit = [
     "tests/*", "tests/unit/*", "tests/integration/*",
-    "research/experiments/*", "tools/app_dashboard.py",
+    "research/experiments/*", "tools/dashboard/app.py",
     "research/legacy/*", "build/*", "dist/*", "research/notebooks/*",
 ]
 relative_files = true
