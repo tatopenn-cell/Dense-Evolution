@@ -39,7 +39,7 @@ from .circuits.trotter import (pauli_rotation_ops, trotter_evolve_ops, continuou
 from .physics.qec import (pauli_commutes, compute_syndrome, erasure_aware_decode, pymatching_decode,
                            blind_minimum_weight_decode, decode_with_erasure_fallback)
 
-__version__ = "8.1.66"
+__version__ = "8.1.67"
 
 __all__ = [
     "__version__",
