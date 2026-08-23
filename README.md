@@ -232,6 +232,9 @@ research/                           (not installed as a module -- reference/expe
 | **Density-Matrix Diagnostics** | `mitigation.py` — `sandwiched_renyi_divergence` (non-commuting-aware, order-α), `magic_entropy` (single-qubit non-stabilizerness, zero for all six stabilizer states) |
 | **Shadow-Based Estimation** | `mitigation.py` — `sample_classical_shadow`/`magic_entropy_from_shadows` (median-of-means classical-shadows estimator for `magic_entropy`, from randomized measurement snapshots instead of the exact state), `approx_shadow_std`/`fit_shadow_sample_complexity` (empirically-derived error guidance) |
 | **Classical Distribution Divergence** | `mitigation.py` — `kl_divergence`/`kl_divergence_jit` (Kullback-Leibler divergence over probability distributions, e.g. measurement-outcome distributions — distinct from `sandwiched_renyi_divergence`'s density-matrix form) |
+| **Continuous-Time Evolution** | `circuits/trotter.py` — `continuous_pulse_evolve`/`continuous_dissipative_evolve`, `jax.lax.scan`-based coherent/dissipative evolution under any time-dependent Hamiltonian or CPTP channel, no growing Python-side gate list |
+| **Time-Dependent Noise Channels** | `mitigation.py` — `global_depolarizing_channel` (symmetric, whole-register SPAM), `amplitude_damping_channel` (asymmetric, single-qubit T1-style decay), `cosmic_ray_burst_profile` (parametrized cosmic-ray-burst decay-probability profile, arXiv:2104.05219) |
+| **Quirk-Style Circuit Diagrams** | `plot_circuit` — matplotlib box-diagram renderer for Dense-Evolution's native gate-tuple format, auto-sized boxes, no gate table to keep in sync by hand |
 | **VQE + ADAM** | Hellmann-Feynman gradient · positional parameter injection into any OpenQASM 2.0 circuit |
 | **Sparse Ground-State Solver** | `ground_state_energy_sparse` — `scipy.sparse.linalg.eigsh` against a matrix-free `pauli_sum_matvec` `LinearOperator`, no dense `(2**n_qubits)²` Hamiltonian ever built; unblocks molecules too large for exact dense diagonalization (e.g. Si₂) |
 | **Auto-JIT Dispatch** | `run_circuit()` auto-delegates to the compiled `run_circuit_jit()` path whenever every gate is supported there (26/26 gate parity) — 6x+ faster, zero API change, no need to know `run_circuit_jit` exists |
@@ -539,22 +542,51 @@ healed = de.zero_noise_extrapolation([e1, e2, e3], [1.0, 2.0, 3.0],
 
 `richardson_extrapolate`/`zero_noise_extrapolation` accept array-valued `expectation_values` too (e.g. a full probability distribution per noise scale, extrapolated elementwise), not just scalars — this is what the Streamlit dashboard's **Mitigation (ZNE)** tab uses under the hood (`dashboard_core.mitigation_runner.run_mitigation_sweep`): run the active circuit at 1x/2x/3x the configured noise probability, extrapolate the whole probability vector (and fidelity) to zero noise, reusing these two functions exactly as-is.
 
+### Noise Channels for Density-Matrix Simulation
+
+Three standalone CPTP channels, usable directly on a density matrix (not tied to `NoiseModel`'s per-qubit gate-noise pipeline): `global_depolarizing_channel` (symmetric, whole-register — SPAM error reported as one joint parameter), `amplitude_damping_channel` (asymmetric, single-qubit — population only ever moves `|1>`→`|0>`, the real signature of T1 decay/quasiparticle poisoning), and `cosmic_ray_burst_profile` (not a channel itself, but a parametrized time-dependent decay-probability generator — real ratios/timescales from arXiv:2104.05219's measured cosmic-ray error bursts, feed its output to `amplitude_damping_channel`). Full derivation, citations, and the real experiment these were promoted from: [docs/api/mitigation.md](https://tatopenn-cell.github.io/Dense-Evolution/api/mitigation/).
+
+```python
+import jax.numpy as jnp
+from dense_evolution import cosmic_ray_burst_profile, amplitude_damping_channel, continuous_dissipative_evolve
+
+time_us = jnp.linspace(0.0, 150_000.0, 15_000)                  # 150ms, 10us slices
+gamma_t = cosmic_ray_burst_profile(time_us, baseline_gamma=0.01)  # real paper ratios/decay by default
+rho0 = jnp.array([[0.0, 0.0], [0.0, 1.0]], dtype=jnp.complex128)  # |1><1|
+final_rho, _ = continuous_dissipative_evolve(rho0, amplitude_damping_channel, gamma_t)
+```
+
+---
+
+## ▍ Continuous-Time Evolution — `dense_evolution.circuits.trotter`
+
+Real-time Hamiltonian evolution as an actual gate circuit (`pauli_rotation_ops`/`trotter_evolve_ops`), plus two `jax.lax.scan`-based solvers for genuinely time-dependent processes: `continuous_pulse_evolve` (coherent — any time-dependent Hamiltonian, e.g. a real analog control pulse) and `continuous_dissipative_evolve` (dissipative — any time-dependent CPTP channel, e.g. a transient noise event). Neither builds a growing Python-side list as the slice count increases, unlike a hand-rolled per-slice gate-tuple loop. Full math and the real experiments these were promoted from: [docs/api/trotter.md](https://tatopenn-cell.github.io/Dense-Evolution/api/trotter/).
+
+```python
+import jax.numpy as jnp
+from dense_evolution import continuous_pulse_evolve
+
+X = jnp.array([[0.0, 1.0], [1.0, 0.0]], dtype=jnp.complex128)
+psi0 = jnp.array([1.0, 0.0], dtype=jnp.complex128)
+coeffs_t = jnp.linspace(0.0, 1.0, 200)  # any sampled time-dependent pulse envelope
+final_psi, _ = continuous_pulse_evolve(psi0, lambda c: c * X, coeffs_t, dt=0.01)
+```
+
 ---
 
 ## ▍ QEC Decoding — `dense_evolution.qec`
 
-Code-agnostic stabilizer-code primitives plus three decoders: erasure-aware (known error locations), MWPM (`pymatching_decode`, blind, graph-like/topological codes only), and a blind minimum-weight brute-force decoder (`blind_minimum_weight_decode`) for small codes MWPM can't handle. Full math, citations, and validation details: [docs/api/qec.md](https://tatopenn-cell.github.io/Dense-Evolution/api/qec/).
+Code-agnostic stabilizer-code primitives plus three decoders: erasure-aware (known error locations), MWPM (`pymatching_decode`, blind, graph-like/topological codes only), and a blind minimum-weight brute-force decoder (`blind_minimum_weight_decode`) for small codes MWPM can't handle. `decode_with_erasure_fallback` composes the two into the real-world POLICY (use herald info when it resolves the syndrome, fall back to blind decoding otherwise) — never worse than blind decoding alone. Full math, citations, and validation details: [docs/api/qec.md](https://tatopenn-cell.github.io/Dense-Evolution/api/qec/).
 
 ```python
-from dense_evolution import compute_syndrome, erasure_aware_decode, blind_minimum_weight_decode
+from dense_evolution import compute_syndrome, decode_with_erasure_fallback
 
 stabilizers = ['IIIXXXX', 'IXXIIXX', 'XIXIXIX', 'IIIZZZZ', 'IZZIIZZ', 'ZIZIZIZ']  # Steane [[7,1,3]]
 syndrome = compute_syndrome('IIIZIII', stabilizers)                              # Z error on qubit 3
 
-# Known error location:
-corrected = erasure_aware_decode(syndrome, heralded_qubits=[3], n_qubits=7, stabilizers=stabilizers)
-# Blind (no known location) -- pymatching_decode can't be used for Steane at all (see docs):
-corrected = blind_minimum_weight_decode(syndrome, n_qubits=7, stabilizers=stabilizers)
+# Uses the known error location when it resolves the syndrome, falls back to
+# blind minimum-weight decoding otherwise -- one entry point either way:
+corrected = decode_with_erasure_fallback(syndrome, heralded_qubits=[3], n_qubits=7, stabilizers=stabilizers)
 ```
 
 ---

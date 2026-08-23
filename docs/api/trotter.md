@@ -17,6 +17,19 @@ per doubling of steps against a real, non-trivial multi-qubit
 Hamiltonian, consistent with the expected quadratic convergence of
 first-order Trotter error in state overlap.
 
+`continuous_pulse_evolve` and `continuous_dissipative_evolve` cover a different case
+entirely: a genuinely time-dependent process (a real analog control pulse, or a transient
+noise event) that shouldn't be discretized into a growing Python-side list of gate tuples.
+Both scan a fixed-size `jax.lax.scan` loop over a sampled coefficient array instead --
+`continuous_pulse_evolve` applies `exp(-i*H(t)*dt)` to a pure state (coherent), while
+`continuous_dissipative_evolve` applies an arbitrary CPTP channel to a density matrix
+(dissipative) -- so slice count costs compile time, not accumulating memory. Promoted from
+[Dense-Evolution-Discovery Experiment 34](https://tatopenn-cell.github.io/Dense-Evolution-Discovery/cosmic_ray_burst_validation/)'s
+real reproduction of a cosmic-ray-induced error burst (arXiv:2104.05219), generalized out of
+that experiment's own ad hoc pulse/channel-evolution code (itself first written for
+[Experiment 33](https://tatopenn-cell.github.io/Dense-Evolution-Discovery/germanium_iswap_validation/)'s
+germanium iSWAP pulse).
+
 ::: dense_evolution.circuits.trotter
 
 ---

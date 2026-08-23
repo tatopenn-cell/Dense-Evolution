@@ -27,6 +27,16 @@ different real-world settings:
   always violated. Minimum-weight selection is what makes blind decoding
   well-posed at all.
 
+`decode_with_erasure_fallback` composes the two-decoder split above into the real-world
+decoding POLICY, not just another raw decoder: use `erasure_aware_decode` when there are
+heralded qubits and it resolves the syndrome uniquely, otherwise fall back to
+`blind_minimum_weight_decode`. Never worse than always calling blind decoding directly --
+promoted from Dense-Evolution-Discovery's
+[cosmic-ray-burst-as-erasure experiment](https://tatopenn-cell.github.io/Dense-Evolution-Discovery/cosmic_ray_burst_validation/),
+where this exact fallback logic was first written inline in a Monte Carlo loop testing
+whether knowing WHICH qubits a real cosmic-ray burst hit (arXiv:2104.05219) lets a Steane
+[[7,1,3]] code recover better than blind decoding alone.
+
 Erasure-aware decoding rests on a real, foundational result: Grassl, Beth
 & Pellizzari, "Codes for the quantum erasure channel," Phys. Rev. A 56, 33
 (1997) — a distance-*d* stabilizer code can correct up to *d*-1 erasures
