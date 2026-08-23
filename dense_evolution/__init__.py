@@ -17,6 +17,7 @@ from .backends.mps import MPSSimulator
 from .mitigation.zne import (richardson_extrapolate, zero_noise_extrapolation, polynomial_extrapolate,
                           project_to_physical, uhlmann_fidelity, zne_density_matrix,
                           jsd_predictive_zne_density_matrix, global_depolarizing_channel,
+                          amplitude_damping_channel,
                           richardson_extrapolate_jit, zero_noise_extrapolation_jit,
                           polynomial_extrapolate_jit, uhlmann_fidelity_jit, zne_density_matrix_jit)
 from .circuits.diagram import plot_circuit
@@ -62,7 +63,7 @@ __all__ = [
     # Mitigation -- Zero-Noise Extrapolation
     "richardson_extrapolate", "zero_noise_extrapolation", "polynomial_extrapolate",
     "project_to_physical", "uhlmann_fidelity", "zne_density_matrix",
-    "jsd_predictive_zne_density_matrix", "global_depolarizing_channel",
+    "jsd_predictive_zne_density_matrix", "global_depolarizing_channel", "amplitude_damping_channel",
     "richardson_extrapolate_jit", "zero_noise_extrapolation_jit",
     "polynomial_extrapolate_jit", "uhlmann_fidelity_jit", "zne_density_matrix_jit",
     # Physics -- states, observables, entropy, fermions, QEC
