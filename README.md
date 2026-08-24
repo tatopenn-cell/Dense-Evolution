@@ -256,8 +256,7 @@ To demonstrate the numerical accuracy and stability of **Dense Evolution**, the 
 
 * Numerical Precision: Calculations are locked at Double Precision (float64), proving the simulator's resilience against cumulative machine epsilon errors (~ 1.11 × 10⁻¹⁶) across thousands of sequential circuit executions.
 * **Honest caveat, corrected in v8.1.59**: this scan's own minimum (~3.55 Å below, negative total energy) is an artifact of its small active-space/basis choice, not the real physical Si2 equilibrium — the real experimental/literature bond length is **2.184 Å** (Balamurugan & Prasad, [arXiv:cond-mat/0108426](https://arxiv.org/abs/cond-mat/0108426)). This claim went unverified in earlier README revisions; it's stated correctly here and Si2 is now in the [Hamiltonian Library](#-hamiltonian-library) below at its real geometry, computed by the new [native Hartree-Fock engine](#-api-reference) since Si is outside PennyLane's own bundled STO-3G table.
-* Run this molecular experiment instantly on Google Colab Free Tier:
-  [Open Notebook on Google Colab](https://colab.research.google.com/drive/1cX7vYsVaxO29677ltgDTbh3pqUi0NYC5#scrollTo=Qg_lqX-Iw_UM)
+* Try it yourself in Google Colab: see the [3-line install](docs/getting-started.md) in Getting Started.
 
 ---
 
