@@ -28,7 +28,25 @@ def max_safe_dense_qubits() -> dict:
     for a single dense block). MPS's contract_to_statevector has a
     separate, RAM-independent hard ceiling of 24 qubits; picking 25-27
     with the MPS backend surfaces that function's own real error rather
-    than being silently blocked here."""
+    than being silently blocked here.
+
+    Returns
+    -------
+    dict
+        `total_mb`/`available_mb` (this machine's real RAM, from
+        `SafeMemoryGuard.status()`), `threshold_pct` (the guard's safety
+        margin), `max_qubits_dense` (the suggested cap -- machine-dependent,
+        not a constant).
+
+    Examples
+    --------
+    >>> from dashboard_core.system_limits import max_safe_dense_qubits
+    >>> limits = max_safe_dense_qubits()
+    >>> sorted(limits.keys())
+    ['available_mb', 'max_qubits_dense', 'threshold_pct', 'total_mb']
+    >>> 16 <= limits['max_qubits_dense'] <= 27
+    True
+    """
     guard = de.chunk.SafeMemoryGuard()
     status = guard.status()
     max_qubits = de.chunk.get_dynamic_chunk(de.chunk.jnp.complex128 if de.chunk.HAS_JAX else de.chunk.np.complex128)

@@ -36,7 +36,15 @@ __all__ = [
 def linear_chain_geometry(n_atoms: int, bond_length_angstrom: float):
     """N atoms on a line, each bond_length_angstrom apart -- the real,
     general shape behind every diatomic entry in the catalog (H2, HeH+,
-    LiH), extended to any atom count."""
+    LiH), extended to any atom count.
+
+    Examples
+    --------
+    >>> from dashboard_core.hamiltonians import linear_chain_geometry
+    >>> linear_chain_geometry(2, 0.7414)
+    array([[0.    , 0.    , 0.    ],
+           [0.    , 0.    , 0.7414]])
+    """
     if n_atoms < 1:
         raise ValueError("linear_chain_geometry needs at least 1 atom")
     return np.array([[0.0, 0.0, i * bond_length_angstrom] for i in range(n_atoms)])
@@ -49,7 +57,16 @@ def ring_geometry(n_atoms: int, bond_length_angstrom: float):
     triangle -- the same real D3h geometry H3+'s catalog entry uses, just
     generalized to any ring size (still only meaningful up to whatever
     qubit count this simulator's exact diagonalization / VQE range can
-    handle -- this function itself has no such limit, the caller does)."""
+    handle -- this function itself has no such limit, the caller does).
+
+    Examples
+    --------
+    >>> from dashboard_core.hamiltonians import ring_geometry
+    >>> ring_geometry(3, 0.8738).round(4)
+    array([[ 0.5045,  0.    ,  0.    ],
+           [-0.2522,  0.4369,  0.    ],
+           [-0.2522, -0.4369,  0.    ]])
+    """
     if n_atoms < 3:
         raise ValueError("ring_geometry needs at least 3 atoms")
     R = bond_length_angstrom / (2 * np.sin(np.pi / n_atoms))
@@ -335,7 +352,17 @@ def build_molecular_hamiltonian(symbols, geometry, charge: int = 0, mapping: str
     dense_evolution.pauli_hamiltonian_to_matrix from PennyLane's real
     Pauli decomposition, not qml.matrix() -- verified to match qml.matrix
     exactly (same ground-state energy, same matrix, atol=1e-8) for every
-    catalog molecule."""
+    catalog molecule.
+
+    Examples
+    --------
+    >>> from dashboard_core.hamiltonians import build_molecular_hamiltonian, ground_state_energy
+    >>> H, n_qubits = build_molecular_hamiltonian(['H', 'H'], [[0, 0, 0], [0, 0, 0.7414]])
+    >>> n_qubits
+    4
+    >>> round(ground_state_energy(H), 4)
+    -1.1373
+    """
     H, n_qubits = _get_hamiltonian(symbols, geometry, charge, mapping, active_electrons, active_orbitals)
 
     dense_key = (tuple(symbols), tuple(map(tuple, np.asarray(geometry).round(10))), charge, mapping,
@@ -378,7 +405,15 @@ def get_all_molecules(catalog=None, mapping="jordan_wigner"):
     """Every catalog molecule, each annotated with its real qubit count
     under the given mapping -- unfiltered, so the UI can always show the
     whole catalog and let the molecule choice drive the circuit's qubit
-    count (not the other way around)."""
+    count (not the other way around).
+
+    Examples
+    --------
+    >>> from dashboard_core.hamiltonians import get_all_molecules
+    >>> molecules = get_all_molecules()
+    >>> molecules['H2 (Idrogeno) - R = 0.7414 A [equilibrio reale]']['n_qubits']
+    4
+    """
     catalog = catalog if catalog is not None else MOLECULE_CATALOG
     out = {}
     for name, spec in catalog.items():
@@ -456,6 +491,15 @@ def ground_state_energy_sparse(symbols, geometry, charge: int = 0, mapping: str 
     exact, non-iterative answer -- this is the new, separate opt-in path
     for systems too large to densify at all, not a behavior change to
     the existing one.
+
+    Examples
+    --------
+    >>> from dashboard_core.hamiltonians import ground_state_energy_sparse, build_molecular_hamiltonian, ground_state_energy
+    >>> e_sparse = ground_state_energy_sparse(['H', 'H'], [[0, 0, 0], [0, 0, 0.7414]])
+    >>> H, _ = build_molecular_hamiltonian(['H', 'H'], [[0, 0, 0], [0, 0, 0.7414]])
+    >>> e_dense = ground_state_energy(H)
+    >>> abs(e_sparse - e_dense) < 1e-8  # matches the dense path without ever building H_dense
+    True
     """
     import scipy.sparse.linalg as sla
 
@@ -501,7 +545,17 @@ def mix_hamiltonians(H_a, H_b, weight_a: float = 0.5, weight_b: float = 0.5):
     share an electron space" behavior). A real-weighted sum of two
     Hermitian matrices is itself Hermitian, so H_mix is a real, valid
     Hamiltonian with a real spectrum -- not a fabricated hybrid, just
-    linear algebra applied to two already-real operators."""
+    linear algebra applied to two already-real operators.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from dashboard_core.hamiltonians import build_molecular_hamiltonian, mix_hamiltonians
+    >>> H, _ = build_molecular_hamiltonian(['H', 'H'], [[0, 0, 0], [0, 0, 0.7414]])
+    >>> H_mix = mix_hamiltonians(H, H, weight_a=0.5, weight_b=0.5)
+    >>> bool(np.allclose(H_mix, H))  # mixing H with itself in equal parts reproduces H
+    True
+    """
     if H_a.shape != H_b.shape:
         dim_a, dim_b = H_a.shape[0], H_b.shape[0]
         raise ValueError(

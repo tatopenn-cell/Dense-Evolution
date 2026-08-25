@@ -27,7 +27,15 @@ _LIGHT_STYLE = 'default'
 
 
 def draw_circuit_figure(ops, n_qubits: int):
-    """Native matplotlib circuit diagram (dashboard_core.circuit_diagram)."""
+    """Native matplotlib circuit diagram (dashboard_core.circuit_diagram).
+
+    Examples
+    --------
+    >>> from dashboard_core.visuals import draw_circuit_figure
+    >>> fig = draw_circuit_figure([('h', 0), ('cx', 0, 1)], n_qubits=2)
+    >>> type(fig).__name__
+    'Figure'
+    """
     with plt.style.context(_LIGHT_STYLE):
         return draw_native_circuit_diagram(ops, n_qubits)
 

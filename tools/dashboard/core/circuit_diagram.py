@@ -122,7 +122,20 @@ def draw_native_circuit_diagram(ops, n_qubits: int, add_measure: bool = True):
     tuples -- no Qiskit QuantumCircuit ever constructed. Qubit 0 is drawn
     at the top, increasing downward, matching Qiskit's own drawer
     convention so this is a drop-in replacement for
-    dashboard_core.visuals.draw_circuit_figure's panel."""
+    dashboard_core.visuals.draw_circuit_figure's panel.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+
+    Examples
+    --------
+    >>> from dashboard_core.circuit_diagram import draw_native_circuit_diagram
+    >>> fig = draw_native_circuit_diagram([('h', 0), ('cx', 0, 1)], n_qubits=2)
+    >>> type(fig).__name__
+    'Figure'
+    >>> fig.savefig('bell_pair.png')  # doctest: +SKIP
+    """
     scheduled, n_columns = _schedule_columns(ops)
     n_display_columns = n_columns + (1 if add_measure else 0)
 

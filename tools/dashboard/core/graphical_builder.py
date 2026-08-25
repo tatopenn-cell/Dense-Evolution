@@ -68,6 +68,13 @@ def ops_to_native_tuples(n_qubits: int, ops: list) -> list:
         Pass to qasm_library.gate_tuples_to_qasm(tuples, n_qubits) for the
         QASM text the rest of the Composer already runs on (measure_all
         equivalent included there by default).
+
+    Examples
+    --------
+    >>> from dashboard_core.graphical_builder import ops_to_native_tuples
+    >>> ops = [{'gate': 'h', 'qubits': [0]}, {'gate': 'cx', 'qubits': [0, 1]}]
+    >>> ops_to_native_tuples(2, ops)
+    [('h', 0), ('cx', 0, 1)]
     """
     if n_qubits < 1:
         raise ValueError("circuit must have at least 1 qubit")

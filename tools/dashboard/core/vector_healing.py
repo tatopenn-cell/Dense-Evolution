@@ -64,6 +64,20 @@ def run_vector_healing(vectors: np.ndarray, radius_baseline: Optional[int] = Non
 
     Returns:
         VectorHealingResult
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from dashboard_core.vector_healing import run_vector_healing
+    >>> rng = np.random.default_rng(0)
+    >>> vectors = rng.normal(0, 1, size=(30, 3))
+    >>> vectors[10, 1] += 8.0    # a noise spike -- the Phi-Trigger heals this
+    >>> vectors[15, 0] = np.nan  # genuine NaN corruption -- this is what fallback_triggered reports
+    >>> result = run_vector_healing(vectors)
+    >>> result.fallback_triggered  # True only because of the NaN, not the spike
+    True
+    >>> abs(result.healed_vectors[10][1]) < 1.0  # spike replaced by the local median regardless
+    True
     """
     if enhanced_dense_healing_hybrid is None:
         raise ImportError(

@@ -120,6 +120,24 @@ def run_circuit_from_qasm(
     circuit). Verified to match 'dense' exactly (atol=1e-6) on every
     preset in QASM_LIBRARY, and to run a 12-qubit GHZ state in ~2.5s
     (max_bond=2) where 'dense' would need 2**12 complex amplitudes.
+
+    Examples
+    --------
+    >>> from dashboard_core.engine import run_circuit_from_qasm
+    >>> qasm = '''
+    ... OPENQASM 2.0;
+    ... include "qelib1.inc";
+    ... qreg q[2];
+    ... creg c[2];
+    ... h q[0];
+    ... cx q[0],q[1];
+    ... measure q -> c;
+    ... '''
+    >>> result = run_circuit_from_qasm(qasm, n_shots=1000, seed=0)
+    >>> result.probabilities.round(3).tolist()  # Bell pair: only |00> and |11> populated
+    [0.5, 0.0, 0.0, 0.5]
+    >>> set(result.counts.keys()) <= {'00', '11'}  # shot counts only land on those two states
+    True
     """
     n_qubits, ops = _qasm_to_tuples(qasm_text)
     if n_qubits < 1:
@@ -225,6 +243,28 @@ def run_large_circuit_mps(qasm_text: str, k: int = 32, seed: Optional[int] = Non
     measured directly, sampling 2000 shots takes 130s/257s/582s at
     30/50/100 qubits (grows with n -- roughly O(n_samples * n_qubits)),
     while get_top_k_probable_states stays under 2s even at 100 qubits.
+
+    Examples
+    --------
+    >>> from dashboard_core.engine import run_large_circuit_mps
+    >>> qasm = '''
+    ... OPENQASM 2.0;
+    ... include "qelib1.inc";
+    ... qreg q[5];
+    ... creg c[5];
+    ... h q[0];
+    ... cx q[0],q[1];
+    ... cx q[1],q[2];
+    ... cx q[2],q[3];
+    ... cx q[3],q[4];
+    ... measure q -> c;
+    ... '''
+    >>> result = run_large_circuit_mps(qasm, k=4, seed=0)  # a 5-qubit GHZ state
+    >>> top2 = sorted(result.top_k_states, key=lambda t: -t[1])[:2]
+    >>> [bits for bits, _ in top2]
+    ['00000', '11111']
+    >>> all(abs(p - 0.5) < 1e-9 for _, p in top2)
+    True
     """
     n_qubits, raw_ops = _qasm_to_tuples(qasm_text)
     if n_qubits < 1:

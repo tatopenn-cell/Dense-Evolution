@@ -112,6 +112,16 @@ def build_sparse_syk_terms(n_majorana, k_terms, J, seed):
     takes C(4,2)=6 transpositions, (-1)^6=+1 -- no extra i factor needed).
     Returns (n_qubits, terms) where terms is ready for
     dense_evolution.pauli_hamiltonian_to_matrix.
+
+    Examples
+    --------
+    >>> import math
+    >>> from dashboard_core.wormhole import build_sparse_syk_terms
+    >>> n_qubits, terms = build_sparse_syk_terms(n_majorana=8, k_terms=10, J=math.sqrt(2), seed=61)
+    >>> n_qubits
+    4
+    >>> len(terms)
+    10
     """
     n_qubits = n_majorana // 2
     all_quads = list(itertools.combinations(range(1, n_majorana + 1), 4))
@@ -173,6 +183,14 @@ def commuting_pair_count(terms, n_qubits):
     is unused here (kept in the signature for API compatibility -- every
     other caller passes it) since the dict-based check needs only the
     terms' own qubit indices, not the full Hilbert space dimension.
+
+    Examples
+    --------
+    >>> import math
+    >>> from dashboard_core.wormhole import build_sparse_syk_terms, commuting_pair_count
+    >>> n_qubits, terms = build_sparse_syk_terms(n_majorana=8, k_terms=10, J=math.sqrt(2), seed=61)
+    >>> commuting_pair_count(terms, n_qubits)  # the paper's own K=10 instance: 34/11 of 45 pairs
+    (34, 11)
     """
     dicts = [t[1] for t in terms]
     commuting = anticommuting = 0
@@ -191,7 +209,15 @@ def select_good_instance(n_majorana, k_terms, J, n_candidates=200, target_commut
     count (cheap: only needs the k_terms operators' own small matrices,
     not the full protocol simulation) and return the seed whose count is
     closest to target_commuting -- the paper's selection criterion,
-    applied here rather than trusting an arbitrary single seed."""
+    applied here rather than trusting an arbitrary single seed.
+
+    Examples
+    --------
+    >>> import math
+    >>> from dashboard_core.wormhole import select_good_instance
+    >>> select_good_instance(n_majorana=8, k_terms=10, J=math.sqrt(2), n_candidates=200, target_commuting=34)
+    61
+    """
     n_qubits = n_majorana // 2
     best_seed, best_diff = None, None
     for seed in range(n_candidates):
@@ -291,6 +317,18 @@ def run_wormhole_protocol(n_majorana, k_terms, J, mu, t0, t1, seed, with_message
     same (n_majorana, k_terms, J, seed) via _cached_finite_beta_layout --
     real cost for a caller scanning many mu/t0/t1 values at a fixed
     instance, previously redone identically on every single call.
+
+    Examples
+    --------
+    >>> import math
+    >>> from dashboard_core.wormhole import run_wormhole_protocol
+    >>> kwargs = dict(n_majorana=8, k_terms=10, J=math.sqrt(2), t0=0.3, t1=0.60, seed=61, with_message=True)
+    >>> i_plus = run_wormhole_protocol(mu=12, **kwargs)
+    >>> i_minus = run_wormhole_protocol(mu=-12, **kwargs)
+    >>> round(i_plus, 4), round(i_minus, 4)  # the paper's sign-dependent enhancement
+    (0.0133, 0.0179)
+    >>> i_minus > i_plus  # mu=-12 ("traversable") shows the stronger signal for this instance
+    True
     """
     n_side, n_full, L, R, P, Q, eigvals, eigvecs, v_eigvals, v_eigvecs = \
         _cached_finite_beta_layout(n_majorana, k_terms, J, seed)
@@ -316,7 +354,18 @@ def run_wormhole_protocol_trotter(n_majorana, k_terms, J, mu, t0, t1, seed, with
     reproduces the exact backend's result closely: I(mu=+12)=0.01301 vs
     exact 0.01326, I(mu=-12)=0.01821 vs exact 0.01793 -- the
     sign-dependent asymmetry survives with a real gate circuit, it isn't
-    an artifact of the exact-evolution shortcut."""
+    an artifact of the exact-evolution shortcut.
+
+    Examples
+    --------
+    >>> import math
+    >>> from dashboard_core.wormhole import run_wormhole_protocol_trotter
+    >>> kwargs = dict(n_majorana=8, k_terms=10, J=math.sqrt(2), t0=0.3, t1=0.60, seed=61, with_message=True)
+    >>> round(run_wormhole_protocol_trotter(mu=12, **kwargs), 4)
+    0.013
+    >>> round(run_wormhole_protocol_trotter(mu=-12, **kwargs), 4)
+    0.0182
+    """
     n_side, n_full, L, R, P, Q, terms_full, v_terms = _protocol_layout(n_majorana, k_terms, J, seed)
 
     ops = _initial_state_ops(n_side, L, R, P, Q, with_message)
@@ -457,7 +506,16 @@ def run_wormhole_protocol_finite_beta(n_majorana, k_terms, J, mu, t0, t1, beta, 
     (different beta/mu) reuses it instead of redoing it from scratch.
     For an explicit (beta, mu) sweep at a fixed seed, _finite_beta_layout_precomputed
     + _run_finite_beta_precomputed remain available directly if a caller
-    wants to hold the layout itself rather than rely on the cache."""
+    wants to hold the layout itself rather than rely on the cache.
+
+    Examples
+    --------
+    >>> import math
+    >>> from dashboard_core.wormhole import run_wormhole_protocol_finite_beta
+    >>> round(run_wormhole_protocol_finite_beta(n_majorana=8, k_terms=10, J=math.sqrt(2), mu=-12,
+    ...       t0=0.3, t1=0.60, beta=3, seed=61, with_message=True), 4)
+    0.0442
+    """
     n_side, n_full, L, R, P, Q, eigvals, eigvecs, v_eigvals, v_eigvecs = \
         _cached_finite_beta_layout(n_majorana, k_terms, J, seed)
     return _run_finite_beta_precomputed(n_side, n_full, L, R, P, Q, eigvals, eigvecs, v_eigvals, v_eigvecs,
@@ -492,6 +550,15 @@ def find_delta_beta_bands(n_majorana, k_terms, J, mu, t0, t1, seed, with_message
     Crossing points (the beta_lo/beta_hi shared between adjacent bands)
     are linearly interpolated between the nearest two grid points, not
     just snapped to the grid resolution.
+
+    Examples
+    --------
+    >>> import math
+    >>> from dashboard_core.wormhole import find_delta_beta_bands
+    >>> bands = find_delta_beta_bands(n_majorana=8, k_terms=10, J=math.sqrt(2), mu=12, t0=0.3, t1=0.60,
+    ...                                seed=61, with_message=True, beta_max=1.0, beta_step=0.25)
+    >>> [b['sign'] for b in bands]  # the sign flips once within this range, for this seed
+    ['positive', 'negative']
     """
     n_side, n_full, L, R, P, Q, eigvals, eigvecs, v_eigvals, v_eigvecs = \
         _cached_finite_beta_layout(n_majorana, k_terms, J, seed)
