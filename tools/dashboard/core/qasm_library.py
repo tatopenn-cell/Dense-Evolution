@@ -23,7 +23,29 @@ def gate_tuples_to_qasm(ops, n_qubits: int, measure: bool = True) -> str:
     """Converts a dense_evolution gate-tuple circuit (the format
     de.qft/de.ghz_state/de.random_circuit/... all return) into real
     OpenQASM 2.0 text, so any of dense_evolution's own circuit generators
-    can be offered as a Composer preset without hand-transcribing gates."""
+    can be offered as a Composer preset without hand-transcribing gates.
+
+    Examples
+    --------
+    >>> import dense_evolution as de
+    >>> from dashboard_core.qasm_library import gate_tuples_to_qasm
+    >>> gate_tuples_to_qasm([('h', 0), ('cx', 0, 1)], n_qubits=2)
+    'OPENQASM 2.0;\\ninclude "qelib1.inc";\\nqreg q[2];\\ncreg c[2];\\nh q[0];\\ncx q[0],q[1];\\nmeasure q -> c;\\n'
+    >>> qft_ops = de.qft(3)
+    >>> print(gate_tuples_to_qasm(qft_ops, n_qubits=3))  # doctest: +NORMALIZE_WHITESPACE
+    OPENQASM 2.0;
+    include "qelib1.inc";
+    qreg q[3];
+    creg c[3];
+    h q[0];
+    cp(1.5707963267948966) q[1],q[0];
+    cp(0.7853981633974483) q[2],q[0];
+    h q[1];
+    cp(1.5707963267948966) q[2],q[1];
+    h q[2];
+    swap q[0],q[2];
+    measure q -> c;
+    """
     lines = ['OPENQASM 2.0;', 'include "qelib1.inc";', f'qreg q[{n_qubits}];']
     if measure:
         lines.append(f'creg c[{n_qubits}];')

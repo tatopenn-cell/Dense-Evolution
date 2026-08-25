@@ -29,7 +29,15 @@ _QSPHERE_LINE_COLOR = "#8d8d8d"
 def native_histogram_figure(counts: dict):
     """Bar chart of shot counts, bitstrings sorted ascending -- the same
     information qiskit.visualization.plot_histogram showed, built from
-    nothing but the counts dict itself."""
+    nothing but the counts dict itself.
+
+    Examples
+    --------
+    >>> from dashboard_core.state_visuals import native_histogram_figure
+    >>> fig = native_histogram_figure({'00': 512, '11': 488})
+    >>> type(fig).__name__
+    'Figure'
+    """
     states = sorted(counts.keys())
     values = [counts[s] for s in states]
     total = sum(values)
@@ -98,7 +106,17 @@ def native_bloch_multivector_figure(statevector: np.ndarray):
     """One Bloch sphere per qubit, each from that qubit's own reduced
     density matrix (partial trace over every other qubit) -- the same
     per-qubit view qiskit.visualization.plot_bloch_multivector showed,
-    computed directly from the real statevector, no Qiskit involved."""
+    computed directly from the real statevector, no Qiskit involved.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from dashboard_core.state_visuals import native_bloch_multivector_figure
+    >>> bell = np.array([1, 0, 0, 1]) / np.sqrt(2)
+    >>> fig = native_bloch_multivector_figure(bell)
+    >>> type(fig).__name__
+    'Figure'
+    """
     n_qubits = int(np.log2(len(statevector)))
     fig = plt.figure(figsize=(3 * n_qubits, 3.2))
     for q in range(n_qubits):
@@ -117,7 +135,17 @@ def native_qsphere_figure(statevector: np.ndarray, prob_threshold: float = 1e-3)
     marker size by probability, marker color by phase (cyclic colormap,
     matching Qiskit's own convention) -- the same encoding
     qiskit.visualization.plot_state_qsphere used, built directly from the
-    statevector's own amplitudes."""
+    statevector's own amplitudes.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from dashboard_core.state_visuals import native_qsphere_figure
+    >>> bell = np.array([1, 0, 0, 1]) / np.sqrt(2)
+    >>> fig = native_qsphere_figure(bell)
+    >>> type(fig).__name__
+    'Figure'
+    """
     n_qubits = int(np.log2(len(statevector)))
     probs = np.abs(statevector) ** 2
     phases = np.angle(statevector)
