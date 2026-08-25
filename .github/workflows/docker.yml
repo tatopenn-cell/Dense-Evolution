@@ -1,0 +1,32 @@
+name: Docker — Build dev/CI image
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'requirements-lock.txt'
+      - '.github/workflows/docker.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'requirements-lock.txt'
+      - '.github/workflows/docker.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t dense-evolution-dev .
+
+      - name: Sanity-check the image (import + version)
+        run: docker run --rm dense-evolution-dev python -c "import dense_evolution as de; print(de.__version__)"
