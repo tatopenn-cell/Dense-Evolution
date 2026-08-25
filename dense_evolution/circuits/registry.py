@@ -46,7 +46,16 @@ class QuantumHardwareRegistry:
         print(f"MAX_DENSE={self.max_dense_qubits}q | JAX={self.has_jax} | GPU={self.has_gpu}")
 
 
-HARDWARE_REGISTRY = QuantumHardwareRegistry()
+# BUG FIX: this module used to instantiate a module-level
+# `HARDWARE_REGISTRY = QuantumHardwareRegistry()` singleton here -- never
+# referenced anywhere else in the codebase (dead code), but its __init__
+# calls ensure_x64() unconditionally, so merely `import dense_evolution`
+# still forced jax_enable_x64=True at import time even after PR #130
+# supposedly made that lazy (see dense_evolution/config.py) -- the
+# laziness moved into ensure_x64() itself, but this eager singleton
+# construction defeated it one level up. Removed entirely: nothing
+# needs it, and QuantumHardwareRegistry() remains available for any
+# caller who actually wants one, constructed on their own schedule.
 plt.style.use('dark_background')
 matplotlib.rcParams.update({
     'figure.facecolor': '#010409',
