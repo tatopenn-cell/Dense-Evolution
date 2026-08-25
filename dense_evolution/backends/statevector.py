@@ -4,11 +4,14 @@ from typing import List, Tuple, Optional
 from ..circuits.registry import HAS_JAX
 from ..circuits.gates import GATES, PARAMETRIC_GATES, GATE_IDS, _TWO_QUBIT_PARAMETRIC_GATES
 from ..circuits.compiler import QuantumTranspiler
+from ..config import ensure_x64
 
 if HAS_JAX:
     import jax
     import jax.numpy as jnp
-    jax.config.update("jax_enable_x64", True)
+    # No jax.config.update here -- see dense_evolution/config.py. x64 is
+    # enabled lazily in __init__, and only when use_float32=False actually
+    # needs it, not as a side effect of merely importing this module.
     from ..circuits.compiler import _compile_and_run_circuit_jit, _compile_and_run_circuit_jit_donated
 
 
@@ -84,6 +87,8 @@ class DenseSVSimulator:
                  use_float32: bool = False):
         if n_qubits < 1 or n_qubits > 34:
             raise ValueError(f"n_qubits must be in [1, 34], got {n_qubits}")
+        if HAS_JAX and not use_float32:
+            ensure_x64()
         self.n         = n_qubits
         self.dim       = 1 << n_qubits            # 2 ** n_qubits
         self.use_float32 = use_float32
