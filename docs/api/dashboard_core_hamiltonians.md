@@ -33,6 +33,19 @@ unchanged, this is a separate opt-in path for systems too large to
 densify at all — verified to match the dense path to ~1e-15 on H2/HeH+,
 and to actually succeed on Si2 where the dense path fails.
 
+```python
+from dashboard_core.hamiltonians import build_molecular_hamiltonian, ground_state_energy
+
+H, n_qubits = build_molecular_hamiltonian(["H", "H"], [[0, 0, 0], [0, 0, 0.7414]])
+print(n_qubits)                    # 4
+print(ground_state_energy(H))      # -1.1373 Hartree
+
+# For a catalog molecule too large to densify (e.g. Si2), skip the dense matrix entirely:
+from dashboard_core.hamiltonians import ground_state_energy_sparse
+e = ground_state_energy_sparse(["H", "H"], [[0, 0, 0], [0, 0, 0.7414]])
+print(abs(e - ground_state_energy(H)) < 1e-8)  # True -- matches the dense path exactly
+```
+
 ::: dashboard_core.hamiltonians
 
 ---
