@@ -47,6 +47,7 @@ from .physics.fermions import majorana_pauli_terms
 from .physics.entropy import partial_trace, von_neumann_entropy, mutual_information
 from .circuits.trotter import (pauli_rotation_ops, trotter_evolve_ops, continuous_pulse_evolve,
                                 continuous_dissipative_evolve)
+from .circuits.uccsd import find_excitations, single_excitation_ops, double_excitation_ops
 from .physics.qec import (pauli_commutes, compute_syndrome, erasure_aware_decode, pymatching_decode,
                            blind_minimum_weight_decode, decode_with_erasure_fallback)
 
@@ -65,6 +66,7 @@ __all__ = [
     "entangling_layer", "qft",
     "pauli_rotation_ops", "trotter_evolve_ops", "continuous_pulse_evolve",
     "continuous_dissipative_evolve",
+    "find_excitations", "single_excitation_ops", "double_excitation_ops",
     # Chunking / anti-OOM
     "Chunk",
     # Interop -- Qiskit / PennyLane / STIM bridges
