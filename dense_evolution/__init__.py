@@ -49,7 +49,8 @@ from .circuits.trotter import (pauli_rotation_ops, trotter_evolve_ops, continuou
                                 continuous_dissipative_evolve)
 from .circuits.uccsd import find_excitations, single_excitation_ops, double_excitation_ops
 from .physics.qec import (pauli_commutes, compute_syndrome, erasure_aware_decode, pymatching_decode,
-                           blind_minimum_weight_decode, decode_with_erasure_fallback)
+                           blind_minimum_weight_decode, decode_with_erasure_fallback,
+                           counts_in_intervals_dimension)
 
 __version__ = "8.1.67"
 
@@ -89,7 +90,7 @@ __all__ = [
     "partial_trace", "von_neumann_entropy", "mutual_information",
     "majorana_pauli_terms",
     "pauli_commutes", "compute_syndrome", "erasure_aware_decode", "pymatching_decode", "blind_minimum_weight_decode",
-    "decode_with_erasure_fallback",
+    "decode_with_erasure_fallback", "counts_in_intervals_dimension",
     # Utils -- drawing, measurement, random circuits
     "draw_circuit", "plot_circuit", "sample_counts", "statevector_fidelity", "random_circuit",
 ]
