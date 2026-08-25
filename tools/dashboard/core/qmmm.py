@@ -135,6 +135,31 @@ def compute_hellmann_feynman_forces(name: str, statevector=None, mapping: str = 
     same fixed catalog geometry again (the actual bug this parameter was
     added to fix: run_md_trajectory originally never passed its own
     updated positions back in here).
+
+    Parameters
+    ----------
+    name : str
+        A key from `MOLECULE_CATALOG` (e.g. one of `list(MOLECULE_CATALOG)`
+        -- these are descriptive strings like `"H2 (Idrogeno) - R = 0.7414
+        A [equilibrio reale]"`, not bare element symbols like `"H2"`).
+    statevector, mapping, geometry, fd_step_angstrom : see description above.
+
+    Returns
+    -------
+    dict
+        `name`, `symbols`, `energy_hartree`, `positions_angstrom`,
+        `forces_hartree_per_angstrom`, `force_norm`.
+
+    Examples
+    --------
+    >>> from dashboard_core.qmmm import compute_hellmann_feynman_forces
+    >>> from dashboard_core.hamiltonians import MOLECULE_CATALOG
+    >>> h2 = [k for k in MOLECULE_CATALOG if k.startswith("H2 ")][0]
+    >>> result = compute_hellmann_feynman_forces(h2)
+    >>> round(result['energy_hartree'], 4)
+    -1.1373
+    >>> 0.01 < result['force_norm'] < 0.02  # small residual at equilibrium, not exactly zero
+    True
     """
     if name not in MOLECULE_CATALOG:
         raise ValueError(f"unknown molecule {name!r}; available: {sorted(MOLECULE_CATALOG)}")
@@ -185,7 +210,19 @@ def md_step(positions_angstrom, velocities_angstrom_per_fs, forces_hartree_per_a
     r(t+dt) = r(t) + v(t+dt/2)*dt) using the real Hellmann-Feynman forces
     above and each atom's real atomic mass -- ordinary classical Newtonian
     mechanics (F=ma), nothing invented. Positions in Angstrom, velocities
-    in Angstrom/fs, forces in Hartree/Angstrom, dt in femtoseconds."""
+    in Angstrom/fs, forces in Hartree/Angstrom, dt in femtoseconds.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from dashboard_core.qmmm import md_step
+    >>> positions = np.array([[0, 0, 0.0], [0, 0, 0.7414]])   # H2 at equilibrium
+    >>> velocities = np.zeros_like(positions)
+    >>> forces = np.array([[0, 0, 0.0109], [0, 0, -0.0109]])  # restoring force, pulling atoms together
+    >>> new_pos, new_vel, accel = md_step(positions, velocities, forces, ['H', 'H'], dt_fs=0.5)
+    >>> bool(new_pos[1, 2] < 0.7414)  # the second atom moved toward the first
+    True
+    """
     positions = np.asarray(positions_angstrom, dtype=np.float64)
     velocities = np.asarray(velocities_angstrom_per_fs, dtype=np.float64)
     forces = np.asarray(forces_hartree_per_angstrom, dtype=np.float64)
@@ -218,7 +255,19 @@ def run_md_trajectory(name: str, n_steps: int, dt_fs: float = 0.5, mapping: str 
     (a real, explicitly-stated approximation, not a fabricated one).
     True ab-initio MD (re-solving Hartree-Fock at every step's new
     geometry) is available by setting this True, at real, substantial
-    extra cost per step."""
+    extra cost per step.
+
+    Examples
+    --------
+    >>> from dashboard_core.qmmm import run_md_trajectory
+    >>> from dashboard_core.hamiltonians import MOLECULE_CATALOG
+    >>> h2 = [k for k in MOLECULE_CATALOG if k.startswith("H2 ")][0]
+    >>> traj = run_md_trajectory(h2, n_steps=3, dt_fs=0.5)
+    >>> traj['step']
+    [0, 1, 2]
+    >>> len(traj['force_norm'])
+    3
+    """
     if name not in MOLECULE_CATALOG:
         raise ValueError(f"unknown molecule {name!r}; available: {sorted(MOLECULE_CATALOG)}")
     spec = MOLECULE_CATALOG[name]
