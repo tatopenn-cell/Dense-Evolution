@@ -20,6 +20,7 @@ import pytest
 from dense_evolution.qec import (
     compute_syndrome, erasure_aware_decode, pauli_commutes, pymatching_decode,
     blind_minimum_weight_decode, decode_with_erasure_fallback,
+    counts_in_intervals_dimension,
 )
 from dense_evolution.physics import qec as qec_module
 
@@ -469,3 +470,64 @@ class TestBlindMinimumWeightDecode:
     def test_stabilizer_length_mismatch_raises(self):
         with pytest.raises(ValueError, match="n_qubits"):
             blind_minimum_weight_decode((0, 0), n_qubits=3, stabilizers=['ZZ', 'IZZ'])
+
+
+class TestCountsInIntervalsDimension:
+    """Calibrated against synthetic point processes with a KNOWN answer,
+    same discipline as any box-counting fractal-dimension estimator
+    should follow before being trusted on real data (see the module
+    docstring's D=142 cautionary note)."""
+
+    def test_poisson_process_gives_dimension_near_one(self):
+        rng = np.random.default_rng(0)
+        events = np.sort(rng.uniform(0, 1000, 2000))
+        radii = np.logspace(0, 2, 10)
+        D, r2, mean_counts = counts_in_intervals_dimension(events, radii)
+        assert 0.9 < D < 1.1
+        assert r2 > 0.99
+        assert len(mean_counts) >= 8
+
+    def test_clustered_bursty_process_gives_dimension_below_one(self):
+        rng = np.random.default_rng(1)
+        cluster_centers = rng.uniform(0, 1000, 40)
+        events = np.concatenate([
+            c + rng.normal(0, 0.5, rng.integers(20, 60)) for c in cluster_centers
+        ])
+        events = events[(events >= 0) & (events <= 1000)]
+        radii = np.logspace(-1, 2, 12)
+        D, r2, _ = counts_in_intervals_dimension(events, radii)
+        assert D < 0.8, f"expected a clustered process to show D<0.8, got D={D}"
+        assert r2 > 0.9
+
+    def test_regular_lattice_gives_dimension_above_one(self):
+        """A perfectly evenly-spaced ('hyperuniform') process suppresses
+        fluctuations relative to Poisson and should read D > 1."""
+        events = np.arange(0, 1000, 1.0)
+        radii = np.logspace(0, 2, 10)
+        D, r2, _ = counts_in_intervals_dimension(events, radii)
+        assert D > 1.0
+        assert r2 > 0.9
+
+    def test_too_few_events_raises(self):
+        with pytest.raises(ValueError, match="at least 2 events"):
+            counts_in_intervals_dimension([1.0], [1.0, 2.0])
+
+    def test_nonpositive_window_size_raises(self):
+        with pytest.raises(ValueError, match="positive"):
+            counts_in_intervals_dimension([1.0, 2.0, 3.0], [1.0, 0.0])
+
+    def test_too_narrow_window_range_raises(self):
+        rng = np.random.default_rng(2)
+        events = np.sort(rng.uniform(0, 1000, 20))
+        with pytest.raises(ValueError, match="window_sizes"):
+            counts_in_intervals_dimension(events, [500.0])
+
+    def test_min_reference_points_drops_undersupported_radii(self):
+        rng = np.random.default_rng(3)
+        events = np.sort(rng.uniform(0, 100, 50))
+        # A radius comparable to the full observed range leaves almost no
+        # edge-safe reference points -- should be dropped, not crash.
+        D, r2, mean_counts = counts_in_intervals_dimension(
+            events, [1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 99.0], min_reference_points=5
+        )
+        assert 99.0 not in mean_counts

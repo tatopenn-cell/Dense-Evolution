@@ -148,7 +148,7 @@ dense_evolution/
 │   ├── observables.py      Pauli-string expectation values, O(2ⁿ) direct from a statevector · pauli_sum_matvec (matrix-free H·v)
 │   ├── states.py           common state-preparation circuits (Bell, GHZ, W, ...) as gate tuples
 │   ├── fermions.py         majorana_pauli_terms — Majorana-fermion → qubit (Jordan-Wigner) mapping
-│   └── qec.py              pauli_commutes · compute_syndrome · erasure_aware_decode · pymatching_decode (MWPM) · blind_minimum_weight_decode (code-agnostic stabilizer QEC)
+│   └── qec.py              pauli_commutes · compute_syndrome · erasure_aware_decode · pymatching_decode (MWPM) · blind_minimum_weight_decode · counts_in_intervals_dimension (code-agnostic stabilizer QEC + burst-vs-Poisson noise diagnostic)
 ├── mitigation/           [subpackage] error mitigation and density-matrix diagnostics
 │   ├── zne.py               richardson_extrapolate · zero_noise_extrapolation · zne_density_matrix · jsd_predictive_zne_density_matrix · uhlmann_fidelity (+ jit variants)
 │   ├── healing.py            predictive state engine · Phi_AB · vettore dinamico · MemoryReflectionEngine
@@ -245,6 +245,7 @@ research/                           (not installed as a module -- reference/expe
 | **STIM Bridge** | `to_stim` — Clifford-only op-list → `stim.Circuit`, for cross-validation against STIM's stabilizer simulator/decoder tooling |
 | **Native Hartree-Fock** | `dense_evolution.native_hf` — from-scratch JAX/Obara-Saika ab-initio HF engine for elements outside PennyLane's own STO-3G table (H–Ne), auto-used by the Hamiltonian Library for e.g. Si2 |
 | **QEC Decoding** | `dense_evolution.qec` — code-agnostic Pauli commutation/syndrome primitives, an erasure-aware decoder (corrects up to *d*-1 known-location errors on a distance-*d* code, Grassl/Beth/Pellizzari 1997), a real MWPM decoder (`pymatching_decode`, via `pymatching`) for graph-like/topological codes, and a blind minimum-weight brute-force decoder (`blind_minimum_weight_decode`) for the small codes MWPM structurally can't handle (e.g. Steane) |
+| **Burst-vs-Poisson Noise Diagnostic** | `dense_evolution.qec` — `counts_in_intervals_dimension`: generalizes the "counts-in-spheres" fractal-dimension estimator used to measure large-scale cosmic homogeneity (Scrimgeour et al. 2012, MNRAS 425, 116, arXiv:1205.6812) from 3-D space to 1-D time, to tell whether a stream of error/erasure timestamps is temporally clustered (D<1, e.g. cosmic-ray-correlated bursts) or Poissonian (D≈1) — returns the log-log fit's R² alongside D so a poorly-supported fit is never silently trusted |
 | **Backend Agnostic** | NumPy CPU · JAX XLA CPU/GPU/TPU — GPU dispatch is automatic whenever a CUDA-enabled `jax[cuda12]` is installed and a GPU is present, zero code changes |
 | **Live Dashboard** | `tools/dashboard/app.py` — Streamlit Quantum-Composer clone, 5 tabs (Graphical Builder/Circuit/Statevector/Probabilities/Q-sphere) per simulation run |
 
@@ -586,6 +587,20 @@ syndrome = compute_syndrome('IIIZIII', stabilizers)                             
 # Uses the known error location when it resolves the syndrome, falls back to
 # blind minimum-weight decoding otherwise -- one entry point either way:
 corrected = decode_with_erasure_fallback(syndrome, heralded_qubits=[3], n_qubits=7, stabilizers=stabilizers)
+```
+
+Is a stream of error timestamps actually bursty, or just Poissonian noise? `counts_in_intervals_dimension`
+answers that directly from data instead of assuming either model, and reports the fit quality alongside
+the answer:
+
+```python
+from dense_evolution import counts_in_intervals_dimension
+import numpy as np
+
+error_timestamps = ...  # e.g. heralded-erasure or syndrome-detection times from a run
+radii = np.logspace(0, 2, 10)  # span at least 2 orders of magnitude -- a narrow range gives a meaningless fit
+D, r_squared, _ = counts_in_intervals_dimension(error_timestamps, radii)
+# D ~ 1, high r_squared -> Poissonian; D < 1 -> temporally clustered/bursty
 ```
 
 ---

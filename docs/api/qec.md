@@ -48,6 +48,29 @@ assignments, so the function returns `None` — never a guess). The same
 "return `None`, never guess" discipline applies to `pymatching_decode`
 and `blind_minimum_weight_decode` whenever a syndrome is ambiguous.
 
+`counts_in_intervals_dimension` answers a question upstream of decoding
+strategy altogether: is a given stream of error/erasure timestamps
+actually temporally clustered (bursty), or Poissonian? It generalizes
+the "counts-in-spheres" fractal-dimension estimator used to measure the
+transition to large-scale cosmic homogeneity —
+[Scrimgeour et al., "The WiggleZ Dark Energy Survey: the transition to
+large-scale cosmic homogeneity," MNRAS 425, 116 (2012), arXiv:1205.6812](https://arxiv.org/abs/1205.6812) —
+from 3-D space down to 1-D time: for a homogeneous (Poisson) process the
+mean count of other events within radius *r* of a reference event scales
+as *r*¹ exactly; real burst-like noise (e.g. cosmic-ray-correlated error
+bursts, arXiv:2104.05219 — the same physical source `cosmic_ray_burst_profile`
+in `dense_evolution.mitigation.zne` models) depresses that exponent below 1.
+
+The function always returns the log-log fit's R² alongside the estimated
+dimension, never the number alone — a narrow or poorly-covered range of
+window sizes can make a fitted slope meaningless. This is not a
+hypothetical caveat: an unrelated spatial box-counting fit through only
+4 points spanning a narrow range of scales once produced a fractal
+dimension of **142** — physically impossible in 3 dimensions — purely
+from fit noise, not from any real structure in the underlying data.
+Always inspect R² (rule of thumb: below ~0.98 means don't trust the
+dimension) before acting on the result.
+
 ::: dense_evolution.physics.qec
 
 ---

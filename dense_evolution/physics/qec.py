@@ -56,6 +56,20 @@ lowest-weight match, not require a totally unique one across every
 possible weight) is what makes blind decoding well-posed at all -- the
 same principle `pymatching_decode`'s MWPM implements via a matching
 graph instead of brute force.
+
+`counts_in_intervals_dimension` answers a question upstream of all of
+the above: IS a given stream of error/erasure timestamps actually
+bursty, or Poissonian? It generalizes the "counts-in-spheres" fractal
+dimension estimator used to measure large-scale cosmic homogeneity
+(Scrimgeour et al. 2012, MNRAS 425, 116, arXiv:1205.6812) from 3-D
+space to 1-D time: D~=1 means homogeneous arrivals, D<1 means temporal
+clustering (e.g. cosmic-ray-correlated bursts, arXiv:2104.05219 --
+the same physical noise source `cosmic_ray_burst_profile` in
+`dense_evolution.mitigation.zne` models). Returns the fit's R^2
+alongside D deliberately, never just the number -- a box-counting fit
+through too few points spanning too narrow a range of scales can
+report a fractal dimension as absurd as 142 in 3 dimensions purely
+from fit noise, not from any real structure in the data.
 """
 import itertools
 from typing import Optional, Sequence
@@ -404,6 +418,147 @@ def blind_minimum_weight_decode(
             return None
 
     return None
+
+
+def counts_in_intervals_dimension(
+    event_times: Sequence[float],
+    window_sizes: Sequence[float],
+    min_reference_points: int = 5,
+) -> tuple:
+    """Correlation-dimension estimator for a 1-D point process (event
+    times), generalizing the "counts-in-spheres" statistic used to
+    measure the fractal dimension of galaxy distributions -- Scrimgeour
+    et al., "The WiggleZ Dark Energy Survey: the transition to
+    large-scale cosmic homogeneity," MNRAS 425, 116 (2012),
+    arXiv:1205.6812 -- from 3-D space down to 1-D time.
+
+    For a homogeneous (Poisson) point process, the expected number of
+    OTHER events within radius r of a given event scales as N(<=r) ~ r^1
+    exactly. Real burst-like noise (e.g. cosmic-ray-correlated error
+    events, arXiv:2104.05219, already modelled by `cosmic_ray_burst_profile`
+    in `dense_evolution.mitigation.zne`) clusters in time: events arrive
+    in tight groups separated by long, comparatively empty gaps, which
+    depresses this exponent below 1. This function measures that exponent
+    directly from a sequence of observed/simulated event times (e.g.
+    heralded-erasure timestamps, or detected-syndrome timestamps), instead
+    of assuming Poissonian noise or a particular burst model up front --
+    the measured dimension is then evidence for whether `decode_with_erasure_fallback`
+    style single-shot decoding or a burst-aware strategy is the right model
+    for a given noise source.
+
+    For each candidate radius r in `window_sizes`, every event at least r
+    away from both ends of the observed time range is used as a reference
+    point (events too close to either edge are skipped for that r, so a
+    partially-empty window near the boundary never silently deflates the
+    count -- the same edge correction real counts-in-spheres analyses
+    use). The mean count of other events within r of each valid reference
+    point is computed, and the dimension D is the slope of log(mean
+    count) vs log(r) over a linear least-squares fit -- with the fit's
+    R^2 returned alongside it, not hidden, because a narrow or
+    poorly-covered range of `window_sizes` can make the fitted slope
+    meaningless (see the warning below).
+
+    D ~= 1 : homogeneous/Poissonian arrivals, no clustering.
+    D < 1 : temporally clustered/bursty (e.g. cosmic-ray-correlated
+            error bursts) -- the smaller D, the tighter the clustering.
+    D > 1 : more regularly spaced than random (suppressed fluctuations,
+            "hyperuniform" arrivals) -- unusual for physical error
+            processes but not excluded by the statistic itself.
+
+    A LOW R^2 (rule of thumb: below ~0.98) means `window_sizes` does not
+    span enough dynamic range or lacks enough valid reference points for
+    the fit to be trustworthy -- widen the range (ideally 2-3 orders of
+    magnitude) and/or supply more events rather than trusting the
+    reported D. This mirrors a real, previously-made mistake: a spatial
+    box-counting fit through only 4 points spanning a narrow range of
+    scales produced a fractal dimension of 142 (physically impossible in
+    3 dimensions) from noise alone, not from any real structure in the
+    data -- always inspect R^2 before quoting D.
+
+    Cost is O(len(window_sizes) * n_events^2) in the worst case (every
+    event checked against every other at every radius) -- fine for the
+    thousands-of-events regime a per-run error/erasure log produces, not
+    intended for streaming/online use on millions of events.
+
+    Parameters
+    ----------
+    event_times : sequence of float
+        Timestamps of observed/simulated events (need not be sorted).
+    window_sizes : sequence of float
+        Radii r to evaluate counts at, ideally spanning several orders of
+        magnitude and containing at least ~5-8 values.
+    min_reference_points : int, optional
+        Minimum number of edge-safe reference events required at a given
+        r for that r to be included in the fit. Radii with fewer valid
+        reference points (or a zero mean count) are silently dropped, not
+        zero-padded, so the returned `mean_counts` may be shorter than
+        `window_sizes`. Defaults to 5.
+
+    Returns
+    -------
+    dimension : float
+        Estimated scaling exponent D (the slope of the log-log fit).
+    r_squared : float
+        Coefficient of determination of the log-log linear fit --
+        inspect this before trusting `dimension` (see above).
+    mean_counts : dict[float, float]
+        Mean count of other events within each usable radius r, keyed by
+        the r values from `window_sizes` that had enough valid reference
+        points and a nonzero count.
+
+    Raises
+    ------
+    ValueError
+        If `event_times` has fewer than 2 events, if any `window_sizes`
+        entry is not positive, or if fewer than 2 radii end up with
+        enough valid reference points and a nonzero count to fit a slope
+        at all.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> rng = np.random.default_rng(0)
+    >>> poisson_events = np.sort(rng.uniform(0, 1000, 2000))
+    >>> radii = np.logspace(0, 2, 10)  # 1 to 100
+    >>> D, r2, _ = counts_in_intervals_dimension(poisson_events, radii)
+    >>> 0.9 < D < 1.1 and r2 > 0.99
+    True
+    """
+    event_times = np.asarray(event_times, dtype=float)
+    if event_times.size < 2:
+        raise ValueError(f"need at least 2 events, got {event_times.size}")
+    event_times = np.sort(event_times)
+    t_min, t_max = event_times[0], event_times[-1]
+
+    mean_counts = {}
+    for r in window_sizes:
+        if r <= 0:
+            raise ValueError(f"window_sizes must be positive, got {r}")
+        valid_refs = event_times[(event_times - r >= t_min) & (event_times + r <= t_max)]
+        if valid_refs.size < min_reference_points:
+            continue
+        counts = np.array([np.sum(np.abs(event_times - t) <= r) - 1 for t in valid_refs])
+        mean_counts[float(r)] = float(np.mean(counts))
+
+    valid_items = sorted((r, c) for r, c in mean_counts.items() if c > 0)
+    if len(valid_items) < 2:
+        raise ValueError(
+            f"only {len(valid_items)} of {len(window_sizes)} window_sizes had at least "
+            f"{min_reference_points} edge-safe reference points with a nonzero count -- "
+            f"widen window_sizes, supply more events, or lower min_reference_points"
+        )
+
+    r_vals = np.array([r for r, _ in valid_items])
+    n_vals = np.array([c for _, c in valid_items])
+    log_r, log_n = np.log(r_vals), np.log(n_vals)
+    design = np.vstack([log_r, np.ones_like(log_r)]).T
+    slope, intercept = np.linalg.lstsq(design, log_n, rcond=None)[0]
+    predicted = slope * log_r + intercept
+    ss_res = np.sum((log_n - predicted) ** 2)
+    ss_tot = np.sum((log_n - np.mean(log_n)) ** 2)
+    r_squared = 1.0 - ss_res / ss_tot if ss_tot > 0 else 1.0
+
+    return float(slope), float(r_squared), dict(valid_items)
 
 
 def decode_with_erasure_fallback(
