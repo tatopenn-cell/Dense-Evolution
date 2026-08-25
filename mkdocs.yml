@@ -71,7 +71,7 @@ plugins:
         python:
           paths: ["."]
           options:
-            docstring_style: google
+            docstring_style: numpy
             show_source: true
             show_root_heading: true
             show_root_full_path: false
