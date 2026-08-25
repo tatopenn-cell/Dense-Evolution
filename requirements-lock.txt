@@ -65,7 +65,7 @@ mkdocs-include-markdown-plugin==7.3.0
 ruff==0.16.1
 
 # build backend
-setuptools==81.0.0
+setuptools==83.0.0
 wheel==0.47.0
 
 # Not pinned here: the `gpu` extra (cupy-cuda12x / jax[cuda12]) -- CUDA
