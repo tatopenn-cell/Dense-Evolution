@@ -47,6 +47,12 @@ def richardson_extrapolate(expectation_values, noise_factors) -> jnp.ndarray:
     visible error, only a low-signal ComplexWarning easy to miss --
     confirmed directly (`richardson_extrapolate([1+2j, 3+4j], ...)` used
     to return a purely real result, dropping real information).
+
+    Examples
+    --------
+    >>> from dense_evolution.mitigation import richardson_extrapolate
+    >>> round(float(richardson_extrapolate([0.90, 0.80, 0.65], [1.0, 2.0, 3.0])), 4)
+    0.95
     """
     lambdas = jnp.asarray(noise_factors, dtype=jnp.float64)
     values_dtype = jnp.complex128 if np.iscomplexobj(np.asarray(expectation_values)) else jnp.float64
@@ -397,6 +403,17 @@ def uhlmann_fidelity(rho_A: jnp.ndarray, rho_B: jnp.ndarray) -> float:
     Forward-pass value is bit-identical to `jnp.linalg.eigh`-based
     computation (same underlying `eigh` call; only the backward rule
     differs), verified end-to-end against the previous implementation.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from dense_evolution.mitigation import uhlmann_fidelity
+    >>> rho = np.array([[1, 0], [0, 0]], dtype=complex)
+    >>> round(float(uhlmann_fidelity(rho, rho)), 4)
+    1.0
+    >>> sigma = np.array([[0.5, 0], [0, 0.5]], dtype=complex)
+    >>> round(float(uhlmann_fidelity(rho, sigma)), 4)
+    0.5
     """
     rho_A = jnp.asarray(rho_A, dtype=jnp.complex128)
     rho_B = jnp.asarray(rho_B, dtype=jnp.complex128)

@@ -145,6 +145,17 @@ def sandwiched_renyi_divergence(rho: jnp.ndarray, sigma: jnp.ndarray, alpha: flo
     against a known reference state, not to feed into one (see
     `uhlmann_fidelity`'s docstring for the full "ideal state as oracle"
     argument, which applies here identically).
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from dense_evolution.mitigation.renyi import sandwiched_renyi_divergence
+    >>> rho = np.array([[1, 0], [0, 0]], dtype=complex)
+    >>> round(float(sandwiched_renyi_divergence(rho, rho, alpha=1.5)), 4)
+    0.0
+    >>> sigma = np.array([[0.5, 0], [0, 0.5]], dtype=complex)
+    >>> round(float(sandwiched_renyi_divergence(rho, sigma, alpha=1.5)), 4)
+    1.0
     """
     rho = jnp.asarray(rho, dtype=jnp.complex128)
     sigma = jnp.asarray(sigma, dtype=jnp.complex128)
