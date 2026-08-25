@@ -66,7 +66,7 @@ ruff==0.16.1
 
 # build backend
 setuptools==84.0.0
-wheel==0.47.0
+wheel==0.48.0
 
 # Not pinned here: the `gpu` extra (cupy-cuda12x / jax[cuda12]) -- CUDA
 # availability is host-specific, pinning it in a CPU-reproducibility
