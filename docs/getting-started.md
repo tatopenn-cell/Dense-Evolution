@@ -27,10 +27,20 @@ cd Dense-Evolution && pip install -e .[full,dev]
 
 ## Quick start
 
+A qubit starts in state `|0>`. `h` (Hadamard) puts it into an equal superposition of
+`|0>` and `|1>` -- measuring it afterward gives each outcome with 50% probability.
+`cx` (CNOT) entangles two qubits: it flips the second qubit only if the first is `|1>`.
+The circuit below puts qubit 0 into superposition, then uses two `cx` gates to spread
+that same randomness to qubits 1 and 2 -- all three qubits end up perfectly correlated
+(a 3-qubit GHZ state: measuring gives `000` or `111`, each about half the time, never
+anything else).
+
+Circuits are always built from OpenQASM text through `QASMParser`, never by
+hand-writing the internal gate-tuple format yourself:
+
 ```python
 from dense_evolution import DenseSVSimulator, QASMParser
 
-# parse any OpenQASM 2.0 / 3.0 string
 qasm = """
 OPENQASM 2.0;
 include "qelib1.inc";
