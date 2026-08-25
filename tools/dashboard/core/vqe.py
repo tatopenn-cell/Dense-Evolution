@@ -28,28 +28,34 @@ Two real ansatz families:
   order of residual error against the exact energy, same physics).
 - **UCCSD** (Unitary Coupled-Cluster Singles and Doubles): the standard
   chemically-motivated VQE ansatz. Built from the molecule's *real*
-  single/double fermionic excitation operators (qml.qchem.excitations),
-  applied to the Hartree-Fock reference via qml.UCCSD (which internally
-  exponentiates each excitation as a FermionicSingleExcitation /
-  FermionicDoubleExcitation -- Givens-rotation-equivalent operators, not
-  a generic template). Fewer parameters than hardware-efficient for the
-  same molecule (H2: 3 vs 32), and converges to the exact energy faster
+  single/double fermionic excitation operators
+  (dense_evolution.find_excitations -- pure combinatorics, verified to
+  reproduce qml.qchem.excitations exactly), applied to the Hartree-Fock
+  reference via dense_evolution.single_excitation_ops/
+  double_excitation_ops -- exact closed-form circuits derived directly
+  against dense_evolution's own Jordan-Wigner mapping
+  (physics.fermions.majorana_pauli_terms), not PennyLane's decomposition;
+  see dense_evolution/circuits/uccsd.py for the derivation and the exact
+  scope of the closed form vs. its (also verified exact) per-term
+  fallback. Fewer parameters than hardware-efficient for the same
+  molecule (H2: 3 vs 32), and converges to the exact energy faster
   because the ansatz form actually matches the physics. Also optimized
   entirely on dense_evolution's own engine, same as hardware-efficient --
-  the obstacle was that PennyLane's own decomposition of qml.UCCSD reuses
-  each of the few real weights across several RX/RZ gates per excitation
-  (Trotter exponentiation of that excitation's several Pauli-string
-  terms), whereas circuit_to_energy_fn treats every parametric gate
+  the obstacle was that these excitation circuits reuse the same weight
+  across several RY/RZ gates per excitation (single_excitation_ops' CRY
+  is 2 RY gates; double_excitation_ops' per-term path is up to 8 RZ
+  gates), whereas circuit_to_energy_fn treats every parametric gate
   occurrence as an independent free parameter. Solved with an affine
-  parameter expansion (_uccsd_native_expansion): probing PennyLane's own
-  decomposition at weights=0 and at each basis vector gives a fixed
+  parameter expansion (_uccsd_native_expansion): probing
+  _uccsd_native_ops at weights=0 and at each basis vector gives a fixed
   (baseline, expansion_matrix) pair such that
   full_gate_values = baseline + expansion_matrix @ real_weights exactly
-  reproduces PennyLane's own per-gate values for any weights (verified by
+  reproduces the real per-gate values for any weights (verified by
   direct probing, not derived from theory) -- composed with
   circuit_to_energy_fn this is still JAX-differentiable in the small real
   weight vector by ordinary chain rule, so the same hand-rolled Adam loop
-  optimizes it with no PennyLane device/QNode/optimizer involved.
+  optimizes it with no PennyLane device/QNode/optimizer, or PennyLane
+  import of any kind, involved.
 
 The Hartree-Fock initial state (computed via qml.qchem.hf_state) only
 has a simple X-gate encoding under the Jordan-Wigner mapping, so VQE
@@ -57,12 +63,12 @@ generation here is JW-only. Bravyi-Kitaev stays available for exact
 ground-state-energy queries in hamiltonians.py, where the eigenvalue
 spectrum is mapping-invariant.
 
-UCCSD's FermionicSingleExcitation/FermionicDoubleExcitation don't have a
-one-line OpenQASM equivalent, so the converged circuit is decomposed via
-PennyLane's own tape.expand() into RX/RY/RZ/CNOT (verified: executing
-the resulting QASM on dense_evolution.DenseSVSimulator and recomputing
-<psi|H|psi> matches PennyLane's own reported energy to 1e-14, i.e. pure
-floating-point noise, not an approximation) and translated gate-by-gate.
+PennyLane's only remaining role anywhere in this module is the real
+Hartree-Fock + Jordan-Wigner Hamiltonian construction itself
+(dashboard_core.hamiltonians), which isn't something worth
+reimplementing (see research/quantum_chemistry_vqe_pipeline.md) -- the
+ansatz circuits themselves (hardware-efficient and UCCSD alike) never
+touch PennyLane at all.
 """
 
 import numpy as np
@@ -72,13 +78,6 @@ import dense_evolution as de
 from .hamiltonians import _get_pennylane_hamiltonian, build_molecular_hamiltonian
 
 __all__ = ['run_vqe']
-
-_PENNYLANE_TO_QASM_GATE = {
-    'RX': 'rx', 'RY': 'ry', 'RZ': 'rz',
-    'CNOT': 'cx', 'Hadamard': 'h',
-    'PauliX': 'x', 'PauliY': 'y', 'PauliZ': 'z',
-    'S': 's', 'T': 't',
-}
 
 
 def _hardware_efficient_ansatz(params, n_qubits, n_layers, hf_occupation):
@@ -112,60 +111,93 @@ def _hardware_efficient_qasm(params, n_qubits, n_layers, hf_occupation):
 
 
 def _uccsd_excitations(electrons, n_qubits):
-    import pennylane as qml
-    singles, doubles = qml.qchem.excitations(electrons, n_qubits)
-    s_wires, d_wires = qml.qchem.excitations_to_wires(singles, doubles)
-    return s_wires, d_wires
+    """Which single/double excitations exist for this electron count --
+    pure combinatorics (occupied/virtual orbital pairing respecting spin
+    conservation), no quantum circuit involved. de.find_excitations is
+    dense_evolution's own reimplementation, verified to reproduce
+    qml.qchem.excitations exactly (see tests/unit/test_uccsd.py) --
+    kept native rather than calling PennyLane here for the same reason
+    the circuits themselves are native: this is chemistry index-finding,
+    not the deliberately-kept PennyLane dependency (Hartree-Fock +
+    Jordan-Wigner Hamiltonian construction, see module docstring)."""
+    return de.find_excitations(electrons, n_qubits)
 
 
-def _uccsd_tape_to_qasm(weights, n_qubits, s_wires, d_wires, hf_occupation):
-    """Builds the real UCCSD circuit for the given (converged) weights,
-    decomposes it into basic gates via PennyLane's own tape expansion,
-    and translates that exact gate sequence into OpenQASM 2.0 -- not a
-    hand-derived approximation of what UCCSD does, the literal expansion
-    PennyLane itself uses to run the circuit."""
-    import pennylane as qml
+def _uccsd_native_ops(weights, n_qubits, singles, doubles, hf_occupation):
+    """Real UCCSD circuit for the given weights, built entirely from
+    dense_evolution.single_excitation_ops/double_excitation_ops (exact
+    closed-form / exact per-term circuits, see
+    dense_evolution/circuits/uccsd.py) -- no PennyLane device, QNode, or
+    gate decomposition involved anywhere in this function. Doubles
+    always use the ancilla-free path (omitting ancilla1/ancilla2) so the
+    circuit's qubit count stays exactly n_qubits, matching H_dense's own
+    dimension with no padding needed."""
+    ops = []
+    for wire, occ in enumerate(hf_occupation):
+        if occ:
+            ops.append(('x', wire))
+    idx = 0
+    for (p, q) in singles:
+        ops.extend(de.single_excitation_ops(p, q, weights[idx]))
+        idx += 1
+    for (p, q, r, s) in doubles:
+        ops.extend(de.double_excitation_ops(p, q, r, s, weights[idx]))
+        idx += 1
+    return ops
 
-    with qml.queuing.AnnotatedQueue() as q:
-        qml.UCCSD(weights, wires=range(n_qubits), s_wires=s_wires, d_wires=d_wires, init_state=hf_occupation)
-    tape = qml.tape.QuantumScript.from_queue(q)
-    expanded = tape.expand(depth=10)
 
+def _ops_to_qasm(ops, n_qubits):
+    """Gate-tuple list -> OpenQASM 2.0 text. Handles every gate name
+    dense_evolution.single_excitation_ops/double_excitation_ops can
+    produce: 2-qubit no-param (cx), 1-qubit no-param (x, h, s, sdg, ...),
+    1-qubit with param (ry, rz, ...)."""
     lines = ['OPENQASM 2.0;', 'include "qelib1.inc";', f'qreg q[{n_qubits}];', f'creg c[{n_qubits}];']
-    for op in expanded.operations:
-        gate = _PENNYLANE_TO_QASM_GATE.get(op.name)
-        if gate is None:
-            raise ValueError(f"UCCSD decomposition produced an unmapped gate: {op.name!r}")
-        wires = ','.join(f'q[{w}]' for w in op.wires.tolist())
-        if op.parameters:
-            lines.append(f'{gate}({float(op.parameters[0]):.12f}) {wires};')
+    for op in ops:
+        name, rest = op[0], op[1:]
+        if name == 'cx':
+            q0, q1 = rest
+            lines.append(f'cx q[{q0}],q[{q1}];')
+        elif len(rest) == 2:
+            q0, param = rest
+            lines.append(f'{name}({float(param):.12f}) q[{q0}];')
         else:
-            lines.append(f'{gate} {wires};')
+            (q0,) = rest
+            lines.append(f'{name} q[{q0}];')
     lines.append('measure q -> c;')
     return '\n'.join(lines)
 
 
-def _uccsd_native_expansion(n_qubits, s_wires, d_wires, hf_occupation, n_params):
+def _uccsd_tape_to_qasm(weights, n_qubits, singles, doubles, hf_occupation):
+    """Builds the real UCCSD circuit for the given (converged) weights
+    and translates it to OpenQASM 2.0 -- the literal native circuit
+    dense_evolution runs, not an approximation of it."""
+    return _ops_to_qasm(_uccsd_native_ops(weights, n_qubits, singles, doubles, hf_occupation), n_qubits)
+
+
+def _uccsd_native_expansion(n_qubits, singles, doubles, hf_occupation, n_params):
     """Makes UCCSD optimizable through dense_evolution's own
-    circuit_to_energy_fn (not PennyLane's optimizer) despite
+    circuit_to_energy_fn (not a black-box optimizer) despite
     circuit_to_energy_fn treating every parametric gate occurrence as an
-    independent free value: PennyLane's UCCSD decomposition reuses the
-    *same* weight across several RX/RZ gates per excitation (the Trotter
-    exponentiation of that excitation's several Pauli-string terms), so
-    the true relationship between the small real weight vector (length
+    independent free value: _uccsd_native_ops's own excitation circuits
+    reuse the *same* weight across several RY/RZ gates per excitation
+    (single_excitation_ops' CRY is 2 RY gates; double_excitation_ops'
+    per-term path is up to 8 RZ gates, one per Pauli-string term), so the
+    true relationship between the small real weight vector (length
     n_params, one per excitation) and the full per-gate value vector
     (length n_params_full, one per parametric gate occurrence -- most of
     them *not* free parameters at all, but fixed pi/2 basis-change
     rotations) is affine: full = baseline + expansion_matrix @ weights.
 
     Verified exact (not approximate) by direct probing rather than
-    derived from theory: evaluating PennyLane's own decomposition at
-    weights=0 (-> baseline) and at each basis vector e_i (-> baseline's
-    i-th deviation, i.e. expansion_matrix's i-th column) reproduces
-    PennyLane's own reported energy for arbitrary weight vectors to
-    2.5e-14 (pure floating-point noise) when fed through this affine map
-    into circuit_to_energy_fn -- not just the per-gate values, the real
-    downstream energy, checked directly against qml.expval(H).
+    derived from theory -- same technique this function always used,
+    just probing dense_evolution's own native circuit builder now
+    instead of PennyLane's UCCSD decomposition: evaluating
+    _uccsd_native_ops at weights=0 (-> baseline) and at each basis
+    vector e_i (-> baseline's i-th deviation, i.e. expansion_matrix's
+    i-th column) reproduces the real downstream energy for arbitrary
+    weight vectors to floating-point precision when fed through this
+    affine map into circuit_to_energy_fn (see
+    tests/integration/test_dashboard_vqe.py).
 
     Since expansion_matrix/baseline are fixed (non-trainable) arrays, the
     composition `energy_fn_full(baseline + expansion_matrix @ real_theta,
@@ -174,18 +206,15 @@ def _uccsd_native_expansion(n_qubits, s_wires, d_wires, hf_occupation, n_params)
 
     Returns (qasm_structure, baseline, expansion_matrix). qasm_structure
     uses the weights=0 reference circuit -- gate order/wires depend only
-    on s_wires/d_wires/hf_occupation, never on the numeric weight values,
-    so any reference weight vector would produce the same structure."""
-    import pennylane as qml
-
-    def tape_ops(weights):
-        with qml.queuing.AnnotatedQueue() as q:
-            qml.UCCSD(weights, wires=range(n_qubits), s_wires=s_wires, d_wires=d_wires, init_state=hf_occupation)
-        tape = qml.tape.QuantumScript.from_queue(q)
-        return tape.expand(depth=10).operations
-
+    on singles/doubles/hf_occupation, never on the numeric weight
+    values, so any reference weight vector would produce the same
+    structure."""
     def param_values(weights):
-        return np.array([float(op.parameters[0]) for op in tape_ops(weights) if op.parameters])
+        ops = _uccsd_native_ops(weights, n_qubits, singles, doubles, hf_occupation)
+        # 'cx' is also a 3-tuple (name, control, target) -- must be
+        # excluded explicitly, not just by tuple length, or its target
+        # qubit index gets misread as a rotation angle.
+        return np.array([float(op[-1]) for op in ops if op[0] in ('ry', 'rz', 'rx')])
 
     zero_weights = np.zeros(n_params)
     baseline = param_values(zero_weights)
@@ -196,7 +225,7 @@ def _uccsd_native_expansion(n_qubits, s_wires, d_wires, hf_occupation, n_params)
         columns.append(param_values(e_i) - baseline)
     expansion_matrix = np.array(columns).T if n_params else np.zeros((len(baseline), 0))
 
-    qasm_structure = _uccsd_tape_to_qasm(zero_weights, n_qubits, s_wires, d_wires, hf_occupation)
+    qasm_structure = _uccsd_tape_to_qasm(zero_weights, n_qubits, singles, doubles, hf_occupation)
     return qasm_structure, baseline, expansion_matrix
 
 
@@ -241,10 +270,10 @@ def run_vqe(symbols, geometry, charge=0, ansatz_type="hardware_efficient", n_lay
         electrons = molecule.n_electrons
     hf_occupation = qml.qchem.hf_state(electrons, n_qubits)
 
-    s_wires = d_wires = None
+    singles = doubles = None
     if ansatz_type == "uccsd":
-        s_wires, d_wires = _uccsd_excitations(electrons, n_qubits)
-        n_params = len(s_wires) + len(d_wires)
+        singles, doubles = _uccsd_excitations(electrons, n_qubits)
+        n_params = len(singles) + len(doubles)
     else:
         n_params = n_qubits * n_layers
 
@@ -270,7 +299,7 @@ def run_vqe(symbols, geometry, charge=0, ansatz_type="hardware_efficient", n_lay
         H_dense, _ = build_molecular_hamiltonian(symbols, geometry, charge, "jordan_wigner",
                                                    active_electrons, active_orbitals)
         qasm_structure, baseline, expansion_matrix = _uccsd_native_expansion(
-            n_qubits, s_wires, d_wires, hf_occupation, n_params,
+            n_qubits, singles, doubles, hf_occupation, n_params,
         )
         parsed = de.QASMParser().parse(qasm_structure)
         energy_fn_full, n_params_full = de.circuit_to_energy_fn(parsed, n_qubits)
@@ -360,7 +389,7 @@ def run_vqe(symbols, geometry, charge=0, ansatz_type="hardware_efficient", n_lay
     if n_params == 0:
         qasm = _hardware_efficient_qasm(params, n_qubits, 0, hf_occupation)
     elif ansatz_type == "uccsd":
-        qasm = _uccsd_tape_to_qasm(params, n_qubits, s_wires, d_wires, hf_occupation)
+        qasm = _uccsd_tape_to_qasm(params, n_qubits, singles, doubles, hf_occupation)
     else:
         qasm = _hardware_efficient_qasm(params, n_qubits, n_layers, hf_occupation)
 
