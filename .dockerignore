@@ -1,0 +1,13 @@
+.git/
+.github/
+.claude/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+dist/
+build/
+*.egg-info/
+docs/site/

@@ -1,0 +1,73 @@
+# Reproducibility lockfile -- NOT installed by `pip install dense-evolution`.
+#
+# pyproject.toml keeps `>=` lower-bound ranges deliberately: they're what a
+# library is supposed to ship, so it doesn't force version conflicts on
+# whatever else a downstream project has installed. This file pins the
+# exact versions the full test suite (943 passed, 19 skipped, 0 failed) and
+# the docs build were last verified against, for anyone who wants an
+# identical CI/dev environment rather than "whatever >= resolves to today".
+#
+# Usage: pip install -r requirements-lock.txt && pip install -e . --no-deps
+#
+# Covers the same footprint as .github/workflows/ci.yml's pip install steps
+# plus the `docs` extra. Regenerate by re-running the full suite in a fresh
+# venv and re-freezing these exact package names -- don't hand-edit versions.
+
+# Core (dependencies + jax extra)
+numpy==2.5.2
+scipy==1.18.1
+matplotlib==3.11.1
+psutil==7.2.2
+jax==0.11.1
+jaxlib==0.11.1
+
+# dashboard extra
+streamlit==1.59.2
+qiskit==2.5.0
+pylatexenc==2.11
+
+# pennylane extra
+pennylane==0.45.1
+basis_set_exchange==0.12
+
+# stim / pymatching extras
+stim==1.16.0
+pymatching==2.4.0
+
+# composer extra
+fastapi==0.138.0
+uvicorn==0.49.0
+pydantic==2.13.4
+
+# mcp extra
+mcp==2.0.0
+httpx==0.28.1
+
+# CI-only, not in pyproject.toml but installed in ci.yml for specific tests
+pandas==3.0.3
+ipython==9.15.0
+seaborn==0.13.2
+plotly==6.9.0
+ipywidgets==8.1.8
+qiskit-ibm-runtime==0.49.0
+httpx2==2.9.1
+
+# dev extra
+pytest==9.1.0
+pytest-cov==7.1.0
+
+# docs extra
+mkdocs==1.6.1
+mkdocs-material==9.7.7
+mkdocstrings==1.0.6
+mkdocstrings-python==2.0.5
+mkdocs-include-markdown-plugin==7.3.0
+ruff==0.16.1
+
+# build backend
+setuptools==81.0.0
+wheel==0.47.0
+
+# Not pinned here: the `gpu` extra (cupy-cuda12x / jax[cuda12]) -- CUDA
+# availability is host-specific, pinning it in a CPU-reproducibility
+# lockfile would be misleading rather than helpful.
