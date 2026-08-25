@@ -10,25 +10,44 @@ else:
 
 INV2 = 1.0 / np.sqrt(2.0)
 
-# Ora i gate statici usano il backend nativo (Numpy o JAX/GPU)
+# BUG FIX: these used to be built with `xp.array(..., dtype=complex)`
+# (xp = jax.numpy) -- at MODULE IMPORT time. If jax_enable_x64 isn't
+# already True at that exact moment (a real, common case: nothing forces
+# it before this import anymore, see dense_evolution/config.py and the
+# registry.py HARDWARE_REGISTRY removal), JAX silently truncates
+# `dtype=complex` (complex128) to complex64 right here, permanently --
+# these are plain module-level constants, computed once, never rebuilt
+# later even after ensure_x64() turns x64 on for real simulation. That
+# produced a real, measurable bug: gate application mixed a complex128
+# statevector with complex64-truncated gate matrices, breaking unitarity
+# by ~1e-8 (verified directly: tests/unit/test_simulator.py's norm-
+# preservation checks, which require < 1e-12, failed at exactly this
+# scale). Built with plain NumPy instead -- never subject to JAX's
+# process-wide x64 flag, so these are always genuinely complex128
+# regardless of import order; JAX correctly canonicalizes them to
+# whatever precision is actually active at the point they're first fed
+# into a JAX operation (by then, ensure_x64() has already run). Unlike
+# GATES, PARAMETRIC_GATES below is unaffected: its entries are lambdas,
+# evaluated lazily at gate-application time (after ensure_x64()), not at
+# import time.
 GATES = {
-    'h': INV2 * xp.array([[1.0, 1.0], [1.0, -1.0]], dtype=complex),
-    'x': xp.array([[0.0, 1.0], [1.0, 0.0]], dtype=complex),
-    'y': xp.array([[0.0, -1j], [1j, 0.0]], dtype=complex),
-    'z': xp.array([[1.0, 0.0], [0.0, -1.0]], dtype=complex),
-    's': xp.array([[1.0, 0.0], [0.0, 1j]], dtype=complex),
-    'sdg': xp.array([[1.0, 0.0], [0.0, -1j]], dtype=complex),
-    't': xp.array([[1.0, 0.0], [0.0, xp.exp(1j * np.pi / 4)]], dtype=complex),
-    'tdg': xp.array([[1.0, 0.0], [0.0, xp.exp(-1j * np.pi / 4)]], dtype=complex),
-    'sx': 0.5 * xp.array([[1 + 1j, 1 - 1j], [1 - 1j, 1 + 1j]], dtype=complex),
-    'id': xp.eye(2, dtype=complex),
-    'cx': xp.array([[1, 0, 0, 0],[0, 1, 0, 0],[0, 0, 0, 1],[0, 0, 1, 0]], dtype=complex),
-    'cz': xp.array([[1, 0, 0, 0],[0, 1, 0, 0],[0, 0, 1, 0],[0, 0, 0,-1]], dtype=complex),
-    'cy': xp.array([[1, 0, 0, 0],[0, 1, 0, 0],[0, 0, 0,-1j],[0, 0, 1j, 0]], dtype=complex),
-    'swap': xp.array([[1, 0, 0, 0],[0, 0, 1, 0],[0, 1, 0, 0],[0, 0, 0, 1]], dtype=complex),
-    'iswap': xp.array([[1, 0, 0, 0],[0, 0, 1j, 0],[0, 1j, 0, 0],[0, 0, 0, 1]], dtype=complex),
-    'ecr': INV2 * xp.array([[0, 0, 1, 1j],[0, 0, 1j, 1],[1,-1j, 0, 0],[-1j, 1, 0, 0]], dtype=complex),
-    'ccx': xp.array([[1,0,0,0,0,0,0,0],[0,1,0,0,0,0,0,0],[0,0,1,0,0,0,0,0],[0,0,0,1,0,0,0,0],[0,0,0,0,1,0,0,0],[0,0,0,0,0,1,0,0],[0,0,0,0,0,0,0,1],[0,0,0,0,0,0,1,0]], dtype=complex)
+    'h': INV2 * np.array([[1.0, 1.0], [1.0, -1.0]], dtype=np.complex128),
+    'x': np.array([[0.0, 1.0], [1.0, 0.0]], dtype=np.complex128),
+    'y': np.array([[0.0, -1j], [1j, 0.0]], dtype=np.complex128),
+    'z': np.array([[1.0, 0.0], [0.0, -1.0]], dtype=np.complex128),
+    's': np.array([[1.0, 0.0], [0.0, 1j]], dtype=np.complex128),
+    'sdg': np.array([[1.0, 0.0], [0.0, -1j]], dtype=np.complex128),
+    't': np.array([[1.0, 0.0], [0.0, np.exp(1j * np.pi / 4)]], dtype=np.complex128),
+    'tdg': np.array([[1.0, 0.0], [0.0, np.exp(-1j * np.pi / 4)]], dtype=np.complex128),
+    'sx': 0.5 * np.array([[1 + 1j, 1 - 1j], [1 - 1j, 1 + 1j]], dtype=np.complex128),
+    'id': np.eye(2, dtype=np.complex128),
+    'cx': np.array([[1, 0, 0, 0],[0, 1, 0, 0],[0, 0, 0, 1],[0, 0, 1, 0]], dtype=np.complex128),
+    'cz': np.array([[1, 0, 0, 0],[0, 1, 0, 0],[0, 0, 1, 0],[0, 0, 0,-1]], dtype=np.complex128),
+    'cy': np.array([[1, 0, 0, 0],[0, 1, 0, 0],[0, 0, 0,-1j],[0, 0, 1j, 0]], dtype=np.complex128),
+    'swap': np.array([[1, 0, 0, 0],[0, 0, 1, 0],[0, 1, 0, 0],[0, 0, 0, 1]], dtype=np.complex128),
+    'iswap': np.array([[1, 0, 0, 0],[0, 0, 1j, 0],[0, 1j, 0, 0],[0, 0, 0, 1]], dtype=np.complex128),
+    'ecr': INV2 * np.array([[0, 0, 1, 1j],[0, 0, 1j, 1],[1,-1j, 0, 0],[-1j, 1, 0, 0]], dtype=np.complex128),
+    'ccx': np.array([[1,0,0,0,0,0,0,0],[0,1,0,0,0,0,0,0],[0,0,1,0,0,0,0,0],[0,0,0,1,0,0,0,0],[0,0,0,0,1,0,0,0],[0,0,0,0,0,1,0,0],[0,0,0,0,0,0,0,1],[0,0,0,0,0,0,1,0]], dtype=np.complex128)
 }
 
 GATE_IDS = {
