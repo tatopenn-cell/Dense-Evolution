@@ -4,6 +4,7 @@ from ..circuits.parser import QASMCircuit
 from ..circuits.gates import GATE_IDS
 from ..circuits.compiler import QuantumTranspiler
 from ..circuits.registry import HAS_JAX, NoiseModel, NoiseSpec
+from ..config import ensure_x64
 
 if HAS_JAX:
     import jax
@@ -26,6 +27,7 @@ def _require_jax():
         raise ImportError(
             "circuit_to_energy_fn requires JAX. "
             "Install it with: pip install dense-evolution[jax]")
+    ensure_x64()  # this template is always complex128 -- see config.py
 
 
 def _build_template(circuit: QASMCircuit, n_qubits: int) -> "jnp.ndarray":

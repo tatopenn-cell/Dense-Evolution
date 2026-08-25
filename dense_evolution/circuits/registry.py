@@ -15,11 +15,14 @@ import matplotlib.pyplot as plt
 import jax
 import jax.numpy as jnp
 HAS_JAX = True
-jax.config.update("jax_enable_x64", True)
+
+from ..config import ensure_x64
 
 
 class QuantumHardwareRegistry:
     def __init__(self):
+        # Lazy, not at import time -- see dense_evolution/config.py.
+        ensure_x64()
         self.processor = platform.processor()
         self.ram_total = psutil.virtual_memory().total / (1024**3)
         self.ram_avail = psutil.virtual_memory().available / (1024**3)

@@ -7,7 +7,8 @@ from .circuits.parser import QASMParser, QASMCircuit
 from .circuits.compiler import QuantumTranspiler
 from .circuits.registry import NoiseModel, NoiseSpec, QuantumHardwareRegistry
 from .circuits.gates import GATES, PARAMETRIC_GATES, GATE_IDS
-from .chunk import Chunk
+from .backends.chunk import Chunk
+from .config import set_precision
 from .interop import (
     from_qiskit, from_pennylane, run_qiskit_circuit, run_pennylane_circuit,
     noise_model_from_qiskit_backend, to_stim,
@@ -43,6 +44,8 @@ __version__ = "8.1.67"
 
 __all__ = [
     "__version__",
+    # Precision -- process-wide JAX config, set explicitly (see config.py)
+    "set_precision",
     # Backends -- the compute engines
     "DenseSVSimulator", "MPSSimulator",
     # Circuits -- representation, parsing, compilation

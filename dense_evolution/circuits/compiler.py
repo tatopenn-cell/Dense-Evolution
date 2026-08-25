@@ -15,7 +15,10 @@ except ImportError:
 if HAS_JAX:
     import jax
     import jax.numpy as jnp
-    jax.config.update("jax_enable_x64", True)
+    # No jax.config.update here -- see dense_evolution/config.py. The JIT
+    # kernels below need x64 precision, but it's enabled lazily by their
+    # actual callers (DenseSVSimulator.__init__, circuit_to_energy_fn),
+    # not as a side effect of merely importing this module.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Gate-ID encoding (shared between _apply_gate_fast_step and the beast-mode

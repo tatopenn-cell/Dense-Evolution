@@ -10,6 +10,17 @@ on the feature/streamlit-dashboard and feature/ipywidgets-dash-panel
 branches and will be reintegrated selectively once this base is solid.
 """
 
+import dense_evolution as _de
+
+# dense_evolution no longer forces jax_enable_x64 as an import-time side
+# effect (see dense_evolution/config.py) -- it's enabled lazily, only by
+# the specific call that needs complex128 (e.g. DenseSVSimulator). Some
+# paths here (MPSSimulator-only branches in engine.py, Chunk usage in
+# system_limits.py/wormhole.py) never construct a DenseSVSimulator, so
+# this dashboard -- which always wants float64 -- sets it explicitly
+# once, up front, instead of relying on that now-removed side effect.
+_de.set_precision(True)
+
 from .qasm_library import QASM_LIBRARY, gate_tuples_to_qasm
 from .engine import (
     SimulationResult, run_circuit_from_qasm,
