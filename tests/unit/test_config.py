@@ -19,6 +19,22 @@ here (this exact test, run against the code before the HARDWARE_REGISTRY
 removal, failed: starting from jax_enable_x64=False, a bare import
 turned it True). Fixed by deleting that dead singleton.
 
+Removing that singleton exposed a THIRD, previously-masked bug:
+dense_evolution/circuits/gates.py built its static GATES dict eagerly
+at module import time via jax.numpy -- if jax_enable_x64 wasn't already
+True at that exact moment, JAX silently truncated dtype=complex
+(complex128) to complex64 right there, permanently (these are plain
+constants, computed once, never rebuilt later even after ensure_x64()
+turns x64 on for real simulation work). HARDWARE_REGISTRY's eager
+ensure_x64() call happened to always win the race against gates.py's
+own import, accidentally masking this the whole time. Verified
+directly: removing HARDWARE_REGISTRY alone (without also fixing
+gates.py) broke tests/unit/test_simulator.py's norm-preservation checks
+(require <1e-12, failed at ~1.7e-8 -- exactly the scale of complex64
+contamination in an otherwise-complex128 computation). Fixed by building
+GATES with plain NumPy instead, which is never subject to JAX's
+process-wide x64 flag.
+
 Subprocess isolation is required for these tests to mean anything: jax
 and dense_evolution are both already imported by the time any test in
 this suite runs (by pytest's own collection or by other test modules),
@@ -82,5 +98,38 @@ class TestLazyEnsureX64:
             "de.DenseSVSimulator(1)\n"
             "assert jax.config.jax_enable_x64 is False, "
             "'set_precision(False) must not be overridden by a later ensure_x64() call'\n"
+        )
+        assert result.returncode == 0, result.stderr
+
+
+class TestGatesSurviveImportTimePrecision:
+    """The regression this class exists for: GATES is built once, at
+    dense_evolution's own import time -- if it were built via jax.numpy
+    (as it used to be), starting from jax_enable_x64=False would bake a
+    permanent complex64 truncation into every gate matrix, silently,
+    with no way to recover it later even after x64 gets enabled for real
+    simulation work. Plain NumPy has no such process-wide flag, so GATES
+    must stay genuinely complex128 regardless of the precision active at
+    the moment dense_evolution is imported."""
+
+    def test_gates_are_complex128_even_when_x64_starts_false(self):
+        result = _run(
+            "import jax; jax.config.update('jax_enable_x64', False)\n"
+            "import numpy as np\n"
+            "from dense_evolution.circuits.gates import GATES\n"
+            "bad = {name: str(m.dtype) for name, m in GATES.items() if m.dtype != np.complex128}\n"
+            "assert not bad, f'GATES entries not complex128 (x64 started False): {bad}'\n"
+        )
+        assert result.returncode == 0, result.stderr
+
+    def test_gates_are_plain_numpy_not_jax_arrays(self):
+        """GATES must be plain numpy arrays specifically -- a jax array
+        would be re-subject to the process-wide x64 flag at creation
+        time, reintroducing the exact bug this class guards against."""
+        result = _run(
+            "import numpy as np\n"
+            "from dense_evolution.circuits.gates import GATES\n"
+            "bad = {name: type(m).__name__ for name, m in GATES.items() if not isinstance(m, np.ndarray)}\n"
+            "assert not bad, f'GATES entries not plain numpy arrays: {bad}'\n"
         )
         assert result.returncode == 0, result.stderr
