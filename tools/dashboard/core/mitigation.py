@@ -72,6 +72,24 @@ def run_zne_mitigation(
     convention (same as pauli_expectation), independent of Qiskit's
     little-endian display convention used elsewhere on this page --
     this function never touches a Qiskit-ordered array.
+
+    Examples
+    --------
+    >>> from dashboard_core.mitigation import run_zne_mitigation
+    >>> qasm = '''
+    ... OPENQASM 2.0;
+    ... include "qelib1.inc";
+    ... qreg q[1];
+    ... creg c[1];
+    ... x q[0];
+    ... measure q -> c;
+    ... '''
+    >>> result = run_zne_mitigation(qasm, pauli_string='Z', noise_model='bitflip',
+    ...                              noise_p=0.05, seed=0, n_trials=200)
+    >>> result.ideal_expectation
+    -1.0
+    >>> abs(result.zne_extrapolated - result.ideal_expectation) < abs(result.noisy_expectations[0] - result.ideal_expectation)
+    True
     """
     if extrapolation_method not in ("richardson", "polynomial"):
         raise ValueError(
@@ -163,6 +181,21 @@ def run_density_matrix_zne(
     correction actually helped -- matches the pattern in
     zne_density_matrix's own docstring (experiments/matrix_healing_zne.py:
     raw ~0.865, corrected ~0.947 on a 2-qubit Bell state).
+
+    Examples
+    --------
+    >>> from dashboard_core.mitigation import run_density_matrix_zne
+    >>> qasm = '''
+    ... OPENQASM 2.0;
+    ... include "qelib1.inc";
+    ... qreg q[1];
+    ... creg c[1];
+    ... x q[0];
+    ... measure q -> c;
+    ... '''
+    >>> result = run_density_matrix_zne(qasm, noise_model='bitflip', noise_p=0.05, seed=0, n_trials=200)
+    >>> result.fidelity_corrected > result.fidelity_raw
+    True
     """
     # Same QASMParser-only parsing as run_zne_mitigation above -- see its
     # comment for why a Qiskit circuit object is never built here.
