@@ -254,7 +254,62 @@ def run_vqe(symbols, geometry, charge=0, ansatz_type="hardware_efficient", n_lay
     parameters there's nothing for Adam to optimize, so this returns the
     bare Hartree-Fock reference circuit and its (real, exact) HF energy
     immediately -- the "pick a molecule, get a circuit" mechanic the UI
-    uses before committing to a minutes-long optimization."""
+    uses before committing to a minutes-long optimization.
+
+    Requires the optional `pennylane` extra (used internally to build the
+    molecular Hamiltonian and Hartree-Fock reference state -- the native
+    UCCSD ansatz circuits themselves, see `dense_evolution.circuits.uccsd`,
+    do not need PennyLane, but Hamiltonian construction still does):
+    `pip install dense-evolution[pennylane]`.
+
+    Parameters
+    ----------
+    symbols : list of str
+        Atomic symbols, e.g. `["H", "H"]`.
+    geometry : list of [float, float, float]
+        Cartesian coordinates in Angstrom, one triplet per atom, same
+        order as `symbols`.
+    charge : int, optional
+        Molecular charge. Defaults to 0.
+    ansatz_type : str, optional
+        `"hardware_efficient"` (generic, `n_layers` deep) or `"uccsd"`
+        (chemically motivated; `n_layers` is ignored, the parameter count
+        comes from the molecule's own occupied/virtual orbital
+        structure). Defaults to `"hardware_efficient"`.
+    n_layers : int, optional
+        Ansatz depth (`hardware_efficient` only). Defaults to 8.
+    maxiter : int, optional
+        Adam iterations. Defaults to 200.
+    step_size, beta1, beta2 : float, optional
+        Adam hyperparameters (learning rate, first/second moment decay).
+    active_electrons, active_orbitals : int, optional
+        Active-space restriction, forwarded to PennyLane's Hamiltonian
+        builder. Defaults to the molecule's full space.
+    seed : int, optional
+        RNG seed for the initial ansatz parameters. Defaults to 0.
+
+    Returns
+    -------
+    dict
+        `vqe_energy_hartree` (final variational energy),
+        `exact_energy_hartree` (dense-diagonalization ground state, for
+        comparison), `energy_history` (per-iteration trace), `qasm` (the
+        converged circuit as OpenQASM 2.0), plus `n_qubits`, `n_params`,
+        `ansatz_type`, `n_layers`, `hf_occupation`.
+
+    Examples
+    --------
+    >>> from dashboard_core.vqe import run_vqe
+    >>> result = run_vqe(
+    ...     symbols=["H", "H"],
+    ...     geometry=[[0, 0, 0], [0, 0, 0.7414]],
+    ...     ansatz_type="hardware_efficient",
+    ...     n_layers=4,
+    ...     maxiter=200,
+    ... )
+    >>> round(result["vqe_energy_hartree"], 4)  # doctest: +SKIP
+    -1.1373
+    """
     import pennylane as qml
 
     H, n_qubits = _get_pennylane_hamiltonian(symbols, geometry, charge, "jordan_wigner",
