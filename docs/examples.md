@@ -12,6 +12,10 @@ the repository rather than written fresh for this page:
   `tests/unit/test_autodiff.py::TestCircuitToEnergyFn`.
 - [Vector healing](#vector-healing) — from `tests/integration/test_ia_healing.py`, healing a noisy
   vector sequence (not to be confused with density-matrix ZNE healing above).
+- [Molecular ground-state energy](#molecular-ground-state-energy) — the from-scratch
+  Hartree-Fock engine behind [`dashboard_core.hamiltonians`](api/dashboard_core_hamiltonians.md).
+- [Large circuits with Chunk](#large-circuits-with-chunk) — anti-OOM slicing for circuits too
+  large for a single dense allocation.
 
 ## Density-matrix ZNE healing
 
@@ -188,3 +192,54 @@ print(f"reconstruction_error:  {meta['reconstruction_error']:.4f}")
 Same primitives, reachable without writing Python: `dashboard_core.run_vector_healing`
 (kernel-facing wrapper), the Composer kernel's `POST /api/vector_healing`, or the MCP tool
 `dense_evolution_vector_healing` — see [MCP Server](mcp.md).
+
+## Molecular ground-state energy
+
+`build_qubit_hamiltonian` runs a real Hartree-Fock SCF loop from scratch, then hands the
+result to PennyLane only for the fermion-to-qubit mapping.
+
+```python
+from dense_evolution.native_hf.bridge import build_qubit_hamiltonian
+
+hamiltonian, n_qubits, hf_result = build_qubit_hamiltonian(
+    atomic_numbers=[1, 1],
+    geometry_angstrom=[[0, 0, 0], [0, 0, 0.7414]],
+    n_electrons=2,
+)
+
+print(f"qubits: {n_qubits}")
+print(f"Hartree-Fock energy: {hf_result.total_energy:.6f} Hartree")
+```
+
+```
+qubits: 4
+Hartree-Fock energy: -1.116684 Hartree
+```
+
+`hamiltonian` is the mapped qubit Hamiltonian — feed it into `circuit_to_energy_fn` above for
+a full VQE run instead of just Hartree-Fock. See [`dense_evolution.native_hf`](api/native_hf.md).
+
+## Large circuits with Chunk
+
+`Chunk` runs a circuit too large for a single dense allocation by slicing it into RAM-sized
+pieces instead of raising `MemoryError`.
+
+```python
+from dense_evolution.chunk import Chunk
+
+n = 10
+circuit = [("h", 0)] + [("cx", q, q + 1) for q in range(n - 1)]
+
+sim = Chunk(n, chunk_size_gates=5)
+sim.run_chunk(circuit)
+probs = sim.get_probabilities()
+print(probs[0], probs[2 ** n - 1])
+```
+
+```
+0.5 0.5
+```
+
+Same GHZ signature as the MPS example above. `chunk_size_gates` controls how many gates run
+per RAM-resident slice, not circuit correctness. See [`Chunk`](api/chunk.md) for the
+multi-device distributed path (`run_chunk_distributed`).
