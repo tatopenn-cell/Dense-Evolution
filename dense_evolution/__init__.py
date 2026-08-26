@@ -53,7 +53,7 @@ from .physics.qec import (pauli_commutes, compute_syndrome, erasure_aware_decode
                            blind_minimum_weight_decode, decode_with_erasure_fallback,
                            counts_in_intervals_dimension)
 
-__version__ = "8.1.67"
+__version__ = "8.1.68"
 
 __all__ = [
     "__version__",
