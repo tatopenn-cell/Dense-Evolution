@@ -237,6 +237,31 @@ class NoiseModel:
         Returns
         -------
         Normalised statevector (same array type as input).
+
+        Examples
+        --------
+        Same circuit used throughout this documentation, with a `barrier`
+        added (parsed and ignored -- it never becomes a gate tuple, so it
+        has no effect on the statevector, only on how the circuit reads):
+
+        >>> import numpy as np
+        >>> import dense_evolution as de
+        >>> from dense_evolution.registry import NoiseModel
+        >>> qasm = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[2]; creg c[2]; h q[0]; barrier q; cx q[0],q[1]; measure q -> c;'
+        >>> circuit = de.QASMParser().parse(qasm)
+        >>> sim = de.DenseSVSimulator(2)
+        >>> sim.run_circuit(circuit.to_tuples())
+        >>> sv = np.asarray(sim.get_statevector())
+        >>> rng = np.random.default_rng(0)
+        >>> sv_noisy = NoiseModel.apply_to_sv(sv.copy(), 2, 'depolarizing', 0.1, rng=rng)
+        >>> round(float(np.vdot(sv_noisy, sv_noisy).real), 4)  # still a valid, normalised state
+        1.0
+        >>> NoiseModel.MODELS
+        ['ideal', 'depolarizing', 'bitflip', 'phaseflip', 'amplitude_damping', 'combined']
+
+        Swap `'depolarizing'` for any other entry in `NoiseModel.MODELS` above to use a
+        different channel; `p` is that channel's error probability (or damping rate for
+        `'amplitude_damping'`).
         """
         if model == 'ideal':
             return sv
