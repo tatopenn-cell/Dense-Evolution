@@ -240,28 +240,45 @@ class NoiseModel:
 
         Examples
         --------
-        Same circuit used throughout this documentation, with a `barrier`
-        added (parsed and ignored -- it never becomes a gate tuple, so it
-        has no effect on the statevector, only on how the circuit reads):
+        A real quantum computer is never perfect -- every gate has some chance of
+        error. Once you have a statevector from running your own QASM circuit (the
+        same circuit as the getting-started example), this function is how you find
+        out what a noisy device would have actually given you instead.
+
+        Start from the circuit and statevector you already have:
 
         >>> import numpy as np
         >>> import dense_evolution as de
-        >>> from dense_evolution.registry import NoiseModel
         >>> qasm = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[2]; creg c[2]; h q[0]; barrier q; cx q[0],q[1]; measure q -> c;'
         >>> circuit = de.QASMParser().parse(qasm)
         >>> sim = de.DenseSVSimulator(2)
         >>> sim.run_circuit(circuit.to_tuples())
         >>> sv = np.asarray(sim.get_statevector())
+
+        (the `barrier` is parsed and ignored -- it never becomes a gate tuple, so it
+        has no effect on the statevector, only on how the circuit reads.)
+
+        Call `NoiseModel.apply_to_sv` on that same statevector, telling it the
+        qubit count, which error model to simulate, and how strong it is:
+
+        >>> from dense_evolution.registry import NoiseModel
         >>> rng = np.random.default_rng(0)
         >>> sv_noisy = NoiseModel.apply_to_sv(sv.copy(), 2, 'depolarizing', 0.1, rng=rng)
         >>> round(float(np.vdot(sv_noisy, sv_noisy).real), 4)  # still a valid, normalised state
         1.0
+
+        `'depolarizing'` above is one of six models; pick any other one the same way,
+        by name:
+
         >>> NoiseModel.MODELS
         ['ideal', 'depolarizing', 'bitflip', 'phaseflip', 'amplitude_damping', 'combined']
 
-        Swap `'depolarizing'` for any other entry in `NoiseModel.MODELS` above to use a
-        different channel; `p` is that channel's error probability (or damping rate for
-        `'amplitude_damping'`).
+        `p` is that model's error probability (or damping rate for
+        `'amplitude_damping'`) -- 0.1 above means each qubit has a 10% chance of a
+        random Pauli error per call. Run it many times and average (see
+        [Density-matrix ZNE healing](../examples.md#density-matrix-zne-healing))
+        to see what a real noisy device's *typical* output looks like, not just one
+        random draw.
         """
         if model == 'ideal':
             return sv
