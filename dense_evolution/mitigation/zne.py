@@ -420,103 +420,12 @@ def uhlmann_fidelity(rho_A: jnp.ndarray, rho_B: jnp.ndarray) -> float:
     return float(_uhlmann_fidelity_core(rho_A, rho_B))
 
 
-def global_depolarizing_channel(rho: jnp.ndarray, p: float) -> jnp.ndarray:
-    """Global n-qubit depolarizing channel, D_p(rho) = (1-p)*rho + (p/dim)*I.
-
-    Distinct from `NoiseModel`'s `'depolarizing'` model in `circuits.registry`,
-    which applies an independent PER-QUBIT local Kraus channel -- a different
-    physical map from this GLOBAL channel, which mixes the whole `dim`-
-    dimensional state toward the fully mixed state as one unit. Use this one
-    when modeling e.g. state-prep/measurement (SPAM) error reported as a
-    single joint depolarizing parameter over the whole register, not per-
-    qubit gate noise (promoted from a real reproduction of arXiv:2608.16716's
-    own SPAM model, Dense-Evolution-Discovery Experiment 33).
-    """
-    rho = jnp.asarray(rho, dtype=jnp.complex128)
-    dim = rho.shape[0]
-    identity = jnp.eye(dim, dtype=jnp.complex128)
-    return (1.0 - p) * rho + (p / dim) * identity
-
-
-def amplitude_damping_channel(rho: jnp.ndarray, gamma: float) -> jnp.ndarray:
-    """Single-qubit amplitude-damping channel: E0 @ rho @ E0.conj().T +
-    E1 @ rho @ E1.conj().T, with E0=diag(1, sqrt(1-gamma)) and
-    E1=[[0,sqrt(gamma)],[0,0]] -- population only ever moves |1>->|0>,
-    never the reverse.
-
-    Distinct from `global_depolarizing_channel` (symmetric, mixes toward
-    the fully-mixed state regardless of which state is |1> or |0>) -- this
-    one is asymmetric by construction, the real signature of energy-relaxation
-    (T1) processes and of quasiparticle poisoning (promoted from a real
-    reproduction of arXiv:2104.05219's measured cosmic-ray-induced error
-    bursts, Dense-Evolution-Discovery Experiment 34, where this asymmetry is
-    exactly the mechanism's own reported signature: decay errors only, no
-    excess excitation errors).
-
-    Single-qubit only (rho must be 2x2) -- unlike `global_depolarizing_channel`,
-    this is not dimension-generic, since amplitude damping is inherently a
-    per-qubit process, not a joint-register one.
-    """
-    rho = jnp.asarray(rho, dtype=jnp.complex128)
-    e0 = jnp.array([[1.0, 0.0], [0.0, jnp.sqrt(1.0 - gamma)]], dtype=jnp.complex128)
-    e1 = jnp.array([[0.0, jnp.sqrt(gamma)], [0.0, 0.0]], dtype=jnp.complex128)
-    return e0 @ rho @ e0.conj().T + e1 @ rho @ e1.conj().T
-
-
-def cosmic_ray_burst_profile(time_us, baseline_gamma: float, ratio_intermediate: float = 2.5,
-                              ratio_peak: float = 3.75, tau1_us: float = 3.0,
-                              tau2_us: float = 300.0, tau_decay_ms: float = 25.0) -> jnp.ndarray:
-    """Time-dependent decay-probability profile for a cosmic-ray/gamma-ray-
-    induced quasiparticle burst: a two-stage rise (fast to
-    `ratio_intermediate`x baseline, slower to `ratio_peak`x baseline) times
-    a single-exponential recovery, generalized out of a fixed, paper-number
-    validation (Dense-Evolution-Discovery Experiment 34, reproducing
-    arXiv:2104.05219's real measured event on a 26-qubit chip).
-
-    Feed the result to `continuous_dissipative_evolve` alongside
-    `amplitude_damping_channel` (or any other single-time-varying-parameter
-    channel) to inject a realistic burst into any circuit or QEC study,
-    without re-deriving this shape by hand each time.
-
-    The default ratios/timescales are the paper's own real numbers -- see
-    Experiment 34's docstring for exactly which are paper-fitted (the 25ms
-    decay) versus chosen to match the paper's two described rise points
-    (tau1/tau2). All are overridable for a different event severity or
-    device generation; `baseline_gamma` is never derived here -- pass
-    whatever per-slice decay probability corresponds to your own dt/T1
-    convention (see Experiment 34 for one worked example of that
-    conversion).
-
-    Parameters
-    ----------
-    time_us : array_like
-        Time since impact, in microseconds (t=0 is the impact instant).
-    baseline_gamma : float
-        Undisturbed per-slice decay probability; this profile scales it
-        up, it does not derive it.
-    ratio_intermediate, ratio_peak : float
-        Multiplier on `baseline_gamma` at the two described checkpoints
-        (paper defaults 2.5=10/4, 3.75=15/4, from Fig. 3's ~10us/~1ms
-        readings).
-    tau1_us, tau2_us : float
-        Rise timescales for the two saturating-exponential stages (paper
-        defaults 3, 300 -- chosen to match its ~10us/~1ms descriptions,
-        not fitted by the paper itself).
-    tau_decay_ms : float
-        Recovery time constant (paper default 25 -- its own fitted central
-        value, real range 25-30ms across 415 events).
-
-    Returns
-    -------
-    jnp.ndarray
-        Per-slice decay probability at each entry of `time_us`.
-    """
-    time_us = jnp.asarray(time_us)
-    stage1 = (ratio_intermediate - 1.0) * (1.0 - jnp.exp(-time_us / tau1_us))
-    stage2 = (ratio_peak - ratio_intermediate) * (1.0 - jnp.exp(-time_us / tau2_us))
-    decay = jnp.exp(-time_us / (tau_decay_ms * 1000.0))
-    scaling = 1.0 + (stage1 + stage2) * decay
-    return baseline_gamma * scaling
+# global_depolarizing_channel, amplitude_damping_channel, and
+# cosmic_ray_burst_profile moved to dense_evolution.noise -- they generate
+# noise, they don't mitigate it, so this module (mitigation) was the wrong
+# home. Re-exported below for backward compatibility; new code should
+# import from dense_evolution.noise directly.
+from ..noise import global_depolarizing_channel, amplitude_damping_channel, cosmic_ray_burst_profile
 
 
 def _uhlmann_fidelity_core(rho_A: jnp.ndarray, rho_B: jnp.ndarray) -> jnp.ndarray:

@@ -155,6 +155,50 @@ down over tens of milliseconds. Feed the result into
 inject a real burst shape into a circuit or QEC study, instead of a
 constant noise rate.
 
+## Step 8. Apply noise to a density matrix instead of a statevector
+
+Steps 2-7 above all work on a statevector. Density-matrix ZNE (see
+[Density-matrix ZNE healing](../examples.md#density-matrix-zne-healing))
+needs noise applied directly to a density matrix instead.
+
+```python
+rho = np.outer(sv, sv.conj())
+
+from dense_evolution.noise import global_depolarizing_channel
+
+rho_noisy = global_depolarizing_channel(rho, 0.1)
+round(float(np.trace(rho_noisy).real), 6)
+```
+
+```
+1.0
+```
+
+`global_depolarizing_channel` mixes the *whole* register toward the fully
+mixed state as one unit — a different physical process from `NoiseModel`'s
+`"depolarizing"`, which acts independently per qubit. Use this one for a
+state-prep/measurement (SPAM) error reported as a single number over the
+whole register, not per-qubit gate noise. `amplitude_damping_channel(rho,
+gamma)` is the density-matrix equivalent of Step 3's `"amplitude_damping"`,
+single-qubit only, and is what Step 7's burst profile is meant to drive.
+
+## Step 9. Make the noise strength oscillate instead of scaling smoothly
+
+```python
+from dense_evolution.noise import oscillating_p_eff
+
+[round(float(oscillating_p_eff(base_p=0.1, factor=f, freq=2.0, amp=0.5)), 4) for f in [0.0, 1.0, 2.0, 3.0]]
+```
+
+```
+[0.1, 0.15, 0.1, 0.05]
+```
+
+Most mitigation techniques (Richardson extrapolation, for one) assume noise
+grows smoothly as you scale it up. `oscillating_p_eff` builds a
+deliberately non-smooth noise-vs-scale relationship instead, to check
+whether a technique still works when that assumption doesn't hold.
+
 ---
 
 ## Details
@@ -184,13 +228,13 @@ Photon loss on a dual-rail-encoded qubit is exactly this library's
 `amplitude_damping` channel (Step 3 above) — there is no separate photon
 noise model, and none is needed.
 
-### cosmic_ray_burst_profile lives outside this package
+### Moved here from mitigation.zne
 
-`cosmic_ray_burst_profile` (Step 7) is defined in
-[`dense_evolution.mitigation`](mitigation.md#dense_evolution.mitigation.zne.cosmic_ray_burst_profile),
-not `dense_evolution.noise` — it was built alongside the mitigation
-technique it was first validated against
-(`jsd_predictive_zne_density_matrix`), and has not been moved here.
+`global_depolarizing_channel`, `amplitude_damping_channel`,
+`cosmic_ray_burst_profile`, and `oscillating_p_eff` used to live in
+`dense_evolution.mitigation.zne` — they generate noise, they don't
+mitigate it, so that was the wrong home. `dense_evolution.mitigation.zne`
+still re-exports all four for backward compatibility.
 
 ### Coherent adversarial noise: an honest negative result
 
