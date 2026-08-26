@@ -95,7 +95,8 @@ nav:
       - Chunk (large-scale): api/chunk.md
       - QASM Parser: api/parser.md
       - Compiler: api/compiler.md
-      - Registry & Noise Models: api/registry.md
+      - Registry (hardware detection): api/registry.md
+      - Noise: api/noise.md
       - Gates: api/gates.md
       - Mitigation (ZNE / density-matrix diagnostics): api/mitigation.md
       - Healing (predictive primitives): api/healing.md
