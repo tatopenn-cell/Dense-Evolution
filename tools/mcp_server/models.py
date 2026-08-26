@@ -5,7 +5,7 @@ docstrings) since MCP clients read them directly off the schema to build
 their own UI/validation -- the docstrings still carry the longer
 explanation for a human or agent reading the tool's full documentation.
 """
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -159,6 +159,34 @@ class MitigateDensityMatrixInput(BaseModel):
     noise_model: str = Field(..., description="Noise model name -- see dense_evolution_list_noise_models.")
     noise_p: float = Field(..., ge=0.0, le=1.0, description="Base noise channel error probability.")
     seed: int = Field(default=42, description="Random seed for the Monte-Carlo density-matrix estimate.")
+
+
+class CosmicRayBurstInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    baseline_gamma: float = Field(..., ge=0.0, le=1.0, description="Undisturbed per-slice decay probability.")
+    times_us: Optional[List[float]] = Field(
+        default=None,
+        description="Time points since impact, in microseconds. Defaults to the impact instant, the "
+        "~10us and ~1ms rise checkpoints, and a point well into the ~25ms recovery.",
+    )
+
+
+class OscillatingNoiseInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    base_p: float = Field(..., ge=0.0, le=1.0, description="Noise probability around which p_eff oscillates.")
+    freq: float = Field(..., gt=0.0, description="Oscillation frequency parameter (see dense_evolution.oscillating_p_eff).")
+    amp: float = Field(..., description="Oscillation amplitude, as a fraction of base_p.")
+    factors: Optional[List[float]] = Field(
+        default=None, description="Scale-factor points to evaluate p_eff at. Defaults to one full period.",
+    )
+
+
+class DensityMatrixChannelInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    qasm: str = Field(..., min_length=1, description="OpenQASM circuit whose ideal density matrix the channel is applied to.")
+    channel: str = Field(..., description="'global_depolarizing' (whole-register, SPAM-style) or "
+                          "'amplitude_damping' (single-qubit only, asymmetric energy relaxation).")
+    param: float = Field(..., ge=0.0, le=1.0, description="Channel strength: p for global_depolarizing, gamma for amplitude_damping.")
 
 
 class VectorHealingInput(BaseModel):

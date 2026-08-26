@@ -376,6 +376,47 @@ def test_mitigate_matrix():
     assert 0.0 <= body["fidelity_corrected"] <= 1.0
 
 
+def test_cosmic_ray_burst():
+    resp = client.post("/api/cosmic_ray_burst", json={"baseline_gamma": 0.001})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["decay_probabilities"][0] == pytest.approx(0.001, abs=1e-6)
+    assert body["peak_ratio"] > 1.0
+
+
+def test_oscillating_noise():
+    resp = client.post("/api/oscillating_noise", json={"base_p": 0.1, "freq": 2.0, "amp": 0.5})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["p_eff"][0] == pytest.approx(0.1, abs=1e-6)
+    assert min(body["p_eff"]) < body["base_p"] < max(body["p_eff"])
+
+
+def test_density_matrix_channel_global_depolarizing():
+    resp = client.post("/api/density_matrix_channel", json={
+        "qasm": BELL_QASM, "channel": "global_depolarizing", "param": 0.1,
+    })
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["n_qubits"] == 2
+    assert body["trace"] == pytest.approx(1.0, abs=1e-6)
+    assert body["noisy_diagonal"][1] > body["ideal_diagonal"][1]
+
+
+def test_density_matrix_channel_amplitude_damping_rejects_multi_qubit():
+    resp = client.post("/api/density_matrix_channel", json={
+        "qasm": BELL_QASM, "channel": "amplitude_damping", "param": 0.1,
+    })
+    assert resp.status_code == 400
+
+
+def test_density_matrix_channel_invalid_channel_name():
+    resp = client.post("/api/density_matrix_channel", json={
+        "qasm": BELL_QASM, "channel": "not_a_real_channel", "param": 0.1,
+    })
+    assert resp.status_code == 400
+
+
 def test_mitigate_matrix_invalid_qasm_returns_400():
     resp = client.post("/api/mitigate_matrix", json={
         "qasm": "not qasm", "noise_model": "depolarizing", "noise_p": 0.05,
