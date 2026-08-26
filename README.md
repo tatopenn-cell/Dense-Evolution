@@ -912,6 +912,44 @@ All circuits stored as OpenQASM 2.0 strings in `dashboard_core.QASM_LIBRARY`.
 
 ## ▍ Changelog
 
+### v8.1.68
+- **Noise gets its own dedicated package, `dense_evolution.noise`.** Every noise-generating
+  mechanism used to be scattered across two unrelated modules: `NoiseModel`/`NoiseSpec` lived
+  in `circuits.registry` (alongside unrelated hardware-detection code), and
+  `global_depolarizing_channel`/`amplitude_damping_channel`/`cosmic_ray_burst_profile` lived in
+  `mitigation.zne` (which should only ever cancel noise, never generate it). All of it now lives
+  under `dense_evolution.noise`, one file per mechanism: `noise/kraus/{ideal,depolarizing,
+  bitflip,phaseflip,amplitude_damping,combined}.py` (the 6 Kraus channels, each its own file,
+  with `noise/kraus_channels.py` as the shared dispatcher), `noise/differentiable.py`
+  (`NoiseSpec`), `noise/density_matrix_channels.py`, `noise/cosmic_ray.py`. Both old locations
+  still re-export everything for backward compatibility; every top-level `dense_evolution.X`
+  import is unaffected.
+- **New: `oscillating_p_eff`** (`dense_evolution.noise.oscillating`) — a noise strength that
+  oscillates instead of scaling smoothly with a ZNE-style scale factor, promoted from
+  Dense-Evolution-Discovery's `jsd_zne_oscillating_noise.py`, for stress-testing mitigation
+  techniques that assume a smooth noise-vs-scale relationship.
+- **New: `dense_evolution.noise.coherent_attack`** — coherent, multi-qubit, JAX-differentiable
+  adversarial noise against a stabilizer code's syndrome (`apply_rz_all`,
+  `x_stabilizer_leakage`, `craft_adversarial_delta`, `craft_adversarial_delta_constrained`,
+  `project_l2_linf`, `decoder_failure_rate`, `random_delta_failure_stats`), promoted from
+  Dense-Evolution-Discovery's Steane [[7,1,3]] investigation and generalized from a hard-coded
+  7-qubit table to any stabilizer list. Keeps the experiment's own honest negative result in the
+  docstring: the unconstrained search (`craft_adversarial_delta`) converges to a direction with
+  *zero* real decoder-failure rate on a distance-3 code -- the L-infinity-constrained version
+  (`craft_adversarial_delta_constrained`) is the real worst-case test.
+- **3 new Composer/MCP tools**: `dense_evolution_cosmic_ray_burst`, `dense_evolution_oscillating_noise`,
+  `dense_evolution_density_matrix_channel` -- the cosmic-ray burst profile, the oscillating
+  noise profile, and the two density-matrix channels, each wired through the full stack
+  (`dashboard_core` wrapper -> Composer server route -> MCP tool). `noise_model_from_qiskit_backend`
+  is deliberately NOT exposed this way: Qiskit's own object construction is known to segfault
+  on macOS, and this server needs to run safely cross-platform.
+- **CI fix**: the docs-only fast path (added to skip the full 6-way test matrix on doc-only PRs)
+  had a `paths-filter` config bug (no base pattern, so it never actually evaluated to "docs-only")
+  and was missing `psutil`/`matplotlib` in its own dependency list, both fixed.
+- **Docs**: new guide-style pages `docs/api/mps.md` and `docs/api/noise.md` (step-by-step, built
+  from real verified QASM examples, details/history moved to the bottom), plus a rewritten guided
+  example for `NoiseModel.apply_to_sv`.
+
 ### v8.1.65
 - **`get_dynamic_chunk`/`SafeMemoryGuard` now read the compute device's own memory, not always host RAM.** Both used to call `psutil.virtual_memory()` unconditionally to decide `chunk_size_bits` and to gate `Chunk.__init__`'s pre-allocation checks -- correct on CPU, where the compute device *is* the host (exactly what this file's own "~2GB constant RAM" benchmark table measures), but wrong on GPU/TPU: chunk sizing got computed off host RAM (often much larger) while the actual chunk data lives in the device's own, usually smaller, VRAM -- causing `MemoryPressureError`/a real `RESOURCE_EXHAUSTED` well before the GPU's VRAM was actually full. Two new helpers, `_device_memory_budget_bytes`/`_device_total_bytes`, read `jax.devices()[0].memory_stats()` when available, falling back to `psutil.virtual_memory()` otherwise (CPU backends return `None` from `memory_stats()` -- confirmed directly, so CPU behavior is unchanged). Verified on a real Colab T4 GPU: `run_chunk()` now reliably reaches n=28 qubits (previously failed well short of that from the RAM/VRAM mismatch). n=29+ still fails, but that's a separate, structural property of `run_chunk()`'s eager multi-chunk path (it holds every chunk in memory simultaneously, so total memory always equals `2**n_qubits * bytes_per_element` regardless of `chunk_size_bits` -- confirmed against a real OOM needing exactly `2**29*8` bytes); going further needs `run_chunk_distributed()` (real multiple physical devices) or a genuinely sequential/streaming execution mode, which is not yet implemented.
 
