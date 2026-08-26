@@ -5,7 +5,8 @@ High-performance quantum statevector simulator optimized for NISQ circuits.
 from .backends.statevector import DenseSVSimulator
 from .circuits.parser import QASMParser, QASMCircuit
 from .circuits.compiler import QuantumTranspiler
-from .circuits.registry import NoiseModel, NoiseSpec, QuantumHardwareRegistry
+from .noise import NoiseModel, NoiseSpec
+from .circuits.registry import QuantumHardwareRegistry
 from .circuits.gates import GATES, PARAMETRIC_GATES, GATE_IDS
 from .backends.chunk import Chunk
 # Also bind dense_evolution.chunk as an attribute of this package (the
