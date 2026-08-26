@@ -23,6 +23,7 @@ jobs:
           # just the handful of tests that actually exec docs code blocks.
           filters: |
             code:
+              - '**'
               - '!docs/**'
               - '!mkdocs.yml'
 
