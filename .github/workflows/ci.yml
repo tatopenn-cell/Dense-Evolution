@@ -7,8 +7,45 @@ on:
     branches: [main]
 
 jobs:
+  changes:
+    name: Detect docs-only changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          # code == true whenever anything OTHER than docs/mkdocs config
+          # changed -- a pure docs/*.md-only PR doesn't need the full
+          # 6-way (2 OS x 3 Python) matrix rerunning the whole suite,
+          # just the handful of tests that actually exec docs code blocks.
+          filters: |
+            code:
+              - '!docs/**'
+              - '!mkdocs.yml'
+
+  docs-examples:
+    name: Docs examples (docs-only change)
+    needs: changes
+    if: needs.changes.outputs.code == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          python -m pip install --upgrade pip
+          pip install pytest numpy jax jaxlib pennylane
+          pip install -e . --no-deps
+      - run: pytest tests/integration/test_docs_examples.py -v --tb=short
+
   test:
     name: Python ${{ matrix.python-version }} (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
 
     strategy:

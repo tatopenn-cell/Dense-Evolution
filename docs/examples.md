@@ -225,7 +225,7 @@ a full VQE run instead of just Hartree-Fock. See [`dense_evolution.native_hf`](a
 pieces instead of raising `MemoryError`.
 
 ```python
-from dense_evolution.chunk import Chunk
+from dense_evolution import Chunk
 
 n = 10
 circuit = [("h", 0)] + [("cx", q, q + 1) for q in range(n - 1)]
