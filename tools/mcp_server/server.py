@@ -69,6 +69,9 @@ from .tools.mitigation_tools import (  # noqa: E402
 from .tools.wormhole_tools import (  # noqa: E402
     dense_evolution_wormhole_scan, dense_evolution_wormhole_select_instance, dense_evolution_wormhole_teleportation,
 )
+from .tools.noise_tools import (  # noqa: E402
+    dense_evolution_cosmic_ray_burst, dense_evolution_oscillating_noise, dense_evolution_density_matrix_channel,
+)
 
 
 def main():

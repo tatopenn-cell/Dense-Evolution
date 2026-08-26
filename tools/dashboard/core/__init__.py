@@ -51,6 +51,11 @@ from .wormhole import (
     run_wormhole_protocol, run_wormhole_protocol_trotter,
 )
 from .vector_healing import VectorHealingResult, run_vector_healing
+from .noise_tools import (
+    CosmicRayBurstResult, run_cosmic_ray_burst,
+    OscillatingNoiseResult, run_oscillating_noise,
+    DensityMatrixChannelResult, run_density_matrix_channel,
+)
 
 __all__ = [
     'QASM_LIBRARY', 'gate_tuples_to_qasm',
@@ -72,4 +77,7 @@ __all__ = [
     'build_sparse_syk_terms', 'commuting_pair_count', 'select_good_instance',
     'run_wormhole_protocol', 'run_wormhole_protocol_trotter',
     'VectorHealingResult', 'run_vector_healing',
+    'CosmicRayBurstResult', 'run_cosmic_ray_burst',
+    'OscillatingNoiseResult', 'run_oscillating_noise',
+    'DensityMatrixChannelResult', 'run_density_matrix_channel',
 ]

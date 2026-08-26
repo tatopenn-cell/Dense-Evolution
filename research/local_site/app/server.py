@@ -21,6 +21,7 @@ import base64
 import io
 import sys
 from pathlib import Path
+from typing import List, Optional
 
 import matplotlib
 # FastAPI/Starlette runs sync route handlers in a worker thread, not the
@@ -602,6 +603,77 @@ def mitigate_matrix(req: MitigateMatrixRequest):
         "noise_factors": result.noise_factors,
         "fidelity_raw": result.fidelity_raw,
         "fidelity_corrected": result.fidelity_corrected,
+    }
+
+
+class CosmicRayBurstRequest(BaseModel):
+    baseline_gamma: float
+    times_us: Optional[List[float]] = None
+
+
+@app.post("/api/cosmic_ray_burst")
+def cosmic_ray_burst(req: CosmicRayBurstRequest):
+    """Real cosmic-ray/gamma-ray-induced quasiparticle burst profile,
+    reproducing a real measured event from arXiv:2104.05219."""
+    try:
+        result = dc.run_cosmic_ray_burst(req.baseline_gamma, times_us=req.times_us)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "times_us": result.times_us,
+        "baseline_gamma": result.baseline_gamma,
+        "decay_probabilities": result.decay_probabilities,
+        "peak_ratio": result.peak_ratio,
+    }
+
+
+class OscillatingNoiseRequest(BaseModel):
+    base_p: float
+    freq: float
+    amp: float
+    factors: Optional[List[float]] = None
+
+
+@app.post("/api/oscillating_noise")
+def oscillating_noise(req: OscillatingNoiseRequest):
+    """Noise strength that oscillates instead of scaling smoothly with a
+    ZNE-style scale factor -- for stress-testing a mitigation technique's
+    smoothness assumption."""
+    try:
+        result = dc.run_oscillating_noise(req.base_p, req.freq, req.amp, factors=req.factors)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "base_p": result.base_p,
+        "freq": result.freq,
+        "amp": result.amp,
+        "factors": result.factors,
+        "p_eff": result.p_eff,
+    }
+
+
+class DensityMatrixChannelRequest(BaseModel):
+    qasm: str
+    channel: str
+    param: float
+
+
+@app.post("/api/density_matrix_channel")
+def density_matrix_channel(req: DensityMatrixChannelRequest):
+    """Apply a density-matrix-level noise channel ('global_depolarizing'
+    or 'amplitude_damping') to the ideal density matrix of a QASM
+    circuit -- distinct from NoiseModel's per-qubit statevector channels."""
+    try:
+        result = dc.run_density_matrix_channel(req.qasm, req.channel, req.param)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "n_qubits": result.n_qubits,
+        "channel": result.channel,
+        "param": result.param,
+        "ideal_diagonal": result.ideal_diagonal,
+        "noisy_diagonal": result.noisy_diagonal,
+        "trace": result.trace,
     }
 
 
