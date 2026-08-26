@@ -28,6 +28,10 @@ in the repository rather than written fresh for this page:
 - [Safe qubit limits for this machine](#safe-qubit-limits-for-this-machine) —
   [`dashboard_core.system_limits`](api/dashboard_core_system_limits.md).
 
+Plus one worked example per remaining library module further below (gates, interop, QEC,
+entropy, fermions, tight-binding, circuit drawing, measurement, observables, QFT, random
+circuits, entangling layers, Trotterization, and differentiable noise).
+
 ## Density-matrix ZNE healing
 
 Zero-noise extrapolation on full density matrices: run a circuit at several *scaled* noise
