@@ -21,7 +21,7 @@ Using this in academic work? See [CITATION.cff](https://github.com/tatopenn-cell
 import dense_evolution as de
 
 sim = de.DenseSVSimulator(n_qubits=2)
-sim.run_circuit([('h', 0), ('cx', 0, 1)])
+sim.run_circuit_jit([('h', 0), ('cx', 0, 1)])
 
 print(sim.get_statevector())
 # [0.70710678+0.j 0.        +0.j 0.        +0.j 0.70710678+0.j]
