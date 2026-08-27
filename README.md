@@ -339,7 +339,7 @@ desc  = NoiseModel.kraus_description('amplitude_damping')
 parser  = QASMParser()
 circuit = parser.parse(qasm_str)                  # → QASMCircuit
 sim     = DenseSVSimulator(n_qubits=circuit.n_qubits)
-sim.run_circuit(circuit.to_tuples())               # dicts -> tuples, then execute
+sim.run_circuit_jit(circuit.to_tuples())          # dicts -> tuples, then execute
 
 sv_noisy = NoiseModel().apply_to_sv(
     sim.get_statevector(), n=circuit.n_qubits, model='depolarizing', p=0.01,
