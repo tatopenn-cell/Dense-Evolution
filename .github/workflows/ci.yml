@@ -21,6 +21,20 @@ jobs:
           # changed -- a pure docs/*.md-only PR doesn't need the full
           # 6-way (2 OS x 3 Python) matrix rerunning the whole suite,
           # just the handful of tests that actually exec docs code blocks.
+          #
+          # predicate-quantifier MUST be "every" (AND across patterns), not
+          # paths-filter's own default "some" (OR) -- under "some", a file
+          # only needs to match ONE of the patterns below to count, and '**'
+          # matches every file unconditionally, so with the default quantifier
+          # the two '!'-exclusions never excluded anything: `code` evaluated
+          # true for every single change, docs-only included (verified: a
+          # pure docs/examples.md edit still set `code=true`, running the
+          # full 6-way matrix and skipping the docs-only fast path -- the
+          # exact opposite of this job's purpose). "every" requires a file to
+          # match '**' AND NOT match 'docs/**' AND NOT match 'mkdocs.yml' to
+          # count as code, which is what an include-everything-except-these
+          # pattern list actually needs.
+          predicate-quantifier: 'every'
           filters: |
             code:
               - '**'
