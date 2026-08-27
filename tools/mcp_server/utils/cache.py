@@ -46,3 +46,10 @@ class TTLCache:
             self._store.clear()
         else:
             self._store.pop(key, None)
+
+    def __len__(self) -> int:
+        """Raw entry count, including any not-yet-pruned expired ones --
+        entries only drop out on their next get(), not on a timer. Good
+        enough for a diagnostics tool (dense_evolution_kernel_status);
+        don't rely on this for anything that needs an exact live count."""
+        return len(self._store)

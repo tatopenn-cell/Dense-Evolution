@@ -33,7 +33,7 @@ own response can be tens of thousands of floats for a 20+ qubit circuit.
 Structure (prog.txt Sezione 3, now complete): settings live in config.py,
 the HTTP client + error handling in client.py, the Pydantic input schemas
 in models.py (Phase 1); image saving/truncation/molecule-catalog caching
-in utils/ and molecules.py (Phase 2); the 21 tools themselves, split by
+in utils/ and molecules.py (Phase 2); the 22 tools themselves, split by
 topic, in tools/ (Phase 3, this file). This file's only job is to create
 the MCPServer instance, import each tools/*.py module so its `@mcp.tool`
 decorators register against it, re-export every tool function (so
@@ -54,8 +54,9 @@ from mcp.server import MCPServer
 mcp = MCPServer("dense_evolution_mcp")
 
 from .tools.system_tools import (  # noqa: E402
-    dense_evolution_health, dense_evolution_list_gates, dense_evolution_list_molecules,
-    dense_evolution_list_noise_models, dense_evolution_list_presets, dense_evolution_system_limits,
+    dense_evolution_health, dense_evolution_kernel_status, dense_evolution_list_gates,
+    dense_evolution_list_molecules, dense_evolution_list_noise_models, dense_evolution_list_presets,
+    dense_evolution_system_limits,
 )
 from .tools.circuit_tools import dense_evolution_build_circuit, dense_evolution_run_circuit  # noqa: E402
 from .tools.chemistry_tools import (  # noqa: E402
