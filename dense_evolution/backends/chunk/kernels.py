@@ -1,3 +1,4 @@
+import functools
 from typing import List
 
 import jax
@@ -446,6 +447,7 @@ def _build_distributed_chunk_step(num_chunks: int, m: int, k: int, axis_name: st
     return step
 
 
+@functools.lru_cache(maxsize=None)
 def _build_distributed_chunk_runner(num_chunks: int, m: int, k: int):
     """shard_map-wrapped runner: one chunk row per physical JAX device.
     Requires jax.device_count() >= num_chunks (v1 scope: exactly one
@@ -457,7 +459,19 @@ def _build_distributed_chunk_runner(num_chunks: int, m: int, k: int):
     on every device) is replicated, not sharded -- P(None, None).
     local_row is sharded along axis 0 of the (num_chunks, chunk_dim)
     logical array, one (chunk_dim,) row per device -- P(axis_name,
-    None) on input/output, so each device's shard is that one row."""
+    None) on input/output, so each device's shard is that one row.
+
+    Memoized on (num_chunks, m, k) -- the three plain ints that fully
+    determine the compiled kernel. Without this, every call built a
+    brand-new Python closure and wrapped it in a fresh jax.jit, so two
+    Chunk instances with identical geometry never hit JAX's own
+    compilation cache (that cache is keyed by wrapped-function identity,
+    not by structural equality of what the closure captured) -- each one
+    silently repaid the full XLA compile cost instead of reusing the
+    other's. Caching the builder itself, not just relying on jax.jit's
+    internal cache, is what actually fixes that: the second Chunk with
+    the same (num_chunks, m, k) gets back the exact same already-jitted
+    function object."""
     import numpy as np
     from jax.sharding import Mesh, PartitionSpec as P
 
@@ -488,10 +502,21 @@ def _build_distributed_chunk_runner(num_chunks: int, m: int, k: int):
     return jax.jit(sharded_run), mesh
 
 
+@functools.lru_cache(maxsize=None)
 def _build_multi_chunk_runner(num_chunks: int, m: int, k: int):
     """jax.jit-compiled (chunks, compiled_ops) -> final_chunks, closed
     over the static per-Chunk-instance geometry (num_chunks, m, k don't
-    change across calls on the same instance)."""
+    change across calls on the same instance).
+
+    Memoized on (num_chunks, m, k) for the same reason
+    _build_distributed_chunk_runner is: two Chunk instances built with
+    the same geometry used to each pay a full, independent XLA compile
+    (a fresh Python closure every call means a fresh jax.jit wrapper,
+    which JAX's own compilation cache -- keyed by wrapped-function
+    identity -- can never recognize as "the same function" across
+    instances). Caching the builder means the second Chunk with matching
+    (num_chunks, m, k) gets the first one's already-compiled function
+    back directly, no recompilation at all."""
     step = _build_multi_chunk_step(num_chunks, m, k)
 
     @jax.jit
