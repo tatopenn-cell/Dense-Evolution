@@ -59,7 +59,7 @@ K_TRAJECTORIES = 200
 
 def bell_state_sv():
     sim = de.DenseSVSimulator(N_QUBITS)
-    sim.run_circuit([("h", 0), ("cx", 0, 1)])
+    sim.run_circuit_jit([("h", 0), ("cx", 0, 1)])
     return np.asarray(sim.get_statevector())
 
 
@@ -492,7 +492,7 @@ import dense_evolution as de
 from dense_evolution.entropy import partial_trace, von_neumann_entropy
 
 sim = de.DenseSVSimulator(2)
-sim.run_circuit([("h", 0), ("cx", 0, 1)])
+sim.run_circuit_jit([("h", 0), ("cx", 0, 1)])
 sv = np.asarray(sim.get_statevector())
 rho_a = partial_trace(sv, 2, [0])
 print(round(von_neumann_entropy(rho_a), 4))
@@ -592,7 +592,7 @@ import dense_evolution as de
 from dense_evolution.measurement import sample_counts, statevector_fidelity
 
 sim = de.DenseSVSimulator(2)
-sim.run_circuit([("h", 0), ("cx", 0, 1)])
+sim.run_circuit_jit([("h", 0), ("cx", 0, 1)])
 sv = np.asarray(sim.get_statevector())
 
 rng = np.random.default_rng(0)
@@ -620,7 +620,7 @@ import dense_evolution as de
 from dense_evolution.observables import pauli_expectation
 
 sim = de.DenseSVSimulator(2)
-sim.run_circuit([("h", 0), ("cx", 0, 1)])
+sim.run_circuit_jit([("h", 0), ("cx", 0, 1)])
 sv = np.asarray(sim.get_statevector())
 print(pauli_expectation(sv, "ZZ"))
 ```
@@ -642,7 +642,7 @@ import numpy as np
 import dense_evolution as de
 
 sim = de.DenseSVSimulator(3)
-sim.run_circuit(de.qft(3))
+sim.run_circuit_jit(de.qft(3))
 print(np.asarray(sim.get_probabilities()).round(4))
 ```
 
