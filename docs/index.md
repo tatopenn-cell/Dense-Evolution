@@ -144,7 +144,7 @@ Hartree-Fock, no mocked physics):
   apply ZNE mitigation, and run the [traversable-wormhole-inspired teleportation
   protocol](api/dashboard_core_wormhole.md).
 - **[MCP Server](mcp.md)** — the same kernel, driven by an MCP-aware agent (Claude Code,
-  Claude Desktop, ...) instead of a browser: 21 tools covering everything Composer does,
+  Claude Desktop, ...) instead of a browser: 22 tools covering everything Composer does,
   plus a batch energy scan, a batch wormhole sweep, and healing a noisy vector sequence
   (`dense_evolution_vector_healing`, see `dense_evolution.healing` above).
 

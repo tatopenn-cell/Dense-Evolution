@@ -762,7 +762,7 @@ the same relative layout so it opens correctly via `file://`.
 ## ▍ MCP Server — drive the Composer kernel from an agent
 
 `dense_evolution_mcp` (`mcp_server/`) is an MCP ([Model Context
-Protocol](https://modelcontextprotocol.io)) server: 21 tools, one per
+Protocol](https://modelcontextprotocol.io)) server: 22 tools, one per
 Composer kernel endpoint plus a batch energy scan, a batch wormhole
 sweep, and a vector-healing pass, letting an MCP-aware agent (Claude
 Code, Claude Desktop, ...) run circuits, compute molecular ground-state

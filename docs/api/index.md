@@ -8,7 +8,7 @@ built on top of these modules but aren't part of this generated reference — se
 
 **Driving these modules without writing Python**: every module in the table has a real,
 tested execution path through the Composer kernel, reachable either from a browser
-([Composer](../composer.md)) or from an MCP-aware agent ([MCP Server](../mcp.md), 21 tools —
+([Composer](../composer.md)) or from an MCP-aware agent ([MCP Server](../mcp.md), 22 tools —
 Claude Code, Claude Desktop, ...). Both call the exact same kernel, not a separate
 reimplementation.
 

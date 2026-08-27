@@ -66,11 +66,12 @@ server's environment.
 
 ## Tools
 
-21 tools -- one per Composer kernel endpoint, plus batch scans:
+22 tools -- one per Composer kernel endpoint, plus batch scans:
 
 | Tool | What it does |
 |---|---|
 | `dense_evolution_health` | Check the kernel is up; version, hostname, free RAM |
+| `dense_evolution_kernel_status` | Inspect this adapter's own local state (kernel URL, image dir/count, molecule-cache size) -- distinct from `_health`, which only proxies the kernel |
 | `dense_evolution_system_limits` | Max safe qubit count right now (live RAM-based) |
 | `dense_evolution_list_presets` | Built-in example OpenQASM circuits |
 | `dense_evolution_list_gates` | Gate palette for the graphical builder |

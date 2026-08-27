@@ -4,14 +4,19 @@ httpx.AsyncClient, the low-level _request helper every tool calls, and the
 boilerplate every tool used to repeat individually.
 
 KERNEL_URL and _TEST_TRANSPORT live here (not config.py) specifically
-because tests/integration/test_mcp_server.py mutates them directly
-(`from mcp_server import client as mcp_client; mcp_client.KERNEL_URL = ...`)
-to exercise the unreachable-kernel and in-process-ASGI-transport paths --
-_get_client/_request must see those mutations as their OWN module globals,
-which only works if the value's single source of truth lives in the same
-module that reads it. Moving _TEST_TRANSPORT into a proper pytest fixture
-instead of a raw mutable global is planned for Phase 4 (see prog.txt
-Sezione 3.3), not done here.
+because tests/integration/test_mcp_server.py mutates them via
+`monkeypatch.setattr(mcp_client, "KERNEL_URL"/"_TEST_TRANSPORT", ...)`
+(autouse fixture + a couple of per-test overrides, never a raw manual
+assignment) to exercise the unreachable-kernel and in-process-ASGI-
+transport paths -- _get_client/_request must see those mutations as
+their OWN module globals, which only works if the value's single source
+of truth lives in the same module that reads it. `_TEST_TRANSPORT`
+staying a real module attribute in production code (rather than
+disappearing entirely behind dependency injection) is a deliberate,
+narrow seam for exactly that monkeypatch, not leftover tech debt --
+Phase 4's original goal (prog.txt Sezione 3.3) of routing every override
+through pytest's own fixture mechanism, not a bare global, is already
+what happens here.
 """
 import functools
 import os

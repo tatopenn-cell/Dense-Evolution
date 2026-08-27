@@ -72,6 +72,14 @@ def test_system_limits_reports_positive_qubit_ceiling():
     assert data["max_qubits_dense"] > 0
 
 
+def test_kernel_status_reports_adapter_local_state():
+    data = json.loads(run(mcp_adapter.dense_evolution_kernel_status()))
+    assert data["kernel_reachable"] is True
+    assert data["kernel_url"] == mcp_client.KERNEL_URL
+    assert data["molecule_cache_entries"] >= 0
+    assert "image_output_dir" in data
+
+
 def test_list_presets_includes_a_real_bell_state():
     data = json.loads(run(mcp_adapter.dense_evolution_list_presets()))
     assert any("Bell" in name for name in data)

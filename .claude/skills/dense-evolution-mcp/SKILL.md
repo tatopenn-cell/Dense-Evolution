@@ -8,7 +8,7 @@ compatibility: Requires the dense_evolution_mcp MCP server registered (see tools
 
 ## Why this exists
 
-`dense_evolution_mcp` gives you 21 tools that call the *same* local kernel
+`dense_evolution_mcp` gives you 22 tools that call the *same* local kernel
 the published Composer web page uses (`research/local_site/app/server.py`) -- real
 `DenseSVSimulator` runs, real Hartree-Fock Hamiltonians, real VQE with
 adjoint differentiation, real Hellmann-Feynman forces. Prefer these tools
@@ -47,6 +47,7 @@ assuming a size that worked for a small molecule will scale.
 | Task | Tool(s) |
 |---|---|
 | Is the kernel up? What can this machine handle? | `dense_evolution_health`, `dense_evolution_system_limits` |
+| Debug the adapter itself (kernel URL, image dir, cache state) | `dense_evolution_kernel_status` |
 | What circuits/gates/noise models/molecules exist? | `dense_evolution_list_presets`, `_list_gates`, `_list_noise_models`, `_list_molecules` |
 | Build QASM from a gate list instead of hand-writing it | `dense_evolution_build_circuit` |
 | Run a circuit (counts, probabilities, statevector) | `dense_evolution_run_circuit` |
