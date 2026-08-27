@@ -87,7 +87,7 @@ N_QUBITS, SCALES, K = 2, (1.0, 2.0, 3.0), 200
 rng = np.random.default_rng(0)
 
 sim = de.DenseSVSimulator(N_QUBITS)
-sim.run_circuit([("h", 0), ("cx", 0, 1)])
+sim.run_circuit_jit([("h", 0), ("cx", 0, 1)])
 ideal_sv = np.asarray(sim.get_statevector())
 rho_ideal = jnp.asarray(np.outer(ideal_sv, ideal_sv.conj()), dtype=jnp.complex128)
 
