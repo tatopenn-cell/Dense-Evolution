@@ -22,8 +22,8 @@ len(expanded), expanded[:4]
 ```
 
 3 gates went in, 19 came out: `h` passed through unchanged, `swap` became 3 `cx` gates,
-`ccx` became 15 more. `run_circuit` runs exactly this step first, automatically, unless
-called with `transpile=False` — every step below is one piece of what just happened.
+`ccx` became 15 more. `run_circuit_jit` runs exactly this step first, automatically, on
+every call — every step below is one piece of what just happened.
 
 ## Step 2. Toffoli (CCX) → 15 native gates
 
@@ -62,12 +62,12 @@ qasm2 = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[2]; h q[0]; rx(0.7) q[1]; cx
 circuit2 = de.QASMParser().parse(qasm2)
 
 sim_direct = de.DenseSVSimulator(2)
-sim_direct.run_circuit(circuit2.to_tuples())
+sim_direct.run_circuit_jit(circuit2.to_tuples())
 sim_direct.apply_gate_2q(de.GATES['iswap'], 0, 1)
 
 sim_decomp = de.DenseSVSimulator(2)
-sim_decomp.run_circuit(circuit2.to_tuples())
-sim_decomp.run_circuit(QuantumTranspiler.decompose_iswap(0, 1), transpile=False)
+sim_decomp.run_circuit_jit(circuit2.to_tuples())
+sim_decomp.run_circuit_jit(QuantumTranspiler.decompose_iswap(0, 1))
 
 float(np.max(np.abs(sim_direct.get_statevector() - sim_decomp.get_statevector())))
 ```
@@ -169,8 +169,8 @@ conditioned on its own bit) — `CRZ` wasn't reachable at all before this was sp
 
 ## See Also
 
-- [`DenseSVSimulator`](simulator.md) — `run_circuit`/`run_circuit_jit`, the methods that
-  call `transpile` and the compiled kernel automatically.
+- [`DenseSVSimulator`](simulator.md) — `run_circuit_jit`, the method that calls
+  `transpile` and the compiled kernel automatically.
 - [Gates](gates.md) — `GATE_IDS`'s exact coverage, and the `GATES`/`PARAMETRIC_GATES`
   matrices every decomposition here is verified against.
 - [`QASMParser`](parser.md) — produces the tuple lists `transpile` and every method on

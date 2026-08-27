@@ -13,7 +13,7 @@ import dense_evolution as de
 qasm = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[2]; creg c[2]; h q[0]; cx q[0],q[1]; measure q -> c;'
 circuit = de.QASMParser().parse(qasm)
 sim = de.DenseSVSimulator(2)
-sim.run_circuit(circuit.to_tuples())
+sim.run_circuit_jit(circuit.to_tuples())
 sv = np.asarray(sim.get_statevector())
 ```
 
