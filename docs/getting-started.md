@@ -1,5 +1,7 @@
 # Getting Started
 
+Run up to 28 qubits in about 3 seconds, JIT-compiled, without crashing -- this page gets you from install to your first circuit in a few minutes.
+
 ## Install
 
 ```bash
@@ -63,11 +65,13 @@ sv    = sim.get_statevector()
 ## Anti-OOM for large circuits
 
 ```python
-from dense_evolution import Chunk
+from dense_evolution import Chunk, QASMParser
+
+qasm = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[27]; h q[0:27];'
+circuit = QASMParser().parse(qasm)
 
 sim = Chunk(27)                                    # logical 27 qubits
-circuit_ops = [['h', i] for i in range(27)]
-sim.run_chunk(circuit_ops, chunk_size_gates=500)   # SafeMemoryGuard active
+sim.run_chunk(circuit.to_tuples(), chunk_size_gates=500)   # SafeMemoryGuard active
 ```
 
 ## Zero-Noise Extrapolation
@@ -82,12 +86,16 @@ import jax.numpy as jnp
 import dense_evolution as de
 from dense_evolution.registry import NoiseModel
 from dense_evolution.mitigation import zne_density_matrix, uhlmann_fidelity
+from dense_evolution import QASMParser
 
 N_QUBITS, SCALES, K = 2, (1.0, 2.0, 3.0), 200
 rng = np.random.default_rng(0)
 
+qasm = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[2]; h q[0]; cx q[0],q[1];'
+circuit = QASMParser().parse(qasm)
+
 sim = de.DenseSVSimulator(N_QUBITS)
-sim.run_circuit_jit([("h", 0), ("cx", 0, 1)])
+sim.run_circuit_jit(circuit.to_tuples())
 ideal_sv = np.asarray(sim.get_statevector())
 rho_ideal = jnp.asarray(np.outer(ideal_sv, ideal_sv.conj()), dtype=jnp.complex128)
 
@@ -109,10 +117,11 @@ corrected_fidelity = uhlmann_fidelity(corrected, rho_ideal)
 See [`dense_evolution.mitigation`](api/mitigation.md) for the full API, including the
 `_jit` variants for use inside a larger `jax.jit`-compiled pipeline, and
 [Examples](examples.md) for this walkthrough plus MPS and differentiable-VQE examples.
+See [Benchmarks](benchmarks.md) for how the Anti-OOM Chunk engine above compares to PennyLane.
 
 ## Dashboard (local, Streamlit)
 
-`app_dashboard.py` lives at the root of the cloned repository -- it is not part of the
+`tools/dashboard/app.py` lives in the cloned repository -- it is not part of the
 pip-installed package, so this needs the `git clone` from the [Install](#install) section
 above, not just `pip install`. Circuit builder / statevector / probabilities / Q-sphere
 only -- VQE, molecular Hamiltonians, ZNE mitigation, and vector healing aren't wired into
@@ -122,7 +131,7 @@ above instead.
 ```bash
 pip install "dense-evolution[dashboard]"  # JAX already included by default
 cd Dense-Evolution
-streamlit run app_dashboard.py
+streamlit run tools/dashboard/app.py
 ```
 
 ## MCP Server (drive it from an agent)
