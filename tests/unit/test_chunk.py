@@ -262,6 +262,185 @@ class TestChunkMultiPiece:
         assert c.num_chunks == 4
 
 
+class TestChunkDiskOverflow:
+    """dense_evolution/backends/chunk/disk_overflow.py -- Pednault et al.
+    2019 (arXiv:1910.09534)-style disk-backed overflow: when num_chunks
+    chunks don't fit in RAM at once, allow_disk_overflow=True spills them
+    to .npy files and streams the circuit through in phases (one chunk
+    for a local gate, an XOR-stride pair for a chunk-mixing gate) instead
+    of raising MemoryPressureError.
+
+    Same correctness bar as TestChunkMultiPiece: cross-check against a
+    plain DenseSVSimulator running the identical circuit, not against the
+    in-RAM multi-chunk path (which could share a bug with a naive
+    streaming reimplementation) -- this is bit-manipulation-heavy code
+    where a plausible-looking-but-wrong formula is easy to miss by
+    inspection alone. memory_threshold=0.999999 forces
+    SafeMemoryGuard.check_allocation to fail regardless of the actual
+    (tiny, forced) geometry's real size, so the disk-overflow fallback
+    triggers reliably in a test without needing a real large allocation.
+    """
+
+    @pytest.fixture
+    def force_chunk_bits(self, monkeypatch):
+        import dense_evolution.chunk as chunk_mod
+
+        def _force(bits):
+            monkeypatch.setattr(chunk_mod, "get_dynamic_chunk", lambda dtype_target: bits)
+
+        return _force
+
+    @pytest.fixture(autouse=True)
+    def _gc_between_tests(self):
+        # This class builds many small Chunk instances back to back --
+        # JAX doesn't reliably hand freed arrays back to the OS within one
+        # process (confirmed elsewhere this session), so without an
+        # explicit collect() the real (unmocked) SafeMemoryGuard checks
+        # later in this file, running in the same pytest process, start
+        # seeing genuinely lower free RAM and can raise a real
+        # MemoryPressureError that has nothing to do with their own logic.
+        import gc
+        yield
+        gc.collect()
+
+    def _make_disk_chunk(self, n_qubits):
+        c = Chunk(n_qubits, memory_threshold=0.999999, allow_disk_overflow=True)
+        assert c._chunk_paths is not None  # confirms this test is really on the disk path
+        return c
+
+    def _compare_to_reference(self, n_qubits, circuit):
+        c = self._make_disk_chunk(n_qubits)
+        c.run_chunk(circuit)
+        sv_chunk = np.asarray(c.get_statevector())
+        c.close()
+
+        ref = DenseSVSimulator(n_qubits)
+        ref.run_circuit(circuit, transpile=True)
+        sv_ref = np.asarray(ref.get_statevector())
+        return sv_chunk, sv_ref
+
+    def test_disk_overflow_not_used_by_default(self, force_chunk_bits):
+        # regression guard: allow_disk_overflow defaults to False, and the
+        # guard must still raise exactly as before this feature existed.
+        from dense_evolution.chunk import MemoryPressureError
+        force_chunk_bits(4)
+        with pytest.raises(MemoryPressureError):
+            Chunk(6, memory_threshold=0.999999)
+
+    def test_empty_circuit_canary(self, force_chunk_bits):
+        force_chunk_bits(4)
+        c = self._make_disk_chunk(6)
+        probs = np.asarray(c.get_probabilities())
+        assert probs.shape == (64,)
+        assert abs(probs.sum() - 1.0) < 1e-9
+        assert abs(probs[0] - 1.0) < 1e-9
+        c.close()
+
+    @pytest.mark.parametrize("qubit", [3])  # local qubit (m=2 for n=6, bits=4)
+    def test_1q_local(self, force_chunk_bits, qubit):
+        force_chunk_bits(4)
+        sv_chunk, sv_ref = self._compare_to_reference(6, [('h', qubit)])
+        np.testing.assert_allclose(sv_chunk, sv_ref, atol=1e-9)
+
+    @pytest.mark.parametrize("qubit", [0, 1])  # chunk-select: MSB (0) and non-MSB (1)
+    def test_1q_chunk_select_mix_phase(self, force_chunk_bits, qubit):
+        force_chunk_bits(4)
+        sv_chunk, sv_ref = self._compare_to_reference(6, [('h', qubit)])
+        np.testing.assert_allclose(sv_chunk, sv_ref, atol=1e-9)
+
+    def test_2q_local_local(self, force_chunk_bits):
+        force_chunk_bits(4)
+        sv_chunk, sv_ref = self._compare_to_reference(6, [('h', 3), ('cx', 3, 4)])
+        np.testing.assert_allclose(sv_chunk, sv_ref, atol=1e-9)
+
+    def test_2q_control_chunk_select_target_local_conditional_phase(self, force_chunk_bits):
+        # Only "cx" here (not the cz/cy sweep TestChunkMultiPiece already
+        # does for the in-RAM path): the disk path reuses that same
+        # _gate_matrix_elements table verbatim, so gate-matrix correctness
+        # is already covered elsewhere -- what's specific to this path
+        # (and worth spending a real Chunk() on) is the phase
+        # classification/pairing logic, which doesn't depend on which
+        # 2-qubit gate is used. Keeps this class's total real-RAM
+        # footprint down (many small Chunk()s in one long pytest process
+        # otherwise starve later, unrelated tests -- confirmed directly:
+        # a fresh process afterward shows no leak at all).
+        force_chunk_bits(4)
+        sv_chunk, sv_ref = self._compare_to_reference(6, [('h', 0), ('cx', 0, 3)])
+        np.testing.assert_allclose(sv_chunk, sv_ref, atol=1e-9)
+
+    def test_2q_control_local_target_chunk_select_mix_phase(self, force_chunk_bits):
+        force_chunk_bits(4)
+        sv_chunk, sv_ref = self._compare_to_reference(6, [('h', 3), ('cx', 3, 0)])
+        np.testing.assert_allclose(sv_chunk, sv_ref, atol=1e-9)
+
+    def test_2q_both_chunk_select_mix_phase(self, force_chunk_bits):
+        force_chunk_bits(4)
+        sv_chunk, sv_ref = self._compare_to_reference(6, [('h', 0), ('h', 1), ('cx', 0, 1)])
+        np.testing.assert_allclose(sv_chunk, sv_ref, atol=1e-9)
+
+    def test_parametric_2q_gates_all_four_locations(self, force_chunk_bits):
+        force_chunk_bits(4)
+        cases = [
+            [('h', 0), ('cp', 0, 3, 0.7)],            # ctrl chunk-select, tgt local
+            [('h', 3), ('crz', 3, 0, 1.1)],           # ctrl local, tgt chunk-select
+            [('h', 0), ('h', 1), ('cp', 0, 1, 0.9)],  # both chunk-select
+            [('h', 3), ('h', 4), ('crz', 3, 4, 0.4)], # both local
+        ]
+        for circuit in cases:
+            sv_chunk, sv_ref = self._compare_to_reference(6, circuit)
+            np.testing.assert_allclose(sv_chunk, sv_ref, atol=1e-9)
+
+    def test_random_mixed_circuits_num_chunks_8(self, force_chunk_bits):
+        # num_chunks=8 (m=3) exercises the middle chunk-select bit, not
+        # just the most-significant one -- same rationale as the in-RAM
+        # kernel's own version of this test.
+        force_chunk_bits(4)
+        n = 7
+        rng = np.random.default_rng(4321)
+        gates_1q = ['h', 'x', 'y', 'z', 's', 'sdg', 't', 'tdg']
+        gates_1q_param = ['rx', 'ry', 'rz', 'p']
+        gates_2q = ['cx', 'cz', 'cy']
+        gates_2q_param = ['cp', 'crz']
+
+        for _trial in range(2):
+            circuit = []
+            for _ in range(10):
+                kind = rng.integers(0, 4)
+                if kind == 0:
+                    circuit.append((rng.choice(gates_1q), int(rng.integers(0, n))))
+                elif kind == 1:
+                    circuit.append((rng.choice(gates_1q_param), int(rng.integers(0, n)),
+                                     float(rng.uniform(-3.14, 3.14))))
+                elif kind == 2:
+                    q1, q2 = rng.choice(n, size=2, replace=False)
+                    circuit.append((rng.choice(gates_2q), int(q1), int(q2)))
+                else:
+                    q1, q2 = rng.choice(n, size=2, replace=False)
+                    circuit.append((rng.choice(gates_2q_param), int(q1), int(q2),
+                                     float(rng.uniform(-3.14, 3.14))))
+            sv_chunk, sv_ref = self._compare_to_reference(n, circuit)
+            np.testing.assert_allclose(sv_chunk, sv_ref, atol=1e-8,
+                                        err_msg=f"circuit={circuit}")
+
+    def test_close_removes_owned_disk_dir(self, force_chunk_bits):
+        import os
+        force_chunk_bits(4)
+        c = self._make_disk_chunk(6)
+        disk_dir = c._disk_dir
+        assert os.path.isdir(disk_dir)
+        c.close()
+        assert not os.path.isdir(disk_dir)
+
+    def test_sv_setter_round_trips_through_disk_files(self, force_chunk_bits):
+        force_chunk_bits(4)
+        c = self._make_disk_chunk(6)
+        new_sv = np.zeros(2 ** 6, dtype=complex)
+        new_sv[5] = 1.0
+        c.sv = new_sv
+        np.testing.assert_allclose(np.asarray(c.sv), new_sv, atol=1e-12)
+        c.close()
+
+
 class TestChunkMultiPieceJIT:
     """dense_evolution.chunk's multi-chunk dispatch (num_chunks>1) used to
     apply gates one at a time via a Python loop calling

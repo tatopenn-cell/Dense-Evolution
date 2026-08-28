@@ -8,8 +8,10 @@ has the real Colab OOM bug that made this distinction necessary), decides how ma
 RAM-sized pieces the circuit needs right now, and runs gates across those pieces
 with a compiled kernel that never builds the full array — including, when more than
 one physical device is available, spreading the pieces across a real device mesh
-instead of one process's RAM (Step 6). None of that shows up in the
-public API: `Chunk` looks exactly like `DenseSVSimulator` to call.
+instead of one process's RAM (Step 6) — or, past even that RAM ceiling,
+spilling idle pieces to disk and streaming the circuit through in phases
+(Step 7). None of that shows up in the public API: `Chunk` looks exactly
+like `DenseSVSimulator` to call.
 
 ## The pieces, and how they fit together
 
@@ -182,6 +184,46 @@ quietly give up the reason to call it at all. Force extra CPU devices to actuall
 exercise this path locally: set `XLA_FLAGS=--xla_force_host_platform_device_count=N`
 *before the process starts* (JAX's device count is fixed at first initialization).
 
+## Step 7. Beyond RAM entirely: spilling to disk
+
+Steps 2-6 all assume `num_chunks` pieces fit in RAM *together*. Past that ceiling,
+`allow_disk_overflow=True` keeps the idle pieces on disk as plain `.npy` files
+instead of raising `MemoryPressureError` — the technique IBM used to break the
+49-qubit simulation barrier classically (Pednault et al. 2019,
+[arXiv:1910.09534](https://arxiv.org/abs/1910.09534), "Leveraging Secondary
+Storage to Simulate Deep 54-qubit Sycamore Circuits"): only materialize, in RAM,
+the one or two pieces a gate actually touches, never the whole stack.
+
+```python
+chunk3 = de.Chunk(4, memory_threshold=0.999999, allow_disk_overflow=True)
+repr(chunk3)
+```
+
+```
+"Chunk(n_qubits=4, safe_qubits=2, num_chunks=4, chunk_size_bits=2, storage=disk (C:\\Users\\...\\dense_evolution_chunk_x12_1zlg), dtype=<class 'jax.numpy.complex128'>, mem_per_chunk=0.0 MB, ram_free=15.5%, has_jax=True)"
+```
+
+`memory_threshold=0.999999` (99.9999% free required *after* the allocation) forces
+the same guard from Step 4 to fail here — on a real machine you'd never set this
+yourself, it exists only to force the fallback deterministically for this demo,
+the same role Step 2's `get_dynamic_chunk` override plays. `storage=disk` in the
+`repr` confirms the fallback actually triggered, not a silent no-op.
+
+```python
+chunk3.run_chunk(circuit.to_tuples())
+chunk3.get_probabilities().round(4)
+```
+
+```
+array([0.5, 0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , 0.5])
+```
+
+Identical result to Steps 1 and 2, same GHZ circuit — but this time no more than
+two `(2,)`-element pieces were ever resident in RAM as a JAX array at once,
+regardless of `num_chunks`. Call `chunk3.close()` afterward to remove the temporary
+directory `Chunk` created for the `.npy` files (skip it if you passed your own
+`disk_dir=`).
+
 ---
 
 ## Details
@@ -236,12 +278,38 @@ math's own temporary arrays) — if that doesn't fit, construction fails immedia
 with `MemoryPressureError`, before any of the `num_chunks` inner simulators are
 allocated.
 
-### No disk paging — this is *moderate* overflow, not unlimited
+### Disk overflow (Step 7): why it can't just be "use a memmap"
 
-`Chunk` covers qubit counts that need more than one RAM-sized piece, as long as
-all of those pieces still fit in RAM *at once* — there is no memmap/disk-backed
-path for when even that doesn't fit. `SafeMemoryGuard.check_allocation` is what
-catches this case and fails cleanly rather than letting the OS start swapping.
+The obvious-looking fix — back each piece with a `numpy.memmap` file instead of a
+plain array — doesn't actually work here: `DenseSVSimulator.sv` is always a live
+`jax.Array` (`self.xp = jnp`), and JAX has no concept of a memmap-backed device
+array — every `jnp.array(...)` call materializes real RAM regardless of what fed
+it. Making a piece genuinely *live on disk* while idle means changing *when* a
+piece becomes a `jax.Array` at all, not just *where* its bytes sit — which is the
+same change as processing the circuit in phases.
+
+`dense_evolution/backends/chunk/disk_overflow.py` classifies every gate into one
+of three phases, reusing (not re-deriving) the exact case split
+`_build_multi_chunk_step`/`_build_distributed_chunk_step` already use:
+
+- **Local** — both qubits (or the only qubit) are outside the chunk-select range.
+  Runs against one piece at a time, no partner ever needed.
+- **Conditional** — a 2-qubit gate with a chunk-select control and a local target.
+  Still needs only one piece: whether the control fires is decided from that
+  piece's own absolute index, exactly the insight Step 6's distributed kernel
+  already documents for this same case ("no communication needed").
+- **Mix** — anything touching a chunk-select qubit as its mixing qubit. Needs
+  exactly its XOR-stride partner piece — never the whole stack.
+
+This is the same decomposition LaRose 2018
+([arXiv:1801.01037](https://arxiv.org/abs/1801.01037), "Distributed Memory
+Techniques for Classical Simulation of Quantum Circuits") uses for Step 6's real
+multi-device path, applied here to disk instead of a network: "communication"
+means a disk read/write of one partner file instead of a `ppermute` to another
+device. **This is v1, correctness-first, not fast** — every gate pays real file
+I/O, one piece (or pair) at a time, no batching multiple pairs into one call; it
+exists to make otherwise-impossible sizes possible at all, not to compete with
+Steps 2/6 on speed.
 
 ### `run_chunk_distributed`'s one-piece-per-device scope
 
@@ -253,7 +321,18 @@ future refinement. `jax.lax.ppermute`'s communication topology (`perm=`) must be
 static — known at trace time — so it can't be built from the traced `q1`/`q2`
 qubit indices directly; every possible chunk-select stride is instead enumerated
 as its own statically-built `ppermute` call ahead of time, and `jax.lax.switch`
-picks the right one at runtime.
+picks the right one at runtime. The underlying design — a fixed number of
+"chunk-select" qubits needing pairwise communication, the rest applying purely
+locally — follows LaRose 2018
+([arXiv:1801.01037](https://arxiv.org/abs/1801.01037), "Distributed Memory
+Techniques for Classical Simulation of Quantum Circuits"), which demonstrated
+the same scheme on a real multi-node supercomputer (MPI/OpenMP, up to 33 qubits
+across 26 processors) — real, tested distributed hardware, not just this
+project's own simulated multi-device CPU testing described above. This
+project's own real multi-*host* (separate physical machines, not simulated
+local devices) run of this path remains untested — see Step 7 for the sibling
+gap this module does cover (disk instead of RAM), and `docs/changelog.md` for
+open items.
 
 ### `.sv` accepts an external statevector back
 
