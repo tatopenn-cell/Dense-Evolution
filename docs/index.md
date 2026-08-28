@@ -8,20 +8,32 @@
 [![JAX](https://img.shields.io/badge/Backend-JAX_XLA-f9ab00?style=flat-square&logo=google&logoColor=white)](https://github.com/google/jax)
 [![Featured in Awesome Quantum Software](https://img.shields.io/badge/Featured%20in-Awesome%20Quantum%20Software-blueviolet?style=flat-square)](https://github.com/qosf/awesome-quantum-software)
 
-Dense-Evolution is a high-performance statevector simulator for deep NISQ circuits, VQE
-pipelines, and QML workloads. It eliminates Kronecker-product overhead via stride-sliced
-linear kernel fusion compiled through JAX XLA, keeping memory at the theoretical minimum
-of `2ⁿ × 16 bytes`.
+Run up to 28 qubits in about 3 seconds, without crashing. Dense-Evolution is a
+high-performance statevector simulator for deep NISQ circuits, VQE pipelines, and QML
+workloads. It eliminates Kronecker-product overhead via stride-sliced linear kernel
+fusion compiled through JAX XLA, keeping memory at the theoretical minimum of
+`2ⁿ × 16 bytes`.
 
 Using this in academic work? See [CITATION.cff](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/CITATION.cff) in the repository root for citation metadata. Archived on Zenodo — concept DOI [10.5281/zenodo.21855643](https://doi.org/10.5281/zenodo.21855643).
 
 ## Hello world: a Bell state
 
 ```python
-import dense_evolution as de
+from dense_evolution import DenseSVSimulator, QASMParser
 
-sim = de.DenseSVSimulator(n_qubits=2)
-sim.run_circuit_jit([('h', 0), ('cx', 0, 1)])
+qasm = """
+OPENQASM 2.0;
+include "qelib1.inc";
+qreg q[2];
+h q[0];
+cx q[0], q[1];
+"""
+
+parser = QASMParser()
+circuit = parser.parse(qasm)
+
+sim = DenseSVSimulator(n_qubits=2)
+sim.run_circuit_jit(circuit.to_tuples())
 
 print(sim.get_statevector())
 # [0.70710678+0.j 0.        +0.j 0.        +0.j 0.70710678+0.j]
@@ -29,9 +41,9 @@ print(sim.get_probabilities())
 # [0.5 0.  0.  0.5]
 ```
 
-That's the full API surface for a basic run: build a gate list, run it, read the
-statevector or probabilities back. See [Getting Started](getting-started.md) for OpenQASM
-parsing, chunked large-scale circuits, and ZNE mitigation.
+That's the full API surface for a basic run: parse OpenQASM, run it, read the
+statevector or probabilities back. See [Getting Started](getting-started.md) for
+chunked large-scale circuits and ZNE mitigation.
 
 ## What's in here
 

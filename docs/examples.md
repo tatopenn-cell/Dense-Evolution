@@ -57,9 +57,13 @@ SCALES = (1.0, 2.0, 3.0)
 K_TRAJECTORIES = 200
 
 
+BELL_QASM = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[2]; h q[0]; cx q[0],q[1];'
+BELL_CIRCUIT = de.QASMParser().parse(BELL_QASM)
+
+
 def bell_state_sv():
     sim = de.DenseSVSimulator(N_QUBITS)
-    sim.run_circuit_jit([("h", 0), ("cx", 0, 1)])
+    sim.run_circuit_jit(BELL_CIRCUIT.to_tuples())
     return np.asarray(sim.get_statevector())
 
 
@@ -491,8 +495,11 @@ import numpy as np
 import dense_evolution as de
 from dense_evolution.entropy import partial_trace, von_neumann_entropy
 
+qasm = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[2]; h q[0]; cx q[0],q[1];'
+circuit = de.QASMParser().parse(qasm)
+
 sim = de.DenseSVSimulator(2)
-sim.run_circuit_jit([("h", 0), ("cx", 0, 1)])
+sim.run_circuit_jit(circuit.to_tuples())
 sv = np.asarray(sim.get_statevector())
 rho_a = partial_trace(sv, 2, [0])
 print(round(von_neumann_entropy(rho_a), 4))
@@ -591,8 +598,11 @@ import numpy as np
 import dense_evolution as de
 from dense_evolution.measurement import sample_counts, statevector_fidelity
 
+qasm = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[2]; h q[0]; cx q[0],q[1];'
+circuit = de.QASMParser().parse(qasm)
+
 sim = de.DenseSVSimulator(2)
-sim.run_circuit_jit([("h", 0), ("cx", 0, 1)])
+sim.run_circuit_jit(circuit.to_tuples())
 sv = np.asarray(sim.get_statevector())
 
 rng = np.random.default_rng(0)
@@ -619,8 +629,11 @@ import numpy as np
 import dense_evolution as de
 from dense_evolution.observables import pauli_expectation
 
+qasm = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[2]; h q[0]; cx q[0],q[1];'
+circuit = de.QASMParser().parse(qasm)
+
 sim = de.DenseSVSimulator(2)
-sim.run_circuit_jit([("h", 0), ("cx", 0, 1)])
+sim.run_circuit_jit(circuit.to_tuples())
 sv = np.asarray(sim.get_statevector())
 print(pauli_expectation(sv, "ZZ"))
 ```
