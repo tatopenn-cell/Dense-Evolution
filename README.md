@@ -36,7 +36,7 @@ Statevector/MPS engines with compilation, noise, VQE, QEC, chemistry, and agent-
 
 ## ▍ What It Is
 
-Run 30+ qubit circuits on a laptop without crashing. **Dense Evolution** JIT-compiles statevector circuits through JAX XLA, automatically chunks and — past even that RAM ceiling — spills to disk when memory fills up, so a real simulation stays alive instead of OOM-ing.
+Run up to 28 qubits in about 3 seconds, without crashing. **Dense Evolution** JIT-compiles statevector circuits through JAX XLA, automatically chunks and — past even that RAM ceiling — spills to disk when memory fills up, so a real simulation stays alive instead of OOM-ing.
 
 📖 **[Full documentation, API reference, and worked examples →](https://tatopenn-cell.github.io/Dense-Evolution/)**
 
