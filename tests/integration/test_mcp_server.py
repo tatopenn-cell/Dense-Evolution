@@ -521,6 +521,14 @@ def test_kernel_unreachable_gives_actionable_error_not_a_traceback(monkeypatch):
     assert "dense-evolution serve" in result
 
 
+def test_kernel_status_reports_unreachable_kernel_without_raising(monkeypatch):
+    monkeypatch.setattr(mcp_client, "_TEST_TRANSPORT", None)  # force a real (failing) TCP attempt
+    monkeypatch.setattr(mcp_client, "KERNEL_URL", "http://127.0.0.1:1")  # nothing listens here
+    data = json.loads(run(mcp_adapter.dense_evolution_kernel_status()))
+    assert data["kernel_reachable"] is False
+    assert data["kernel_url"] == "http://127.0.0.1:1"
+
+
 def test_kernel_timeout_gives_actionable_error_not_a_traceback(monkeypatch):
     class _TimeoutClient:
         async def request(self, method, path, **kwargs):
