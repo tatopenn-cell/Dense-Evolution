@@ -10,11 +10,208 @@ __all__ = [
     "_build_multi_chunk_step", "_build_multi_chunk_runner",
     "_build_distributed_chunk_step", "_build_distributed_chunk_runner",
     "_compile_multi_chunk_ops",
+    # Re-exported for disk_overflow.py's phased/streaming path -- see its
+    # module docstring for which of these it calls and why.
+    "_gate_matrix_elements", "_case_1q_local", "_case_2q_local_local",
+    "_case_2q_ctrl_chunk_tgt_local",
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────────
 # Multi-chunk JIT kernel (num_chunks > 1)
 # ─────────────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# The 6 gate/qubit-location case bodies, factored out to module level so
+# disk_overflow.py's phased/streaming path can call the exact same verified
+# formulas instead of re-deriving them -- see that module's docstring for
+# which of these 6 need a partner chunk (MixPhase) vs. run standalone per
+# chunk (LocalPhase), a classification already worked out once for
+# _build_distributed_chunk_step below (needs_comm_1q/needs_comm_2q) and
+# reused rather than re-derived a third time.
+#
+# Verified case-by-case against DenseSVSimulator on non-chunked reference
+# circuits before being wired in, not derived fresh -- this extraction is
+# a pure move, not a rewrite: same array shapes, same operations, same
+# order, only the enclosing scope changed from a closure to explicit args.
+# ─────────────────────────────────────────────────────────────────────────────────
+
+def _gate_matrix_elements(g_id, param, dtype):
+    """1-qubit matrix elements (g00,g01,g10,g11) and 2-qubit controlled-U
+    submatrix elements (u00,u01,u10,u11) for one compiled [g_id, param]
+    pair. Factored out of _build_multi_chunk_step's step() so
+    disk_overflow.py's per-gate phase processors compute matrices from
+    this SAME table instead of a third hand-copied one — g_id/param may
+    be traced (the in-RAM scan) or concrete Python/jnp scalars (a single
+    known gate in a phase); jax.lax.switch works identically either way.
+
+    Table is a copy of compiler.py's _apply_gate_fast_step / (this
+    module's own step() before this extraction) -- must stay in sync
+    with both, most notably index 14 (GPhase(alpha) = e^{i*alpha} * I)."""
+    inv2         = jnp.asarray(1.0 / jnp.sqrt(2.0), dtype=dtype)
+    half_p       = param * jnp.float64(0.5)
+    cos_p        = jnp.cos(half_p).astype(dtype)
+    sin_p        = jnp.sin(half_p).astype(dtype)
+    exp_pos      = jnp.exp(1j * param).astype(dtype)
+    exp_ph4      = jnp.exp(1j * jnp.pi / 4.0).astype(dtype)
+    exp_mh4      = jnp.exp(-1j * jnp.pi / 4.0).astype(dtype)
+    exp_pos_half = jnp.exp(1j * half_p).astype(dtype)
+    exp_neg_half = jnp.exp(-1j * half_p).astype(dtype)
+
+    g_id = jnp.asarray(g_id).astype(jnp.int32)
+    safe_gid = jnp.clip(g_id, 0, 14)
+    g_1q = jax.lax.switch(
+        safe_gid,
+        [
+            lambda _: jnp.eye(2, dtype=dtype),
+            lambda _: jnp.array([[inv2, inv2], [inv2, -inv2]], dtype=dtype),
+            lambda _: jnp.array([[0.0 + 0j, 1.0 + 0j], [1.0 + 0j, 0.0 + 0j]], dtype=dtype),
+            lambda _: jnp.array([[0.0 + 0j, -1j], [1j, 0.0 + 0j]], dtype=dtype),
+            lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, -1.0 + 0j]], dtype=dtype),
+            lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, 1j]], dtype=dtype),
+            lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, -1j]], dtype=dtype),
+            lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, exp_ph4]], dtype=dtype),
+            lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, exp_mh4]], dtype=dtype),
+            lambda _: jnp.array([[cos_p, -1j * sin_p], [-1j * sin_p, cos_p]], dtype=dtype),
+            lambda _: jnp.array([[cos_p, -sin_p], [sin_p, cos_p]], dtype=dtype),
+            lambda _: jnp.array([[jnp.exp(-1j * half_p), 0.0 + 0j], [0.0 + 0j, jnp.exp(1j * half_p)]], dtype=dtype),
+            lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, exp_pos]], dtype=dtype),
+            lambda _: jnp.array([[0.5 + 0.5j, 0.5 - 0.5j], [0.5 - 0.5j, 0.5 + 0.5j]], dtype=dtype),
+            # 14  GPhase(alpha) = e^{i*alpha} * I -- see compiler.py's
+            # _apply_gate_fast_step index 14 for the derivation; this
+            # table must stay in sync with that one (see comment above).
+            lambda _: jnp.array([[exp_pos, 0.0 + 0j], [0.0 + 0j, exp_pos]], dtype=dtype),
+        ],
+        operand=None,
+    )
+
+    # Controlled-U submatrix for the 5 two-qubit gate types (mat[2:,2:]
+    # of each gate's full 4x4 form — same values _apply_gate_multi's
+    # `U = mat[2:, 2:]` extracted from GATES/PARAMETRIC_GATES).
+    # 20=CX->X, 21=CZ->Z, 22=CP->P(theta), 24=CY->Y, 25=CRZ->RZ(theta).
+    two_q_idx = jnp.where(g_id == 20, 0,
+                jnp.where(g_id == 21, 1,
+                jnp.where(g_id == 22, 2,
+                jnp.where(g_id == 24, 3, 4))))
+    U = jax.lax.switch(
+        two_q_idx,
+        [
+            lambda _: jnp.array([[0.0 + 0j, 1.0 + 0j], [1.0 + 0j, 0.0 + 0j]], dtype=dtype),
+            lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, -1.0 + 0j]], dtype=dtype),
+            lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, exp_pos]], dtype=dtype),
+            lambda _: jnp.array([[0.0 + 0j, -1j], [1j, 0.0 + 0j]], dtype=dtype),
+            lambda _: jnp.array([[exp_neg_half, 0.0 + 0j], [0.0 + 0j, exp_pos_half]], dtype=dtype),
+        ],
+        operand=None,
+    )
+    return g_1q[0, 0], g_1q[0, 1], g_1q[1, 0], g_1q[1, 1], U[0, 0], U[0, 1], U[1, 0], U[1, 1]
+
+
+def _case_1q_local(_c, g00, g01, g10, g11, q1, m, k):
+    """1-qubit gate, LOCAL qubit (q1 >= m). No cross-chunk data needed --
+    valid for any batch size along axis 0, including a single chunk."""
+    local_phys = (k - 1) - (q1 - m)
+    stride     = jnp.int32(1) << local_phys
+    idx        = jnp.arange(1 << k, dtype=jnp.int32)
+    idx_pair   = idx ^ stride
+    mask0      = (idx & stride) == 0
+    amp_pair   = _c[:, idx_pair]
+    new0 = g00 * _c + g01 * amp_pair
+    new1 = g10 * amp_pair + g11 * _c
+    return jnp.where(mask0[None, :], new0, new1)
+
+
+def _case_1q_chunk(_c, g00, g01, g10, g11, q1, m, num_chunks):
+    """1-qubit gate, CHUNK-SELECT qubit (q1 < m). Mixes whole rows
+    pairwise across axis 0 -- needs every chunk present at once; the
+    disk-overflow path does NOT call this directly (see _mix_pair for
+    the pair-at-a-time equivalent), only the in-RAM stacked kernel does."""
+    stride    = jnp.int32(1) << (m - 1 - q1)
+    idxc      = jnp.arange(num_chunks, dtype=jnp.int32)
+    idxc_pair = idxc ^ stride
+    mask0     = (idxc & stride) == 0
+    amp_pair  = _c[idxc_pair]
+    new0 = g00 * _c + g01 * amp_pair
+    new1 = g10 * amp_pair + g11 * _c
+    return jnp.where(mask0[:, None], new0, new1)
+
+
+def _case_2q_local_local(_c, u00, u01, u10, u11, q1, q2, m, k):
+    """2-qubit gate, ctrl AND tgt both LOCAL. No cross-chunk data needed
+    -- valid for any batch size along axis 0, including a single chunk."""
+    ctrl_phys = (k - 1) - (q1 - m)
+    tgt_phys  = (k - 1) - (q2 - m)
+    idx       = jnp.arange(1 << k, dtype=jnp.int32)
+    ctrl_bit  = (idx & (jnp.int32(1) << ctrl_phys)) != 0
+    tgt_bit   = (idx & (jnp.int32(1) << tgt_phys)) != 0
+    partner   = idx ^ (jnp.int32(1) << tgt_phys)
+    amp_partner = _c[:, partner]
+    new0 = u00 * _c + u01 * amp_partner
+    new1 = u10 * amp_partner + u11 * _c
+    after = jnp.where(tgt_bit[None, :], new1, new0)
+    return jnp.where(ctrl_bit[None, :], after, _c)
+
+
+def _case_2q_ctrl_chunk_tgt_local(_c, u00, u01, u10, u11, q1, q2, m, k, idxc):
+    """ctrl CHUNK-SELECT, tgt LOCAL. Whole chunks where the chunk-index's
+    ctrl bit is set get U applied as a local 1-qubit gate; the rest are
+    untouched -- a decision each chunk makes from its OWN index alone, no
+    partner needed (same insight _build_distributed_chunk_step's docstring
+    already documents for this exact case: "no communication needed").
+
+    `idxc` is the REAL absolute chunk index of each row in `_c` (not
+    necessarily a contiguous 0..N-1 range) -- the in-RAM kernel below
+    always passes jnp.arange(num_chunks) (row i really is chunk i), but
+    disk_overflow.py's LocalPhase reuses this same function one real
+    chunk at a time, passing that chunk's own true index so this still
+    decides the ctrl bit correctly without needing any other chunk
+    resident in RAM."""
+    ctrl_stride = jnp.int32(1) << (m - 1 - q1)
+    ctrl_set    = (idxc & ctrl_stride) != 0
+    tgt_phys    = (k - 1) - (q2 - m)
+    idxl        = jnp.arange(1 << k, dtype=jnp.int32)
+    tgt_bit     = (idxl & (jnp.int32(1) << tgt_phys)) != 0
+    partner     = idxl ^ (jnp.int32(1) << tgt_phys)
+    amp_partner = _c[:, partner]
+    new0 = u00 * _c + u01 * amp_partner
+    new1 = u10 * amp_partner + u11 * _c
+    after = jnp.where(tgt_bit[None, :], new1, new0)
+    return jnp.where(ctrl_set[:, None], after, _c)
+
+
+def _case_2q_ctrl_local_tgt_chunk(_c, u00, u01, u10, u11, q1, q2, m, k, num_chunks):
+    """ctrl LOCAL, tgt CHUNK-SELECT. Pairs of chunks get mixed, but ONLY
+    where the local ctrl bit (same position in every chunk) is set -- an
+    elementwise mask. Needs every chunk present at once; see _mix_pair
+    for the pair-at-a-time equivalent used by disk_overflow.py."""
+    ctrl_phys  = (k - 1) - (q1 - m)
+    idxl       = jnp.arange(1 << k, dtype=jnp.int32)
+    ctrl_bit   = (idxl & (jnp.int32(1) << ctrl_phys)) != 0
+    tgt_stride = jnp.int32(1) << (m - 1 - q2)
+    idxc       = jnp.arange(num_chunks, dtype=jnp.int32)
+    idxc_pair  = idxc ^ tgt_stride
+    is_c0      = (idxc & tgt_stride) == 0
+    amp_pair   = _c[idxc_pair]
+    new_c0 = u00 * _c + u01 * amp_pair
+    new_c1 = u10 * amp_pair + u11 * _c
+    after = jnp.where(is_c0[:, None], new_c0, new_c1)
+    return jnp.where(ctrl_bit[None, :], after, _c)
+
+
+def _case_2q_both_chunk(_c, u00, u01, u10, u11, q1, q2, m, num_chunks):
+    """ctrl AND tgt both CHUNK-SELECT. Needs every chunk present at once;
+    see _mix_pair for the pair-at-a-time equivalent used by disk_overflow.py."""
+    ctrl_stride = jnp.int32(1) << (m - 1 - q1)
+    tgt_stride  = jnp.int32(1) << (m - 1 - q2)
+    idxc        = jnp.arange(num_chunks, dtype=jnp.int32)
+    ctrl_set    = (idxc & ctrl_stride) != 0
+    idxc_pair   = idxc ^ tgt_stride
+    is_c0       = (idxc & tgt_stride) == 0
+    amp_pair    = _c[idxc_pair]
+    new_c0 = u00 * _c + u01 * amp_pair
+    new_c1 = u10 * amp_pair + u11 * _c
+    after = jnp.where(is_c0[:, None], new_c0, new_c1)
+    return jnp.where(ctrl_set[:, None], after, _c)
+
 
 def _build_multi_chunk_step(num_chunks: int, m: int, k: int):
     """
@@ -34,16 +231,16 @@ def _build_multi_chunk_step(num_chunks: int, m: int, k: int):
     stacked shape (num_chunks, chunk_dim) holds exactly the same total
     elements as the num_chunks separate per-chunk arrays it replaces.
 
-    The 6 gate/qubit-location combinations below are a direct
-    translation of the pre-JIT _apply_gate_multi's Python-loop formulas
-    (removed once this replaced it) — verified case-by-case against
-    DenseSVSimulator on non-chunked reference circuits before being
-    wired in, not derived fresh. All 6 are traced unconditionally every
-    step and selected via jnp.where on the runtime q1/q2 vs static m
-    comparison, same "trace every branch" pattern _apply_gate_fast_step
-    already uses for is_1q/is_2q and the 5 two-qubit sub-gates.
+    The 6 gate/qubit-location combinations (_case_1q_local etc. above)
+    are a direct translation of the pre-JIT _apply_gate_multi's
+    Python-loop formulas (removed once this replaced it) — verified
+    case-by-case against DenseSVSimulator on non-chunked reference
+    circuits before being wired in, not derived fresh. All 6 are traced
+    unconditionally every step and selected via jnp.where on the runtime
+    q1/q2 vs static m comparison, same "trace every branch" pattern
+    _apply_gate_fast_step already uses for is_1q/is_2q and the 5
+    two-qubit sub-gates.
     """
-    chunk_dim = 1 << k
 
     def step(chunks, operation):
         g_id  = operation[0].astype(jnp.int32)
@@ -54,165 +251,20 @@ def _build_multi_chunk_step(num_chunks: int, m: int, k: int):
                                # use_float32 bug this exact mistake
                                # caused once already in beast-mode.
 
-        inv2         = jnp.asarray(1.0 / jnp.sqrt(2.0), dtype=dtype)
-        half_p       = param * jnp.float64(0.5)
-        cos_p        = jnp.cos(half_p).astype(dtype)
-        sin_p        = jnp.sin(half_p).astype(dtype)
-        exp_pos      = jnp.exp(1j * param).astype(dtype)
-        exp_ph4      = jnp.exp(1j * jnp.pi / 4.0).astype(dtype)
-        exp_mh4      = jnp.exp(-1j * jnp.pi / 4.0).astype(dtype)
-        exp_pos_half = jnp.exp(1j * half_p).astype(dtype)
-        exp_neg_half = jnp.exp(-1j * half_p).astype(dtype)
-
-        # 1-qubit gate matrix — identical table to _apply_gate_fast_step
-        safe_gid = jnp.clip(g_id, 0, 14)
-        g_1q = jax.lax.switch(
-            safe_gid,
-            [
-                lambda _: jnp.eye(2, dtype=dtype),
-                lambda _: jnp.array([[inv2, inv2], [inv2, -inv2]], dtype=dtype),
-                lambda _: jnp.array([[0.0 + 0j, 1.0 + 0j], [1.0 + 0j, 0.0 + 0j]], dtype=dtype),
-                lambda _: jnp.array([[0.0 + 0j, -1j], [1j, 0.0 + 0j]], dtype=dtype),
-                lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, -1.0 + 0j]], dtype=dtype),
-                lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, 1j]], dtype=dtype),
-                lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, -1j]], dtype=dtype),
-                lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, exp_ph4]], dtype=dtype),
-                lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, exp_mh4]], dtype=dtype),
-                lambda _: jnp.array([[cos_p, -1j * sin_p], [-1j * sin_p, cos_p]], dtype=dtype),
-                lambda _: jnp.array([[cos_p, -sin_p], [sin_p, cos_p]], dtype=dtype),
-                lambda _: jnp.array([[jnp.exp(-1j * half_p), 0.0 + 0j], [0.0 + 0j, jnp.exp(1j * half_p)]], dtype=dtype),
-                lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, exp_pos]], dtype=dtype),
-                lambda _: jnp.array([[0.5 + 0.5j, 0.5 - 0.5j], [0.5 - 0.5j, 0.5 + 0.5j]], dtype=dtype),
-                # 14  GPhase(alpha) = e^{i*alpha} * I -- see compiler.py's
-                # _apply_gate_fast_step index 14 for the derivation; this
-                # table must stay in sync with that one (see comment above).
-                lambda _: jnp.array([[exp_pos, 0.0 + 0j], [0.0 + 0j, exp_pos]], dtype=dtype),
-            ],
-            operand=None,
-        )
-
-        # Controlled-U submatrix for the 5 two-qubit gate types (mat[2:,2:]
-        # of each gate's full 4x4 form — same values _apply_gate_multi's
-        # `U = mat[2:, 2:]` extracted from GATES/PARAMETRIC_GATES).
-        # 20=CX->X, 21=CZ->Z, 22=CP->P(theta), 24=CY->Y, 25=CRZ->RZ(theta).
-        two_q_idx = jnp.where(g_id == 20, 0,
-                    jnp.where(g_id == 21, 1,
-                    jnp.where(g_id == 22, 2,
-                    jnp.where(g_id == 24, 3, 4))))
-        U = jax.lax.switch(
-            two_q_idx,
-            [
-                lambda _: jnp.array([[0.0 + 0j, 1.0 + 0j], [1.0 + 0j, 0.0 + 0j]], dtype=dtype),
-                lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, -1.0 + 0j]], dtype=dtype),
-                lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, exp_pos]], dtype=dtype),
-                lambda _: jnp.array([[0.0 + 0j, -1j], [1j, 0.0 + 0j]], dtype=dtype),
-                lambda _: jnp.array([[exp_neg_half, 0.0 + 0j], [0.0 + 0j, exp_pos_half]], dtype=dtype),
-            ],
-            operand=None,
-        )
-        g00, g01, g10, g11 = g_1q[0, 0], g_1q[0, 1], g_1q[1, 0], g_1q[1, 1]
-        u00, u01, u10, u11 = U[0, 0], U[0, 1], U[1, 0], U[1, 1]
-
-        # ── case 1: 1-qubit gate, LOCAL qubit (q1 >= m) ─────────────
-        # Same do_1q amplitude-pair math as beast-mode, applied to every
-        # chunk row in parallel (gather along axis 1, broadcasts over
-        # axis 0 for free).
-        def case_1q_local(_c):
-            local_phys = (k - 1) - (q1 - m)
-            stride     = jnp.int32(1) << local_phys
-            idx        = jnp.arange(chunk_dim, dtype=jnp.int32)
-            idx_pair   = idx ^ stride
-            mask0      = (idx & stride) == 0
-            amp_pair   = _c[:, idx_pair]
-            new0 = g00 * _c + g01 * amp_pair
-            new1 = g10 * amp_pair + g11 * _c
-            return jnp.where(mask0[None, :], new0, new1)
-
-        # ── case 2: 1-qubit gate, CHUNK-SELECT qubit (q1 < m) ────────
-        # Same math, one level up: each "amplitude" is a whole
-        # (chunk_dim,)-shaped row, mixed pairwise across axis 0.
-        def case_1q_chunk(_c):
-            stride    = jnp.int32(1) << (m - 1 - q1)
-            idxc      = jnp.arange(num_chunks, dtype=jnp.int32)
-            idxc_pair = idxc ^ stride
-            mask0     = (idxc & stride) == 0
-            amp_pair  = _c[idxc_pair]
-            new0 = g00 * _c + g01 * amp_pair
-            new1 = g10 * amp_pair + g11 * _c
-            return jnp.where(mask0[:, None], new0, new1)
-
-        # ── case 3: 2-qubit, ctrl AND tgt both LOCAL ─────────────
-        def case_2q_local_local(_c):
-            ctrl_phys = (k - 1) - (q1 - m)
-            tgt_phys  = (k - 1) - (q2 - m)
-            idx       = jnp.arange(chunk_dim, dtype=jnp.int32)
-            ctrl_bit  = (idx & (jnp.int32(1) << ctrl_phys)) != 0
-            tgt_bit   = (idx & (jnp.int32(1) << tgt_phys)) != 0
-            partner   = idx ^ (jnp.int32(1) << tgt_phys)
-            amp_partner = _c[:, partner]
-            new0 = u00 * _c + u01 * amp_partner
-            new1 = u10 * amp_partner + u11 * _c
-            after = jnp.where(tgt_bit[None, :], new1, new0)
-            return jnp.where(ctrl_bit[None, :], after, _c)
-
-        # ── case 4: ctrl CHUNK-SELECT, tgt LOCAL ───────────────
-        # Whole chunks where the chunk-index's ctrl bit is set get U
-        # applied as a local 1-qubit gate; the rest are untouched.
-        def case_2q_ctrl_chunk_tgt_local(_c):
-            ctrl_stride = jnp.int32(1) << (m - 1 - q1)
-            idxc        = jnp.arange(num_chunks, dtype=jnp.int32)
-            ctrl_set    = (idxc & ctrl_stride) != 0
-            tgt_phys    = (k - 1) - (q2 - m)
-            idxl        = jnp.arange(chunk_dim, dtype=jnp.int32)
-            tgt_bit     = (idxl & (jnp.int32(1) << tgt_phys)) != 0
-            partner     = idxl ^ (jnp.int32(1) << tgt_phys)
-            amp_partner = _c[:, partner]
-            new0 = u00 * _c + u01 * amp_partner
-            new1 = u10 * amp_partner + u11 * _c
-            after = jnp.where(tgt_bit[None, :], new1, new0)
-            return jnp.where(ctrl_set[:, None], after, _c)
-
-        # ── case 5: ctrl LOCAL, tgt CHUNK-SELECT ─────────────
-        # Pairs of chunks get mixed, but ONLY where the local ctrl bit
-        # (same position in every chunk) is set — an elementwise mask.
-        def case_2q_ctrl_local_tgt_chunk(_c):
-            ctrl_phys  = (k - 1) - (q1 - m)
-            idxl       = jnp.arange(chunk_dim, dtype=jnp.int32)
-            ctrl_bit   = (idxl & (jnp.int32(1) << ctrl_phys)) != 0
-            tgt_stride = jnp.int32(1) << (m - 1 - q2)
-            idxc       = jnp.arange(num_chunks, dtype=jnp.int32)
-            idxc_pair  = idxc ^ tgt_stride
-            is_c0      = (idxc & tgt_stride) == 0
-            amp_pair   = _c[idxc_pair]
-            new_c0 = u00 * _c + u01 * amp_pair
-            new_c1 = u10 * amp_pair + u11 * _c
-            after = jnp.where(is_c0[:, None], new_c0, new_c1)
-            return jnp.where(ctrl_bit[None, :], after, _c)
-
-        # ── case 6: ctrl AND tgt both CHUNK-SELECT ───────────
-        def case_2q_both_chunk(_c):
-            ctrl_stride = jnp.int32(1) << (m - 1 - q1)
-            tgt_stride  = jnp.int32(1) << (m - 1 - q2)
-            idxc        = jnp.arange(num_chunks, dtype=jnp.int32)
-            ctrl_set    = (idxc & ctrl_stride) != 0
-            idxc_pair   = idxc ^ tgt_stride
-            is_c0       = (idxc & tgt_stride) == 0
-            amp_pair    = _c[idxc_pair]
-            new_c0 = u00 * _c + u01 * amp_pair
-            new_c1 = u10 * amp_pair + u11 * _c
-            after = jnp.where(is_c0[:, None], new_c0, new_c1)
-            return jnp.where(ctrl_set[:, None], after, _c)
+        g00, g01, g10, g11, u00, u01, u10, u11 = _gate_matrix_elements(g_id, param, dtype)
 
         is_2q    = g_id >= 20
         q1_chunk = q1 < m
         q2_chunk = q2 < m
 
         result_2q = jnp.where(
-            q1_chunk & q2_chunk, case_2q_both_chunk(chunks),
-            jnp.where(q1_chunk & (~q2_chunk), case_2q_ctrl_chunk_tgt_local(chunks),
-            jnp.where((~q1_chunk) & q2_chunk, case_2q_ctrl_local_tgt_chunk(chunks),
-                                               case_2q_local_local(chunks))))
-        result_1q = jnp.where(q1_chunk, case_1q_chunk(chunks), case_1q_local(chunks))
+            q1_chunk & q2_chunk, _case_2q_both_chunk(chunks, u00, u01, u10, u11, q1, q2, m, num_chunks),
+            jnp.where(q1_chunk & (~q2_chunk), _case_2q_ctrl_chunk_tgt_local(chunks, u00, u01, u10, u11, q1, q2, m, k, jnp.arange(num_chunks, dtype=jnp.int32)),
+            jnp.where((~q1_chunk) & q2_chunk, _case_2q_ctrl_local_tgt_chunk(chunks, u00, u01, u10, u11, q1, q2, m, k, num_chunks),
+                                               _case_2q_local_local(chunks, u00, u01, u10, u11, q1, q2, m, k))))
+        result_1q = jnp.where(
+            q1_chunk, _case_1q_chunk(chunks, g00, g01, g10, g11, q1, m, num_chunks),
+                      _case_1q_local(chunks, g00, g01, g10, g11, q1, m, k))
 
         new_chunks = jnp.where(is_2q, result_2q, result_1q)
         return new_chunks.astype(dtype), None
