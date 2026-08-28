@@ -1,5 +1,9 @@
 # Healing (predictive primitives)
 
+> The shared decision primitive [Mitigation](mitigation.md) and
+> [Vector Healing](ia_utils_vector_healing.md) both call into — see
+> [Concepts](../concepts.md) for which of those two you actually want.
+
 Predictive-healing primitives for noisy vector sequences (VQE/MD
 telemetry, quantum state trajectories): a "Phi-Trigger" that, given a
 state and a local baseline, decides whether an observed change looks

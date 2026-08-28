@@ -142,7 +142,8 @@ dense_evolution/
 │   └── trotter.py          pauli_rotation_ops · trotter_evolve_ops — real-time Hamiltonian evolution as gates
 ├── backends/             [subpackage] statevector execution engines
 │   ├── statevector.py      DenseSVSimulator · run_batch_jit · vmap batch VQE
-│   └── mps.py              MPSSimulator — matrix-product-state backend, JAX-backed
+│   ├── mps.py              MPSSimulator — matrix-product-state backend, JAX-backed
+│   └── chunk/              [subpackage] Chunk (Anti-OOM) — SafeMemoryGuard · MemoryChunker · CircuitChunker · disk_overflow.py
 ├── physics/              [subpackage] quantum-information primitives
 │   ├── entropy.py          partial_trace · von_neumann_entropy · mutual_information (multi-qubit, MSB-first)
 │   ├── observables.py      Pauli-string expectation values, O(2ⁿ) direct from a statevector · pauli_sum_matvec (matrix-free H·v)
@@ -167,7 +168,6 @@ dense_evolution/
 ├── utils/                [subpackage]
 │   ├── drawing.py           plain-text circuit diagrams (ASCII, console-safe)
 │   └── measurement.py       statevector → finite-shot counts, sampling helpers
-├── chunk.py              SafeMemoryGuard · MemoryChunker · CircuitChunker · Chunk (Anti-OOM) — not moved into a subpackage
 ├── cli.py                `dense-evolution` console script — serve · offline-composer · mcp — not moved into a subpackage
 └── random_circuit.py     random circuit generation for benchmarking/fuzz-testing — not moved into a subpackage
 ```
@@ -682,6 +682,23 @@ print(sim)
 
 The table above was measured on CPU, where the compute device *is* the host -- `get_dynamic_chunk`/`SafeMemoryGuard` size chunks against the same RAM pool the data lives in. On a GPU/TPU that used to be wrong: both read `psutil.virtual_memory()` unconditionally, sizing `chunk_size_bits` off host RAM while the actual chunk data lives in the device's own, usually smaller, VRAM -- causing `MemoryPressureError`/real OOM well before the GPU's VRAM was actually exhausted. Fixed: both now read the active device's own memory via `jax.devices()[0].memory_stats()` when running on GPU/TPU, falling back to host RAM exactly as before on CPU. `run_chunk()` itself is unchanged -- it still holds every chunk in memory simultaneously, so total memory always equals `2**n_qubits * bytes_per_element` regardless of `chunk_size_bits`; this fix makes that ceiling reliable on GPU, not higher than a single device's own VRAM allows.
 
+### Disk-backed overflow — `allow_disk_overflow`
+
+Past the RAM ceiling above, `allow_disk_overflow=True` spills idle chunks to disk
+as plain `.npy` files instead of raising `MemoryPressureError` — the technique
+IBM used to break the 49-qubit classical simulation barrier (Pednault et al.
+2019, [arXiv:1910.09534](https://arxiv.org/abs/1910.09534)): only the one or two
+chunks a gate actually touches are ever materialized as a JAX array.
+
+```python
+sim = Chunk(32, allow_disk_overflow=True)  # falls back to disk only if 32 chunks don't fit in RAM at once
+sim.run_chunk([['h', i] for i in range(32)])
+sim.close()  # removes the temporary .npy directory, if one was created
+```
+
+Correctness-first, not fast — every gate pays real disk I/O. Full design and a
+verified demo: [docs/api/chunk.md](https://tatopenn-cell.github.io/Dense-Evolution/api/chunk/).
+
 ### Distributed dispatch across a device mesh — `run_chunk_distributed`
 
 `run_chunk()`'s multi-chunk path (`num_chunks > 1`) solves "RAM of one process" — every chunk lives in the same machine's memory, even though the kernel that moves them is JIT-fused. `run_chunk_distributed()` solves a different constraint: "more qubits than fit on one device," with one physical chunk pinned to its own JAX device (v1 scope: `jax.device_count()` must be `>= num_chunks`, exactly one chunk per device — a hybrid multi-chunk-per-device scheme is future work).
@@ -842,6 +859,31 @@ Built on `circuit_to_energy_fn` (see previous section) — no separate mechanism
 3. Injecting `θ[i]` sequentially by gate order, via a `-1.0` sentinel in the compiled op template patched in with `jnp.where` inside a `jax.lax.scan` — never a Python `float()` call, which would sever the JAX trace and make the gradient below fake.
 
 Compatible with any custom OpenQASM 2.0 string without pre-labelling.
+
+```python
+import jax
+import jax.numpy as jnp
+from dense_evolution import QASMParser, circuit_to_energy_fn
+
+qasm = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[1]; ry(0.0) q[0];'
+circuit = QASMParser().parse(qasm)
+energy_fn, n_params = circuit_to_energy_fn(circuit, n_qubits=1)
+h = jnp.array([[1.0, 0.0], [0.0, -1.0]], dtype=jnp.complex128)  # Pauli Z
+
+theta = jnp.array([0.1])
+grad_fn = jax.value_and_grad(energy_fn, argnums=0, has_aux=True)
+for _ in range(40):
+    (energy, sv), grad = grad_fn(theta, h)
+    theta = theta - 0.5 * grad
+# energy = -1.0, theta = [3.14159265]  (RY(pi)|0> = |1>, the true ground state of Z)
+```
+
+A single `RY(theta)` ansatz minimizing `<Z>` — a two-line Hamiltonian and 40 plain
+gradient-descent steps, no optimizer library needed, converges to the exact ground
+state (`theta = pi`, `RY(pi)|0> = |1>`). `dashboard_core.vqe.run_vqe` (used by the
+Composer/MCP tools below) wraps this same `circuit_to_energy_fn` engine with Adam,
+real molecular Hamiltonians, and UCCSD/hardware-efficient ansätze — nothing here
+changes for a real molecule, only the Hamiltonian and the ansatz circuit get bigger.
 
 **Gradient & update rule:**
 

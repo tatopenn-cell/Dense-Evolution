@@ -1,5 +1,8 @@
 # Mitigation (Zero-Noise Extrapolation & Density-Matrix Diagnostics)
 
+> Correcting a *quantum measurement result*, not a numeric log/trajectory — see
+> [Concepts](../concepts.md) if you're looking for [Vector Healing](ia_utils_vector_healing.md) instead.
+
 A real circuit run on noisy hardware gives the wrong answer. Zero-Noise Extrapolation
 (ZNE) gets closer to the right one without needing a better device: run the *same*
 circuit at several deliberately-worsened noise strengths, then extrapolate the trend

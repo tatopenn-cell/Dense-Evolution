@@ -86,6 +86,7 @@ nav:
   - Composer: composer.md
   - MCP Server: mcp.md
   - Getting Started: getting-started.md
+  - Concepts (Noise vs Mitigation vs Healing): concepts.md
   - Examples: examples.md
   - Benchmarks: benchmarks.md
   - API Reference:
