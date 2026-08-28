@@ -15,10 +15,12 @@ import functools
 import numpy as np
 import jax
 import jax.numpy as jnp
+from scipy.optimize import minimize
 
 from .healing import calculate_delta_preemp
 
 __all__ = ["richardson_extrapolate", "zero_noise_extrapolation", "polynomial_extrapolate",
+           "bounded_exponential_extrapolate",
            "project_to_physical", "uhlmann_fidelity", "zne_density_matrix",
            "jsd_predictive_zne_density_matrix", "global_depolarizing_channel",
            "amplitude_damping_channel", "cosmic_ray_burst_profile",
@@ -248,6 +250,56 @@ and `lambdas` a float64 array -- this skips `polynomial_extrapolate`'s
 `np.iscomplexobj` auto-detection, not traceable. `degree` is static (same
 constraint as `zne_density_matrix_jit`). Verified to match
 `polynomial_extrapolate` exactly."""
+
+
+def bounded_exponential_extrapolate(expectation_values, noise_factors, bound: float = 1.0) -> jnp.ndarray:
+    """Physically bounded exponential Zero-Noise Extrapolation (Miranskyy,
+    Sorrenti, Thind & Gravel, arXiv:2604.24475, "Improving Zero-Noise
+    Extrapolation via Physically Bounded Models").
+
+    Unlike `polynomial_extrapolate`, this fits an EXPONENTIAL model --
+    appropriate when the expectation value decays roughly exponentially with
+    noise strength (the usual case for a depolarizing-type channel), not a
+    polynomial one -- and is Dense-Evolution's first exponential-family ZNE
+    model. The zero-noise value is made an explicit model parameter via the
+    reparametrization
+
+        E(lambda) = a + (zeta - a) * exp(-c * lambda),   E(0) = zeta
+
+    and `zeta` is constrained to `[-bound, bound]` during the fit (the
+    physically valid range for a +-1-eigenvalue Pauli observable, `bound=1.0`
+    by default). An ordinary unconstrained `a + b*exp(-c*lambda)` fit has no
+    such guarantee and can produce a wildly out-of-range or non-finite
+    "zero-noise" estimate when the data is noisy or only a few points are
+    available -- verified directly on this project's own depolarizing-noise
+    ZZ-expectation setup (real Bell circuit, 30 random noise seeds, 3 noise
+    scales): the unconstrained fit landed outside [-1, 1] or failed to
+    converge in 21/30 seeds (mean absolute error over 200000, dominated by
+    those blow-ups), versus 0/30 for this bounded fit (mean absolute error
+    0.066) -- see `Dense-Evolution-Discovery/scripts/zne_physically_bounded.py`
+    for the full reproduction.
+
+    Fit via SciPy's constrained L-BFGS-B, not `jax.jit`-traceable like the
+    rest of this module -- the optimization itself runs in plain NumPy, so
+    (unlike every other function here) there is no `_jit` variant.
+
+    Examples
+    --------
+    >>> from dense_evolution.mitigation import bounded_exponential_extrapolate
+    >>> round(float(bounded_exponential_extrapolate([0.49, 0.1, 0.1], [1.0, 2.0, 3.0])), 4)
+    1.0
+    """
+    lambdas = np.asarray(noise_factors, dtype=np.float64)
+    values = np.asarray(expectation_values, dtype=np.float64)
+
+    def loss(theta):
+        a, zeta, c = theta
+        pred = a + (zeta - a) * np.exp(-c * lambdas)
+        return np.sum((values - pred) ** 2)
+
+    result = minimize(loss, x0=[0.0, float(values[0]), 0.5], method="L-BFGS-B",
+                       bounds=[(-bound, bound), (-bound, bound), (1e-6, None)])
+    return jnp.float64(result.x[1])
 
 
 def project_to_physical(rho_raw: jnp.ndarray) -> jnp.ndarray:

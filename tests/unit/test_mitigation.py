@@ -5,6 +5,7 @@ import pytest
 import dense_evolution as de
 from dense_evolution.mitigation import (
     richardson_extrapolate, zero_noise_extrapolation, polynomial_extrapolate,
+    bounded_exponential_extrapolate,
     project_to_physical, uhlmann_fidelity, zne_density_matrix, zne_density_matrix_jit,
     jsd_predictive_zne_density_matrix,
     richardson_extrapolate_jit, zero_noise_extrapolation_jit, uhlmann_fidelity_jit,
@@ -162,6 +163,39 @@ def test_polynomial_extrapolate_preserves_complex_input():
     got = polynomial_extrapolate(values, [1.0, 2.0, 3.0, 4.0, 5.0], degree=2)
     assert np.iscomplexobj(np.asarray(got))
     assert complex(got).imag != 0.0
+
+
+def test_bounded_exponential_extrapolate_matches_docstring_example():
+    got = float(bounded_exponential_extrapolate([0.49, 0.1, 0.1], [1.0, 2.0, 3.0]))
+    assert got == pytest.approx(1.0, abs=1e-4)
+
+
+def test_bounded_exponential_extrapolate_exact_on_matching_model():
+    # Data generated from the model's own functional form must recover the
+    # true zeta exactly (up to optimizer tolerance) -- the reparametrized
+    # exponential fit is not just clamping an unrelated curve.
+    lambdas = np.array([1.0, 2.0, 3.0, 4.0])
+    a_true, zeta_true, c_true = -0.2, 0.6, 0.8
+    values = a_true + (zeta_true - a_true) * np.exp(-c_true * lambdas)
+    got = float(bounded_exponential_extrapolate(values.tolist(), lambdas.tolist()))
+    assert got == pytest.approx(zeta_true, abs=1e-3)
+
+
+def test_bounded_exponential_extrapolate_stays_within_bound():
+    # Noisy, poorly-conditioned data that would push an unconstrained
+    # a + b*exp(-c*lambda) fit's a+b intercept outside [-1, 1] -- the
+    # bounded fit must never return a value violating the physical bound.
+    rng = np.random.default_rng(1)
+    for _ in range(20):
+        values = rng.uniform(-1.0, 1.0, size=3)
+        got = float(bounded_exponential_extrapolate(values.tolist(), [1.0, 2.0, 3.0]))
+        assert -1.0 <= got <= 1.0
+
+
+def test_bounded_exponential_extrapolate_respects_custom_bound():
+    got = float(bounded_exponential_extrapolate([4.9, 1.0, 1.0], [1.0, 2.0, 3.0], bound=10.0))
+    assert -10.0 <= got <= 10.0
+    assert got == pytest.approx(10.0, abs=1e-3)
 
 
 def _random_density_matrix(rng, d):

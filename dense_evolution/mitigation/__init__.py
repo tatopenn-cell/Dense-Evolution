@@ -7,6 +7,7 @@ snapshots (magic_entropy_shadows), and the classical Kullback-Leibler
 divergence over probability distributions (kl_divergence)."""
 from .zne import (
     richardson_extrapolate, zero_noise_extrapolation, polynomial_extrapolate,
+    bounded_exponential_extrapolate,
     project_to_physical, uhlmann_fidelity, zne_density_matrix,
     jsd_predictive_zne_density_matrix,
     richardson_extrapolate_jit, zero_noise_extrapolation_jit,
@@ -27,6 +28,7 @@ from .kl_divergence import kl_divergence, kl_divergence_jit
 
 __all__ = [
     "richardson_extrapolate", "zero_noise_extrapolation", "polynomial_extrapolate",
+    "bounded_exponential_extrapolate",
     "project_to_physical", "uhlmann_fidelity", "zne_density_matrix",
     "jsd_predictive_zne_density_matrix",
     "richardson_extrapolate_jit", "zero_noise_extrapolation_jit",

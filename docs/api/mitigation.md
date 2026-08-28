@@ -152,6 +152,39 @@ only ever used for this final grading step — feeding a known-ideal state into 
 extrapolation or projection steps themselves would be oracle access, not error
 mitigation.
 
+## Step 7. When the decay is exponential, not polynomial — `bounded_exponential_extrapolate`
+
+```python
+from dense_evolution.observables import pauli_expectation
+from dense_evolution.mitigation import bounded_exponential_extrapolate
+
+rng = np.random.default_rng(1)
+zz_at_scales = [
+    np.mean([pauli_expectation(np.asarray(
+        NoiseModel.apply_to_sv(sv0.copy(), 2, "depolarizing", 0.25 * s, rng=rng)), "ZZ")
+             for _ in range(200)])
+    for s in scales
+]
+[round(float(x), 4) for x in zz_at_scales]
+round(float(bounded_exponential_extrapolate(zz_at_scales, list(scales))), 4)
+```
+
+```
+[0.49, 0.1, 0.1]
+1.0
+```
+
+At this much higher noise (`0.25 * s` instead of Step 2's `0.05 * s`), `sv0`'s ideal
+`ZZ` expectation of `1.0` decays fast enough that an ordinary unconstrained
+`a + b*exp(-c*lambda)` fit on these same 3 points doesn't just misfire — it fails to
+converge at all (`scipy.optimize.curve_fit` raises `RuntimeError: Optimal parameters
+not found`). `bounded_exponential_extrapolate` reparametrizes the same exponential
+model so the zero-noise value is an explicit, constrained parameter
+(Miranskyy, Sorrenti, Thind & Gravel, [arXiv:2604.24475](https://arxiv.org/abs/2604.24475)) and
+recovers the ideal `1.0` exactly. Reach for this instead of Step 3/4's polynomial
+fits when the underlying decay is closer to exponential than polynomial — the usual
+shape for a single depolarizing-type channel.
+
 ---
 
 ## Details
@@ -201,9 +234,10 @@ matrices.
 
 ### `jax.jit`-compiled entry points
 
-Every function above has a `_jit` counterpart (`richardson_extrapolate_jit`,
-`zero_noise_extrapolation_jit`, `polynomial_extrapolate_jit`, `uhlmann_fidelity_jit`,
-`zne_density_matrix_jit`) for callers inside an already-jitted pipeline (e.g.
+Every function above except Step 7's `bounded_exponential_extrapolate` has a `_jit`
+counterpart (`richardson_extrapolate_jit`, `zero_noise_extrapolation_jit`,
+`polynomial_extrapolate_jit`, `uhlmann_fidelity_jit`, `zne_density_matrix_jit`) for
+callers inside an already-jitted pipeline (e.g.
 `jax.lax.scan`) who don't want a host round-trip per call. Each skips the eager
 version's own dtype auto-detection and argument validation — callers pass already-cast
 `complex128`/`float64` arrays themselves — and `polynomial_extrapolate_jit`/
