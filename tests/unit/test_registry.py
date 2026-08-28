@@ -377,3 +377,88 @@ class TestNoiseModelEntangledStateCorrectness:
             sv = NoiseModel.apply_to_sv(sv0.copy(), n, 'depolarizing', p, rng=rng)
             vals[i] = pauli_expectation(sv, observable).real
         assert vals.mean() == pytest.approx(expected, abs=0.03)
+
+    def test_phaseflip_matches_closed_form_on_entangled_state(self):
+        # Per-qubit phase-flip(p) multiplies GHZ's |0..0><1..1| coherence
+        # term by (1-2p) per qubit (Z rho Z flips the sign of that
+        # off-diagonal element), so <X^(x)n> = 2*Re(rho_{0..0,1..1})
+        # has the closed form (1-2p)^n -- the same style of check as
+        # the depolarizing test above, extended to a channel the
+        # original bug-audit (Dense-Evolution-Discovery
+        # scripts/audit_all_noise_channels_ghz.py) never got a
+        # permanent regression test for.
+        n = 4
+        sv0 = self._ghz(n)
+        p = 0.15
+        expected = (1.0 - 2.0 * p) ** n
+        rng = np.random.default_rng(456)
+        n_trials = 5000
+        observable = 'X' * n
+        vals = np.empty(n_trials)
+        for i in range(n_trials):
+            sv = NoiseModel.apply_to_sv(sv0.copy(), n, 'phaseflip', p, rng=rng)
+            vals[i] = pauli_expectation(sv, observable).real
+        # abs=0.06, not 0.03 like the depolarizing test above: this test
+        # uses 5000 trials (not 20000) to keep the suite fast, so the
+        # Monte Carlo SEM here is ~2x larger (verified: SEM~0.014 at
+        # n_trials=5000 vs ~0.007 at 20000) -- still tight enough to catch
+        # a real 2x-effective-noise-strength bug (would shift the mean by
+        # >0.2, an order of magnitude past this margin), loose enough not
+        # to flake on ordinary sampling noise.
+        assert vals.mean() == pytest.approx(expected, abs=0.06)
+
+    @staticmethod
+    def _embed(mat, qubit, n):
+        mats = [mat if i == qubit else np.eye(2, dtype=complex) for i in range(n)]
+        out = mats[0]
+        for m in mats[1:]:
+            out = np.kron(out, m)
+        return out
+
+    @classmethod
+    def _exact_dm_per_qubit_channel(cls, sv0, n, model, p):
+        # No simple closed form for amplitude_damping/combined (unlike
+        # bitflip/depolarizing/phaseflip above) -- exact reference is the
+        # explicit per-qubit Kraus sum instead, same construction
+        # `audit_all_noise_channels_ghz.py`'s exact_dm used to confirm
+        # apply_to_sv has no remaining bug on these two channels.
+        rho = np.outer(sv0, sv0.conj())
+        for q in range(n):
+            if model == 'amplitude_damping':
+                gamma = p
+            elif model == 'combined':
+                gamma = p * 0.333333
+            if model in ('amplitude_damping', 'combined'):
+                if model == 'combined':
+                    p_dep = p * 0.5
+                    X = cls._embed(np.array([[0, 1], [1, 0]], dtype=complex), q, n)
+                    Y = cls._embed(np.array([[0, -1j], [1j, 0]], dtype=complex), q, n)
+                    Z = cls._embed(np.array([[1, 0], [0, -1]], dtype=complex), q, n)
+                    rho = (1 - p_dep) * rho + (p_dep / 3.0) * (X @ rho @ X + Y @ rho @ Y + Z @ rho @ Z)
+                k0 = cls._embed(np.array([[1, 0], [0, np.sqrt(1 - gamma)]], dtype=complex), q, n)
+                k1 = cls._embed(np.array([[0, np.sqrt(gamma)], [0, 0]], dtype=complex), q, n)
+                rho = k0 @ rho @ k0.conj().T + k1 @ rho @ k1.conj().T
+        return rho
+
+    @pytest.mark.parametrize("model,observable,expected", [
+        ("amplitude_damping", "XXX", 0.7837),
+        ("amplitude_damping", "ZZZ", 0.3285),
+        ("combined", "XXX", 0.6750),
+    ])
+    def test_amplitude_damping_and_combined_match_exact_density_matrix(self, model, observable, expected):
+        # n=3 (not 4, like the closed-form tests above) -- the exact
+        # reference here needs an explicit 2**n x 2**n Kraus-sum matrix
+        # construction, unlike the O(1) closed forms above, so a smaller
+        # register keeps this test fast. `expected` values verified
+        # directly against `_exact_dm_per_qubit_channel` before being
+        # written here (both agree to 4 decimals).
+        n = 3
+        sv0 = self._ghz(n)
+        p = 0.15
+        rng = np.random.default_rng(789)
+        n_trials = 5000
+        vals = np.empty(n_trials)
+        for i in range(n_trials):
+            sv = NoiseModel.apply_to_sv(sv0.copy(), n, model, p, rng=rng)
+            vals[i] = pauli_expectation(sv, observable).real
+        assert vals.mean() == pytest.approx(expected, abs=0.05)
