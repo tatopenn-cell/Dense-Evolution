@@ -87,6 +87,7 @@ nav:
   - MCP Server: mcp.md
   - Getting Started: getting-started.md
   - Concepts (Noise vs Mitigation vs Healing): concepts.md
+  - Hamiltonians: hamiltonians.md
   - Examples: examples.md
   - Benchmarks: benchmarks.md
   - API Reference:
