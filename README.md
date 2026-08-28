@@ -954,6 +954,56 @@ All circuits stored as OpenQASM 2.0 strings in `dashboard_core.QASM_LIBRARY`.
 
 ## ▍ Changelog
 
+### v8.1.69
+- **Disk-backed statevector overflow for `Chunk`, `allow_disk_overflow=True`.** Past
+  the RAM ceiling `Chunk` already handled (`num_chunks` pieces held in RAM at once),
+  this spills idle pieces to disk as plain `.npy` files instead of raising
+  `MemoryPressureError` — the technique behind Pednault et al. 2019
+  ([arXiv:1910.09534](https://arxiv.org/abs/1910.09534)), the paper that broke the
+  49-qubit classical simulation barrier. `dense_evolution/backends/chunk/disk_overflow.py`
+  classifies every gate into a Local / Conditional / Mix phase, reusing (not
+  re-deriving) the exact gate-case formulas `_build_multi_chunk_step`/
+  `_build_distributed_chunk_step` already use, so never more than one or two pieces
+  are ever materialized as a JAX array at once, regardless of `num_chunks`.
+  Correctness-first, not fast — every gate pays real disk I/O; see
+  [docs/api/chunk.md](https://tatopenn-cell.github.io/Dense-Evolution/api/chunk/)
+  for the design and a verified demo.
+- **New MCP tool, `dense_evolution_kernel_status`.** Closes out the last open item
+  on the `mcp_server` modularization (issue #78, Phase 3): reports the adapter's own
+  local state (kernel URL, kernel reachability, image dir/count, molecule-cache
+  entry count) — distinct from `dense_evolution_health`, which only proxies the
+  kernel's own `/api/health`.
+- **Fixed real recompilation across `Chunk` instances with identical geometry.**
+  `_build_multi_chunk_runner`/`_build_distributed_chunk_runner` built a brand-new
+  Python closure (and a fresh `jax.jit` wrapper) on every call, so two `Chunk`
+  instances with the same `(num_chunks, m, k)` could never hit JAX's own compilation
+  cache — each one silently repaid the full XLA compile cost the other had already
+  paid. Now memoized via `functools.lru_cache`; measured directly, a second `Chunk`
+  with matching geometry went from 0.654s (cold compile) to 0.123s (cache hit).
+- **Fixed a CI bug that silently ran the full test matrix on doc-only commits.**
+  `dorny/paths-filter`'s `predicate-quantifier` defaults to `"some"` (OR across
+  patterns), which made an include-everything-except-docs pattern list always match
+  — set to `"every"` so a docs-only change actually takes the fast path again.
+- **`dense_evolution/chunk.py` split into a real subpackage,
+  `dense_evolution/backends/chunk/`** (`guard.py`/`geometry.py`/`kernels.py`/
+  `circuit_chunker.py`/`core.py`/`disk_overflow.py`), mirroring the same split
+  already done for `mitigation`/`noise` — same public (and test-relied-upon
+  semi-private) API, `dense_evolution.chunk` still resolves to the same module.
+- **`ia_utils.vector_healing` docs rewritten as a real guide** (was an intro
+  paragraph and an `mkdocstrings` directive, no worked examples): a small synthetic
+  example, then a real chemistry-specific one — a dissociation-curve point that
+  failed to converge, healed against a real H2 potential-energy curve. New
+  [docs/concepts.md](https://tatopenn-cell.github.io/Dense-Evolution/concepts/)
+  disambiguates "healing" from "mitigation" — they share one literal decision
+  function (`evaluate_phi_trigger`, in `dense_evolution.mitigation.healing`) applied
+  to two unrelated kinds of data, which is the real reason the two words are easy
+  to mix up.
+- **README fixes**: the VQE Engine section had theory and a telemetry table but no
+  runnable example (added one — a minimal `RY(theta)` ansatz minimizing `<Z>`,
+  converges to the exact ground state); the Anti-OOM Chunk Engine section never
+  mentioned `allow_disk_overflow`; the Architecture tree still described `chunk.py`
+  as an unmoved flat file.
+
 ### v8.1.68
 - **Noise gets its own dedicated package, `dense_evolution.noise`.** Every noise-generating
   mechanism used to be scattered across two unrelated modules: `NoiseModel`/`NoiseSpec` lived

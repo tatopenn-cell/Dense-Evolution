@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dense-evolution"
-version = "8.1.68"
+version = "8.1.69"
 description = "Micro-optimized High-Performance NISQ Statevector Quantum Circuit Simulator (Hardware-Adaptive Integration of Native NumPy and CPU/GPU/TPU JAX JIT/XLA Compilation, with Linear Kernel Fusion)"
 readme = "README.md"
 requires-python = ">=3.9"
