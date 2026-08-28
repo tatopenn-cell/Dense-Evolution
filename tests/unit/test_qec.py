@@ -20,7 +20,7 @@ import pytest
 from dense_evolution.qec import (
     compute_syndrome, erasure_aware_decode, pauli_commutes, pymatching_decode,
     blind_minimum_weight_decode, decode_with_erasure_fallback,
-    counts_in_intervals_dimension,
+    counts_in_intervals_dimension, nearest_coset_decode,
 )
 from dense_evolution.physics import qec as qec_module
 
@@ -531,3 +531,38 @@ class TestCountsInIntervalsDimension:
             events, [1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 99.0], min_reference_points=5
         )
         assert 99.0 not in mean_counts
+
+
+class TestNearestCosetDecode:
+    # Real Steane [[7,1,3]] logical-basis cosets: C is the row space of
+    # HX's 3 rows (Eq. 1 of arXiv:2608.20676), C+1111111 its complement --
+    # verified in Dense-Evolution-Discovery's real reproduction
+    # (scripts/steane_continuous_logical_rotation.py) to match the
+    # nonzero support of this library's own real |0>_L/|1>_L statevectors
+    # exactly, not assumed from the paper's text.
+    C = ['0000000', '0001111', '0110011', '0111100', '1010101', '1011010', '1100110', '1101001']
+    C1 = ['1111111', '1110000', '1001100', '1000011', '0101010', '0100101', '0011001', '0010110']
+
+    def test_exact_codeword_decodes_to_its_own_coset(self):
+        for word in self.C:
+            assert nearest_coset_decode(word, self.C, self.C1) == 0
+        for word in self.C1:
+            assert nearest_coset_decode(word, self.C, self.C1) == 1
+
+    def test_single_bit_flip_still_decodes_correctly(self):
+        # Distance-3-like separation between the two cosets (verified: min
+        # pairwise Hamming distance between any C word and any C1 word is
+        # >= 3 here) means a single bit flip off any codeword should still
+        # land closer to its own coset than the other one.
+        word = list(self.C[0])
+        word[2] = '1' if word[2] == '0' else '0'
+        assert nearest_coset_decode(''.join(word), self.C, self.C1) == 0
+
+    def test_docstring_example_reproducible(self):
+        coset_a = ['0000000', '1111000']
+        coset_b = ['1111111', '0000111']
+        assert nearest_coset_decode('0000000', coset_a, coset_b) == 0
+        assert nearest_coset_decode('1111110', coset_a, coset_b) == 1
+
+    def test_ties_break_toward_coset_a(self):
+        assert nearest_coset_decode('1000000', ['0000000'], ['1000001']) == 0
