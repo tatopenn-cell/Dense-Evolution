@@ -149,9 +149,10 @@ class SafeMemoryGuard:
                 f"  Disponibile  : {s['available_mb']:.0f} MB ({s['free_pct']:.1f}% libera)\n"
                 f"  Dopo alloc.  : {available_after_mb:.0f} MB ({free_frac_after * 100:.1f}% libera)\n"
                 f"  Soglia       : {self.threshold_pct * 100:.0f}% libera dopo l'allocazione\n"
-                f"  Azione       : ridurre n_qubits o liberare RAM. Il chunking su\n"
-                f"                 disco per overflow oltre la RAM disponibile non\n"
-                f"                 e' implementato — vedi CHANGELOG.\n"
+                f"  Azione       : ridurre n_qubits, liberare RAM, oppure passare\n"
+                f"                 allow_disk_overflow=True a Chunk() per continuare\n"
+                f"                 oltre la RAM disponibile usando lo storage su disco\n"
+                f"                 (vedi disk_overflow.py).\n"
                 f"{'─'*60}"
             )
 
