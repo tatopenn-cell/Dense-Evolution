@@ -40,6 +40,7 @@ jobs:
               - '**'
               - '!docs/**'
               - '!mkdocs.yml'
+              - '!README.md'
 
   docs-examples:
     name: Docs examples (docs-only change)
