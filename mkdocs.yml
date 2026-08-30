@@ -83,7 +83,6 @@ plugins:
 
 nav:
   - Home: index.md
-  - Mind Map: mindmap.md
   - Composer: composer.md
   - MCP Server: mcp.md
   - Getting Started: getting-started.md
