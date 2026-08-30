@@ -12,6 +12,18 @@ Combine the returned Pauli term with
 Majorana-operator Hamiltonian as a dense matrix, e.g. a sparse
 Sachdev-Ye-Kitaev (SYK) model: `H = sum_{ijkl} J_ijkl * chi_i*chi_j*chi_k*chi_l`.
 
+`total_parity_operator` builds the "Klein factor" for a set of Majorana
+modes — the tool needed when TWO independently-Jordan-Wigner-mapped
+registers (e.g. the two sides of a thermofield-double/wormhole
+construction) must be combined into one joint fermionic algebra: their
+Majoranas commute across registers by construction (disjoint qubits),
+but a genuine cross-register Dirac fermion needs them to anticommute.
+Dressing one register's operators with its own `total_parity_operator`
+before combining fixes this — see the function's own docstring for the
+full derivation, and
+[Dense-Evolution-Discovery's wormhole_magic_entropy.py](https://tatopenn-cell.github.io/Dense-Evolution-Discovery/)
+for the real construction this was promoted from.
+
 ::: dense_evolution.physics.fermions
 
 ---

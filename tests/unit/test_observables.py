@@ -10,6 +10,7 @@ from dense_evolution import DenseSVSimulator
 from dense_evolution.observables import (
     pauli_expectation, pauli_sum_expectation, pauli_hamiltonian_to_matrix, pauli_sum_matvec,
 )
+from dense_evolution.physics.observables import multiply_pauli_terms
 
 _PAULI_MATS = {
     'I': np.eye(2, dtype=complex),
@@ -204,3 +205,46 @@ class TestPauliSumMatvec:
     def test_qubit_out_of_range_raises(self):
         with pytest.raises(ValueError):
             pauli_sum_matvec(np.zeros(4, dtype=complex), [(1.0, {5: 'Z'})])
+
+
+class TestMultiplyPauliTerms:
+    """Cross-checked against real matrix multiplication, not just the
+    symbolic phase-tracking algebra's own self-consistency."""
+
+    @pytest.mark.parametrize("a,b,expected_phase,expected_pauli", [
+        ('X', 'X', 1.0, None), ('Y', 'Y', 1.0, None), ('Z', 'Z', 1.0, None),
+        ('X', 'Y', 1j, 'Z'), ('Y', 'X', -1j, 'Z'),
+        ('Y', 'Z', 1j, 'X'), ('Z', 'Y', -1j, 'X'),
+        ('Z', 'X', 1j, 'Y'), ('X', 'Z', -1j, 'Y'),
+    ])
+    def test_all_nine_same_qubit_products_match_real_matrices(self, a, b, expected_phase, expected_pauli):
+        A = pauli_hamiltonian_to_matrix([(1.0, a)], n_qubits=1)
+        B = pauli_hamiltonian_to_matrix([(1.0, b)], n_qubits=1)
+        coeff, merged = multiply_pauli_terms([(1.0, a), (1.0, b)])
+        assert coeff == pytest.approx(expected_phase)
+        assert merged == ({0: expected_pauli} if expected_pauli else {})
+        combined = coeff * pauli_hamiltonian_to_matrix([(1.0, merged)] if merged else [(1.0, {})], n_qubits=1)
+        assert np.allclose(A @ B, combined)
+
+    def test_disjoint_qubits_no_phase_and_coefficients_multiply(self):
+        coeff, merged = multiply_pauli_terms([(2.0, 'X'), (3.0, {1: 'Z'})])
+        assert coeff == pytest.approx(6.0)
+        assert merged == {0: 'X', 1: 'Z'}
+
+    def test_three_factor_product_matches_matrix_chain(self):
+        rng = np.random.default_rng(7)
+        letters = ['X', 'Y', 'Z']
+        for _ in range(50):
+            a, b, c = rng.choice(letters, size=3)
+            A = pauli_hamiltonian_to_matrix([(1.0, a)], n_qubits=1)
+            B = pauli_hamiltonian_to_matrix([(1.0, b)], n_qubits=1)
+            C = pauli_hamiltonian_to_matrix([(1.0, c)], n_qubits=1)
+            coeff, merged = multiply_pauli_terms([(1.0, a), (1.0, b), (1.0, c)])
+            combined = coeff * pauli_hamiltonian_to_matrix([(1.0, merged)] if merged else [(1.0, {})], n_qubits=1)
+            assert np.allclose(A @ B @ C, combined), f"{a}*{b}*{c} mismatch"
+
+    def test_order_matters(self):
+        # X*Y = iZ, Y*X = -iZ -- same qubits, different order, opposite sign.
+        coeff_xy, _ = multiply_pauli_terms([(1.0, 'X'), (1.0, 'Y')])
+        coeff_yx, _ = multiply_pauli_terms([(1.0, 'Y'), (1.0, 'X')])
+        assert coeff_xy == pytest.approx(-coeff_yx)

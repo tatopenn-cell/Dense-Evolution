@@ -6,6 +6,12 @@ the same technique for `H @ vector` (not reduced to a scalar) -- the matrix-free
 behind [`ground_state_energy_sparse`](dashboard_core_hamiltonians.md)'s
 `scipy.sparse.linalg.eigsh` path for molecules too large to diagonalize densely.
 
+`multiply_pauli_terms` multiplies several Pauli-string OPERATORS together (order matters --
+unlike every function above, which sums independent terms), tracking the `i^k` phase from
+same-qubit collisions (`X*Y=iZ`, etc.) -- the manual Pauli-algebra primitive behind
+[`total_parity_operator`](fermions.md)'s Klein-factor construction, or any other by-hand
+Pauli-operator product.
+
 ::: dense_evolution.physics.observables
 
 ---
