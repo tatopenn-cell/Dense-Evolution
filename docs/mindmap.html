@@ -1,1 +1,528 @@
-PLACEHOLDER
+<title>Dense-Evolution Mind Map</title>
+<style>
+  :root {
+    --bg: #f4f6fa;
+    --panel-bg: #ffffff;
+    --ink: #16202c;
+    --ink-dim: #55647a;
+    --line: #c7d0de;
+    --root: #16202c;
+    --core: #0f9c92;
+    --sci: #b8860f;
+    --mit: #c9463f;
+    --iface: #6b63c9;
+    --node-bg: #ffffff;
+    --node-stroke: #c7d0de;
+    --shadow: 0 10px 30px rgba(20, 30, 50, 0.12);
+    --font-label: "IBM Plex Mono", ui-monospace, monospace;
+    --font-body: "IBM Plex Sans", system-ui, sans-serif;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0b1120;
+      --panel-bg: #121a2b;
+      --ink: #e7ecf3;
+      --ink-dim: #93a2ba;
+      --line: #2a3550;
+      --root: #e7ecf3;
+      --core: #35e0d1;
+      --sci: #f0c34d;
+      --mit: #ff7a72;
+      --iface: #a5a0ff;
+      --node-bg: #16213a;
+      --node-stroke: #2f3d5e;
+      --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #0b1120;
+    --panel-bg: #121a2b;
+    --ink: #e7ecf3;
+    --ink-dim: #93a2ba;
+    --line: #2a3550;
+    --root: #e7ecf3;
+    --core: #35e0d1;
+    --sci: #f0c34d;
+    --mit: #ff7a72;
+    --iface: #a5a0ff;
+    --node-bg: #16213a;
+    --node-stroke: #2f3d5e;
+    --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  .app {
+    display: flex;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  .canvas-wrap {
+    position: relative;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  header {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    padding: 18px 22px 10px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    pointer-events: none;
+    z-index: 5;
+  }
+
+  header .title {
+    font-family: var(--font-label);
+    font-size: 0.95rem;
+    letter-spacing: 0.04em;
+    color: var(--ink-dim);
+    text-transform: uppercase;
+  }
+
+  header .hint {
+    font-size: 0.8rem;
+    color: var(--ink-dim);
+    pointer-events: none;
+  }
+
+  svg#map {
+    width: 100%;
+    height: 100%;
+    cursor: grab;
+    touch-action: none;
+  }
+  svg#map:active { cursor: grabbing; }
+
+  .edge {
+    fill: none;
+    stroke: var(--line);
+    stroke-width: 1.4;
+    opacity: 0.8;
+  }
+
+  .node-circle {
+    stroke-width: 2.5;
+    fill: var(--node-bg);
+    transition: r 0.15s ease, filter 0.15s ease;
+  }
+
+  .node {
+    cursor: pointer;
+  }
+  .node:hover .node-circle {
+    filter: brightness(1.08);
+  }
+  .node.active .node-circle {
+    fill: var(--cat-color, var(--ink));
+  }
+
+  .node-label {
+    font-family: var(--font-label);
+    fill: var(--ink);
+    pointer-events: none;
+    user-select: none;
+  }
+  .node.root .node-label {
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .node.category .node-label {
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .node.leaf .node-label {
+    font-size: 11px;
+    fill: var(--ink-dim);
+  }
+  .node.active .node-label {
+    fill: var(--panel-bg);
+  }
+
+  .legend {
+    position: absolute;
+    left: 22px;
+    bottom: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-family: var(--font-label);
+    font-size: 0.72rem;
+    color: var(--ink-dim);
+    z-index: 5;
+  }
+  .legend-item { display: flex; align-items: center; gap: 8px; }
+  .swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
+  .zoom-controls {
+    position: absolute;
+    right: 22px;
+    bottom: 20px;
+    display: flex;
+    gap: 6px;
+    z-index: 5;
+  }
+  .zoom-controls button {
+    width: 34px; height: 34px;
+    border-radius: 8px;
+    border: 1px solid var(--node-stroke);
+    background: var(--node-bg);
+    color: var(--ink);
+    font-size: 1rem;
+    cursor: pointer;
+    font-family: var(--font-body);
+  }
+  .zoom-controls button:hover { filter: brightness(1.1); }
+
+  .panel {
+    width: 380px;
+    flex: none;
+    background: var(--panel-bg);
+    border-left: 1px solid var(--node-stroke);
+    box-shadow: var(--shadow);
+    padding: 26px 24px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    transform: translateX(0);
+    transition: transform 0.2s ease;
+  }
+  .panel.empty {
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: var(--ink-dim);
+  }
+
+  .panel .eyebrow {
+    font-family: var(--font-label);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--cat-color, var(--ink-dim));
+  }
+  .panel h2 {
+    margin: 0;
+    font-size: 1.3rem;
+    font-family: var(--font-label);
+    text-wrap: balance;
+  }
+  .panel .path {
+    font-family: var(--font-label);
+    font-size: 0.78rem;
+    color: var(--ink-dim);
+    background: var(--bg);
+    padding: 4px 8px;
+    border-radius: 6px;
+    display: inline-block;
+    width: fit-content;
+  }
+  .panel p {
+    line-height: 1.55;
+    font-size: 0.92rem;
+    margin: 0;
+  }
+  .panel .kids {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 4px;
+  }
+  .panel .kids .kid-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-dim);
+    font-family: var(--font-label);
+  }
+  .panel .kid-btn {
+    text-align: left;
+    background: var(--bg);
+    border: 1px solid var(--node-stroke);
+    color: var(--ink);
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-family: var(--font-body);
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  .panel .kid-btn:hover { filter: brightness(1.06); }
+
+  @media (max-width: 760px) {
+    .app { flex-direction: column; }
+    .panel {
+      width: 100%;
+      height: 42vh;
+      border-left: none;
+      border-top: 1px solid var(--node-stroke);
+    }
+    .canvas-wrap { height: 58vh; }
+  }
+</style>
+
+<div class="app">
+  <div class="canvas-wrap">
+    <header>
+      <div class="title">Dense-Evolution &middot; mind map</div>
+      <div class="hint">click a node · drag to pan · scroll to zoom</div>
+    </header>
+    <svg id="map" viewBox="0 0 1200 900"></svg>
+    <div class="legend" id="legend"></div>
+    <div class="zoom-controls">
+      <button id="zoomOut" aria-label="Zoom out">&minus;</button>
+      <button id="zoomReset" aria-label="Reset view">&#8634;</button>
+      <button id="zoomIn" aria-label="Zoom in">+</button>
+    </div>
+  </div>
+  <aside class="panel empty" id="panel">
+    <div>
+      <p style="font-family: var(--font-label); font-size: 0.85rem;">Click any node to read what it does.</p>
+    </div>
+  </aside>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var CATS = {
+    core: { color: "var(--core)", name: "Core &amp; Simulators" },
+    sci: { color: "var(--sci)", name: "Scientific Modules" },
+    mit: { color: "var(--mit)", name: "Mitigation &amp; Noise" },
+    iface: { color: "var(--iface)", name: "Interfaces &amp; API" }
+  };
+
+  var DATA = {
+    id: "root",
+    label: "dense_evolution",
+    kind: "root",
+    path: "dense_evolution/__init__.py",
+    detail: "The public API surface. Everything an external caller does as `import dense_evolution as de; de.X` is assembled here in one `__all__` list — the single source of truth for what counts as \"the public API\", separate from any individual subpackage's own exports.",
+    children: [
+      {
+        id: "core", cat: "core", label: "Core & Simulators", kind: "category",
+        detail: "The actual compute engines and circuit representation: statevector/MPS/chunked simulation, QASM parsing, gate compilation, and the transpiler that turns a parsed circuit into something a backend can run.",
+        children: [
+          { id: "backends", cat: "core", label: "backends/", kind: "leaf", path: "dense_evolution/backends/", detail: "Home of the three simulation engines: exact dense statevector, matrix-product-state (MPS), and Chunk (anti-OOM, splits a statevector across multiple RAM-sized pieces or disk when it doesn't fit in memory at once)." },
+          { id: "statevector", cat: "core", label: "statevector.py", kind: "leaf", path: "dense_evolution/backends/statevector.py", detail: "DenseSVSimulator — the default engine. Allocates the full 2**n_qubits amplitude vector up front; exact, fast, but memory-bound (17 GB at 30 qubits before running a single gate)." },
+          { id: "mps", cat: "core", label: "mps.py", kind: "leaf", path: "dense_evolution/backends/mps.py", detail: "MPSSimulator — matrix-product-state backend. Trades exactness for a bond-dimension cap (truncates entanglement beyond a budget), letting it handle far more qubits than DenseSVSimulator when entanglement stays low." },
+          { id: "chunk", cat: "core", label: "chunk/ (subpackage)", kind: "leaf", path: "dense_evolution/backends/chunk/", detail: "Splits a large statevector into num_chunks RAM-sized pieces run with a compiled multi-chunk kernel; can also spread pieces across multiple JAX devices, or (allow_disk_overflow=True) spill idle pieces to disk as .npy files — the Pednault et al. 2019 secondary-storage technique IBM used to break Sycamore's 54-qubit classical-simulation barrier." },
+          { id: "circuits", cat: "core", label: "circuits/", kind: "leaf", path: "dense_evolution/circuits/", detail: "QASM parsing, gate compilation, the hardware-registry/noise wiring, circuit diagrams, entangling-layer topology helpers, Trotter evolution, UCCSD ansatz building blocks, QFT, and random-circuit generation." },
+          { id: "config", cat: "core", label: "config.py", kind: "leaf", path: "dense_evolution/config.py", detail: "set_precision — the one place that flips the process-wide JAX float32/float64 (x64) configuration this whole package's numerics depend on." }
+        ]
+      },
+      {
+        id: "sci", cat: "sci", label: "Scientific Modules", kind: "category",
+        detail: "Pauli-algebra primitives, entropy/entanglement measures, fermionic (Jordan-Wigner) mapping, error-correction decoding, VQE/autodiff, tight-binding solvers, and a from-scratch Hartree-Fock implementation.",
+        children: [
+          { id: "physics", cat: "sci", label: "physics/", kind: "leaf", path: "dense_evolution/physics/", detail: "State prep, Pauli observables, entropy, fermions, and QEC — the mathematical building blocks other modules assemble into real experiments." },
+          { id: "pobs", cat: "sci", label: "observables.py", kind: "leaf", path: "dense_evolution/physics/observables.py", detail: "pauli_expectation/pauli_hamiltonian_to_matrix/pauli_sum_matvec (exact Pauli-string expectation values without ever building the 2**n matrix), plus multiply_pauli_terms — the exact symbolic Pauli-algebra primitive (tracks X*Y=iZ-style phases) that total_parity_operator is built from." },
+          { id: "pferm", cat: "sci", label: "fermions.py", kind: "leaf", path: "dense_evolution/physics/fermions.py", detail: "majorana_pauli_terms (Jordan-Wigner mapping, one qubit per two Majorana modes) and total_parity_operator, the \"Klein factor\" fix for combining two independently-mapped fermionic registers into one joint algebra — promoted today from a real wormhole-teleportation reproduction, with a real i^(N/2) phase-correction bug found and fixed during promotion." },
+          { id: "pent", cat: "sci", label: "entropy.py", kind: "leaf", path: "dense_evolution/physics/entropy.py", detail: "partial_trace, von_neumann_entropy, mutual_information — the entanglement/information-theoretic diagnostics used across noise and mitigation work." },
+          { id: "pqec", cat: "sci", label: "qec.py", kind: "leaf", path: "dense_evolution/physics/qec.py", detail: "Code-agnostic stabilizer/syndrome decoding: Steane-code-style error correction, erasure-aware decoding, blind minimum-weight decoding." },
+          { id: "solvers", cat: "sci", label: "solvers/", kind: "leaf", path: "dense_evolution/solvers/", detail: "circuit_to_energy_fn (differentiable VQE cost function via jax.grad) plus Harrison and VHD tight-binding Hamiltonian builders for semiconductor band-structure work." },
+          { id: "nativehf", cat: "sci", label: "native_hf/ (subpackage)", kind: "leaf", path: "dense_evolution/native_hf/", detail: "A from-scratch Hartree-Fock implementation (Gaussian basis integrals, Boys function, overlap/kinetic/Coulomb integrals, SCF loop) for molecules or elements outside PennyLane's own basis-set coverage." }
+        ]
+      },
+      {
+        id: "mit", cat: "mit", label: "Mitigation & Noise", kind: "category",
+        detail: "Realistic noise channels (Kraus operators, cosmic-ray bursts, correlated/oscillating noise) plus Zero-Noise Extrapolation and density-matrix diagnostics for correcting and grading noisy results.",
+        children: [
+          { id: "noise", cat: "mit", label: "noise/", kind: "leaf", path: "dense_evolution/noise/", detail: "NoiseModel and every noise channel this package simulates: per-qubit Kraus channels, density-matrix channels, cosmic-ray-burst and oscillating error-rate profiles, coherent attacks, differentiable noise." },
+          { id: "kraus", cat: "mit", label: "noise/kraus/", kind: "leaf", path: "dense_evolution/noise/kraus/", detail: "The five standard single-qubit Kraus channels: depolarizing, bitflip, phaseflip, amplitude damping, combined — all per-qubit independent (a real, acknowledged simplification vs. correlated/crosstalk noise on actual hardware)." },
+          { id: "mitigation", cat: "mit", label: "mitigation/", kind: "leaf", path: "dense_evolution/mitigation/", detail: "Zero-Noise Extrapolation and every density-matrix/magic diagnostic in the package — the correction layer that tries to recover the noiseless answer from several deliberately-worsened noisy runs." },
+          { id: "zne", cat: "mit", label: "zne.py", kind: "leaf", path: "dense_evolution/mitigation/zne.py", detail: "richardson_extrapolate / polynomial_extrapolate / bounded_exponential_extrapolate, zne_density_matrix (with project_to_physical to guarantee a valid density matrix back out), and uhlmann_fidelity for grading the correction." },
+          { id: "magic", cat: "mit", label: "magic_entropy.py", kind: "leaf", path: "dense_evolution/mitigation/magic_entropy.py", detail: "Bu-Gu-Jaffe's 3-fold self-convolution \"Key Unitary\" nonstabilizerness (\"magic\") measure — single-qubit density matrices only. Zero for every stabilizer state." },
+          { id: "sre", cat: "mit", label: "stabilizer_renyi_entropy.py", kind: "leaf", path: "dense_evolution/mitigation/stabilizer_renyi_entropy.py", detail: "Leone-Oliviero-Hamma's Stabilizer Renyi Entropy — a DIFFERENT, multi-qubit, per-pure-state magic monotone (Walsh-Hadamard transform of Pauli-string overlaps), promoted today from a real wormhole-teleportation experiment. Not the same math as magic_entropy above despite both measuring \"magic\"." },
+          { id: "renyi", cat: "mit", label: "renyi.py", kind: "leaf", path: "dense_evolution/mitigation/renyi.py", detail: "sandwiched_renyi_divergence (Muller-Lennert et al.) — a DIVERGENCE between two density matrices (\"how different are rho and sigma\"), not a single-state magic measure despite sharing the word \"Renyi\" with stabilizer_renyi_entropy." },
+          { id: "kl", cat: "mit", label: "kl_divergence.py", kind: "leaf", path: "dense_evolution/mitigation/kl_divergence.py", detail: "The classical Kullback-Leibler divergence over probability distributions (e.g. measurement-outcome histograms) — operates on probability vectors directly, no eigendecomposition needed, unlike the density-matrix divergences above." }
+        ]
+      },
+      {
+        id: "iface", cat: "iface", label: "Interfaces & API", kind: "category",
+        detail: "Bridges to Qiskit/PennyLane/Stim, drawing and measurement utilities, the CLI entry point, and the 22 backward-compatibility shim files that keep old flat import paths working.",
+        children: [
+          { id: "interop", cat: "iface", label: "interop/", kind: "leaf", path: "dense_evolution/interop/", detail: "from_qiskit / from_pennylane / to_stim / run_qiskit_circuit / run_pennylane_circuit — the bridges that let a circuit or noise model built here interoperate with the three most common outside ecosystems." },
+          { id: "utils", cat: "iface", label: "utils/", kind: "leaf", path: "dense_evolution/utils/", detail: "draw_circuit and sample_counts/statevector_fidelity — small, general-purpose helpers used across the rest of the package." },
+          { id: "cli", cat: "iface", label: "cli.py", kind: "leaf", path: "dense_evolution/cli.py", detail: "The dense-evolution console-script entry point installed by pip — what actually runs when you type `dense-evolution` in a terminal." },
+          { id: "shims", cat: "iface", label: "22 legacy shims", kind: "leaf", path: "dense_evolution/*.py (top level)", detail: "Flat top-level files like fermions.py, observables.py, chunk.py, healing.py — each one just re-exports from its real subpackage home (e.g. fermions.py → physics/fermions.py) so old `from dense_evolution.fermions import ...`-style imports keep working. Never edit a shim's logic — only its target subpackage." }
+        ]
+      }
+    ]
+  };
+
+  // ---------- Layout: radial tree ----------
+  var CX = 600, CY = 460;
+  var R_CAT = 150, R_LEAF = 320;
+  var nodes = [];
+  var edges = [];
+
+  function place(node, angle, radius, parentId) {
+    var x = CX + Math.cos(angle) * radius;
+    var y = CY + Math.sin(angle) * radius;
+    node.x = x; node.y = y;
+    nodes.push(node);
+    if (parentId) edges.push({ from: parentId, to: node.id, cat: node.cat });
+  }
+
+  place(DATA, 0, 0, null);
+
+  var catCount = DATA.children.length;
+  DATA.children.forEach(function (cat, i) {
+    var catAngle = -Math.PI / 2 + i * (2 * Math.PI / catCount);
+    place(cat, catAngle, R_CAT, DATA.id);
+
+    var n = cat.children.length;
+    var spread = Math.min(1.15, 0.24 * n);
+    cat.children.forEach(function (leaf, j) {
+      var t = n === 1 ? 0.5 : j / (n - 1);
+      var leafAngle = catAngle - spread / 2 + t * spread;
+      place(leaf, leafAngle, R_LEAF, cat.id);
+    });
+  });
+
+  var byId = {};
+  nodes.forEach(function (n) { byId[n.id] = n; });
+
+  // ---------- Rendering ----------
+  var svg = document.getElementById("map");
+  var svgNS = "http://www.w3.org/2000/svg";
+
+  function el(tag, attrs) {
+    var e = document.createElementNS(svgNS, tag);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    return e;
+  }
+
+  var world = el("g", { id: "world" });
+  svg.appendChild(world);
+
+  edges.forEach(function (e) {
+    var a = byId[e.from], b = byId[e.to];
+    var mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    var dx = b.y - a.y, dy = -(b.x - a.x);
+    var norm = Math.sqrt(dx * dx + dy * dy) || 1;
+    var bend = 18;
+    var cx = mx + (dx / norm) * bend, cy = my + (dy / norm) * bend;
+    var path = el("path", {
+      class: "edge",
+      d: "M " + a.x + " " + a.y + " Q " + cx + " " + cy + " " + b.x + " " + b.y,
+      stroke: e.cat ? "var(--" + e.cat + ")" : "var(--line)",
+      "stroke-opacity": e.cat ? "0.45" : "0.7"
+    });
+    world.appendChild(path);
+  });
+
+  nodes.forEach(function (n) {
+    var r = n.kind === "root" ? 30 : n.kind === "category" ? 22 : 14;
+    var g = el("g", { class: "node " + n.kind, "data-id": n.id, transform: "translate(" + n.x + "," + n.y + ")" });
+    if (n.cat) g.style.setProperty("--cat-color", "var(--" + n.cat + ")");
+    var circle = el("circle", {
+      class: "node-circle", r: r,
+      stroke: n.cat ? "var(--" + n.cat + ")" : "var(--root)"
+    });
+    g.appendChild(circle);
+    var label = el("text", { class: "node-label", x: 0, y: r + 15, "text-anchor": "middle" });
+    label.textContent = n.label;
+    if (n.kind === "root") { label.setAttribute("y", 4); label.setAttribute("dominant-baseline", "middle"); }
+    g.appendChild(label);
+    g.addEventListener("click", function () { selectNode(n.id); });
+    world.appendChild(g);
+  });
+
+  // ---------- Panel ----------
+  var panel = document.getElementById("panel");
+
+  function selectNode(id) {
+    document.querySelectorAll(".node.active").forEach(function (g) { g.classList.remove("active"); });
+    var g = svg.querySelector('.node[data-id="' + id + '"]');
+    if (g) g.classList.add("active");
+
+    var n = byId[id];
+    var catInfo = n.cat ? CATS[n.cat] : null;
+    var html = "";
+    html += '<div class="eyebrow" style="--cat-color:' + (n.cat ? "var(--" + n.cat + ")" : "var(--ink-dim)") + '">' +
+      (catInfo ? catInfo.name : (n.kind === "root" ? "Package root" : "")) + "</div>";
+    html += "<h2>" + n.label + "</h2>";
+    if (n.path) html += '<div class="path">' + n.path + "</div>";
+    html += "<p>" + n.detail + "</p>";
+    if (n.children && n.children.length) {
+      html += '<div class="kids"><div class="kid-label">Contains</div>';
+      n.children.forEach(function (c) {
+        html += '<button class="kid-btn" data-goto="' + c.id + '">' + c.label + "</button>";
+      });
+      html += "</div>";
+    }
+    panel.className = "panel";
+    panel.innerHTML = html;
+    panel.querySelectorAll("[data-goto]").forEach(function (btn) {
+      btn.addEventListener("click", function () { selectNode(btn.getAttribute("data-goto")); });
+    });
+  }
+
+  // ---------- Legend ----------
+  var legend = document.getElementById("legend");
+  Object.keys(CATS).forEach(function (k) {
+    var item = document.createElement("div");
+    item.className = "legend-item";
+    item.innerHTML = '<span class="swatch" style="background:var(--' + k + ')"></span>' + CATS[k].name;
+    legend.appendChild(item);
+  });
+
+  // ---------- Pan & zoom ----------
+  var scale = 1, tx = 0, ty = 0;
+  var dragging = false, lastX = 0, lastY = 0;
+
+  function applyTransform() {
+    world.setAttribute("transform", "translate(" + tx + "," + ty + ") scale(" + scale + ")");
+  }
+
+  svg.addEventListener("pointerdown", function (e) {
+    dragging = true; lastX = e.clientX; lastY = e.clientY;
+    svg.setPointerCapture(e.pointerId);
+  });
+  svg.addEventListener("pointermove", function (e) {
+    if (!dragging) return;
+    tx += (e.clientX - lastX); ty += (e.clientY - lastY);
+    lastX = e.clientX; lastY = e.clientY;
+    applyTransform();
+  });
+  svg.addEventListener("pointerup", function () { dragging = false; });
+  svg.addEventListener("wheel", function (e) {
+    e.preventDefault();
+    var delta = e.deltaY > 0 ? 0.9 : 1.1;
+    scale = Math.max(0.4, Math.min(2.5, scale * delta));
+    applyTransform();
+  }, { passive: false });
+
+  document.getElementById("zoomIn").addEventListener("click", function () {
+    scale = Math.min(2.5, scale * 1.2); applyTransform();
+  });
+  document.getElementById("zoomOut").addEventListener("click", function () {
+    scale = Math.max(0.4, scale * 0.8); applyTransform();
+  });
+  document.getElementById("zoomReset").addEventListener("click", function () {
+    scale = 1; tx = 0; ty = 0; applyTransform();
+  });
+
+  // Open root by default
+  selectNode("root");
+})();
+</script>
