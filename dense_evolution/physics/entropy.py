@@ -24,7 +24,7 @@ expectation value -- see mutual_information's docstring.
 
 import numpy as np
 
-__all__ = ['partial_trace', 'von_neumann_entropy', 'mutual_information']
+__all__ = ['partial_trace', 'von_neumann_entropy', 'mutual_information', 'central_charge']
 
 
 def partial_trace(state, n_qubits, keep_qubits):
@@ -80,3 +80,56 @@ def mutual_information(state, n_qubits, qubits_a, qubits_b):
     s_b = von_neumann_entropy(partial_trace(state, n_qubits, qubits_b))
     s_ab = von_neumann_entropy(partial_trace(state, n_qubits, list(qubits_a) + list(qubits_b)))
     return s_a + s_b - s_ab
+
+
+def central_charge(Ls, S, n_qubits):
+    """Fit an open-chain entanglement entropy curve S(L) to the Calabrese-
+    Cardy CFT prediction S(L) = (c/6)*ln[(2N/pi)*sin(pi*L/N)] + const
+    (Calabrese & Cardy, J. Stat. Mech. 2004, P06002, eq. 4/19 combined via
+    the standard open-chain doubling trick) and return (c, r_squared).
+
+    Backend-agnostic: `S` can come from any source (exact diagonalization
+    via `partial_trace`/`von_neumann_entropy` on this package's own
+    `DenseSVSimulator`, `MPSSimulator`, `Chunk`, or elsewhere) -- this
+    doesn't compute the entropy itself, only fits an already-measured
+    curve. Meant as a benchmark diagnostic: does a given backend/
+    truncation scheme preserve genuine critical CFT scaling, and with
+    what effective central charge?
+
+    A high r_squared alone does NOT mean the extracted c is trustworthy --
+    Dense-Evolution-Discovery Experiment 36 found fitting at a finite-size
+    pseudo-critical point (a susceptibility peak, not the true CFT point)
+    gives a deceptively clean fit (r_squared=0.999997) to a wrong answer
+    (c off by 2x). Only trust this near a genuine, independently-verified
+    critical point.
+
+    Parameters
+    ----------
+    Ls : array-like of int
+        Subsystem sizes, each counted from one physical boundary of an
+        open chain of `n_qubits` sites (not a bulk interval -- see
+        Discovery Experiment 36 for the periodic/bulk c/3 case instead).
+    S : array-like of float
+        Entanglement entropy at each L in `Ls`, same length.
+    n_qubits : int
+        Total open-chain length N.
+
+    Returns
+    -------
+    c : float
+        Extracted central charge (theory: 0.5 for Ising, 1.0 for a free
+        boson/XX chain, ...).
+    r_squared : float
+        Fit quality, in [0, 1] for a sane fit (can go negative for a
+        pathological fit worse than the mean).
+    """
+    Ls = np.asarray(Ls, dtype=float)
+    S = np.asarray(S, dtype=float)
+    x = np.log((2.0 * n_qubits / np.pi) * np.sin(np.pi * Ls / n_qubits))
+    slope, intercept = np.polyfit(x, S, 1)
+    c = 6.0 * slope
+    pred = slope * x + intercept
+    ss_res = float(np.sum((S - pred) ** 2))
+    ss_tot = float(np.sum((S - S.mean()) ** 2))
+    r_squared = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
+    return float(c), r_squared

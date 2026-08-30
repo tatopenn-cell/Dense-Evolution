@@ -20,6 +20,21 @@ cannot, since it depends on the joint state of two subsystems, not
 either one alone. Verified against the exact textbook value for a Bell
 pair (`I = 2*ln(2)`, maximal) and a GHZ state.
 
+`central_charge` fits an open-chain entanglement entropy curve `S(L)` to
+the Calabrese-Cardy CFT prediction (Calabrese & Cardy, J. Stat. Mech.
+2004, P06002) and returns the extracted central charge plus fit quality
+(`r_squared`) -- backend-agnostic, meant as a benchmark diagnostic for
+whether a given simulator backend or truncation scheme preserves genuine
+critical CFT scaling. Promoted from
+[Dense-Evolution-Discovery Experiment 36](https://tatopenn-cell.github.io/Dense-Evolution-Discovery/central_charge_calabrese_cardy/),
+which recovered the known Ising CFT value `c=1/2` from a real critical
+transverse-field Ising chain and, along the way, found and documented a
+real pitfall: fitting at a finite-size *susceptibility-peak* pseudo-
+critical point instead of the true self-dual CFT point gives a
+deceptively clean fit (`r_squared=0.999997`) to a wrong answer (`c`
+off by 2x) -- a high `r_squared` alone does not mean the extracted `c` is
+trustworthy.
+
 ::: dense_evolution.physics.entropy
 
 ---
