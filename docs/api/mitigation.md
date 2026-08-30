@@ -294,6 +294,35 @@ feed into one.
 
 ---
 
+## Multi-qubit magic monotone (pure states)
+
+A second, unrelated magic quantity: `stabilizer_renyi_entropy` (Leone, Oliviero, Hamma,
+[arXiv:2106.12587](https://arxiv.org/abs/2106.12587)) is zero for every stabilizer state
+and positive otherwise, like `magic_entropy` above -- but it works on a MULTI-qubit
+pure statevector (`magic_entropy` is single-qubit density-matrices only), and it is a
+genuinely different construction (a Walsh-Hadamard transform of Pauli-string overlaps,
+not the 3-fold self-convolution "Key Unitary" `magic_entropy` uses). Promoted from
+[Dense-Evolution-Discovery's wormhole_magic_entropy.py](https://tatopenn-cell.github.io/Dense-Evolution-Discovery/),
+where it tracked how "magic" a wormhole-teleportation state stayed across the protocol,
+regardless of how well the teleportation itself worked.
+
+```python
+import numpy as np
+from dense_evolution.mitigation import stabilizer_renyi_entropy
+
+ghz = np.zeros(8, dtype=complex)
+ghz[0] = ghz[-1] = 1.0 / np.sqrt(2.0)
+round(stabilizer_renyi_entropy(ghz), 6)
+```
+
+```
+0.0
+```
+
+::: dense_evolution.mitigation.stabilizer_renyi_entropy
+
+---
+
 ## Shadow-based estimation
 
 A classical-shadows-based estimator for `magic_entropy` above, estimating it from randomized

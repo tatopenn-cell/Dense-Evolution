@@ -35,7 +35,8 @@ from .mitigation.zne import (richardson_extrapolate, zero_noise_extrapolation, p
                           polynomial_extrapolate_jit, uhlmann_fidelity_jit, zne_density_matrix_jit)
 from .circuits.diagram import plot_circuit
 from .circuits.topology import entangling_layer
-from .physics.observables import pauli_expectation, pauli_sum_expectation, pauli_hamiltonian_to_matrix, pauli_sum_matvec
+from .physics.observables import (pauli_expectation, pauli_sum_expectation, pauli_hamiltonian_to_matrix,
+                                   pauli_sum_matvec, multiply_pauli_terms)
 from .physics.states import ghz_state
 from .utils.measurement import sample_counts, statevector_fidelity
 from .circuits.qft import qft
@@ -45,7 +46,7 @@ from .solvers.harrison_tb import (ELEMENTS as HARRISON_ELEMENTS, ETA as HARRISON
                                    sp3_dimer_hamiltonian, zincblende_hamiltonian)
 from .solvers.vhd_tb import (MATERIALS as VHD_MATERIALS, sp3s_star_hamiltonian,
                               direct_gap_at_gamma, band_extrema_along_path)
-from .physics.fermions import majorana_pauli_terms
+from .physics.fermions import majorana_pauli_terms, total_parity_operator
 from .physics.entropy import partial_trace, von_neumann_entropy, mutual_information
 from .circuits.trotter import (pauli_rotation_ops, trotter_evolve_ops, continuous_pulse_evolve,
                                 continuous_dissipative_evolve)
@@ -90,8 +91,9 @@ __all__ = [
     # Physics -- states, observables, entropy, fermions, QEC
     "ghz_state",
     "pauli_expectation", "pauli_sum_expectation", "pauli_hamiltonian_to_matrix", "pauli_sum_matvec",
+    "multiply_pauli_terms",
     "partial_trace", "von_neumann_entropy", "mutual_information",
-    "majorana_pauli_terms",
+    "majorana_pauli_terms", "total_parity_operator",
     "pauli_commutes", "compute_syndrome", "erasure_aware_decode", "pymatching_decode", "blind_minimum_weight_decode",
     "decode_with_erasure_fallback", "counts_in_intervals_dimension", "nearest_coset_decode",
     # Utils -- drawing, measurement, random circuits

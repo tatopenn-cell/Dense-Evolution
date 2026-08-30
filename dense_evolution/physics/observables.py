@@ -22,7 +22,7 @@ import numpy as np
 
 __all__ = [
     'pauli_expectation', 'pauli_sum_expectation', 'pauli_hamiltonian_to_matrix',
-    'pauli_sum_matvec',
+    'pauli_sum_matvec', 'multiply_pauli_terms',
 ]
 
 _PAULI_MATRICES = {
@@ -304,3 +304,76 @@ def pauli_sum_matvec(vector, terms, n_qubits=None):
         result += coeff * _apply_pauli_term(vector, normalized, inferred_n_qubits)
 
     return result
+
+
+_SAME_QUBIT_PAULI_PRODUCT = {
+    ('X', 'X'): (1, None), ('Y', 'Y'): (1, None), ('Z', 'Z'): (1, None),
+    ('X', 'Y'): (1j, 'Z'), ('Y', 'X'): (-1j, 'Z'),
+    ('Y', 'Z'): (1j, 'X'), ('Z', 'Y'): (-1j, 'X'),
+    ('Z', 'X'): (1j, 'Y'), ('X', 'Z'): (-1j, 'Y'),
+}
+
+
+def multiply_pauli_terms(factors):
+    """
+    Multiplies several Pauli-string OPERATORS together into one combined
+    term, tracking the i^k phase picked up whenever two factors act on the
+    same qubit (X*Y=iZ, Y*X=-iZ, etc.) -- the exact symbolic algebra
+    needed to compose Pauli strings by hand, e.g. building the "Klein
+    factor" total-parity operator for a set of Jordan-Wigner-mapped
+    Majorana modes (see dense_evolution.physics.fermions.total_parity_operator),
+    or any other manual Pauli-operator product.
+
+    This multiplies OPERATORS (order matters -- Pauli matrices don't
+    commute), unlike pauli_hamiltonian_to_matrix/pauli_sum_expectation,
+    which take a SUM of independent terms (order doesn't matter there).
+
+    Promoted from Dense-Evolution-Discovery's dashboard_core.wormhole
+    module (`_multiply_pauli_dicts`), where it was originally written to
+    combine independently-Jordan-Wigner-mapped Majorana operators across
+    the two sides of a wormhole-teleportation simulation -- a generic
+    Pauli-algebra operation with no dependency on that use case, so it
+    belongs here instead of duplicated wherever it's next needed.
+
+    Parameters
+    ----------
+    factors : iterable of (coeff, pauli_terms)
+        Same (coeff, pauli_terms) pair format pauli_hamiltonian_to_matrix's
+        `terms` accepts -- no bare-term shorthand (a Python int coefficient
+        would be indistinguishable from a bare (qubit, pauli) pair, e.g.
+        (1, 'X'), so this deliberately doesn't try to support one; pass
+        (1.0, pauli_terms) explicitly instead). Applied left to right --
+        the first factor is the leftmost operator in the product.
+
+    Returns
+    -------
+    (complex, dict)
+        combined_coeff : the product of every factor's own coefficient,
+        times the i^k phase accumulated from same-qubit collisions.
+        combined_pauli_dict : {qubit: 'X'|'Y'|'Z'}, identity qubits
+        dropped -- ready for pauli_hamiltonian_to_matrix / pauli_expectation
+        / another multiply_pauli_terms call.
+
+    Examples
+    --------
+    >>> multiply_pauli_terms([(1.0, 'X'), (1.0, 'Y')])  # X0 * Y0 = i*Z0
+    (1j, {0: 'Z'})
+    >>> multiply_pauli_terms([(2.0, 'X'), (3.0, {1: 'Z'})])  # disjoint qubits, no collision
+    (6.0, {0: 'X', 1: 'Z'})
+    """
+    merged = {}
+    total_coeff = 1.0 + 0j
+    for coeff, pauli_terms in factors:
+        total_coeff *= coeff
+        normalized = _normalize_terms(pauli_terms)
+        for q, p in normalized.items():
+            if q not in merged:
+                merged[q] = p
+            else:
+                phase, new_p = _SAME_QUBIT_PAULI_PRODUCT[(merged[q], p)]
+                total_coeff *= phase
+                if new_p is None:
+                    del merged[q]
+                else:
+                    merged[q] = new_p
+    return total_coeff, merged
