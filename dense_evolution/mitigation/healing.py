@@ -22,6 +22,8 @@ naming it as such would be the overclaiming this note is trying to
 avoid, not fix.
 """
 
+import warnings
+
 import jax
 import jax.numpy as jnp
 import json
@@ -49,9 +51,35 @@ GLOBAL_CONSTANTS = {
 # =====================================================================
 
 @jax.jit
-def calculate_advanced_sigma(kappa: jnp.ndarray, H: jnp.ndarray, Psi: jnp.ndarray, Omega_sync: jnp.ndarray, tau_K: jnp.ndarray) -> jnp.ndarray:
-    """Calcola la funzione di sincronizzazione avanzata Sigma."""
+def _calculate_advanced_sigma_core(kappa: jnp.ndarray, H: jnp.ndarray, Psi: jnp.ndarray, Omega_sync: jnp.ndarray, tau_K: jnp.ndarray) -> jnp.ndarray:
     return kappa * H * Psi * Omega_sync * tau_K
+
+
+def calculate_advanced_sigma(kappa: jnp.ndarray, H: jnp.ndarray, Psi: jnp.ndarray, Omega_sync: jnp.ndarray, tau_K: jnp.ndarray) -> jnp.ndarray:
+    """Deprecated: kappa*H*Psi*Omega_sync*tau_K, intended as the source of
+    zero_noise_extrapolation's sigma_at_base_noise (see this module's own
+    docs/api/healing.md), but its 5 inputs never had a defined provenance
+    in a ZNE context -- and Dense-Evolution-Discovery Experiment 35
+    (scripts/zne_healing_sigma_provenance.py) has since shown that even a
+    fully-designed input wouldn't matter: a permutation-test negative
+    control (real sigma vs. randomly shuffled sigma) performed
+    statistically identically, meaning the healing-adapted branch's
+    coefficient perturbation doesn't discriminate real signal from noise
+    at all. Kept for backward compatibility only (no known external
+    callers found in Dense-Evolution, Dense-Evolution-Discovery, or
+    Dense-Armor); will be removed in a future major version. This wrapper
+    is intentionally NOT @jax.jit-decorated (unlike the private core it
+    delegates to) so the warning fires on every call, not just once per
+    traced input shape."""
+    warnings.warn(
+        "calculate_advanced_sigma is deprecated: its output was never wired into "
+        "any real pipeline, and Dense-Evolution-Discovery Experiment 35 found the "
+        "one place it could have been used (zero_noise_extrapolation's healing "
+        "branch) does not discriminate real sigma from random noise anyway. "
+        "Will be removed in a future release.",
+        DeprecationWarning, stacklevel=2,
+    )
+    return _calculate_advanced_sigma_core(kappa, H, Psi, Omega_sync, tau_K)
 
 @jax.jit
 def calculate_phi_ab(state_A: jnp.ndarray, state_B: jnp.ndarray, ipg_vector: jnp.ndarray) -> jnp.ndarray:
