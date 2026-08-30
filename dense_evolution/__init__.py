@@ -47,7 +47,7 @@ from .solvers.harrison_tb import (ELEMENTS as HARRISON_ELEMENTS, ETA as HARRISON
 from .solvers.vhd_tb import (MATERIALS as VHD_MATERIALS, sp3s_star_hamiltonian,
                               direct_gap_at_gamma, band_extrema_along_path)
 from .physics.fermions import majorana_pauli_terms, total_parity_operator
-from .physics.entropy import partial_trace, von_neumann_entropy, mutual_information
+from .physics.entropy import partial_trace, von_neumann_entropy, mutual_information, central_charge
 from .circuits.trotter import (pauli_rotation_ops, trotter_evolve_ops, continuous_pulse_evolve,
                                 continuous_dissipative_evolve)
 from .circuits.uccsd import find_excitations, single_excitation_ops, double_excitation_ops
@@ -92,7 +92,7 @@ __all__ = [
     "ghz_state",
     "pauli_expectation", "pauli_sum_expectation", "pauli_hamiltonian_to_matrix", "pauli_sum_matvec",
     "multiply_pauli_terms",
-    "partial_trace", "von_neumann_entropy", "mutual_information",
+    "partial_trace", "von_neumann_entropy", "mutual_information", "central_charge",
     "majorana_pauli_terms", "total_parity_operator",
     "pauli_commutes", "compute_syndrome", "erasure_aware_decode", "pymatching_decode", "blind_minimum_weight_decode",
     "decode_with_erasure_fallback", "counts_in_intervals_dimension", "nearest_coset_decode",
