@@ -27,8 +27,9 @@ from dense_evolution import DenseSVSimulator, GATES, healing
 class TestPredictiveHealingCore:
 
     def test_advanced_sigma_is_product_of_inputs(self):
-        s = healing.calculate_advanced_sigma(
-            jnp.array(2.0), jnp.array(3.0), jnp.array(1.0), jnp.array(1.0), jnp.array(1.0))
+        with pytest.warns(DeprecationWarning, match="calculate_advanced_sigma is deprecated"):
+            s = healing.calculate_advanced_sigma(
+                jnp.array(2.0), jnp.array(3.0), jnp.array(1.0), jnp.array(1.0), jnp.array(1.0))
         assert float(s) == pytest.approx(6.0)
 
     def test_phi_ab_identical_states_returns_baseline_0_7(self):

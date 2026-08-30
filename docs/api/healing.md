@@ -38,8 +38,15 @@ healing-adapted branch (triggered by passing `sigma_at_base_noise`) calls
 `calculate_delta_preemp` from this module. Unlike `run_vector_healing`
 above, this branch is **not** currently reachable from the kernel or MCP:
 `dashboard_core.run_zne_mitigation` never passes `sigma_at_base_noise`,
-and the kernel's `MitigateRequest` has no field for it — deliberately
-left as a known follow-up rather than wired up speculatively, since
-`calculate_advanced_sigma` (the usual source of a real `sigma_at_base_noise`
-value) itself needs `kappa`/`H`/`Psi`/`Omega_sync`/`tau_K` inputs whose
-provenance in a ZNE context isn't yet designed.
+and the kernel's `MitigateRequest` has no field for it. This was
+originally left as a known follow-up pending `calculate_advanced_sigma`'s
+undefined input provenance — that question has since been closed, not
+completed: Dense-Evolution-Discovery Experiment 35
+(`scripts/zne_healing_sigma_provenance.py`) fed the branch a real,
+oracle-free `sigma_at_base_noise` (the empirical std of the noisy trial
+ensemble) and found, via a permutation-test negative control, that the
+branch's coefficient perturbation doesn't discriminate real sigma from
+randomly shuffled sigma at all — a confound, not a usable signal. Wiring
+this branch up would not have helped even with fully-designed inputs.
+`calculate_advanced_sigma` is now deprecated (`DeprecationWarning`,
+kept for backward compatibility only) rather than completed.
