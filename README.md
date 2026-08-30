@@ -2,9 +2,7 @@
   <img src="docs/assets/banner.svg" alt="Dense Evolution — NISQ quantum simulation toolkit, JAX-native" width="900">
 </p>
 
-<p align="center">
-  <a href="https://tatopenn-cell.github.io/Dense-Evolution/mindmap/"><strong>🧠 New here? Start with the interactive Mind Map</strong></a> — click any module to see what it does and how it connects.
-</p>
+
 
 <!-- mcp-name: io.github.tatopenn-cell/dense-evolution -->
 **A high-performance quantum simulation toolkit
