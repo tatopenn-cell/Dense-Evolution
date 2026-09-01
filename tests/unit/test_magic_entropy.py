@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from dense_evolution.mitigation import magic_entropy, magic_entropy_jit
-from dense_evolution.mitigation.magic_entropy import _KEY_UNITARY_K3, _self_convolve_3_core
+from dense_evolution.mitigation.magic_entropy import _key_unitary_k3, _self_convolve_3_core
 
 
 def _sv_to_rho(sv):
@@ -42,7 +42,7 @@ def test_key_unitary_matches_paper_lemma_9_identity():
             for x3 in (0, 1):
                 idx_in = (x1 << 2) | (x2 << 1) | x3
                 sv_in = jnp.zeros(8, dtype=jnp.complex128).at[idx_in].set(1.0)
-                sv_out = _KEY_UNITARY_K3 @ sv_in
+                sv_out = _key_unitary_k3() @ sv_in
                 y1, y2, y3 = x1 ^ x2 ^ x3, x2 ^ x1, x3 ^ x1
                 idx_expected = (y1 << 2) | (y2 << 1) | y3
                 out_idx = int(jnp.argmax(jnp.abs(sv_out)))
@@ -51,7 +51,7 @@ def test_key_unitary_matches_paper_lemma_9_identity():
 
 
 def test_key_unitary_is_unitary():
-    v = _KEY_UNITARY_K3
+    v = _key_unitary_k3()
     identity = jnp.eye(8, dtype=jnp.complex128)
     assert np.allclose(np.array(v @ jnp.conj(v).T), np.array(identity), atol=1e-10)
 
