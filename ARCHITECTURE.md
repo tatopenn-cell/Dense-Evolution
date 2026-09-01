@@ -158,6 +158,140 @@ graph TD
   repo) after being validated there first — see each module's own docstring for the
   originating experiment/paper.
 
+## Real dependency contracts (not the same as the package grouping above)
+
+The `graph TD` above shows package *membership*, not *who actually imports whom*. The
+real cross-subpackage import edges (from `grep -rn "^from \.\.\|^from dense_evolution\."`
+across every module, not guessed):
+
+```text
+backends/statevector.py  -> circuits/{registry,gates,compiler}, config
+circuits/registry.py     -> config, noise/ (NoiseModel, NoiseSpec)
+physics/states.py        -> circuits/topology
+mitigation/zne.py        -> noise/ (global_depolarizing_channel, amplitude_damping_channel, cosmic_ray_burst_profile)
+solvers/autodiff.py      -> circuits/{parser,gates,compiler,registry}, config
+interop/qiskit_pennylane -> circuits/parser, backends/statevector
+noise/coherent_attack.py -> physics/qec (compute_syndrome)
+native_hf/*               fully self-contained internal DAG (basis -> gaussians/overlap;
+                           assembly -> basis/cartesian/gaussians/overlap/kinetic/coulomb;
+                           bridge -> basis/assembly/scf), touches the rest of the package
+                           only via PennyLane's own qml.Hamiltonian return type
+```
+
+Two facts worth being explicit about, since they contradict what the package-grouping
+diagram alone would suggest:
+
+- **`solvers/autodiff.py` imports nothing from `backends/` or `physics/`.** The Hamiltonian
+  it needs (`h_matrix`) is supplied by the *caller* — a dense matrix from
+  `physics/observables.py`, or a [`PauliSumOperator`](https://tatopenn-cell.github.io/Dense-Evolution/api/observables/)
+  — never imported internally. `circuit_to_energy_fn` only depends on `circuits/` (to
+  parse/transpile/compile the ansatz) and `config` (to enable `x64`).
+- **`circuits/compiler.py`'s `_compile_and_run_circuit_jit` is the one shared execution
+  kernel** both `DenseSVSimulator.run_circuit_jit` (`backends/statevector.py`) and
+  `circuit_to_energy_fn`'s `energy_fn` (`solvers/autodiff.py`) call — not two independent
+  reimplementations of "run a circuit." A correctness fix or performance change there
+  affects both the plain simulator path and the differentiable-VQE path identically.
+- **`physics/observables.py`, `physics/entropy.py`, `physics/fermions.py`, `physics/qec.py`
+  have zero dependency on `backends/` or `circuits/`** (the one exception,
+  `noise/coherent_attack.py -> physics/qec.py`, runs the other direction). They're pure
+  array-in/array-out math — a bare statevector or density matrix, never a simulator
+  instance — which is what lets [`PauliSumOperator`](https://tatopenn-cell.github.io/Dense-Evolution/api/observables/)
+  drop into `circuit_to_energy_fn`'s `h_matrix` slot with no simulator-side change needed.
+
+## End-to-end execution flow
+
+```text
+QASM string
+    |
+    v
+QASMParser().parse(...)  -->  QASMCircuit
+    |
+    v
+QuantumTranspiler  (decomposes ccx/swap/etc. into this package's native gate set)
+    |
+    +-- eager path (DenseSVSimulator.run_circuit) --------- one Python call per gate
+    |
+    +-- jit path (both of the below build a (n_ops, 4) float64 template array,
+    |             [g_id, q1, q2, param], then hand it to the SAME shared kernel):
+    |       DenseSVSimulator.run_circuit_jit  ---------\
+    |       circuit_to_energy_fn's energy_fn  ----------+-->  circuits/compiler.py
+    |                                                          _compile_and_run_circuit_jit
+    |                                                          (jax.lax.scan over ops,
+    |                                                           one @jax.jit XLA call)
+    v
+statevector (2**n_qubits complex128, or complex64 -- see Design invariants)
+    |
+    +--> physics/observables.py, physics/entropy.py, utils/measurement.py
+    |    (pauli_expectation, partial_trace, sample_counts, ... -- pure functions,
+    |     no further dependency on how the statevector was produced)
+    |
+    +--> h_matrix @ statevector  (solvers/autodiff.py, only inside circuit_to_energy_fn)
+             |
+             v
+         energy  --jax.grad-->  d(energy)/d(theta)  -->  optimizer step (e.g. optax.adam)
+```
+
+The static/dynamic split that matters for JAX tracing: `n_qubits`, the transpiled gate
+*sequence* (which gates, which qubits, in what order), and `n_params` are all static —
+fixed once `circuit_to_energy_fn(circuit, n_qubits)` is called, baked into the traced
+graph. Only `theta` (and, when given, `noise.p`/`noise.jax_key`) are dynamic — the
+values `jax.grad`/`jax.jit` actually trace through.
+
+## Memory model
+
+- **`DenseSVSimulator`**: one dense statevector, `O(2**n_qubits)` complex128 entries —
+  16MB at 20 qubits, ~4GB at 28 qubits (`QuantumHardwareRegistry`'s own top
+  `max_dense_qubits` tier, at `ram_total >= 50` GB) — the practical ceiling on a single
+  machine, not this simulator's fault: no dense-statevector method anywhere can do
+  better.
+- **`MPSSimulator`**: `n_qubits` tensors of shape roughly `(chi, 2, chi)`, `O(n_qubits *
+  max_bond**2)` — bounded, not exponential, at the cost of a bond-dimension truncation
+  (adaptive, JSD-budget-driven — see the class docstring) that is exact only up to that
+  truncation, not a free lunch.
+- **`Chunk`**: splits a `2**n_qubits` statevector into `N_chunks` pieces of `O(2**k)`
+  each (`k = n_qubits - log2(N_chunks)`), across multiple devices or, past device memory,
+  disk (`disk_overflow`) — governed by `SafeMemoryGuard`, which refuses an allocation
+  outright below a configured available-memory threshold rather than letting the OS
+  start swapping. `QuantumHardwareRegistry.max_dense_qubits` (see `circuits/registry.py`)
+  is a *suggested* ceiling from this machine's own RAM (three fixed tiers), not an
+  enforced one — `Chunk`/`SafeMemoryGuard` is the actual enforcement mechanism.
+
+Note that Pauli-sum-based Hamiltonians (`PauliSumOperator`, `pauli_sum_matvec`) are a
+separate, orthogonal memory axis from all three of the above: they avoid the `O(4**n)`
+*Hamiltonian matrix* `pauli_hamiltonian_to_matrix` would otherwise require — 4GB already
+at 14 qubits — independent of which statevector backend is in use.
+
+## Design invariants
+
+- **Qubit 0 is the most significant bit** of every basis-state index, throughout —
+  `backends/statevector.py`, `physics/observables.py`, `physics/entropy.py`,
+  `physics/fermions.py`, `backends/chunk/` all share this convention. The one prior
+  exception in the codebase (`dashboard_core/state_visuals.py`'s private, single-qubit-
+  only `_reduced_density_matrix`, little-endian) is exactly why `physics/entropy.py`
+  documents this explicitly rather than assuming a caller already knows.
+- **`complex128` is the default scientific precision, enabled lazily.** `jax_enable_x64`
+  is a process-wide JAX flag — `dense_evolution/config.py`'s `ensure_x64()` turns it on
+  the first time `DenseSVSimulator`, `QuantumHardwareRegistry`, or `circuit_to_energy_fn`
+  is constructed/called, never at import time (so `import dense_evolution` alone never
+  silently overrides a precision a caller configured for unrelated JAX code already
+  running). `physics/observables.py`'s `_jax`-suffixed functions
+  (`pauli_sum_matvec_jax`, `pauli_sum_expectation_jax`, `PauliSumOperator`) are pure math
+  with no opinion on global JAX state — call `set_precision(True)` yourself first if
+  using them standalone, before anything else has a chance to enable `x64` (verified
+  directly: skipping this gives `~1e-7` relative accuracy instead of `~1e-16`, no error).
+- **Compatibility shims contain zero logic** — re-export only, never edited directly
+  (see "How to read this" above).
+- **The `theta -> energy(theta)` path must stay differentiable end to end.** Any
+  operation on a traced value that forces concretization (`float()`, `np.asarray()`,
+  a Python-level `if` branching on a traced value's truth) silently breaks `jax.grad` —
+  this is exactly why `pauli_sum_matvec`/`pauli_sum_expectation` (numpy-based) needed
+  `_jax` counterparts rather than being used directly inside `circuit_to_energy_fn`.
+- **Scientific safety: raise, never silently degrade.** An unsupported gate in
+  `circuit_to_energy_fn`'s template builder raises `ValueError` naming the gate rather
+  than being silently dropped from the traced circuit; `physics/qec.py`'s decoders
+  return `None` on an ambiguous syndrome rather than guessing. A wrong-but-plausible
+  number is worse than a loud failure in a scientific simulator.
+
 ## Maintenance
 
 Regenerate the `graph TD` block above (not by hand — re-run `find dense_evolution -name
