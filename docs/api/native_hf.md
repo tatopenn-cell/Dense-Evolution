@@ -82,10 +82,29 @@ silent wrong energy for an incomplete basis.
 [lowdanie/hartree-fock-solver](https://github.com/lowdanie/hartree-fock-solver)
 ("slaterform", Apache-2.0, studied as a reference for structuring the Obara-Saika
 recursion with `jax.lax.scan` -- no source code copied) to machine precision on
-individual integrals, and to 10 significant figures on Si2/STO-3G's full SCF energy.
-Algorithm background also drawn from PennyLane's own white paper (Delgado et al.,
-"Differentiable quantum computational chemistry with PennyLane",
-[arXiv:2111.09967](https://arxiv.org/abs/2111.09967)).
+individual integrals. The original Si2/STO-3G full-SCF-energy cross-check against
+slaterform predates the DIIS/Si2-convergence fix below and has not been re-run against
+the corrected energy -- the per-integral cross-check is unaffected (integrals don't
+depend on how the SCF loop converges), but the end-to-end Si2 number should be treated
+as not yet re-verified against this independent reference. Algorithm background also
+drawn from PennyLane's own white paper (Delgado et al., "Differentiable quantum
+computational chemistry with PennyLane", [arXiv:2111.09967](https://arxiv.org/abs/2111.09967)).
+
+**SCF convergence (`run_scf`)**: DIIS-accelerated (Pulay 1980/1982) by default, not
+plain linear damping -- see [the module's own docstring](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/dense_evolution/native_hf/scf.py)
+for the real Si2 near-degenerate-orbital case that motivated this (11 DIIS iterations
+vs. 53 for damping alone, same converged energy to 12 significant figures) and requires
+both density and energy to stop changing before declaring convergence, not density
+alone.
+
+**AO-to-MO integral transformation**: `bridge._ao_to_mo`'s 4-index `einsum` +
+`swapaxes` (converting AO-basis integrals to the molecular-orbital basis, using the
+converged Hartree-Fock coefficients) is exactly the kind of operation where an
+index-ordering mistake can produce a plausible-looking but numerically wrong
+Hamiltonian -- cross-checked against two independent references: a sequential
+one-index-at-a-time transform (a different algorithm computing the same quantity, not
+a copy of the code under test) to `1e-10`, and a real physical invariant on H2 (a
+basis change alone cannot alter the total electronic energy) to `1e-10`.
 
 **Production entry point**: [`dashboard_core.hamiltonians`](dashboard_core_hamiltonians.md)
 calls this engine automatically (`bridge.build_qubit_hamiltonian`) whenever a requested
