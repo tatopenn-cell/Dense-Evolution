@@ -301,6 +301,24 @@ class TestPauliSumJax:
         with pytest.raises(ValueError):
             pauli_sum_matvec_jax(jnp.zeros(5, dtype=jnp.complex128), [(1.0, {0: 'Z'})])
 
+    def test_expectation_jax_qubit_out_of_range_raises(self):
+        with pytest.raises(ValueError):
+            pauli_sum_expectation_jax(jnp.zeros(4, dtype=jnp.complex128), [(1.0, {5: 'Z'})])
+
+    def test_expectation_jax_statevector_length_not_a_power_of_two_raises(self):
+        with pytest.raises(ValueError):
+            pauli_sum_expectation_jax(jnp.zeros(5, dtype=jnp.complex128), [(1.0, {0: 'Z'})])
+
+    def test_identity_only_term_is_a_no_op_on_the_jax_path(self):
+        # _apply_pauli_term_jax's `if not terms: return statevector` branch
+        # -- an all-identity Pauli term (every qubit 'I', or an empty dict)
+        # normalizes to {} and must leave the vector untouched, matching
+        # the numpy _apply_pauli_term's identical early-return.
+        rng = np.random.default_rng(9)
+        v = jnp.asarray(rng.normal(size=8) + 1j * rng.normal(size=8))
+        result = pauli_sum_matvec_jax(v, [(2.0, 'III')], n_qubits=3)
+        np.testing.assert_allclose(np.asarray(result), 2.0 * np.asarray(v))
+
     def test_matches_dense_matrix_at_whatever_precision_x64_is_set_to(self):
         # Real gap found building the H10 VQE demo (Dense-Evolution-Discovery
         # scripts/vqe_pauli_sum_zne_autodiff.py): pauli_sum_matvec_jax never
