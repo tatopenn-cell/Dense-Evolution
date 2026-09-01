@@ -24,6 +24,24 @@ full derivation, and
 [Dense-Evolution-Discovery's wormhole_magic_entropy.py](https://tatopenn-cell.github.io/Dense-Evolution-Discovery/)
 for the real construction this was promoted from.
 
+`hubbard_hamiltonian_pauli_terms` uses the OTHER standard Jordan-Wigner
+convention — ordinary spin-orbital creation/annihilation operators
+(`c_q = sigma+_q * Z-string`, not Majoranas) — to map the 1D Hubbard-ring
+Hamiltonian `H = -t*sum_<ij>,sigma (c^dagger_i c_j + h.c.) + U*sum_i
+n_i,up*n_i,down` onto Pauli terms. With `n_sites=4` and `periodic=True`
+this is the "Hubbard square" studied in Arovas, Bandyopadhyay & Zhu,
+"The Hubbard Model" (Annual Review of Condensed Matter Physics 2022,
+arXiv:2103.12097) — Table 2 (p.6) gives a closed-form small-`U/t`
+perturbative ground-state energy for this exact model, and identifies
+its ground state's orbital symmetry as `x^2-y^2` (B1g/d-wave). See
+[Dense-Evolution-Discovery's hubbard_square_arovas.py](https://tatopenn-cell.github.io/Dense-Evolution-Discovery/)
+(Experiment 38) for the full verification: the perturbative formula
+checked directly against the paper's own text, and the periodic
+wraparound bond (the one place a naive Jordan-Wigner implementation
+could plausibly need an extra parity correction) checked against an
+independent brute-force fermionic construction — machine-exact
+agreement, not assumed from the formula alone.
+
 ::: dense_evolution.physics.fermions
 
 ---

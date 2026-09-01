@@ -3,7 +3,7 @@ from .states import ghz_state
 from .observables import (pauli_expectation, pauli_sum_expectation, pauli_hamiltonian_to_matrix,
                            pauli_sum_matvec, multiply_pauli_terms)
 from .entropy import partial_trace, von_neumann_entropy, mutual_information, central_charge
-from .fermions import majorana_pauli_terms, total_parity_operator
+from .fermions import majorana_pauli_terms, total_parity_operator, hubbard_hamiltonian_pauli_terms
 from .qec import (pauli_commutes, compute_syndrome, erasure_aware_decode, pymatching_decode,
                    blind_minimum_weight_decode, nearest_coset_decode)
 
@@ -12,7 +12,7 @@ __all__ = [
     "pauli_expectation", "pauli_sum_expectation", "pauli_hamiltonian_to_matrix", "pauli_sum_matvec",
     "multiply_pauli_terms",
     "partial_trace", "von_neumann_entropy", "mutual_information", "central_charge",
-    "majorana_pauli_terms", "total_parity_operator",
+    "majorana_pauli_terms", "total_parity_operator", "hubbard_hamiltonian_pauli_terms",
     "pauli_commutes", "compute_syndrome", "erasure_aware_decode", "pymatching_decode", "blind_minimum_weight_decode",
     "nearest_coset_decode",
 ]
