@@ -20,14 +20,14 @@ n_qubits, hf_result.converged, hf_result.n_iterations, hf_result.total_energy
 ```
 
 ```
-(4, True, 13, -1.1166843352600253)
+(4, True, 3, -1.116684335260025)
 ```
 
 `build_qubit_hamiltonian(atomic_numbers, geometry_angstrom, n_electrons)` runs the full
 pipeline -- Obara-Saika integrals, then Hartree-Fock self-consistent-field iteration
-(`run_scf`) -- for H2 (two protons, atomic number 1, `0.7414` Angstrom apart, the real
-equilibrium bond length) in the default STO-3G minimal basis. It converged in 13
-iterations to a mean-field energy of `-1.1167` Ha. `H` is a `qml.Hamiltonian` -- the
+(`run_scf`, DIIS-accelerated) -- for H2 (two protons, atomic number 1, `0.7414` Angstrom
+apart, the real equilibrium bond length) in the default STO-3G minimal basis. It
+converged in 3 iterations to a mean-field energy of `-1.1167` Ha. `H` is a `qml.Hamiltonian` -- the
 converged result still goes through PennyLane's own `fermionic_observable` +
 `jordan_wigner` for the qubit mapping, since that stage was already fast and
 well-tested; this module only replaces the slow integral/SCF stage.
@@ -51,7 +51,7 @@ float(np.min(np.linalg.eigvalsh(H_dense)))
 ```
 
 ```
--1.1372701878105915
+-1.1372701878105904
 ```
 
 Converting `H`'s Pauli terms to [`pauli_hamiltonian_to_matrix`](observables.md)'s format
