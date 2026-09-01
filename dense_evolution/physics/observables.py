@@ -19,10 +19,12 @@ qubit 0 upward (`pauli_terms[q]` is the operator on qubit q), independent
 of this internal bit-position detail.
 """
 import numpy as np
+import jax.numpy as jnp
 
 __all__ = [
     'pauli_expectation', 'pauli_sum_expectation', 'pauli_hamiltonian_to_matrix',
     'pauli_sum_matvec', 'multiply_pauli_terms',
+    'pauli_sum_matvec_jax', 'pauli_sum_expectation_jax', 'PauliSumOperator',
 ]
 
 _PAULI_MATRICES = {
@@ -304,6 +306,148 @@ def pauli_sum_matvec(vector, terms, n_qubits=None):
         result += coeff * _apply_pauli_term(vector, normalized, inferred_n_qubits)
 
     return result
+
+
+def _apply_pauli_term_jax(statevector, terms, inferred_n_qubits):
+    """JAX-native counterpart of _apply_pauli_term -- pure jnp ops, no
+    np.asarray/float() cast on `statevector`, so this stays valid under
+    jax.grad/jax.jit tracing (same split as _jsd_vectors/_jsd_vectors_jax
+    in dense_evolution.backends.mps). `terms` (already-normalized dict)
+    and `inferred_n_qubits` are always plain Python objects, never traced
+    -- only `statevector` is ever a tracer here."""
+    if not terms:
+        return statevector
+
+    def bit_pos(q):
+        return inferred_n_qubits - 1 - q
+
+    flip_mask = 0
+    for q, p in terms.items():
+        if p in ('X', 'Y'):
+            flip_mask |= (1 << bit_pos(q))
+
+    dim = statevector.shape[0]
+    indices = jnp.arange(dim)
+    source_idx = indices ^ flip_mask
+
+    coeff = jnp.ones(dim, dtype=jnp.complex128)
+    for q, p in terms.items():
+        bit = (source_idx >> bit_pos(q)) & 1
+        if p == 'Y':
+            coeff = coeff * jnp.where(bit == 0, 1j, -1j)
+        elif p == 'Z':
+            coeff = coeff * jnp.where(bit == 0, 1.0, -1.0)
+
+    return statevector[source_idx] * coeff
+
+
+def pauli_sum_matvec_jax(vector, terms, n_qubits=None):
+    """JAX-native counterpart of pauli_sum_matvec: H @ vector for a
+    Hamiltonian given as a weighted sum of Pauli strings, never building
+    the 2**n_qubits matrix -- but pure jnp internally (no np.asarray/
+    float() on `vector`), so unlike pauli_sum_matvec itself this stays
+    valid under jax.grad/jax.jit tracing. Verified to agree with
+    pauli_sum_matvec to floating-point precision, and to give correct
+    gradients (matching a dense pauli_hamiltonian_to_matrix reference)
+    -- see test_pauli_sum_jax_matches_numpy_and_is_differentiable.
+
+    `terms`/`n_qubits` must stay plain Python objects (never traced) --
+    only `vector` may be a JAX tracer.
+
+    PRECISION GOTCHA: this function never calls dense_evolution.config's
+    ensure_x64() itself (it's a pure math function, no opinion on global
+    JAX state) -- if nothing else in the process has constructed a
+    DenseSVSimulator/QuantumHardwareRegistry/circuit_to_energy_fn yet
+    (the only things that call ensure_x64() lazily), JAX is still at its
+    float32 default, and this silently runs at complex64 precision with
+    no error, just ~1e-7 relative accuracy instead of ~1e-16 -- verified
+    directly (a standalone correctness selftest run before constructing
+    anything else failed at max_diff=7.10e-07, exactly float32 relative
+    precision, until dense_evolution.set_precision(True) was called
+    first). Call dense_evolution.set_precision(True) yourself up front
+    if you're using this standalone, before anything else has a chance
+    to enable x64 for you.
+
+    This is what lets a differentiable VQE loop reach 20+ qubits at all.
+    circuit_to_energy_fn's own h_matrix @ statevector path needs a dense
+    (2**n_qubits, 2**n_qubits) matrix -- physically impossible to hold
+    much past ~14 qubits (2**28 complex128 entries = 4GB, x4 per extra
+    qubit) -- while the statevector itself stays linear in dim (2**20
+    complex128 = 16MB at 20 qubits, no problem at all). Drop this in as
+    circuit_to_energy_fn's `h_matrix` argument via PauliSumOperator
+    (below), whose only job is wrapping this behind `__matmul__` since
+    that's the only operation energy_fn performs on h_matrix:
+
+        from dense_evolution import circuit_to_energy_fn, PauliSumOperator
+        energy_fn, n_params = circuit_to_energy_fn(circuit, n_qubits=20)
+        h_op = PauliSumOperator(terms, n_qubits=20)
+        energy, sv = energy_fn(theta, h_op)
+        grad = jax.grad(lambda th: energy_fn(th, h_op)[0])(theta)
+    """
+    dim = vector.shape[0]
+    inferred_n_qubits = dim.bit_length() - 1
+    if 1 << inferred_n_qubits != dim:
+        raise ValueError(f"vector length {dim} is not a power of 2")
+
+    vector = jnp.asarray(vector, dtype=jnp.complex128)
+    result = jnp.zeros(dim, dtype=jnp.complex128)
+    for coeff, pauli_terms in terms:
+        normalized = _normalize_terms(pauli_terms, n_qubits)
+        if normalized and max(normalized) >= inferred_n_qubits:
+            raise ValueError(
+                f"term references qubit {max(normalized)}, but vector only "
+                f"spans {inferred_n_qubits} qubits")
+        result = result + coeff * _apply_pauli_term_jax(vector, normalized, inferred_n_qubits)
+
+    return result
+
+
+def pauli_sum_expectation_jax(statevector, terms, n_qubits=None):
+    """JAX-native counterpart of pauli_sum_expectation -- same
+    sum_i coeff_i * <psi|P_i|psi>, pure jnp internally so it stays valid
+    under jax.grad/jax.jit (unlike pauli_sum_expectation, whose
+    np.asarray(statevector) forces concretization). Returns a jnp float
+    scalar, not a Python float -- call float(...) yourself outside a
+    traced context if you need one. `terms`/`n_qubits` must stay plain
+    Python objects; only `statevector` may be a tracer."""
+    dim = statevector.shape[0]
+    inferred_n_qubits = dim.bit_length() - 1
+    if 1 << inferred_n_qubits != dim:
+        raise ValueError(f"statevector length {dim} is not a power of 2")
+
+    statevector = jnp.asarray(statevector, dtype=jnp.complex128)
+    total = jnp.zeros((), dtype=jnp.float64)
+    for coeff, pauli_terms in terms:
+        normalized = _normalize_terms(pauli_terms, n_qubits)
+        if normalized and max(normalized) >= inferred_n_qubits:
+            raise ValueError(
+                f"term references qubit {max(normalized)}, but statevector only "
+                f"spans {inferred_n_qubits} qubits")
+        p_psi = _apply_pauli_term_jax(statevector, normalized, inferred_n_qubits)
+        total = total + coeff * jnp.real(jnp.vdot(statevector, p_psi))
+
+    return total
+
+
+class PauliSumOperator:
+    """Matrix-free Hamiltonian wrapper: presents a Pauli-sum Hamiltonian
+    (the same `terms` format pauli_sum_expectation/pauli_sum_matvec_jax
+    accept) as an object supporting `@`, so it can be dropped in wherever
+    a dense h_matrix is expected without ever materializing one.
+
+    Written specifically for circuit_to_energy_fn(circuit, n_qubits)'s
+    energy_fn(theta, h_matrix, ...), whose only use of h_matrix is
+    `h_matrix @ statevector` -- see pauli_sum_matvec_jax's docstring for
+    the full worked example. `terms`/`n_qubits` are fixed at construction
+    (plain Python objects, never traced); only the vector passed to
+    `@` may be a JAX tracer, keeping the whole thing jax.grad-safe."""
+
+    def __init__(self, terms, n_qubits):
+        self.terms = terms
+        self.n_qubits = n_qubits
+
+    def __matmul__(self, vector):
+        return pauli_sum_matvec_jax(vector, self.terms, n_qubits=self.n_qubits)
 
 
 _SAME_QUBIT_PAULI_PRODUCT = {

@@ -29,11 +29,13 @@ snapshot, from a recorded basis+outcome).
 Restricted to SINGLE-QUBIT density matrices, matching `magic_entropy`'s
 own scope.
 """
+import functools
+
 import jax
 import jax.numpy as jnp
 import numpy as np
 
-from .magic_entropy import _KEY_UNITARY_K3
+from .magic_entropy import _key_unitary_k3
 
 __all__ = [
     "sample_classical_shadow", "magic_entropy_from_shadows",
@@ -42,9 +44,16 @@ __all__ = [
 
 # Single-qubit random-Pauli classical shadow protocol (Huang, Kueng,
 # Preskill 2020, eq. 2-3): the three diagonalizing unitaries for X, Y, Z.
-_H = jnp.array([[1.0, 1.0], [1.0, -1.0]], dtype=jnp.complex128) / jnp.sqrt(2.0)
-_SDAG = jnp.array([[1.0, 0.0], [0.0, -1j]], dtype=jnp.complex128)
-_BASIS_U = jnp.stack([_H, _H @ _SDAG, jnp.eye(2, dtype=jnp.complex128)])
+@functools.lru_cache(maxsize=1)
+def _basis_u() -> jnp.ndarray:
+    """Cached, lazily-built stack of the 3 diagonalizing unitaries -- same
+    "defer past the import-time x64 warning" fix as magic_entropy.py's
+    _key_unitary_k3(); see that function's docstring for why a bare
+    module-level `jnp.array(..., dtype=jnp.complex128)` here used to fire
+    a spurious UserWarning on every `import dense_evolution`."""
+    h = jnp.array([[1.0, 1.0], [1.0, -1.0]], dtype=jnp.complex128) / jnp.sqrt(2.0)
+    sdag = jnp.array([[1.0, 0.0], [0.0, -1j]], dtype=jnp.complex128)
+    return jnp.stack([h, h @ sdag, jnp.eye(2, dtype=jnp.complex128)])
 
 
 def sample_classical_shadow(rho: jnp.ndarray, n_snapshots: int, seed: int = 0) -> jnp.ndarray:
@@ -70,8 +79,10 @@ def sample_classical_shadow(rho: jnp.ndarray, n_snapshots: int, seed: int = 0) -
     key_basis, key_bit = jax.random.split(key)
     bases = jax.random.randint(key_basis, (n_snapshots,), 0, 3)
 
+    basis_u = _basis_u()
+
     def prob0(basis_idx):
-        u = _BASIS_U[basis_idx]
+        u = basis_u[basis_idx]
         rotated = u @ rho @ jnp.conj(u).T
         return jnp.clip(jnp.real(rotated[0, 0]), 0.0, 1.0)
 
@@ -80,7 +91,7 @@ def sample_classical_shadow(rho: jnp.ndarray, n_snapshots: int, seed: int = 0) -
     bits = (uniforms > probs0).astype(jnp.int32)
 
     def snapshot_matrix(basis_idx, bit):
-        u = _BASIS_U[basis_idx]
+        u = basis_u[basis_idx]
         b_ket = jnp.array([1.0, 0.0], dtype=jnp.complex128) * (1 - bit) + \
             jnp.array([0.0, 1.0], dtype=jnp.complex128) * bit
         proj = jnp.outer(b_ket, jnp.conj(b_ket))
@@ -89,31 +100,33 @@ def sample_classical_shadow(rho: jnp.ndarray, n_snapshots: int, seed: int = 0) -
     return jax.vmap(snapshot_matrix)(bases, bits)
 
 
+@functools.lru_cache(maxsize=1)
 def _o_operators():
     """O_ab = V^dagger (|b><a| (x) I_4) V such that R_ab = Tr[O_ab . rho^{(x)3}]
     -- the same construction `magic_entropy.py`'s `_self_convolve_3_core`
     applies to exact `rho`, here turned into fixed operators so each entry
     is a LINEAR functional of `rho^{(x)3}` (the shape a shadow-snapshot
     U-statistic estimator needs). Reuses this package's own
-    `_KEY_UNITARY_K3` directly rather than duplicating it (unlike
+    `_key_unitary_k3()` directly rather than duplicating it (unlike
     Dense-Evolution-Discovery's per-script self-containment convention,
     this library's internal modules import from each other freely). The
     `|b><a|` (not `|a><b|`) projector is deliberate: a direct index-expansion
     check (not just the cyclic-trace derivation, which looks right on paper
     but hides the swap) showed `Tr[(|a><b| (x) I) M] = R_ba`, not `R_ab` --
     caught in Discovery Experiment 31 by a unit test checking matrix
-    entries directly, not just the downstream entropy."""
+    entries directly, not just the downstream entropy.
+
+    Cached/lazy (functools.lru_cache), not a bare module-level constant
+    -- same "defer past the import-time x64 warning" fix as
+    magic_entropy.py's _key_unitary_k3() and this module's _basis_u()."""
     i4 = jnp.eye(4, dtype=jnp.complex128)
-    v = _KEY_UNITARY_K3
+    v = _key_unitary_k3()
     ops = {}
     for a in range(2):
         for b in range(2):
             proj_ba = jnp.zeros((2, 2), dtype=jnp.complex128).at[b, a].set(1.0)
             ops[(a, b)] = jnp.conj(v).T @ jnp.kron(proj_ba, i4) @ v
     return ops
-
-
-_O_AB = _o_operators()
 
 
 def _median_of_means(values: np.ndarray, n_groups: int) -> float:
@@ -172,7 +185,7 @@ def magic_entropy_from_shadows(shadow_snapshots: jnp.ndarray, n_groups: int = 20
     rho3_batch = jax.vmap(triple_kron)(triples)
 
     r_hat = jnp.zeros((2, 2), dtype=jnp.complex128)
-    for (a, b), o_ab in _O_AB.items():
+    for (a, b), o_ab in _o_operators().items():
         vals = np.array(jnp.einsum("ij,tji->t", o_ab, rho3_batch))
         real_part = _median_of_means(vals.real, n_groups)
         imag_part = _median_of_means(vals.imag, n_groups)

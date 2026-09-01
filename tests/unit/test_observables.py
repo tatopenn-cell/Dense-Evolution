@@ -3,6 +3,8 @@ Unit tests for dense_evolution/observables.py -- pauli_expectation and
 pauli_sum_expectation, cross-checked against brute-force dense Pauli
 matrices (kron products), not just against their own derivation.
 """
+import jax
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
@@ -10,7 +12,11 @@ from dense_evolution import DenseSVSimulator
 from dense_evolution.observables import (
     pauli_expectation, pauli_sum_expectation, pauli_hamiltonian_to_matrix, pauli_sum_matvec,
 )
-from dense_evolution.physics.observables import multiply_pauli_terms
+from dense_evolution.physics.observables import (
+    multiply_pauli_terms, pauli_sum_matvec_jax, pauli_sum_expectation_jax, PauliSumOperator,
+)
+from dense_evolution.solvers.autodiff import circuit_to_energy_fn
+from dense_evolution.circuits.parser import QASMParser
 
 _PAULI_MATS = {
     'I': np.eye(2, dtype=complex),
@@ -205,6 +211,116 @@ class TestPauliSumMatvec:
     def test_qubit_out_of_range_raises(self):
         with pytest.raises(ValueError):
             pauli_sum_matvec(np.zeros(4, dtype=complex), [(1.0, {5: 'Z'})])
+
+
+class TestPauliSumJax:
+    """pauli_sum_matvec_jax/pauli_sum_expectation_jax -- the JAX-native
+    (jax.grad/jax.jit-traceable) counterparts needed to run a
+    differentiable VQE past the ~14-qubit ceiling of circuit_to_energy_fn's
+    dense h_matrix @ statevector path. Cross-checked against the numpy
+    originals for correctness, and against a dense pauli_hamiltonian_to_matrix
+    reference for gradient correctness -- not just that they run under
+    jax.grad, but that the gradient they produce is the right one."""
+
+    def test_matvec_matches_numpy_version(self):
+        rng = np.random.default_rng(21)
+        n_qubits, dim = 4, 16
+        letters = ['I', 'X', 'Y', 'Z']
+        for _ in range(50):
+            n_terms = rng.integers(1, 6)
+            terms = [
+                (float(rng.normal()), ''.join(rng.choice(letters) for _ in range(n_qubits)))
+                for _ in range(n_terms)
+            ]
+            v = rng.normal(size=dim) + 1j * rng.normal(size=dim)
+            expected = pauli_sum_matvec(v, terms, n_qubits=n_qubits)
+            actual = pauli_sum_matvec_jax(jnp.asarray(v), terms, n_qubits=n_qubits)
+            assert np.allclose(np.asarray(actual), expected, atol=1e-9)
+
+    def test_expectation_matches_numpy_version(self):
+        rng = np.random.default_rng(22)
+        n_qubits, dim = 4, 16
+        letters = ['I', 'X', 'Y', 'Z']
+        for _ in range(50):
+            n_terms = rng.integers(1, 6)
+            terms = [
+                (float(rng.normal()), ''.join(rng.choice(letters) for _ in range(n_qubits)))
+                for _ in range(n_terms)
+            ]
+            psi = rng.normal(size=dim) + 1j * rng.normal(size=dim)
+            psi = psi / np.linalg.norm(psi)
+            expected = pauli_sum_expectation(psi, terms, n_qubits=n_qubits)
+            actual = pauli_sum_expectation_jax(jnp.asarray(psi), terms, n_qubits=n_qubits)
+            assert float(actual) == pytest.approx(expected, abs=1e-9)
+
+    def test_pauli_sum_operator_matmul_matches_matvec_jax(self):
+        terms = [(1.0, 'ZZ'), (0.5, {0: 'X'})]
+        op = PauliSumOperator(terms, n_qubits=2)
+        v = jnp.array([1.0, 0.0, 0.0, 0.0], dtype=jnp.complex128)
+        assert np.allclose(np.asarray(op @ v), np.asarray(pauli_sum_matvec_jax(v, terms, n_qubits=2)))
+
+    def test_circuit_to_energy_fn_via_pauli_sum_operator_matches_dense_h_matrix(self):
+        # The real point of PauliSumOperator: it must be a drop-in for
+        # circuit_to_energy_fn's h_matrix argument, giving the identical
+        # energy AND the identical jax.grad gradient as the dense
+        # pauli_hamiltonian_to_matrix path -- not just "runs without
+        # erroring under jax.grad".
+        n_qubits = 4
+        qasm = (
+            "OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[4];\n"
+            "rx(0.0) q[0];\nrx(0.0) q[1];\nrx(0.0) q[2];\nrx(0.0) q[3];\n"
+            "cx q[0],q[1];\ncx q[1],q[2];\ncx q[2],q[3];\n"
+        )
+        circuit = QASMParser().parse(qasm)
+        energy_fn, n_params = circuit_to_energy_fn(circuit, n_qubits)
+        terms = [(1.0, {0: 'Z', 1: 'Z'}), (0.5, {2: 'X'}), (-0.3, {3: 'Y', 1: 'Y'})]
+        h_op = PauliSumOperator(terms, n_qubits)
+        h_dense = pauli_hamiltonian_to_matrix(terms, n_qubits)
+
+        theta = jnp.array([0.3, 0.5, 0.2, 0.1])
+
+        def loss_sparse(th):
+            e, _ = energy_fn(th, h_op)
+            return e
+
+        def loss_dense(th):
+            e, _ = energy_fn(th, h_dense)
+            return e
+
+        val_sparse, grad_sparse = jax.value_and_grad(loss_sparse)(theta)
+        val_dense, grad_dense = jax.value_and_grad(loss_dense)(theta)
+
+        assert float(val_sparse) == pytest.approx(float(val_dense), abs=1e-9)
+        assert np.allclose(np.asarray(grad_sparse), np.asarray(grad_dense), atol=1e-8)
+
+    def test_matvec_jax_qubit_out_of_range_raises(self):
+        with pytest.raises(ValueError):
+            pauli_sum_matvec_jax(jnp.zeros(4, dtype=jnp.complex128), [(1.0, {5: 'Z'})])
+
+    def test_matvec_jax_vector_length_not_a_power_of_two_raises(self):
+        with pytest.raises(ValueError):
+            pauli_sum_matvec_jax(jnp.zeros(5, dtype=jnp.complex128), [(1.0, {0: 'Z'})])
+
+    def test_matches_dense_matrix_at_whatever_precision_x64_is_set_to(self):
+        # Real gap found building the H10 VQE demo (Dense-Evolution-Discovery
+        # scripts/vqe_pauli_sum_zne_autodiff.py): pauli_sum_matvec_jax never
+        # calls dense_evolution.config.ensure_x64() itself, so a caller using
+        # it before anything else in the process has constructed a
+        # DenseSVSimulator/circuit_to_energy_fn silently runs at JAX's
+        # float32 default -- no error, just ~1e-7 relative accuracy instead
+        # of ~1e-16. This test only asserts the (weaker) float32-consistent
+        # tolerance, since it must pass regardless of whichever precision an
+        # earlier test in the same pytest process happened to leave x64 in
+        # -- the real fix is the docstring warning callers to opt in
+        # themselves via set_precision(True), not a global test-order
+        # assumption here.
+        rng = np.random.default_rng(23)
+        n_qubits, dim = 4, 16
+        terms = [(float(rng.normal()), 'ZZXY')]
+        v = rng.normal(size=dim) + 1j * rng.normal(size=dim)
+        expected = pauli_sum_matvec(v, terms, n_qubits=n_qubits)
+        actual = pauli_sum_matvec_jax(jnp.asarray(v), terms, n_qubits=n_qubits)
+        assert np.allclose(np.asarray(actual), expected, atol=1e-6)
 
 
 class TestMultiplyPauliTerms:

@@ -40,6 +40,8 @@ promoted alongside this module in magic_entropy_shadows.py -- see that
 module for why it has its own API shape (measurement snapshots in, not a
 density matrix) rather than a function alongside this one.
 """
+import functools
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -77,7 +79,29 @@ def _build_key_unitary_k3() -> jnp.ndarray:
     return jnp.array(layer2 @ layer1, dtype=jnp.complex128)
 
 
-_KEY_UNITARY_K3 = _build_key_unitary_k3()
+@functools.lru_cache(maxsize=1)
+def _key_unitary_k3() -> jnp.ndarray:
+    """Cached, lazily-built K3 Key Unitary -- NOT a bare module-level
+    constant (that used to be `_KEY_UNITARY_K3 = _build_key_unitary_k3()`,
+    evaluated at import time). A bare module-level `jnp.array(...,
+    dtype=jnp.complex128)` runs before anything has had a chance to call
+    `dense_evolution.config.ensure_x64()` (only DenseSVSimulator,
+    QuantumHardwareRegistry and circuit_to_energy_fn do that, and only
+    the first time one of them is constructed) -- so on a bare `import
+    dense_evolution`, jax_enable_x64 is still False at this point, and
+    JAX both silently truncates the requested complex128 to complex64
+    AND raises a UserWarning about it, on every fresh interpreter
+    (verified directly: 3-4 near-identical warnings fire on a plain
+    `import dense_evolution as de`, one per such module-level constant
+    across this file and magic_entropy_shadows.py, before this fix).
+    Wrapping it in a cached lazy getter defers construction to first
+    actual use (typically after some simulator has already called
+    ensure_x64()), which both silences the spurious warning in the
+    common case and avoids permanently baking in whatever precision
+    happened to be active at import time -- exactly the "lazy, not an
+    import-time side effect" policy dense_evolution.config already
+    documents for the rest of the package, just not yet applied here."""
+    return _build_key_unitary_k3()
 
 
 def _self_convolve_3_core(rho: jnp.ndarray) -> jnp.ndarray:
@@ -86,8 +110,9 @@ def _self_convolve_3_core(rho: jnp.ndarray) -> jnp.ndarray:
     `dense_evolution.physics.entropy.partial_trace` -- that helper is
     pure-statevector-only, and this needs to trace out a general (possibly
     mixed) 3-qubit density matrix built from a possibly-mixed input."""
+    key_unitary = _key_unitary_k3()
     rho_full = jnp.kron(jnp.kron(rho, rho), rho)
-    evolved = _KEY_UNITARY_K3 @ rho_full @ jnp.conj(_KEY_UNITARY_K3).T
+    evolved = key_unitary @ rho_full @ jnp.conj(key_unitary).T
     tensor = evolved.reshape(2, 2, 2, 2, 2, 2)
     return jnp.einsum("ijkljk->il", tensor)
 
