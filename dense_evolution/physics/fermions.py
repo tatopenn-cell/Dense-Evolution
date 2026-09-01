@@ -32,10 +32,21 @@ literature (e.g. Fidkowski-Kitaev). Multiplying one register's operators by
 its own total_parity_operator before combining them with the other
 register's restores the correct anticommutation; see that function's
 docstring for the algebraic proof.
+
+hubbard_hamiltonian_pauli_terms uses the OTHER standard Jordan-Wigner
+convention -- ordinary spin-orbital creation/annihilation operators
+(c_q = sigma+_q * Z-string, not Majoranas) -- promoted from
+Dense-Evolution-Discovery's hubbard_square_arovas.py (2026-09-01), which
+reproduces Arovas, Bandyopadhyay & Zhu, "The Hubbard Model" (Annual Review
+of Condensed Matter Physics 2022, arXiv:2103.12097). Nothing like it
+existed anywhere in this package before: dashboard_core/hamiltonians.py
+only has PennyLane's molecule-specific Hartree-Fock Jordan-Wigner (routed
+through PennyLane's own internal mapping, not this module's Pauli-term
+machinery), not a general lattice-fermion-model builder.
 """
 from .observables import multiply_pauli_terms
 
-__all__ = ['majorana_pauli_terms', 'total_parity_operator']
+__all__ = ['majorana_pauli_terms', 'total_parity_operator', 'hubbard_hamiltonian_pauli_terms']
 
 
 def majorana_pauli_terms(mode_index, n_qubits):
@@ -141,3 +152,88 @@ def total_parity_operator(mode_indices, n_qubits):
     factors = [majorana_pauli_terms(m, n_qubits) for m in mode_indices]
     coeff, pauli_dict = multiply_pauli_terms(factors)
     return coeff * (1j ** (n / 2)), pauli_dict
+
+
+def hubbard_hamiltonian_pauli_terms(n_sites, t, U, periodic=True):
+    """Jordan-Wigner mapping of the 1D Hubbard-ring Hamiltonian
+    H = -t * sum_<ij>,sigma (c^dagger_i,sigma c_j,sigma + h.c.)
+        + U * sum_i n_i,up * n_i,down
+    onto n_qubits=2*n_sites qubits: qubits [0, n_sites) are the spin-up
+    orbitals, qubits [n_sites, 2*n_sites) spin-down, both site-ordered.
+    <ij> runs over nearest-neighbor sites on a 1D ring (site i to site
+    (i+1) % n_sites); pass periodic=False to drop the wraparound bond
+    (site n_sites-1 to site 0) and get an open chain instead.
+
+    The wraparound bond needed a self-test before being trusted: some
+    Jordan-Wigner conventions need an extra fermion-parity correction for
+    a periodic-boundary term written as a *short* Pauli string. This
+    function instead always uses the full-length Jordan-Wigner string
+    between the two mapped qubit indices (c_i^dagger c_j = sigma+_i *
+    (Z-string between i and j) * sigma-_j, i<j), which is the exact
+    fermionic identity for ANY pair of modes regardless of whether they
+    are lattice-adjacent -- so no extra correction is needed here, and
+    this was verified directly against an independent brute-force
+    fermionic operator construction (not just argued from the formula):
+    max diff 0.00e+00 (machine-exact) at n_sites=2,3,4, both periodic and
+    open (Dense-Evolution-Discovery's hubbard_square_arovas.py).
+
+    Parameters
+    ----------
+    n_sites : int
+        Number of lattice sites (n_qubits = 2*n_sites).
+    t : float
+        Hopping amplitude.
+    U : float
+        On-site interaction strength.
+    periodic : bool, default True
+        Include the wraparound bond (site n_sites-1 to site 0). With
+        n_sites=4, this is the "Hubbard square" studied in Arovas,
+        Bandyopadhyay & Zhu, "The Hubbard Model" (Annual Review of
+        Condensed Matter Physics 2022, arXiv:2103.12097) -- Table 2 (p.6)
+        gives a closed-form small-U/t perturbative ground-state energy
+        for this exact model, verified directly against exact
+        diagonalization in the Discovery experiment above, and identifies
+        this ground state's orbital symmetry as x^2-y^2 (i.e. B1g/d-wave),
+        checkable via the sign pattern of pairing correlations
+        <Delta_0^dagger Delta_j> with Delta_i = c_i,up * c_i,down
+        (positive for axis neighbors, negative for the diagonal).
+
+    Returns
+    -------
+    list of (float, dict)
+        Pauli terms in the same (coeff, {qubit: 'X'|'Y'|'Z'}) form
+        majorana_pauli_terms returns -- ready for
+        dense_evolution.pauli_hamiltonian_to_matrix or
+        pauli_sum_expectation.
+    """
+    n_qubits = 2 * n_sites
+    terms = []
+
+    edges = [(i, (i + 1) % n_sites) for i in range(n_sites)]
+    if not periodic:
+        edges = [(i, j) for i, j in edges if not (i == n_sites - 1 and j == 0)]
+
+    for i, j in edges:
+        for offset in (0, n_sites):
+            qi, qj = offset + i, offset + j
+            low, high = min(qi, qj), max(qi, qj)
+            z_span = range(low + 1, high)
+
+            pauli_xx = {k: 'Z' for k in z_span}
+            pauli_xx[low] = 'X'
+            pauli_xx[high] = 'X'
+            terms.append((-0.5 * t, pauli_xx))
+
+            pauli_yy = {k: 'Z' for k in z_span}
+            pauli_yy[low] = 'Y'
+            pauli_yy[high] = 'Y'
+            terms.append((-0.5 * t, pauli_yy))
+
+    for i in range(n_sites):
+        idx_up, idx_dn = i, n_sites + i
+        terms.append((0.25 * U, {}))
+        terms.append((-0.25 * U, {idx_up: 'Z'}))
+        terms.append((-0.25 * U, {idx_dn: 'Z'}))
+        terms.append((0.25 * U, {idx_up: 'Z', idx_dn: 'Z'}))
+
+    return terms
