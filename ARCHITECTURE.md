@@ -178,9 +178,18 @@ native_hf/*               fully self-contained internal DAG (basis -> gaussians/
                            only via PennyLane's own qml.Hamiltonian return type
 ```
 
-Two facts worth being explicit about, since they contradict what the package-grouping
+Three facts worth being explicit about, since they contradict what the package-grouping
 diagram alone would suggest:
 
+- **`native_hf/` produces a fixed classical Hamiltonian, entirely in NumPy, as a
+  one-time preprocessing step *before* the JAX-differentiable pipeline begins** —
+  `bridge.build_qubit_hamiltonian` hands PennyLane's `fermionic_observable`/
+  `jordan_wigner` a converged Hartree-Fock result and gets back a plain `qml.Hamiltonian`,
+  no `jax.grad` involved anywhere in that path. It is not part of the
+  `theta -> energy(theta)` differentiable graph the "Design invariants" section below
+  describes — that invariant is about circuit *parameters*, not nuclear geometry;
+  `dE/dR` (differentiating the SCF result itself with respect to atomic positions) is
+  not something this module does.
 - **`solvers/autodiff.py` imports nothing from `backends/` or `physics/`.** The Hamiltonian
   it needs (`h_matrix`) is supplied by the *caller* — a dense matrix from
   `physics/observables.py`, or a [`PauliSumOperator`](https://tatopenn-cell.github.io/Dense-Evolution/api/observables/)
