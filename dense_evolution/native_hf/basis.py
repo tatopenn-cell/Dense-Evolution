@@ -58,7 +58,7 @@ def _contracted_shell_from_bse(shell: dict, center: jax.Array, atom_index: int) 
     shells = []
     for row, degree in enumerate(angular_momenta):
         coeffs = jnp.array([float(c) for c in shell["coefficients"][row]])
-        norms = jnp.array([_primitive_norm(a, degree) for a in exponents])
+        norms = jax.vmap(_primitive_norm, in_axes=(0, None))(exponents, degree)
         shells.append(
             ContractedShell(
                 atom_index=atom_index,
