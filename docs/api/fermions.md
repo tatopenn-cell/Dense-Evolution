@@ -126,6 +126,41 @@ applies `terms` directly to the statevector, the same differentiable path
 [`circuit_to_energy_fn`](autodiff.md) uses for `jax.grad`-based VQE, without ever
 building a dense Hamiltonian matrix.
 
+## Step 5. Beyond 1D: a 2D lattice
+
+```python
+edges = de.square_lattice_edges(2, 2, periodic=False)
+edges
+```
+
+```
+[(0, 1), (0, 2), (1, 3), (2, 3)]
+```
+
+`hubbard_hamiltonian_pauli_terms`'s hopping construction only ever needs a Jordan-Wigner
+`Z`-string between two given qubit indices -- it never assumed a 1D ring. `square_lattice_edges(lx,
+ly, periodic)` builds the site-index pairs for an `lx` by `ly` square lattice instead (site
+`index = y*lx + x`); passing them via the `edges` parameter swaps out the default ring
+for any lattice this function can describe. Above, a 2x2 open plaquette (4 sites, no
+diagonal bond) gives the 4 nearest-neighbor pairs shown.
+
+```python
+terms2d = de.hubbard_hamiltonian_pauli_terms(n_sites=4, t=1.0, U=2.0, edges=edges)
+len(terms2d)
+```
+
+```
+32
+```
+
+4 bonds, 2 spins, 2 Pauli terms (`XX` and `YY`) per bond-spin gives `4*2*2=16` hopping
+terms, plus `4*4=16` onsite-interaction terms (4 sites) -- `32` total, [`PauliSumOperator`](observables.md)-
+ready exactly like Step 4's 1D Hamiltonian. `periodic` and `periodic_y` wrap the x- and
+y-directions independently, so `periodic=True, periodic_y=False` gives a "cylinder" --
+periodic around one direction, open along the other, the finite-width-ladder geometry
+Arovas, Bandyopadhyay & Zhu's Hubbard-model review (cited below) uses for its cylinder
+DMRG results.
+
 ---
 
 ## Details
