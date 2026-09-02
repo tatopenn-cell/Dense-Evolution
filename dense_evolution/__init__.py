@@ -47,7 +47,7 @@ from .solvers.harrison_tb import (ELEMENTS as HARRISON_ELEMENTS, ETA as HARRISON
                                    sp3_dimer_hamiltonian, zincblende_hamiltonian)
 from .solvers.vhd_tb import (MATERIALS as VHD_MATERIALS, sp3s_star_hamiltonian,
                               direct_gap_at_gamma, band_extrema_along_path)
-from .physics.fermions import majorana_pauli_terms, total_parity_operator, hubbard_hamiltonian_pauli_terms
+from .physics.fermions import majorana_pauli_terms, total_parity_operator, hubbard_hamiltonian_pauli_terms, square_lattice_edges
 from .physics.entropy import partial_trace, von_neumann_entropy, mutual_information, central_charge
 from .circuits.trotter import (pauli_rotation_ops, trotter_evolve_ops, continuous_pulse_evolve,
                                 continuous_dissipative_evolve)
@@ -95,7 +95,7 @@ __all__ = [
     "multiply_pauli_terms",
     "pauli_sum_matvec_jax", "pauli_sum_expectation_jax", "PauliSumOperator",
     "partial_trace", "von_neumann_entropy", "mutual_information", "central_charge",
-    "majorana_pauli_terms", "total_parity_operator", "hubbard_hamiltonian_pauli_terms",
+    "majorana_pauli_terms", "total_parity_operator", "hubbard_hamiltonian_pauli_terms", "square_lattice_edges",
     "pauli_commutes", "compute_syndrome", "erasure_aware_decode", "pymatching_decode", "blind_minimum_weight_decode",
     "decode_with_erasure_fallback", "counts_in_intervals_dimension", "nearest_coset_decode",
     # Utils -- drawing, measurement, random circuits

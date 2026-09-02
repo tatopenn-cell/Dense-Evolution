@@ -46,7 +46,10 @@ machinery), not a general lattice-fermion-model builder.
 """
 from .observables import multiply_pauli_terms
 
-__all__ = ['majorana_pauli_terms', 'total_parity_operator', 'hubbard_hamiltonian_pauli_terms']
+__all__ = [
+    'majorana_pauli_terms', 'total_parity_operator',
+    'hubbard_hamiltonian_pauli_terms', 'square_lattice_edges',
+]
 
 
 def majorana_pauli_terms(mode_index, n_qubits):
@@ -154,15 +157,88 @@ def total_parity_operator(mode_indices, n_qubits):
     return coeff * (1j ** (n / 2)), pauli_dict
 
 
-def hubbard_hamiltonian_pauli_terms(n_sites, t, U, periodic=True):
-    """Jordan-Wigner mapping of the 1D Hubbard-ring Hamiltonian
+def square_lattice_edges(lx, ly, periodic=True, periodic_y=None):
+    """Nearest-neighbor site-index pairs (i, j) on an Lx by Ly square
+    lattice, site index = y*lx + x (row-major). One x-bond and one
+    y-bond generated per site; a periodic direction wraps via i ->
+    (i+1) % L, the same convention as the 1D ring below -- an L=2
+    periodic direction generates the same physical bond twice (once
+    from each end), matching that same known behavior already present
+    in the 1D n_sites=2 case, not a new quirk introduced here.
+
+    `periodic` sets the x-direction boundary; `periodic_y` sets the
+    y-direction independently (defaults to the same value as `periodic`
+    when not given, so a single `periodic=True/False` still means "both
+    directions" for the common torus/open cases). Pass periodic=True,
+    periodic_y=False for a "cylinder" -- periodic around one direction,
+    open (a finite "leg" ladder) along the other -- the same geometry
+    Arovas, Bandyopadhyay & Zhu's Hubbard-model review (arXiv:2103.12097,
+    already cited below) discusses for W-leg cylinder DMRG studies
+    ("periodic boundary conditions have been enforced around the
+    cylinder" while the leg direction stays open/finite), not an
+    invented boundary condition.
+
+    With ly=1 this reduces exactly to the 1D ring
+    hubbard_hamiltonian_pauli_terms builds internally (verified in
+    tests/unit/test_fermions.py), so passing edges=square_lattice_edges(
+    n_sites, 1, periodic) to hubbard_hamiltonian_pauli_terms reproduces
+    its own default 1D behavior; ly>1 is the actual 2D generalization,
+    cross-checked there against an independent brute-force fermionic
+    construction on a real 2x2 lattice, both fully open and
+    periodic-in-x-only -- kept small since the hopping loop keys each
+    term only on that edge's own qubit indices, so nothing about the
+    check depends on lattice size.
+
+    Parameters
+    ----------
+    lx, ly : int
+        Lattice extent along x and y.
+    periodic : bool, default True
+        Wrap the x direction. Also used for y when `periodic_y` is None.
+    periodic_y : bool, optional
+        Wrap the y direction independently of `periodic`.
+
+    Returns
+    -------
+    list of (int, int)
+        Site-index pairs, ready for hubbard_hamiltonian_pauli_terms's
+        `edges` parameter.
+    """
+    if periodic_y is None:
+        periodic_y = periodic
+    edges = []
+    for y in range(ly):
+        for x in range(lx):
+            i = y * lx + x
+            if x + 1 < lx:
+                edges.append((i, y * lx + (x + 1)))
+            elif periodic and lx > 1:
+                edges.append((i, y * lx))
+            if y + 1 < ly:
+                edges.append((i, (y + 1) * lx + x))
+            elif periodic_y and ly > 1:
+                edges.append((i, x))
+    return edges
+
+
+def hubbard_hamiltonian_pauli_terms(n_sites, t, U, periodic=True, edges=None):
+    """Jordan-Wigner mapping of the Hubbard Hamiltonian
     H = -t * sum_<ij>,sigma (c^dagger_i,sigma c_j,sigma + h.c.)
         + U * sum_i n_i,up * n_i,down
     onto n_qubits=2*n_sites qubits: qubits [0, n_sites) are the spin-up
     orbitals, qubits [n_sites, 2*n_sites) spin-down, both site-ordered.
-    <ij> runs over nearest-neighbor sites on a 1D ring (site i to site
-    (i+1) % n_sites); pass periodic=False to drop the wraparound bond
-    (site n_sites-1 to site 0) and get an open chain instead.
+    <ij> runs over nearest-neighbor sites; by default that's a 1D ring
+    (site i to site (i+1) % n_sites), with periodic=False dropping the
+    wraparound bond (site n_sites-1 to site 0) for an open chain instead.
+
+    Pass `edges` explicitly (a list of (i, j) site-index pairs, 0 <= i,
+    j < n_sites) to describe a different lattice -- e.g. a 2D square
+    lattice via square_lattice_edges(lx, ly, periodic) with n_sites=
+    lx*ly -- and `periodic` is then ignored (the wraparound choice is
+    already baked into the edges you pass). The hopping/Jordan-Wigner
+    machinery below only ever uses the qubit-index Z-string between two
+    given sites (see the wraparound-bond note below), so it was already
+    lattice-agnostic; only the default 1D edge list was ring-specific.
 
     The wraparound bond needed a self-test before being trusted: some
     Jordan-Wigner conventions need an extra fermion-parity correction for
@@ -175,7 +251,9 @@ def hubbard_hamiltonian_pauli_terms(n_sites, t, U, periodic=True):
     this was verified directly against an independent brute-force
     fermionic operator construction (not just argued from the formula):
     max diff 0.00e+00 (machine-exact) at n_sites=2,3,4, both periodic and
-    open (Dense-Evolution-Discovery's hubbard_square_arovas.py).
+    open (Dense-Evolution-Discovery's hubbard_square_arovas.py), and at a
+    2D lattice via square_lattice_edges, both open and periodic-in-x-only
+    (see tests).
 
     Parameters
     ----------
@@ -197,6 +275,10 @@ def hubbard_hamiltonian_pauli_terms(n_sites, t, U, periodic=True):
         checkable via the sign pattern of pairing correlations
         <Delta_0^dagger Delta_j> with Delta_i = c_i,up * c_i,down
         (positive for axis neighbors, negative for the diagonal).
+        Ignored when `edges` is passed explicitly.
+    edges : list of (int, int), optional
+        Explicit nearest-neighbor site pairs, overriding the default 1D
+        ring. See square_lattice_edges for a 2D square-lattice builder.
 
     Returns
     -------
@@ -209,9 +291,10 @@ def hubbard_hamiltonian_pauli_terms(n_sites, t, U, periodic=True):
     n_qubits = 2 * n_sites
     terms = []
 
-    edges = [(i, (i + 1) % n_sites) for i in range(n_sites)]
-    if not periodic:
-        edges = [(i, j) for i, j in edges if not (i == n_sites - 1 and j == 0)]
+    if edges is None:
+        edges = [(i, (i + 1) % n_sites) for i in range(n_sites)]
+        if not periodic:
+            edges = [(i, j) for i, j in edges if not (i == n_sites - 1 and j == 0)]
 
     for i, j in edges:
         for offset in (0, n_sites):

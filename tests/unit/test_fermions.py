@@ -6,7 +6,7 @@ matrices via pauli_hamiltonian_to_matrix, not just the textbook formula.
 import numpy as np
 import pytest
 
-from dense_evolution import majorana_pauli_terms, hubbard_hamiltonian_pauli_terms
+from dense_evolution import majorana_pauli_terms, hubbard_hamiltonian_pauli_terms, square_lattice_edges
 from dense_evolution.observables import pauli_hamiltonian_to_matrix
 from dense_evolution.physics.fermions import total_parity_operator
 
@@ -189,15 +189,16 @@ def _annihilation_matrix(n_qubits, q):
     return result @ kron_at(sigma_minus, q)
 
 
-def _hubbard_matrix_bruteforce(n_sites, t, U, periodic=True):
+def _hubbard_matrix_bruteforce(n_sites, t, U, periodic=True, edges=None):
     """Fermionic-operator construction, independent of the XX/YY Pauli
     decomposition hubbard_hamiltonian_pauli_terms uses."""
     n_qubits = 2 * n_sites
     c = [_annihilation_matrix(n_qubits, q) for q in range(n_qubits)]
     H = np.zeros((2 ** n_qubits, 2 ** n_qubits), dtype=complex)
-    edges = [(i, (i + 1) % n_sites) for i in range(n_sites)]
-    if not periodic:
-        edges = [(i, j) for i, j in edges if not (i == n_sites - 1 and j == 0)]
+    if edges is None:
+        edges = [(i, (i + 1) % n_sites) for i in range(n_sites)]
+        if not periodic:
+            edges = [(i, j) for i, j in edges if not (i == n_sites - 1 and j == 0)]
     for i, j in edges:
         for off in (0, n_sites):
             qi, qj = off + i, off + j
@@ -257,3 +258,56 @@ class TestHubbardHamiltonianPauliTerms:
         assert rel_diff < 1e-3, f"rel_diff={rel_diff:.2e} too large deep in the small-U regime"
         # Reproduces the exact value found in Experiment 38: -3.962753
         assert energy_exact == pytest.approx(-3.962753, abs=1e-5)
+
+
+class TestSquareLatticeEdges:
+    """square_lattice_edges generalizes hubbard_hamiltonian_pauli_terms's
+    hopping term beyond the 1D ring -- the hopping/Jordan-Wigner machinery
+    itself was already lattice-agnostic (it only ever uses the Z-string
+    between two given qubit indices), so this is purely a new edge-list
+    builder, not a change to the term construction."""
+
+    @pytest.mark.parametrize("n_sites,periodic", [(3, True), (3, False), (4, True), (5, False)])
+    def test_ly_one_reduces_exactly_to_the_1d_ring(self, n_sites, periodic):
+        """The defining consistency check: with ly=1, the 2D builder must
+        reproduce hubbard_hamiltonian_pauli_terms's own internal 1D ring
+        edge list exactly, not just an equivalent graph."""
+        ring_edges = [(i, (i + 1) % n_sites) for i in range(n_sites)]
+        if not periodic:
+            ring_edges = [(i, j) for i, j in ring_edges if not (i == n_sites - 1 and j == 0)]
+        assert square_lattice_edges(n_sites, 1, periodic=periodic) == ring_edges
+
+    def test_open_2x2_has_four_bonds_no_diagonal(self):
+        edges = square_lattice_edges(2, 2, periodic=False)
+        assert set(tuple(sorted(e)) for e in edges) == {(0, 1), (2, 3), (0, 2), (1, 3)}
+
+    def test_periodic_x_and_y_are_independent(self):
+        """periodic controls x, periodic_y controls y independently --
+        with neither given, periodic_y defaults to periodic (single-flag
+        torus/open cases stay as simple as before)."""
+        lx, ly = 3, 2
+        assert len(square_lattice_edges(lx, ly, periodic=False)) == 4 + 3
+        assert len(square_lattice_edges(lx, ly, periodic=True)) == 6 + 6
+        assert len(square_lattice_edges(lx, ly, periodic=True, periodic_y=False)) == 6 + 3
+        assert len(square_lattice_edges(lx, ly, periodic=False, periodic_y=True)) == 4 + 6
+
+    @pytest.mark.parametrize("periodic,periodic_y", [(False, False), (True, False)])
+    def test_hubbard_on_2d_lattice_matches_bruteforce_fermionic_construction(self, periodic, periodic_y):
+        """hubbard_hamiltonian_pauli_terms's hopping loop handles every
+        edge independently -- each term's JW string only depends on that
+        edge's own qubit indices, nothing depends on the overall graph
+        shape -- so a small 2x2 lattice (8 qubits) exercises the same
+        arbitrary-edges code path a bigger grid would, for a fraction of
+        the brute-force matrix cost (2**8 vs. e.g. 2**12 for a 3x2 grid).
+        Covers both a fully open plaquette and periodic=True,
+        periodic_y=False (a small 'cylinder' -- see square_lattice_edges's
+        own docstring for the L=2 double-bond note that applies here)."""
+        lx, ly, t, U = 2, 2, 1.0, 0.5
+        n_sites = lx * ly
+        edges = square_lattice_edges(lx, ly, periodic=periodic, periodic_y=periodic_y)
+
+        terms = hubbard_hamiltonian_pauli_terms(n_sites, t, U, edges=edges)
+        H_pauli = np.asarray(pauli_hamiltonian_to_matrix(terms, 2 * n_sites))
+        H_bruteforce = _hubbard_matrix_bruteforce(n_sites, t, U, edges=edges)
+        max_diff = np.max(np.abs(H_pauli - H_bruteforce))
+        assert max_diff < 1e-10, f"2D lattice periodic={periodic},{periodic_y}: diff={max_diff:.2e}"
