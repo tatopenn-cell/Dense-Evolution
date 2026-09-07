@@ -134,14 +134,49 @@ def _build_two_index(shells: list[ContractedShell], primitive_fn, extra=()) -> n
     return M
 
 
-def build_repulsion_tensor(shells: list[ContractedShell]) -> np.ndarray:
+def _schwarz_bound(sa: ContractedShell, sb: ContractedShell) -> float:
+    block = np.array(
+        _quartet_block(
+            (sa.exponents, sb.exponents, sa.exponents, sb.exponents),
+            (sa.coefficients, sb.coefficients, sa.coefficients, sb.coefficients),
+            (sa.center, sb.center, sa.center, sb.center),
+            (sa.degree, sb.degree, sa.degree, sb.degree),
+            electron_repulsion,
+        )
+    )
+    na, nb = block.shape[0], block.shape[1]
+    diag = np.array([[block[p, q, p, q] for q in range(nb)] for p in range(na)])
+    return float(np.sqrt(np.max(np.abs(diag))))
+
+
+def _shell_pair_schwarz_bounds(shells: list[ContractedShell]) -> dict:
+    bounds = {}
+    for i, sa in enumerate(shells):
+        for j in range(i + 1):
+            sb = shells[j]
+            q = _schwarz_bound(sa, sb)
+            bounds[(i, j)] = q
+            bounds[(j, i)] = q
+    return bounds
+
+
+def build_repulsion_tensor(shells: list[ContractedShell], screening_tol: float = 1e-12) -> np.ndarray:
     n = n_cartesian_functions(shells)
     offsets = _shell_offsets(shells)
     V = np.zeros((n, n, n, n))
+    schwarz = _shell_pair_schwarz_bounds(shells)
     for i, sa in enumerate(shells):
-        for j, sb in enumerate(shells):
+        for j in range(i + 1):
+            sb = shells[j]
+            ij_index = i * (i + 1) // 2 + j
             for k, sc in enumerate(shells):
-                for l, sd in enumerate(shells):
+                for l in range(k + 1):
+                    sd = shells[l]
+                    kl_index = k * (k + 1) // 2 + l
+                    if ij_index < kl_index:
+                        continue
+                    if schwarz[(i, j)] * schwarz[(k, l)] < screening_tol:
+                        continue
                     block = np.array(
                         _quartet_block(
                             (sa.exponents, sb.exponents, sc.exponents, sd.exponents),
@@ -152,10 +187,15 @@ def build_repulsion_tensor(shells: list[ContractedShell]) -> np.ndarray:
                         )
                     )
                     oi, oj, ok, ol = offsets[i], offsets[j], offsets[k], offsets[l]
-                    V[
-                        oi : oi + block.shape[0],
-                        oj : oj + block.shape[1],
-                        ok : ok + block.shape[2],
-                        ol : ol + block.shape[3],
-                    ] = block
+                    for pi, pj, pk, pl, b in (
+                        (oi, oj, ok, ol, block),
+                        (oj, oi, ok, ol, block.transpose(1, 0, 2, 3)),
+                        (oi, oj, ol, ok, block.transpose(0, 1, 3, 2)),
+                        (oj, oi, ol, ok, block.transpose(1, 0, 3, 2)),
+                        (ok, ol, oi, oj, block.transpose(2, 3, 0, 1)),
+                        (ol, ok, oi, oj, block.transpose(3, 2, 0, 1)),
+                        (ok, ol, oj, oi, block.transpose(2, 3, 1, 0)),
+                        (ol, ok, oj, oi, block.transpose(3, 2, 1, 0)),
+                    ):
+                        V[pi : pi + b.shape[0], pj : pj + b.shape[1], pk : pk + b.shape[2], pl : pl + b.shape[3]] = b
     return V
