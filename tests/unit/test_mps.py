@@ -18,6 +18,7 @@ import jax.numpy as jnp
 import dense_evolution as de
 from dense_evolution.backends.mps import (
     MPSSimulator, _jsd_vectors, _vectorized_chi_search, _expand_nonlocal_2q_positions,
+    mps_pauli_expectation, mps_pauli_sum_expectation,
 )
 
 def test_backward_compat_shim_mps_reexports_mpssimulator():
@@ -852,4 +853,64 @@ def test_mps_truncation_quality_vs_optimal_rank_chi(n_qubits, layers, chi):
     fid_optimal = np.abs(np.vdot(psi_exact, psi_optimal)) ** 2
 
     assert fid_mps >= 0.95 * fid_optimal
+
+
+# ── P4: Pauli expectation values via tensor contraction (prog.txt) ──────
+# Every case below is deliberately chosen to stress the one thing an
+# incorrect "skip sites outside the operator's support" shortcut could
+# get silently wrong: support placed in the middle of a chain with real,
+# non-trivial entanglement built up on BOTH sides of it (not just at the
+# edges, where such a bug would be invisible on a product-like tail).
+
+def _entangled_dense_and_mps(n_qubits, seed, layers, max_bond=32):
+    ops = _brick_wall_ry_ops(n_qubits, seed=seed, layers=layers)
+    dense = de.DenseSVSimulator(n_qubits=n_qubits, use_float32=False)
+    dense.run_circuit_jit(ops)
+    psi = dense.get_statevector()
+    mps = MPSSimulator(n_qubits=n_qubits, max_bond=max_bond)
+    mps.run_circuit_jit(ops)
+    return psi, mps
+
+
+@pytest.mark.parametrize("n_qubits,layers,pauli_terms", [
+    (8, 4, "XIIIIIII"),
+    (8, 4, "IIIIIIIZ"),
+    (9, 4, {2: "Z", 6: "Z"}),
+    (9, 4, {0: "X", 8: "Y"}),
+    (10, 5, "XYZXIXYZXI"),
+    (10, 5, {4: "X", 5: "Y"}),
+    (12, 5, [(1, "X"), (5, "Y"), (6, "Z"), (10, "X")]),
+])
+def test_mps_pauli_expectation_matches_dense_various_supports(n_qubits, layers, pauli_terms):
+    psi, mps = _entangled_dense_and_mps(n_qubits, seed=3, layers=layers)
+    expected = de.pauli_expectation(psi, pauli_terms)
+    got = mps_pauli_expectation(mps, pauli_terms)
+    assert got == pytest.approx(expected, abs=1e-10)
+
+
+def test_mps_pauli_expectation_accepts_all_three_term_formats():
+    psi, mps = _entangled_dense_and_mps(9, seed=5, layers=4)
+    from_string = mps_pauli_expectation(mps, "IIXIIYIII")
+    from_dict = mps_pauli_expectation(mps, {2: "X", 5: "Y"})
+    from_pairs = mps_pauli_expectation(mps, [(2, "X"), (5, "Y")])
+    expected = de.pauli_expectation(psi, "IIXIIYIII")
+    assert from_string == pytest.approx(expected, abs=1e-10)
+    assert from_dict == pytest.approx(expected, abs=1e-10)
+    assert from_pairs == pytest.approx(expected, abs=1e-10)
+
+
+def test_mps_pauli_sum_expectation_matches_dense():
+    psi, mps = _entangled_dense_and_mps(9, seed=7, layers=5)
+    terms = [(0.5, {1: "Z"}), (-1.5, {3: "X", 4: "X"}), (2.0, {0: "Y", 7: "Z"})]
+    expected = sum(coeff * de.pauli_expectation(psi, term) for coeff, term in terms)
+    got = mps_pauli_sum_expectation(mps, terms)
+    assert got == pytest.approx(expected, abs=1e-10)
+
+
+def test_mps_pauli_expectation_n30_low_chi_runs_without_memory_error():
+    ops = _brick_wall_ry_ops(30, seed=1, layers=2)
+    mps = MPSSimulator(n_qubits=30, max_bond=8)
+    mps.run_circuit_jit(ops)
+    got = mps_pauli_expectation(mps, {0: "Z", 15: "X", 29: "Y"})
+    assert np.isfinite(got.real) and np.isfinite(got.imag)
 

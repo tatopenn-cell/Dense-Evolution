@@ -57,6 +57,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from ..physics.observables import _normalize_terms
+
 
 def _jsd_vectors_jax(p: jnp.ndarray, q: jnp.ndarray) -> jnp.ndarray:
     """Same Jensen-Shannon Distance as _jsd_vectors, but returns a jnp
@@ -893,3 +895,51 @@ class MPSSimulator:
                             stacklevel=2,
                         )
                     self.budget_violations += 1
+
+
+_PAULI_MATRICES = {
+    'I': jnp.eye(2, dtype=jnp.complex128),
+    'X': jnp.array([[0, 1], [1, 0]], dtype=jnp.complex128),
+    'Y': jnp.array([[0, -1j], [1j, 0]], dtype=jnp.complex128),
+    'Z': jnp.array([[1, 0], [0, -1]], dtype=jnp.complex128),
+}
+
+
+def mps_pauli_expectation(mps: "MPSSimulator", pauli_terms) -> complex:
+    """<psi|P|psi> for a single Pauli string P, contracted directly against
+    the MPS (Gamma/Lambda tensors) via a left-to-right transfer-matrix
+    sweep -- never materializes a (2**n,) statevector, cost O(n * chi^3).
+
+    pauli_terms accepts the same three forms as
+    physics.observables.pauli_expectation (a string, e.g. 'XIZ'; a dict
+    {qubit: 'X'|'Y'|'Z'}; or an iterable of (qubit, pauli) pairs) -- reuses
+    that module's own `_normalize_terms` so both functions agree on
+    parsing by construction, not by parallel reimplementation.
+
+    Every site (not only ones in pauli_terms) goes through the identical
+    per-site contraction, using the identity matrix wherever pauli_terms
+    doesn't specify a Pauli -- this is already O(chi^3) per site regardless
+    of whether the local operator is I or a real Pauli, so there is no
+    separate "skip identity sites" fast path to get right or wrong: the
+    same sweep is correct for any placement of the operator's support,
+    including support that spans much of the chain, without relying on
+    which side of any notional orthogonality center a given site falls on.
+    """
+    assignment = _normalize_terms(pauli_terms, mps.n)
+    dtype = mps.gammas[0].dtype
+    env = jnp.ones((1, 1), dtype=dtype)
+    for i in range(mps.n):
+        op = _PAULI_MATRICES[assignment.get(i, 'I')].astype(dtype)
+        a = jnp.einsum('l,lpr->lpr', mps.lambdas[i].astype(dtype), mps.gammas[i])
+        a_op = jnp.einsum('pq,lqr->lpr', op, a)
+        env = jnp.einsum('lk,lpr->kpr', env, jnp.conj(a))
+        env = jnp.einsum('kpr,kps->rs', env, a_op)
+    return complex(env[0, 0])
+
+
+def mps_pauli_sum_expectation(mps: "MPSSimulator", terms) -> complex:
+    """sum_i coeff_i * <psi|P_i|psi>, each term contracted via
+    mps_pauli_expectation -- same terms format as
+    physics.observables.pauli_sum_expectation: an iterable of
+    (coeff, pauli_terms) pairs."""
+    return sum(coeff * mps_pauli_expectation(mps, pauli_terms) for coeff, pauli_terms in terms)
