@@ -27,7 +27,8 @@ from .interop import (
 )
 from .solvers.autodiff import circuit_to_energy_fn
 from .backends.mps import MPSSimulator
-from .mitigation.zne import (richardson_extrapolate, zero_noise_extrapolation, polynomial_extrapolate,
+from .mitigation.zne import (richardson_extrapolate, richardson_amplification_factor,
+                          zero_noise_extrapolation, polynomial_extrapolate,
                           bounded_exponential_extrapolate,
                           project_to_physical, uhlmann_fidelity, zne_density_matrix,
                           jsd_predictive_zne_density_matrix,
@@ -82,7 +83,8 @@ __all__ = [
     "HARRISON_ELEMENTS", "HARRISON_ETA", "sp3_dimer_hamiltonian", "zincblende_hamiltonian",
     "VHD_MATERIALS", "sp3s_star_hamiltonian", "direct_gap_at_gamma", "band_extrema_along_path",
     # Mitigation -- Zero-Noise Extrapolation
-    "richardson_extrapolate", "zero_noise_extrapolation", "polynomial_extrapolate",
+    "richardson_extrapolate", "richardson_amplification_factor",
+    "zero_noise_extrapolation", "polynomial_extrapolate",
     "bounded_exponential_extrapolate",
     "project_to_physical", "uhlmann_fidelity", "zne_density_matrix",
     "jsd_predictive_zne_density_matrix", "global_depolarizing_channel", "amplitude_damping_channel",
