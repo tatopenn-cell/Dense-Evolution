@@ -400,32 +400,41 @@ def _build_mps_runner(n_qubits: int, max_bond: int, eps: float, jsd_budget: floa
 
             g1 = gammas_[q1]
             g2 = gammas_[q2]
-            lam = lambdas_[q2]
-            theta = jnp.einsum('lik,k,kjr->lijr', g1, lam, g2)
+            lam_l = lambdas_[q1]
+            lam_m = lambdas_[q2]
+            lam_r = lambdas_[q2 + 1]
+            # Full Vidal update (prog.txt P0 fix): both outer Lambdas
+            # attached, same convention as the eager apply_gate_2q path --
+            # see that method's docstring.
+            theta = jnp.einsum('l,lik,k,kjr,r->lijr', lam_l, g1, lam_m, g2, lam_r)
             theta_new = jnp.einsum('abcd,ecdf->eabf', gate_2q, theta)
             theta_mat = theta_new.reshape(max_bond * 2, 2 * max_bond)
 
             U, S, Vh = jnp.linalg.svd(theta_mat, full_matrices=False)
             chi_new, jsd_val = _vectorized_chi_search_jax(S, eps, jsd_budget, max_bond)
-
             col_mask = jnp.arange(max_bond) < chi_new
+
+            norm_full = jnp.sqrt(jnp.sum(S ** 2) + 1e-30)
+            S_norm_full = S / (norm_full + 1e-30)
+            trunc_err = jnp.sqrt(jnp.sum(jnp.where(jnp.arange(2 * max_bond) >= chi_new, S_norm_full ** 2, 0.0)))
+
+            S_kept_masked = jnp.where(col_mask, S[:max_bond], 0.0)
+            kept_norm = jnp.sqrt(jnp.sum(S_kept_masked ** 2) + 1e-30)
+            S_fixed = jnp.where(col_mask, S_kept_masked / (kept_norm + 1e-30), 0.0)
+
+            lam_l_inv = jnp.where(lam_l > eps, 1.0 / lam_l, 0.0)
+            lam_r_inv = jnp.where(lam_r > eps, 1.0 / lam_r, 0.0)
+
             U_masked = jnp.where(col_mask[None, :], U[:, :max_bond], 0.0)
-            S_fixed = jnp.where(col_mask, S[:max_bond], 0.0)
             Vh_masked = jnp.where(col_mask[:, None], Vh[:max_bond, :], 0.0)
 
-            new_g1 = U_masked.reshape(max_bond, 2, max_bond)
-            new_g2 = Vh_masked.reshape(max_bond, 2, max_bond)
+            new_g1 = jnp.einsum('l,lir->lir', lam_l_inv, U_masked.reshape(max_bond, 2, max_bond))
+            new_g2 = jnp.einsum('ljr,r->ljr', Vh_masked.reshape(max_bond, 2, max_bond), lam_r_inv)
 
             new_gammas = gammas_.at[q1].set(new_g1).at[q2].set(new_g2)
             new_lambdas = lambdas_.at[q2].set(S_fixed)
 
-            # Same formulas as the eager _apply_nonlocal_2q/apply_gate_2q
-            # path (trunc_err = sqrt(sum(S[chi_new:]**2)), entropy from
-            # the truncated distribution), rewritten vectorized/static-
-            # shape (jnp.where masking instead of Python len()/list
-            # filtering) -- same idiom _jsd_vectors_jax already uses.
-            trunc_err = jnp.sqrt(jnp.sum(jnp.where(jnp.arange(2 * max_bond) >= chi_new, S ** 2, 0.0)))
-            p_dist = S_fixed ** 2 / (jnp.sum(S_fixed ** 2) + 1e-20)
+            p_dist = S_fixed ** 2  # already unit-norm (see eager _svd_truncate)
             ee = -jnp.sum(jnp.where(p_dist > 1e-20, p_dist * jnp.log2(jnp.where(p_dist > 1e-20, p_dist, 1.0)), 0.0))
 
             new_carry = (new_gammas, new_lambdas)
@@ -510,6 +519,14 @@ class MPSSimulator:
     def _svd_truncate(
         self, theta_mat: jnp.ndarray
     ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, float, float]:
+        """SVD + adaptive chi search, plus the two corrections from prog.txt
+        P0: trunc_err/entanglement_entropy need the true (normalized)
+        Schmidt spectrum, and the kept singular values are renormalized to
+        unit norm after truncation (same convention Vidal's iTEBD update
+        uses -- the state's overall norm is the product of every bond's
+        Lambda norm, each already implicitly 1 by induction, so explicitly
+        restoring that here keeps the whole chain normalized without ever
+        relying on a global re-norm in contract_to_statevector)."""
         U, S, Vh = jnp.linalg.svd(theta_mat, full_matrices=False)
 
         # Was a Python while loop incrementing chi_new one at a time,
@@ -538,14 +555,30 @@ class MPSSimulator:
                 )
             self.budget_violations += 1
 
-        trunc_err = float(jnp.sqrt(jnp.sum(S[chi_new:] ** 2))) if len(S) > chi_new else 0.0
+        norm_full = float(jnp.sqrt(jnp.sum(S ** 2) + 1e-30))
+        S_norm_full = S / (norm_full + 1e-30)
+        trunc_err = float(jnp.sqrt(jnp.sum(S_norm_full[chi_new:] ** 2))) if len(S) > chi_new else 0.0
         self.truncation_errors.append(trunc_err)
 
-        return U[:, :chi_new], S[:chi_new], Vh[:chi_new, :], trunc_err, jsd_val
+        S_kept = S[:chi_new]
+        kept_norm = float(jnp.sqrt(jnp.sum(S_kept ** 2) + 1e-30))
+        S_kept_renorm = S_kept / (kept_norm + 1e-30)
+
+        return U[:, :chi_new], S_kept_renorm, Vh[:chi_new, :], trunc_err, jsd_val
 
     # gate 2q adjacent
     def apply_gate_2q(self, gate_2q: jnp.ndarray, q1: int, q2: int) -> None:
-        """2-qubit gate with adaptive SVD truncation. O(chi^3)."""
+        """2-qubit gate with adaptive SVD truncation. O(chi^3).
+
+        Vidal's full two-site update (prog.txt P0 fix): theta is built from
+        BOTH outer Lambdas (Lambda[q1], Lambda[q2+1]) as well as the middle
+        one, not just the middle one -- so its singular values are the true
+        global Schmidt coefficients at this cut, not an artifact of the
+        local 2-site reduced state. New Gamma tensors are recovered by
+        dividing the outer Lambdas back out (regularized: entries at or
+        below svd_cutoff map to a zero inverse instead of blowing up --
+        exactly the padded/zero entries in the JIT path's fixed-size
+        arrays, and the trivial size-1 boundary Lambda everywhere else)."""
         gate_2q = jnp.asarray(gate_2q)
         if abs(q1 - q2) != 1:
             self._apply_nonlocal_2q(gate_2q, q1, q2)
@@ -554,11 +587,13 @@ class MPSSimulator:
             q1, q2 = q2, q1
             gate_2q = jnp.transpose(gate_2q, (1, 0, 3, 2))
 
+        lam_l = self.lambdas[q1]
         g1 = self.gammas[q1]
+        lam_m = self.lambdas[q2]
         g2 = self.gammas[q2]
-        lam = self.lambdas[q2]
+        lam_r = self.lambdas[q2 + 1]
 
-        theta = jnp.einsum("lik,k,kjr->lijr", g1, lam, g2)
+        theta = jnp.einsum("l,lik,k,kjr,r->lijr", lam_l, g1, lam_m, g2, lam_r)
         chiL, d1, d2, chiR = theta.shape
 
         theta_new = jnp.einsum("abcd,ecdf->eabf", gate_2q, theta)
@@ -567,16 +602,21 @@ class MPSSimulator:
         U_t, S_t, Vh_t, trunc_err, jsd_val = self._svd_truncate(theta_mat)
         chi_new = len(S_t)
 
-        s_sq = S_t**2
-        p_dist = s_sq / (jnp.sum(s_sq) + 1e-20)
-        p_v = p_dist[p_dist > 1e-20]
-        ee = float(-jnp.sum(p_v * jnp.log2(p_v))) if len(p_v) > 1 else 0.0
+        lam_l_inv = jnp.where(lam_l > self.eps, 1.0 / lam_l, 0.0)
+        lam_r_inv = jnp.where(lam_r > self.eps, 1.0 / lam_r, 0.0)
+
+        new_g1 = jnp.einsum("l,lir->lir", lam_l_inv, U_t.reshape(chiL, d1, chi_new))
+        new_g2 = jnp.einsum("ljr,r->ljr", Vh_t.reshape(chi_new, d2, chiR), lam_r_inv)
+
+        p_dist = S_t ** 2  # already unit-norm (see _svd_truncate)
+        mask = p_dist > 1e-20
+        ee = float(-jnp.sum(jnp.where(mask, p_dist * jnp.log2(jnp.where(mask, p_dist, 1.0)), 0.0)))
         if q1 < len(self.entanglement_entropy):
             self.entanglement_entropy[q1] = ee
 
         self.lambdas[q2] = S_t
-        self.gammas[q1] = U_t.reshape(chiL, d1, chi_new)
-        self.gammas[q2] = Vh_t.reshape(chi_new, d2, chiR)
+        self.gammas[q1] = new_g1
+        self.gammas[q2] = new_g2
 
         self._bond_history.append(chi_new)
         self.jsd_per_bond.append(jsd_val)

@@ -834,17 +834,6 @@ def _brick_wall_ry_ops(n_qubits, seed, layers, lo=0.1, hi=1.5):
     return ops
 
 
-@pytest.mark.xfail(
-    reason="apply_gate_2q's SVD truncation is not canonical (theta omits "
-           "the outer Lambdas, no re-canonicalization before SVD), so the "
-           "singular values it truncates are not the true Schmidt "
-           "coefficients -- prog.txt P0. seed=42/RY in [0.1, 1.5] here is "
-           "not a reproduction of a specific prior measurement (none was "
-           "pinned to an exact seed) -- chosen because it reproduces the "
-           "same order-of-magnitude gap independently found for this bug: "
-           "fid_mps/fid_optimal ratios of 0.30, 0.05, 0.41 on the three "
-           "cases below, all far under the 0.95 bound.",
-)
 @pytest.mark.parametrize("n_qubits, layers, chi", [(8, 6, 8), (10, 8, 8), (12, 6, 16)])
 def test_mps_truncation_quality_vs_optimal_rank_chi(n_qubits, layers, chi):
     ops = _brick_wall_ry_ops(n_qubits, seed=42, layers=layers)
