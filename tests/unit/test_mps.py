@@ -784,3 +784,83 @@ def test_run_circuit_jit_rejects_unknown_gate():
     with pytest.raises(ValueError):
         mps.run_circuit_jit([["not_a_real_gate", 0]])
 
+
+# ── P0: truncation quality vs. optimal fixed-rank MPS (prog.txt) ─────────
+# Every test above either checks the exact regime or eager/JIT internal
+# self-consistency -- neither can catch apply_gate_2q's real defect (theta
+# omits the outer Lambdas and the orthogonality center is never moved onto
+# the bond before SVD), since both paths agree with each other while both
+# being wrong. This compares against the actual ceiling: sequential TT-SVD
+# of the exact statevector, truncated to bond dimension chi at every cut
+# and recontracted -- the best fixed-rank-chi MPS approximation there is.
+
+def _optimal_rank_chi_state(psi, n_qubits, chi):
+    """Sequential TT-SVD of the exact statevector, truncated to bond
+    dimension chi at every cut, recontracted to a full state vector."""
+    psi = np.asarray(psi, dtype=complex)
+    cores = []
+    remainder = psi.reshape(1, -1)
+    left_dim = 1
+    for _ in range(n_qubits - 1):
+        remainder = remainder.reshape(left_dim * 2, -1)
+        u, s, vh = np.linalg.svd(remainder, full_matrices=False)
+        r = min(chi, u.shape[1])
+        cores.append(u[:, :r].reshape(left_dim, 2, r))
+        remainder = np.diag(s[:r]) @ vh[:r, :]
+        left_dim = r
+    cores.append(remainder.reshape(left_dim, 2, 1))
+
+    vec = cores[0].reshape(2, cores[0].shape[2])
+    for core in cores[1:]:
+        l, d, r = core.shape
+        vec = vec @ core.reshape(l, d * r)
+        vec = vec.reshape(-1, r)
+    return vec.reshape(-1)
+
+
+def _brick_wall_ry_ops(n_qubits, seed, layers, lo=0.1, hi=1.5):
+    """RY(random) on every qubit, then CX on even pairs, then CX on odd
+    pairs, repeated for `layers` rounds -- same brick-wall shape as
+    _entangling_circuit_probs_dense/_mps above, RY instead of H+RZ."""
+    rng = np.random.default_rng(seed)
+    ops = []
+    for _ in range(layers):
+        for q in range(n_qubits):
+            ops.append(["ry", q, float(rng.uniform(lo, hi))])
+        for q in range(0, n_qubits - 1, 2):
+            ops.append(["cx", q, q + 1])
+        for q in range(1, n_qubits - 1, 2):
+            ops.append(["cx", q, q + 1])
+    return ops
+
+
+@pytest.mark.xfail(
+    reason="apply_gate_2q's SVD truncation is not canonical (theta omits "
+           "the outer Lambdas, no re-canonicalization before SVD), so the "
+           "singular values it truncates are not the true Schmidt "
+           "coefficients -- prog.txt P0. seed=42/RY in [0.1, 1.5] here is "
+           "not a reproduction of a specific prior measurement (none was "
+           "pinned to an exact seed) -- chosen because it reproduces the "
+           "same order-of-magnitude gap independently found for this bug: "
+           "fid_mps/fid_optimal ratios of 0.30, 0.05, 0.41 on the three "
+           "cases below, all far under the 0.95 bound.",
+)
+@pytest.mark.parametrize("n_qubits, layers, chi", [(8, 6, 8), (10, 8, 8), (12, 6, 16)])
+def test_mps_truncation_quality_vs_optimal_rank_chi(n_qubits, layers, chi):
+    ops = _brick_wall_ry_ops(n_qubits, seed=42, layers=layers)
+
+    dense = de.DenseSVSimulator(n_qubits=n_qubits, use_float32=False)
+    dense.run_circuit_jit(ops)
+    psi_exact = dense.get_statevector()
+
+    mps = MPSSimulator(n_qubits=n_qubits, max_bond=chi)
+    mps.run_circuit_jit(ops)
+    sv_mps = np.asarray(mps.contract_to_statevector())
+
+    psi_optimal = _optimal_rank_chi_state(psi_exact, n_qubits, chi)
+
+    fid_mps = np.abs(np.vdot(psi_exact, sv_mps)) ** 2
+    fid_optimal = np.abs(np.vdot(psi_exact, psi_optimal)) ** 2
+
+    assert fid_mps >= 0.95 * fid_optimal
+
