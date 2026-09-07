@@ -349,12 +349,15 @@ def bounded_exponential_extrapolate(expectation_values, noise_factors, bound: fl
     Fit via SciPy's constrained L-BFGS-B, not `jax.jit`-traceable like the
     rest of this module -- the optimization itself runs in plain NumPy, so
     (unlike every other function here) there is no `_jit` variant. Multi-start
-    (`_N_MULTI_STARTS` deterministic random initializations, fixed seed
-    `_MULTI_START_SEED`, keeping the converged fit with lowest loss): the
-    non-convex 3-parameter fit from a single fixed starting point can land
-    in a poor local minimum -- on data generated exactly from this
-    function's own model, the single-start fit was off by up to 3.9e-3,
-    versus under 1e-5 with multi-start. Raises `RuntimeError` if every
+    (`_N_MULTI_STARTS` starts: the original single fixed start
+    `[0, values[0], 0.5]` first, then `_N_MULTI_STARTS - 1` deterministic
+    random ones, fixed seed `_MULTI_START_SEED`, keeping the converged fit
+    with lowest loss) -- keeping the original start first means a case
+    where it was already the global optimum is unaffected bit-for-bit.
+    The non-convex 3-parameter fit from a single fixed starting point can
+    otherwise land in a poor local minimum -- on data generated exactly
+    from this function's own model, the single-start fit was off by up to
+    3.9e-3, versus under 1e-5 with multi-start. Raises `RuntimeError` if every
     start fails to converge (`result.success`), rather than silently
     returning an unconverged `result.x[1]`.
 
@@ -373,9 +376,10 @@ def bounded_exponential_extrapolate(expectation_values, noise_factors, bound: fl
         return np.sum((values - pred) ** 2)
 
     rng = np.random.default_rng(_MULTI_START_SEED)
-    starts = rng.uniform(
-        [-bound, -bound, 0.01], [bound, bound, 3.0], size=(_N_MULTI_STARTS, 3)
-    )
+    starts = np.concatenate([
+        np.array([[0.0, float(values[0]), 0.5]]),
+        rng.uniform([-bound, -bound, 0.01], [bound, bound, 3.0], size=(_N_MULTI_STARTS - 1, 3)),
+    ])
     best_result = None
     for x0 in starts:
         result = minimize(
