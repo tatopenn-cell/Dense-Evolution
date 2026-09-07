@@ -139,9 +139,15 @@ def build_repulsion_tensor(shells: list[ContractedShell]) -> np.ndarray:
     offsets = _shell_offsets(shells)
     V = np.zeros((n, n, n, n))
     for i, sa in enumerate(shells):
-        for j, sb in enumerate(shells):
+        for j in range(i + 1):
+            sb = shells[j]
+            ij_index = i * (i + 1) // 2 + j
             for k, sc in enumerate(shells):
-                for l, sd in enumerate(shells):
+                for l in range(k + 1):
+                    sd = shells[l]
+                    kl_index = k * (k + 1) // 2 + l
+                    if ij_index < kl_index:
+                        continue
                     block = np.array(
                         _quartet_block(
                             (sa.exponents, sb.exponents, sc.exponents, sd.exponents),
@@ -152,10 +158,15 @@ def build_repulsion_tensor(shells: list[ContractedShell]) -> np.ndarray:
                         )
                     )
                     oi, oj, ok, ol = offsets[i], offsets[j], offsets[k], offsets[l]
-                    V[
-                        oi : oi + block.shape[0],
-                        oj : oj + block.shape[1],
-                        ok : ok + block.shape[2],
-                        ol : ol + block.shape[3],
-                    ] = block
+                    for pi, pj, pk, pl, b in (
+                        (oi, oj, ok, ol, block),
+                        (oj, oi, ok, ol, block.transpose(1, 0, 2, 3)),
+                        (oi, oj, ol, ok, block.transpose(0, 1, 3, 2)),
+                        (oj, oi, ol, ok, block.transpose(1, 0, 3, 2)),
+                        (ok, ol, oi, oj, block.transpose(2, 3, 0, 1)),
+                        (ol, ok, oi, oj, block.transpose(3, 2, 0, 1)),
+                        (ok, ol, oj, oi, block.transpose(2, 3, 1, 0)),
+                        (ol, ok, oj, oi, block.transpose(3, 2, 1, 0)),
+                    ):
+                        V[pi : pi + b.shape[0], pj : pj + b.shape[1], pk : pk + b.shape[2], pl : pl + b.shape[3]] = b
     return V
