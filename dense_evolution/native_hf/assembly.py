@@ -134,10 +134,37 @@ def _build_two_index(shells: list[ContractedShell], primitive_fn, extra=()) -> n
     return M
 
 
-def build_repulsion_tensor(shells: list[ContractedShell]) -> np.ndarray:
+def _schwarz_bound(sa: ContractedShell, sb: ContractedShell) -> float:
+    block = np.array(
+        _quartet_block(
+            (sa.exponents, sb.exponents, sa.exponents, sb.exponents),
+            (sa.coefficients, sb.coefficients, sa.coefficients, sb.coefficients),
+            (sa.center, sb.center, sa.center, sb.center),
+            (sa.degree, sb.degree, sa.degree, sb.degree),
+            electron_repulsion,
+        )
+    )
+    na, nb = block.shape[0], block.shape[1]
+    diag = np.array([[block[p, q, p, q] for q in range(nb)] for p in range(na)])
+    return float(np.sqrt(np.max(np.abs(diag))))
+
+
+def _shell_pair_schwarz_bounds(shells: list[ContractedShell]) -> dict:
+    bounds = {}
+    for i, sa in enumerate(shells):
+        for j in range(i + 1):
+            sb = shells[j]
+            q = _schwarz_bound(sa, sb)
+            bounds[(i, j)] = q
+            bounds[(j, i)] = q
+    return bounds
+
+
+def build_repulsion_tensor(shells: list[ContractedShell], screening_tol: float = 1e-12) -> np.ndarray:
     n = n_cartesian_functions(shells)
     offsets = _shell_offsets(shells)
     V = np.zeros((n, n, n, n))
+    schwarz = _shell_pair_schwarz_bounds(shells)
     for i, sa in enumerate(shells):
         for j in range(i + 1):
             sb = shells[j]
@@ -147,6 +174,8 @@ def build_repulsion_tensor(shells: list[ContractedShell]) -> np.ndarray:
                     sd = shells[l]
                     kl_index = k * (k + 1) // 2 + l
                     if ij_index < kl_index:
+                        continue
+                    if schwarz[(i, j)] * schwarz[(k, l)] < screening_tol:
                         continue
                     block = np.array(
                         _quartet_block(
