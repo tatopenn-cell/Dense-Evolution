@@ -174,7 +174,7 @@ local_site = "research/local_site"
 # longer siblings of _helpers.py. This adds tests/ to sys.path
 # unconditionally regardless of which subdirectory the running test file
 # lives in -- pytest's own sanctioned mechanism for exactly this case.
-pythonpath = ["tests"]
+pythonpath = ["tests", "tools"]
 
 [tool.black]
 line-length = 100

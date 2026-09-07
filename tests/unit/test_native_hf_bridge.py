@@ -12,6 +12,8 @@ invariant (the transform must not change the total electronic energy).
 import numpy as np
 import pytest
 
+pytest.importorskip("pennylane")
+
 from dense_evolution.native_hf.bridge import _ao_to_mo, _apply_active_space
 from dense_evolution.native_hf.basis import build_molecule_shells
 from dense_evolution.native_hf.assembly import (
