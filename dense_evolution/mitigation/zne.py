@@ -11,6 +11,7 @@ This module composes `dense_evolution.healing`'s existing primitives
 (`calculate_delta_preemp`, ...) -- it does not rename or replace them.
 """
 import functools
+import warnings
 
 import numpy as np
 import jax
@@ -19,13 +20,17 @@ from scipy.optimize import minimize
 
 from .healing import calculate_delta_preemp
 
-__all__ = ["richardson_extrapolate", "zero_noise_extrapolation", "polynomial_extrapolate",
-           "bounded_exponential_extrapolate",
+__all__ = ["richardson_extrapolate", "richardson_amplification_factor", "zero_noise_extrapolation",
+           "polynomial_extrapolate", "bounded_exponential_extrapolate",
            "project_to_physical", "uhlmann_fidelity", "zne_density_matrix",
            "jsd_predictive_zne_density_matrix", "global_depolarizing_channel",
            "amplitude_damping_channel", "cosmic_ray_burst_profile",
            "richardson_extrapolate_jit", "zero_noise_extrapolation_jit",
            "polynomial_extrapolate_jit", "uhlmann_fidelity_jit", "zne_density_matrix_jit"]
+
+_KAPPA_WARNING_THRESHOLD = 50.0
+_MULTI_START_SEED = 0
+_N_MULTI_STARTS = 8
 
 
 def richardson_extrapolate(expectation_values, noise_factors) -> jnp.ndarray:
@@ -50,6 +55,25 @@ def richardson_extrapolate(expectation_values, noise_factors) -> jnp.ndarray:
     confirmed directly (`richardson_extrapolate([1+2j, 3+4j], ...)` used
     to return a purely real result, dropping real information).
 
+    Passing more noise-scale points makes exact interpolation MORE, not
+    less, sensitive to shot noise: at noise_factors equally spaced in
+    [1, 3], the noise-amplification factor kappa (`richardson_amplification_factor`,
+    the sum of absolute Lagrange coefficients) is 7 at 3 points, 129 at 5,
+    2815 at 7 -- verified directly, exact integers, not estimates. Since
+    the coefficients are fixed constants (independent of the measured
+    values), i.i.d. shot noise of per-point standard deviation sigma
+    propagates to an extrapolated-result standard deviation of
+    `sigma * sqrt(sum(coeff_i**2))`: at sigma=0.01 this is 0.044 (3
+    points), 0.67 (5), 13.2 (7) -- verified with this exact formula, not
+    simulated, and matching a real prior audit's Monte Carlo figures
+    (0.044 / 0.67 / 13.5) to within sampling noise. Against this,
+    prog.txt's own audit reports the systematic (noise-free) bias
+    improving by only about 0.01 over the same 3-to-7-point range on its
+    real experimental setup -- a bad trade past a handful of points. A
+    `UserWarning` fires when kappa exceeds `_KAPPA_WARNING_THRESHOLD`
+    (50); see `richardson_amplification_factor` to check kappa before
+    extrapolating.
+
     Examples
     --------
     >>> from dense_evolution.mitigation import richardson_extrapolate
@@ -57,9 +81,57 @@ def richardson_extrapolate(expectation_values, noise_factors) -> jnp.ndarray:
     0.95
     """
     lambdas = jnp.asarray(noise_factors, dtype=jnp.float64)
+    kappa = richardson_amplification_factor(lambdas)
+    if kappa > _KAPPA_WARNING_THRESHOLD:
+        warnings.warn(
+            f"richardson_extrapolate: noise amplification factor kappa={kappa:.1f} exceeds "
+            f"{_KAPPA_WARNING_THRESHOLD:.0f} -- shot noise in expectation_values will be "
+            f"amplified by roughly this factor in the extrapolated result; consider passing "
+            f"fewer noise_factors points.",
+            UserWarning, stacklevel=2,
+        )
     values_dtype = jnp.complex128 if np.iscomplexobj(np.asarray(expectation_values)) else jnp.float64
     values = jnp.asarray(expectation_values, dtype=values_dtype)
     return _richardson_extrapolate_core(values, lambdas)
+
+
+def _lagrange_coeffs_at_zero(lambdas: jnp.ndarray) -> jnp.ndarray:
+    """Lagrange basis polynomials for nodes `lambdas`, each evaluated at
+    x=0 -- shared by `_richardson_extrapolate_core` (which combines them
+    with the measured values) and `richardson_amplification_factor`
+    (which only needs their magnitudes)."""
+    n = lambdas.shape[0]
+
+    def lagrange_coeff(i):
+        others = jnp.concatenate([lambdas[:i], lambdas[i + 1:]])
+        return jnp.prod((0.0 - others) / (lambdas[i] - others))
+
+    return jnp.stack([lagrange_coeff(i) for i in range(n)])
+
+
+def richardson_amplification_factor(noise_factors) -> float:
+    """Noise-amplification factor kappa = sum(|Lagrange coefficients|) for
+    Richardson extrapolation at the given `noise_factors`: how much a
+    unit of i.i.d. shot noise spread evenly across the measured points
+    gets amplified in the extrapolated zero-noise estimate (each
+    coefficient can be much larger than 1 and they alternate in sign, so
+    they do not cancel in the worst case the way their SUM, which is
+    always exactly 1, might suggest).
+
+    Measured at noise_factors equally spaced in [1, 3]: kappa = 7 at 3
+    points, 129 at 5 points, 2815 at 7 points -- see
+    `richardson_extrapolate`'s own docstring for the resulting bias/
+    variance trade-off in these same three cases.
+
+    Examples
+    --------
+    >>> from dense_evolution.mitigation import richardson_amplification_factor
+    >>> round(richardson_amplification_factor([1.0, 2.0, 3.0]), 4)
+    7.0
+    """
+    lambdas = jnp.asarray(noise_factors, dtype=jnp.float64)
+    coeffs = _lagrange_coeffs_at_zero(lambdas)
+    return float(jnp.sum(jnp.abs(coeffs)))
 
 
 def _richardson_extrapolate_core(values: jnp.ndarray, lambdas: jnp.ndarray) -> jnp.ndarray:
@@ -72,12 +144,7 @@ def _richardson_extrapolate_core(values: jnp.ndarray, lambdas: jnp.ndarray) -> j
     static-marked by callers.
     """
     n = lambdas.shape[0]
-
-    def lagrange_coeff(i):
-        others = jnp.concatenate([lambdas[:i], lambdas[i + 1:]])
-        return jnp.prod((0.0 - others) / (lambdas[i] - others))
-
-    coeffs = jnp.stack([lagrange_coeff(i) for i in range(n)])
+    coeffs = _lagrange_coeffs_at_zero(lambdas)
     # Broadcast coeffs against the LEADING axis of values (the "one row per
     # noise scale" axis), not jnp's default trailing-axis alignment --
     # values may itself be array-valued per scale (values.shape = (n,
@@ -281,7 +348,15 @@ def bounded_exponential_extrapolate(expectation_values, noise_factors, bound: fl
 
     Fit via SciPy's constrained L-BFGS-B, not `jax.jit`-traceable like the
     rest of this module -- the optimization itself runs in plain NumPy, so
-    (unlike every other function here) there is no `_jit` variant.
+    (unlike every other function here) there is no `_jit` variant. Multi-start
+    (`_N_MULTI_STARTS` deterministic random initializations, fixed seed
+    `_MULTI_START_SEED`, keeping the converged fit with lowest loss): the
+    non-convex 3-parameter fit from a single fixed starting point can land
+    in a poor local minimum -- on data generated exactly from this
+    function's own model, the single-start fit was off by up to 3.9e-3,
+    versus under 1e-5 with multi-start. Raises `RuntimeError` if every
+    start fails to converge (`result.success`), rather than silently
+    returning an unconverged `result.x[1]`.
 
     Examples
     --------
@@ -297,9 +372,28 @@ def bounded_exponential_extrapolate(expectation_values, noise_factors, bound: fl
         pred = a + (zeta - a) * np.exp(-c * lambdas)
         return np.sum((values - pred) ** 2)
 
-    result = minimize(loss, x0=[0.0, float(values[0]), 0.5], method="L-BFGS-B",
-                       bounds=[(-bound, bound), (-bound, bound), (1e-6, None)])
-    return jnp.float64(result.x[1])
+    rng = np.random.default_rng(_MULTI_START_SEED)
+    starts = rng.uniform(
+        [-bound, -bound, 0.01], [bound, bound, 3.0], size=(_N_MULTI_STARTS, 3)
+    )
+    best_result = None
+    for x0 in starts:
+        result = minimize(
+            loss, x0=x0, method="L-BFGS-B",
+            bounds=[(-bound, bound), (-bound, bound), (1e-6, None)],
+            options={"ftol": 1e-14, "gtol": 1e-12},
+        )
+        if not result.success:
+            continue
+        if best_result is None or result.fun < best_result.fun:
+            best_result = result
+
+    if best_result is None:
+        raise RuntimeError(
+            f"bounded_exponential_extrapolate: none of {_N_MULTI_STARTS} multi-start "
+            f"L-BFGS-B fits converged (result.success was False for every start)."
+        )
+    return jnp.float64(best_result.x[1])
 
 
 def project_to_physical(rho_raw: jnp.ndarray) -> jnp.ndarray:

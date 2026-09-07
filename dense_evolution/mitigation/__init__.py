@@ -8,7 +8,8 @@ snapshots (magic_entropy_shadows), a multi-qubit per-state magic monotone
 that module's own docstring for the distinction), and the classical
 Kullback-Leibler divergence over probability distributions (kl_divergence)."""
 from .zne import (
-    richardson_extrapolate, zero_noise_extrapolation, polynomial_extrapolate,
+    richardson_extrapolate, richardson_amplification_factor,
+    zero_noise_extrapolation, polynomial_extrapolate,
     bounded_exponential_extrapolate,
     project_to_physical, uhlmann_fidelity, zne_density_matrix,
     jsd_predictive_zne_density_matrix,
@@ -30,7 +31,8 @@ from .magic_entropy_shadows import (
 from .kl_divergence import kl_divergence, kl_divergence_jit
 
 __all__ = [
-    "richardson_extrapolate", "zero_noise_extrapolation", "polynomial_extrapolate",
+    "richardson_extrapolate", "richardson_amplification_factor",
+    "zero_noise_extrapolation", "polynomial_extrapolate",
     "bounded_exponential_extrapolate",
     "project_to_physical", "uhlmann_fidelity", "zne_density_matrix",
     "jsd_predictive_zne_density_matrix",

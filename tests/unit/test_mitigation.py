@@ -1,10 +1,13 @@
+import warnings
+
 import numpy as np
 import jax.numpy as jnp
 import pytest
 
 import dense_evolution as de
 from dense_evolution.mitigation import (
-    richardson_extrapolate, zero_noise_extrapolation, polynomial_extrapolate,
+    richardson_extrapolate, richardson_amplification_factor,
+    zero_noise_extrapolation, polynomial_extrapolate,
     bounded_exponential_extrapolate,
     project_to_physical, uhlmann_fidelity, zne_density_matrix, zne_density_matrix_jit,
     jsd_predictive_zne_density_matrix,
@@ -68,6 +71,26 @@ def test_richardson_extrapolate_preserves_complex_input():
 def test_richardson_extrapolate_real_input_stays_real():
     got = richardson_extrapolate([1.0, 2.0, 3.0], [1.0, 2.0, 3.0])
     assert not np.iscomplexobj(np.asarray(got))
+
+
+def test_richardson_amplification_factor_matches_known_values():
+    for n, expected_kappa in [(3, 7.0), (5, 129.0), (7, 2815.0)]:
+        lambdas = np.linspace(1.0, 3.0, n)
+        got = richardson_amplification_factor(lambdas)
+        assert got == pytest.approx(expected_kappa, rel=1e-9)
+
+
+def test_richardson_extrapolate_warns_above_kappa_threshold():
+    lambdas = np.linspace(1.0, 3.0, 7)
+    values = np.zeros(7)
+    with pytest.warns(UserWarning, match="kappa"):
+        richardson_extrapolate(values, lambdas)
+
+
+def test_richardson_extrapolate_does_not_warn_below_kappa_threshold():
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        richardson_extrapolate([0.90, 0.80, 0.65], [1.0, 2.0, 3.0])
 
 
 def test_zero_noise_extrapolation_healing_branch_preserves_complex_input():
@@ -179,6 +202,18 @@ def test_bounded_exponential_extrapolate_exact_on_matching_model():
     values = a_true + (zeta_true - a_true) * np.exp(-c_true * lambdas)
     got = float(bounded_exponential_extrapolate(values.tolist(), lambdas.tolist()))
     assert got == pytest.approx(zeta_true, abs=1e-3)
+
+
+@pytest.mark.parametrize("a_true,zeta_true,c_true", [
+    (0.0, 0.85, 0.4),
+    (0.1, 0.85, 0.4),
+    (0.0, 0.95, 2.0),
+])
+def test_bounded_exponential_extrapolate_multistart_recovers_zeta_tightly(a_true, zeta_true, c_true):
+    lambdas = np.array([1.0, 2.0, 3.0, 4.0])
+    values = a_true + (zeta_true - a_true) * np.exp(-c_true * lambdas)
+    got = float(bounded_exponential_extrapolate(values.tolist(), lambdas.tolist()))
+    assert got == pytest.approx(zeta_true, abs=1e-5)
 
 
 def test_bounded_exponential_extrapolate_stays_within_bound():
