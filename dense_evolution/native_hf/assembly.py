@@ -103,33 +103,20 @@ def build_overlap_matrix(shells: list[ContractedShell]) -> np.ndarray:
     return _build_two_index(shells, _overlap_primitive)
 
 
+def _core_hamiltonian_primitive(ga, gb, charges, positions):
+    T = kinetic_3d(ga, gb)
+    per_nucleus = jax.vmap(lambda z, r: -z * nuclear_attraction(ga, gb, r))(charges, positions)
+    V = jnp.sum(per_nucleus, axis=0)
+    return -0.5 * T + V
+
+
 def build_core_hamiltonian(shells: list[ContractedShell], nuclear_charges: list[float], nuclear_positions: np.ndarray) -> np.ndarray:
-    # NOTE: this closure is rebuilt (and re-jitted) on every call, which
-    # defeats cross-call jit caching for e.g. a bond-length scan -- see
-    # prog.txt task "fix cross-call JIT caching". Reverted to this
-    # simpler, independently-verified-correct form (matches slaterform
-    # to 10 significant figures on Si2/STO-3G) after a traced-args
-    # refactor (charges/positions as jax arrays via vmap over nuclei,
-    # threaded through a shared `extra` argument in _pair_block) passed
-    # every individual/aggregate check (element-wise Hc, eigenvalues,
-    # trace, sum, 5x determinism) yet still produced a different,
-    # wrong total SCF energy end-to-end for reasons not pinned down in
-    # the time available -- not worth shipping an unexplained
-    # discrepancy just for speed.
-    charges = tuple(float(z) for z in nuclear_charges)
-    positions = tuple(jnp.asarray(r) for r in nuclear_positions)
-
-    def core_primitive(ga, gb):
-        T = kinetic_3d(ga, gb)
-        V = jnp.zeros_like(T)
-        for z, r in zip(charges, positions):
-            V = V - z * nuclear_attraction(ga, gb, r)
-        return -0.5 * T + V
-
-    return _build_two_index(shells, core_primitive)
+    charges = jnp.asarray(nuclear_charges, dtype=jnp.float64)
+    positions = jnp.asarray(nuclear_positions, dtype=jnp.float64)
+    return _build_two_index(shells, _core_hamiltonian_primitive, extra=(charges, positions))
 
 
-def _build_two_index(shells: list[ContractedShell], primitive_fn) -> np.ndarray:
+def _build_two_index(shells: list[ContractedShell], primitive_fn, extra=()) -> np.ndarray:
     n = n_cartesian_functions(shells)
     offsets = _shell_offsets(shells)
     M = np.zeros((n, n))
@@ -139,7 +126,7 @@ def _build_two_index(shells: list[ContractedShell], primitive_fn) -> np.ndarray:
                 _pair_block(
                     sa.exponents, sa.coefficients, sa.center, sa.degree,
                     sb.exponents, sb.coefficients, sb.center, sb.degree,
-                    primitive_fn,
+                    primitive_fn, extra=extra,
                 )
             )
             oi, oj = offsets[i], offsets[j]
