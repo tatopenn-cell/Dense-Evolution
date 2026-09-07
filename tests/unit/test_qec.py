@@ -30,6 +30,20 @@ STEANE_X_STABILIZERS = ['IIIXXXX', 'IXXIIXX', 'XIXIXIX']
 STEANE_Z_STABILIZERS = ['IIIZZZZ', 'IZZIIZZ', 'ZIZIZIZ']
 N_STEANE = 7
 
+# Shor [[9,1,3]] stabilizer generators: 3 blocks of 3 qubits (0-2, 3-5,
+# 6-8), Z-type pairs detecting a bit flip within each block (degenerate:
+# any single Z error inside a block is invisible to the OTHER Z stabilizer
+# of that block and shares its syndrome with the other two single-Z
+# errors in the same block), X-type generators spanning two blocks at a
+# time detecting a phase flip across blocks.
+SHOR_STABILIZERS = [
+    'ZZIIIIIII', 'IZZIIIIII',
+    'IIIZZIIII', 'IIIIZZIII',
+    'IIIIIIZZI', 'IIIIIIIZZ',
+    'XXXXXXIII', 'IIIXXXXXX',
+]
+N_SHOR = 9
+
 
 class TestPauliCommutes:
 
@@ -457,6 +471,36 @@ class TestBlindMinimumWeightDecode:
 
         assert blind_minimum_weight_decode(syndrome, N_STEANE, all_stabilizers, max_weight=0) is None
         assert blind_minimum_weight_decode(syndrome, N_STEANE, all_stabilizers, max_weight=1) == error
+
+    def test_shor_code_degenerate_z_errors_all_decode(self):
+        """prog.txt P6: Shor [[9,1,3]] is a real degenerate code -- any two
+        single-Z errors inside the same 3-qubit block are invisible to
+        that block's own Z-type stabilizer and so share a syndrome (their
+        product IS that very stabilizer generator, e.g. Z0*Z1 = 'ZZIIIIIII'
+        = the first generator itself), meaning applying either one is the
+        same physical correction. The old ambiguity criterion (more than
+        one match -> None) returned None for all 9 Z errors; this decodes
+        every one of the 18 weight-1 X/Z errors to a correction with the
+        matching syndrome."""
+        for q in range(N_SHOR):
+            for pauli in ('X', 'Z'):
+                error = qec_module._pauli_string(N_SHOR, {q: pauli})
+                syndrome = compute_syndrome(error, SHOR_STABILIZERS)
+                correction = blind_minimum_weight_decode(syndrome, N_SHOR, SHOR_STABILIZERS)
+                assert correction is not None, f"{pauli} error on qubit {q} incorrectly returned None"
+                assert compute_syndrome(correction, SHOR_STABILIZERS) == syndrome
+
+    def test_shor_code_z_stabilizers_alone_cannot_distinguish_x_from_y(self):
+        """Contrast case for the same fix: Shor's 6 Z-type generators alone
+        (bit-flip detection within each block) span only even-weight
+        combinations confined to one block -- never a single bare Z --
+        so an X vs Y error at the same qubit (whose product is a lone Z
+        there) is a genuine LOGICAL difference, not a stabilizer one, and
+        must still return None."""
+        z_only = SHOR_STABILIZERS[:6]
+        error = qec_module._pauli_string(N_SHOR, {4: 'X'})
+        syndrome = compute_syndrome(error, z_only)
+        assert blind_minimum_weight_decode(syndrome, N_SHOR, z_only) is None
 
     def test_invalid_max_weight_raises(self):
         with pytest.raises(ValueError, match="max_weight"):

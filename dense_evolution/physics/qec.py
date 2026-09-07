@@ -132,6 +132,62 @@ def _pauli_string(n_qubits: int, assignment: dict) -> str:
     return ''.join(chars)
 
 
+_PAULI_SYMPLECTIC = {'I': (0, 0), 'X': (1, 0), 'Z': (0, 1), 'Y': (1, 1)}
+
+
+def _pauli_to_symplectic(pauli_str: str) -> np.ndarray:
+    """Length-n Pauli string -> length-2n GF(2) vector (n X-bits, then n
+    Z-bits). The Pauli group modulo global phase is isomorphic to
+    GF(2)^2n under this map, with Pauli multiplication (mod phase)
+    corresponding to vector XOR -- so two Pauli strings differ by a
+    stabilizer element (same coset) iff the XOR of their symplectic
+    vectors lies in the GF(2) span of the stabilizers' own symplectic
+    vectors."""
+    n = len(pauli_str)
+    v = np.zeros(2 * n, dtype=np.uint8)
+    for i, p in enumerate(pauli_str):
+        x, z = _PAULI_SYMPLECTIC[p]
+        v[i] = x
+        v[n + i] = z
+    return v
+
+
+def _gf2_rref(matrix: np.ndarray):
+    """Reduced row-echelon form of a GF(2) matrix, plus the column index
+    of each row's pivot. Pure Gaussian elimination mod 2 -- deciding
+    stabilizer-group membership needs this, not enumeration of the
+    2**k group elements (k = number of independent generators)."""
+    m = matrix.copy() % 2
+    rows, cols = m.shape
+    pivots = []
+    pivot_row = 0
+    for col in range(cols):
+        if pivot_row >= rows:
+            break
+        pivot = next((r for r in range(pivot_row, rows) if m[r, col]), None)
+        if pivot is None:
+            continue
+        m[[pivot_row, pivot]] = m[[pivot, pivot_row]]
+        for r in range(rows):
+            if r != pivot_row and m[r, col]:
+                m[r] ^= m[pivot_row]
+        pivots.append(col)
+        pivot_row += 1
+    return m, pivots
+
+
+def _in_gf2_span(v: np.ndarray, rref: np.ndarray, pivots: list) -> bool:
+    """Whether GF(2) vector v lies in the row space of `rref` (already in
+    reduced row-echelon form, with `pivots[i]` the pivot column of row
+    i) -- reduce v against each pivot row in turn, in the span iff the
+    residual is all-zero."""
+    v = v.copy() % 2
+    for row, col in enumerate(pivots):
+        if v[col]:
+            v ^= rref[row]
+    return not v.any()
+
+
 def erasure_aware_decode(
     observed_syndrome: tuple,
     heralded_qubits: Sequence[int],
@@ -334,14 +390,18 @@ def blind_minimum_weight_decode(
 
     Searches every possible Pauli error in increasing WEIGHT order (0
     non-identity qubits, then 1, then 2, ...), stopping at the first
-    weight with at least one match: returns that match if it's the ONLY
-    one at that weight, `None` if more than one full-length Pauli string
-    at the minimum matching weight reproduces `observed_syndrome`
-    (ambiguous -- not guessed) or if nothing matches by `max_weight`.
-    Minimum-weight selection, not "only one match across every possible
-    weight" -- the latter essentially never holds for a blind search,
-    since any correction plus a stabilizer element reproduces the same
-    syndrome (see module docstring). This IS the same principle
+    weight with at least one match. Multiple matches at that weight are
+    NOT automatically ambiguous: in a degenerate code (e.g. Shor
+    [[9,1,3]]), two lowest-weight corrections that differ by a
+    stabilizer-group element are the SAME physical correction (applying
+    either one restores the code space identically), not two competing
+    guesses. This checks that directly -- via the corrections' symplectic
+    (GF(2)) representation, not by re-deriving it from scratch each call
+    -- and returns the (deterministic, first-found) representative when
+    every match is in the same stabilizer coset. Returns `None` only when
+    two matches at the minimum weight differ by an actual LOGICAL
+    operator (not in the stabilizer group), which is genuine ambiguity, or
+    when nothing matches by `max_weight`. This IS the same principle
     `pymatching_decode`'s MWPM implements, via brute force instead of a
     matching graph -- deliberately much slower, in exchange for working
     on ANY stabilizer code, graph-like or not.
@@ -403,6 +463,9 @@ def blind_minimum_weight_decode(
             raise ValueError(f"stabilizers[{i}] has length {len(s)}, expected n_qubits={n_qubits}")
 
     target = tuple(observed_syndrome)
+    stab_rref, stab_pivots = _gf2_rref(
+        np.array([_pauli_to_symplectic(s) for s in stabilizers], dtype=np.uint8)
+    )
 
     for weight in range(max_weight + 1):
         matches = []
@@ -412,10 +475,18 @@ def blind_minimum_weight_decode(
                 candidate = _pauli_string(n_qubits, assignment)
                 if compute_syndrome(candidate, stabilizers) == target:
                     matches.append(candidate)
+        if not matches:
+            continue
         if len(matches) == 1:
             return matches[0]
-        if len(matches) > 1:
-            return None
+
+        reference = matches[0]
+        reference_symplectic = _pauli_to_symplectic(reference)
+        same_coset = all(
+            _in_gf2_span(reference_symplectic ^ _pauli_to_symplectic(m), stab_rref, stab_pivots)
+            for m in matches[1:]
+        )
+        return reference if same_coset else None
 
     return None
 
