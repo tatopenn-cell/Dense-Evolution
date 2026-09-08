@@ -4,6 +4,26 @@
 kinetic, coulomb, assembly) and the SCF loop itself had no direct
 numerical test at all. Values below were verified correct on the current
 code before being frozen here (see prog.txt), not invented.
+
+Two different kinds of assertion live in this file, worth telling apart:
+4 are anchored against something external to this codebase --
+boys(n,x) vs scipy's own hyp1f1, the H2/STO-3G and H2O/STO-3G SCF
+energies against real literature reference values (see prog.txt's own
+evidence table), and the ERI tensor's 8-fold permutational symmetry
+(a physical invariant true of any correct implementation, not a
+property of this one). These 4 verify correctness: a wrong answer here
+means a wrong answer, full stop.
+
+The other 37 assertions (the frozen overlap-matrix entry, the frozen
+Si2 iteration-count bound, etc.) are auto-generated -- frozen from
+whatever this code currently outputs, without independent verification
+against a known-correct external reference. These block regressions
+(a future change that shifts the number gets caught), but a systematic
+error already present when a value was frozen would be locked in, not
+revealed. If a future audit finds one of the 37 wrong, that is real
+information about a real bug -- it does not mean this test suite lied,
+it means this suite was never able to catch that particular error in
+the first place.
 """
 import numpy as np
 import pytest
