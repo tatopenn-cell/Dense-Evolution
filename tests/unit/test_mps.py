@@ -9,6 +9,10 @@ Cross-checks against the real DenseSVSimulator on entangling circuits are
 the primary correctness signal here, not just internal self-consistency.
 """
 
+import subprocess
+import sys
+import warnings
+
 import numpy as np
 import pytest
 
@@ -997,4 +1001,102 @@ def test_mps_pauli_sum_expectation_matches_renormalized_statevector_under_trunca
     expected = sum(coeff * de.pauli_expectation(sv, term) for coeff, term in terms)
     got = mps_pauli_sum_expectation(mps, terms)
     assert got == pytest.approx(expected, abs=1e-10)
+
+
+# ── MPSSimulator adapts to the active precision (prog.txt) ───────────────
+# A fixed svd_cutoff=1e-12 default sits below complex64's own noise floor
+# (~1e-7): singular values that are pure numerical noise get counted as
+# real Schmidt weight, so chi never shrinks below max_bond regardless of
+# jsd_budget. Measured before this fix, n=12/2 layers/max_bond=64/seed=12:
+# cutoff=1e-12 -> chi=64, cutoff=1e-6 -> chi=4, with entanglement entropy
+# bit-identical between the two and fidelity unaffected -- the extra
+# bond dimension carried zero physical content.
+
+def _run_x64(value, fn):
+    previous = jax.config.jax_enable_x64
+    jax.config.update("jax_enable_x64", value)
+    try:
+        return fn()
+    finally:
+        jax.config.update("jax_enable_x64", previous)
+
+
+def test_default_svd_cutoff_shrinks_chi_in_complex64():
+    def run():
+        ops = _brick_wall_ry_ops(12, seed=12, layers=2)
+        mps = MPSSimulator(n_qubits=12, max_bond=64)
+        mps.run_circuit_jit(ops)
+        assert mps.gammas[0].dtype == jnp.complex64
+        assert mps.eps == pytest.approx(1e-6)
+        assert mps.max_bond_used() == 4
+
+    _run_x64(False, run)
+
+
+def test_default_svd_cutoff_preserves_fidelity_within_the_old_fixed_cutoff():
+    def run():
+        ops = _brick_wall_ry_ops(12, seed=12, layers=2)
+        dense = de.DenseSVSimulator(n_qubits=12, use_float32=True)
+        dense.run_circuit_jit(ops)
+        psi_exact = dense.get_statevector()
+
+        mps_old = MPSSimulator(n_qubits=12, max_bond=64, svd_cutoff=1e-12)
+        mps_old.run_circuit_jit(ops)
+        fid_old = np.abs(np.vdot(psi_exact, np.asarray(mps_old.contract_to_statevector()))) ** 2
+
+        mps_new = MPSSimulator(n_qubits=12, max_bond=64)
+        mps_new.run_circuit_jit(ops)
+        fid_new = np.abs(np.vdot(psi_exact, np.asarray(mps_new.contract_to_statevector()))) ** 2
+
+        assert fid_new == pytest.approx(fid_old, abs=1e-5)
+
+    _run_x64(False, run)
+
+
+def test_explicit_svd_cutoff_is_never_rescaled():
+    mps = MPSSimulator(n_qubits=4, svd_cutoff=1e-3)
+    assert mps.eps == 1e-3
+
+
+def test_use_float32_true_forces_complex64_even_with_x64_enabled():
+    def run():
+        mps = MPSSimulator(n_qubits=4, use_float32=True)
+        assert mps.gammas[0].dtype == jnp.complex64
+        assert mps.eps == pytest.approx(1e-6)
+
+    _run_x64(True, run)
+
+
+def test_use_float32_false_forces_complex128_even_with_x64_disabled():
+    # Subprocess-isolated, unlike the sibling precision tests above: this
+    # path calls ensure_x64() internally, which is a no-op once anything
+    # in the same process has already pinned precision via
+    # set_precision() -- dashboard_core does exactly that at import time
+    # (tools/dashboard/core/__init__.py), and test_dashboard_engine_mps_*
+    # above imports it, so this assertion is only reliable in a process
+    # where nothing has done that yet. Same convention test_config.py
+    # uses for every x64-toggling check, for the same reason.
+    code = (
+        "import jax; jax.config.update('jax_enable_x64', False)\n"
+        "from dense_evolution.backends.mps import MPSSimulator\n"
+        "import jax.numpy as jnp\n"
+        "mps = MPSSimulator(n_qubits=4, use_float32=False)\n"
+        "assert mps.gammas[0].dtype == jnp.complex128, mps.gammas[0].dtype\n"
+        "assert mps.eps == 1e-12, mps.eps\n"
+    )
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_complex64_run_emits_no_dtype_truncation_warning():
+    def run():
+        ops = _brick_wall_ry_ops(10, seed=4, layers=3)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            mps = MPSSimulator(n_qubits=10, max_bond=16)
+            mps.run_circuit_jit(ops)
+        dtype_warnings = [w for w in caught if "truncated to dtype" in str(w.message)]
+        assert dtype_warnings == []
+
+    _run_x64(False, run)
 

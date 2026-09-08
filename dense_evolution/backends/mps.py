@@ -57,7 +57,18 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from ..config import ensure_x64
 from ..physics.observables import _normalize_terms
+
+
+def _real_dtype_for(complex_dtype) -> jnp.dtype:
+    """The real dtype that pairs with a given complex dtype -- float64
+    for complex128, float32 for complex64. Diagnostic/bookkeeping arrays
+    (chi, jsd, truncation error, entanglement entropy, the compiled op
+    table) are real-valued and must follow whichever precision the
+    quantum state itself is running at, instead of a dtype literal that
+    JAX silently downcasts (with a warning) whenever x64 isn't active."""
+    return jnp.float64 if complex_dtype == jnp.complex128 else jnp.float32
 
 
 def _jsd_vectors_jax(p: jnp.ndarray, q: jnp.ndarray) -> jnp.ndarray:
@@ -386,8 +397,9 @@ def _build_mps_runner(n_qubits: int, max_bond: int, eps: float, jsd_budget: floa
             # filters these out by g_id (>=20) before using the per-step
             # history, same as _bond_history/jsd_per_bond only ever
             # growing on 2-qubit gates in the eager path today.
-            diag = (jnp.asarray(0, dtype=jnp.int32), jnp.asarray(0.0, dtype=jnp.float64),
-                    jnp.asarray(0.0, dtype=jnp.float64), jnp.asarray(0.0, dtype=jnp.float64))
+            real_dtype = _real_dtype_for(dtype)
+            diag = (jnp.asarray(0, dtype=jnp.int32), jnp.asarray(0.0, dtype=real_dtype),
+                    jnp.asarray(0.0, dtype=real_dtype), jnp.asarray(0.0, dtype=real_dtype))
             return new_carry, diag
 
         def branch_2q(c):
@@ -440,8 +452,9 @@ def _build_mps_runner(n_qubits: int, max_bond: int, eps: float, jsd_budget: floa
             ee = -jnp.sum(jnp.where(p_dist > 1e-20, p_dist * jnp.log2(jnp.where(p_dist > 1e-20, p_dist, 1.0)), 0.0))
 
             new_carry = (new_gammas, new_lambdas)
-            diag = (chi_new.astype(jnp.int32), jsd_val.astype(jnp.float64),
-                    trunc_err.astype(jnp.float64), ee.astype(jnp.float64))
+            real_dtype = _real_dtype_for(dtype)
+            diag = (chi_new.astype(jnp.int32), jsd_val.astype(real_dtype),
+                    trunc_err.astype(real_dtype), ee.astype(real_dtype))
             return new_carry, diag
 
         is_2q = g_id >= 20
@@ -464,25 +477,65 @@ class MPSSimulator:
 
     Parameters
     ----------
-    n_qubits   : int
-    max_bond   : int   -- hard cap on bond dimension chi
-    svd_cutoff : float -- singular values below this are dropped outright
-    jsd_budget : float -- max tolerated Jensen-Shannon distance between the
+    n_qubits    : int
+    max_bond    : int   -- hard cap on bond dimension chi
+    svd_cutoff  : float or None -- singular values below this are dropped
+                          outright. None (default) resolves to a value
+                          appropriate for the dtype this instance actually
+                          runs at: ~1e-12 for complex128, ~1e-6 (roughly
+                          10x float32's own machine epsilon) for complex64
+                          -- a fixed 1e-12 in complex64 sits below that
+                          dtype's noise floor, so numerical noise gets
+                          counted as real Schmidt weight and chi never
+                          shrinks below max_bond regardless of jsd_budget.
+                          An explicitly passed value always wins verbatim,
+                          never rescaled.
+    jsd_budget  : float -- max tolerated Jensen-Shannon distance between the
                           full and truncated singular-value distributions
                           at each cut; chi is grown by 1 until satisfied
                           or max_bond is hit.
+    use_float32 : bool or None -- None (default) follows the process-wide
+                          jax_enable_x64 flag, same convention as this
+                          module always used (see module docstring).
+                          True forces complex64 (and the complex64-
+                          appropriate svd_cutoff default) even if x64 is
+                          enabled. False requests complex128 by calling
+                          the same lazy ensure_x64() DenseSVSimulator uses
+                          -- a no-op if precision was already pinned via
+                          set_precision(), in which case this still
+                          resolves dtype/eps consistently with whatever
+                          precision is actually active rather than
+                          assuming the request succeeded.
     """
 
     def __init__(
         self,
         n_qubits: int,
         max_bond: int = 64,
-        svd_cutoff: float = 1e-12,
+        svd_cutoff: Optional[float] = None,
         jsd_budget: float = 1e-5,
+        use_float32: Optional[bool] = None,
     ):
         self.n = n_qubits
         self.chi = max_bond
-        self.eps = svd_cutoff
+        if use_float32 is None:
+            x64_active = jax.config.jax_enable_x64
+        elif use_float32:
+            x64_active = False
+        else:
+            # Mirrors DenseSVSimulator's own use_float32=False handling:
+            # complex128 arrays don't exist in JAX at all unless the
+            # process-wide flag is on, so an explicit False has to
+            # actually request that (ensure_x64 is a no-op if the user
+            # already pinned precision via set_precision -- same
+            # deference DenseSVSimulator gives that call). Re-reading the
+            # flag afterward (not assuming it's now True) keeps eps and
+            # dtype consistent with whatever precision is really active,
+            # even in that pinned-False edge case.
+            ensure_x64()
+            x64_active = jax.config.jax_enable_x64
+        dtype = jnp.complex128 if x64_active else jnp.complex64
+        self.eps = svd_cutoff if svd_cutoff is not None else (1e-12 if x64_active else 1e-6)
         self.jsd_budget = jsd_budget
 
         self.gammas: List[jnp.ndarray] = []
@@ -507,7 +560,7 @@ class MPSSimulator:
         self._mps_runner = None
 
         for _ in range(n_qubits):
-            g = jnp.zeros((1, 2, 1), dtype=jnp.complex64 if not jax.config.jax_enable_x64 else jnp.complex128)
+            g = jnp.zeros((1, 2, 1), dtype=dtype)
             g = g.at[0, 0, 0].set(1.0)
             self.gammas.append(g)
 
@@ -846,11 +899,12 @@ class MPSSimulator:
         compiled_rows = _compile_mps_ops(ops, self.n)
         dtype = self.gammas[0].dtype
         lambda_dtype = self.lambdas[0].dtype
+        ops_dtype = _real_dtype_for(dtype)
 
         if compiled_rows:
-            ops_array = jnp.array(compiled_rows, dtype=jnp.float64)
+            ops_array = jnp.array(compiled_rows, dtype=ops_dtype)
         else:
-            ops_array = jnp.zeros((0, 5), dtype=jnp.float64)
+            ops_array = jnp.zeros((0, 5), dtype=ops_dtype)
 
         if self._mps_runner is None:
             self._mps_runner = _build_mps_runner(self.n, self.chi, self.eps, self.jsd_budget)
