@@ -42,9 +42,20 @@ so re-importing dense_evolution in-process would hit sys.modules's
 cache and never re-execute its module-level code at all. Each test here
 spawns a fresh Python interpreter, sets a known precision, imports
 dense_evolution, and checks nothing changed.
+
+The GATES bug above recurred independently in
+backends/mps.py::_PAULI_MATRICES (prog.txt's independent post-8.1.72
+audit) -- built via jnp.array/jnp.eye at module level, same permanent
+complex64 truncation. TestModuleLevelConstantsSurviveImportTimePrecision
+below is parametrized over every known module-level complex-constant
+dict instead of hardcoding one module, specifically so this class of bug
+does not need its own dedicated test rewritten each time it resurfaces
+in a new module.
 """
 import subprocess
 import sys
+
+import pytest
 
 
 def _run(code: str) -> subprocess.CompletedProcess:
@@ -102,34 +113,54 @@ class TestLazyEnsureX64:
         assert result.returncode == 0, result.stderr
 
 
-class TestGatesSurviveImportTimePrecision:
-    """The regression this class exists for: GATES is built once, at
-    dense_evolution's own import time -- if it were built via jax.numpy
-    (as it used to be), starting from jax_enable_x64=False would bake a
-    permanent complex64 truncation into every gate matrix, silently,
-    with no way to recover it later even after x64 gets enabled for real
-    simulation work. Plain NumPy has no such process-wide flag, so GATES
-    must stay genuinely complex128 regardless of the precision active at
-    the moment dense_evolution is imported."""
+_COMPLEX_MODULE_CONSTANTS = [
+    ("dense_evolution.circuits.gates", "GATES"),
+    ("dense_evolution.backends.mps", "_PAULI_MATRICES"),
+]
 
-    def test_gates_are_complex128_even_when_x64_starts_false(self):
+
+class TestModuleLevelConstantsSurviveImportTimePrecision:
+    """The regression this class exists for: a dict of complex-valued
+    matrices built once, at module import time, via jax.numpy bakes a
+    permanent complex64 truncation into every entry if jax_enable_x64
+    isn't already True at that exact moment -- silently, with no way to
+    recover it later even after x64 gets enabled for real simulation
+    work. Plain NumPy has no such process-wide flag, so these constants
+    must stay genuinely complex128 regardless of the precision active at
+    the moment dense_evolution is imported.
+
+    circuits.gates.GATES was the original instance of this bug (see the
+    module docstring above). backends.mps._PAULI_MATRICES reintroduced
+    the identical bug independently later (built via jnp.array/jnp.eye at
+    module level) -- a test hardcoded to GATES alone would not have
+    caught that recurrence, which is why this is parametrized over every
+    known module-level complex-constant dict rather than one-off per
+    module: the next one added here is checked for free."""
+
+    @pytest.mark.parametrize("module_path, attr_name", _COMPLEX_MODULE_CONSTANTS)
+    def test_constants_are_complex128_even_when_x64_starts_false(self, module_path, attr_name):
         result = _run(
             "import jax; jax.config.update('jax_enable_x64', False)\n"
             "import numpy as np\n"
-            "from dense_evolution.circuits.gates import GATES\n"
-            "bad = {name: str(m.dtype) for name, m in GATES.items() if m.dtype != np.complex128}\n"
-            "assert not bad, f'GATES entries not complex128 (x64 started False): {bad}'\n"
+            f"import importlib; m = importlib.import_module('{module_path}')\n"
+            f"d = getattr(m, '{attr_name}')\n"
+            "bad = {name: str(v.dtype) for name, v in d.items() if v.dtype != np.complex128}\n"
+            f"assert not bad, f'{module_path}.{attr_name} entries not complex128 "
+            "(x64 started False): {bad}'\n"
         )
         assert result.returncode == 0, result.stderr
 
-    def test_gates_are_plain_numpy_not_jax_arrays(self):
-        """GATES must be plain numpy arrays specifically -- a jax array
-        would be re-subject to the process-wide x64 flag at creation
-        time, reintroducing the exact bug this class guards against."""
+    @pytest.mark.parametrize("module_path, attr_name", _COMPLEX_MODULE_CONSTANTS)
+    def test_constants_are_plain_numpy_not_jax_arrays(self, module_path, attr_name):
+        """Plain numpy arrays specifically -- a jax array would be
+        re-subject to the process-wide x64 flag at creation time,
+        reintroducing the exact bug this class guards against."""
         result = _run(
             "import numpy as np\n"
-            "from dense_evolution.circuits.gates import GATES\n"
-            "bad = {name: type(m).__name__ for name, m in GATES.items() if not isinstance(m, np.ndarray)}\n"
-            "assert not bad, f'GATES entries not plain numpy arrays: {bad}'\n"
+            f"import importlib; m = importlib.import_module('{module_path}')\n"
+            f"d = getattr(m, '{attr_name}')\n"
+            "bad = {name: type(v).__name__ for name, v in d.items() if not isinstance(v, np.ndarray)}\n"
+            f"assert not bad, f'{module_path}.{attr_name} entries not plain numpy arrays: "
+            "{bad}'\n"
         )
         assert result.returncode == 0, result.stderr
