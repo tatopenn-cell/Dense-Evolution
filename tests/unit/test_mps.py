@@ -914,3 +914,53 @@ def test_mps_pauli_expectation_n30_low_chi_runs_without_memory_error():
     got = mps_pauli_expectation(mps, {0: "Z", 15: "X", 29: "Y"})
     assert np.isfinite(got.real) and np.isfinite(got.imag)
 
+
+# ── P8: mps_pauli_expectation normalization (prog.txt) ──────────────────
+# _entangled_dense_and_mps's default max_bond=32 never saturates on the
+# n_qubits<=12 cases above, so the state stays at norm 1 and a missing
+# normalization is invisible there -- these cases use a bond dimension
+# small enough (n=14, 8 layers, max_bond=8 and 4) that truncation is real
+# (35 and 54 budget violations respectively at seed=11) -- prog.txt's own
+# measurement on a different circuit found the un-normalized function
+# drifting off 1.0 by up to ~9% under exactly this kind of real saturation.
+
+@pytest.mark.parametrize("max_bond", [8, 4])
+def test_mps_pauli_expectation_identity_is_one_under_real_truncation(max_bond):
+    ops = _brick_wall_ry_ops(14, seed=11, layers=8)
+    mps = MPSSimulator(n_qubits=14, max_bond=max_bond)
+    with pytest.warns(UserWarning, match="jsd_budget"):
+        mps.run_circuit_jit(ops)
+    assert mps.budget_violations > 0
+    got = mps_pauli_expectation(mps, "I" * 14)
+    assert got == pytest.approx(1.0, abs=1e-12)
+
+
+@pytest.mark.parametrize("pauli_terms", [
+    {2: "Z", 9: "Z"},
+    {0: "X", 13: "Y"},
+    "XYZXIXYZXIXYZX",
+])
+@pytest.mark.parametrize("max_bond", [8, 4])
+def test_mps_pauli_expectation_matches_renormalized_statevector_under_truncation(max_bond, pauli_terms):
+    ops = _brick_wall_ry_ops(14, seed=11, layers=8)
+    mps = MPSSimulator(n_qubits=14, max_bond=max_bond)
+    with pytest.warns(UserWarning, match="jsd_budget"):
+        mps.run_circuit_jit(ops)
+    sv = np.asarray(mps.contract_to_statevector())
+    assert np.linalg.norm(sv) == pytest.approx(1.0, abs=1e-10)
+    expected = de.pauli_expectation(sv, pauli_terms)
+    got = mps_pauli_expectation(mps, pauli_terms)
+    assert got == pytest.approx(expected, abs=1e-10)
+
+
+def test_mps_pauli_sum_expectation_matches_renormalized_statevector_under_truncation():
+    ops = _brick_wall_ry_ops(14, seed=11, layers=8)
+    mps = MPSSimulator(n_qubits=14, max_bond=8)
+    with pytest.warns(UserWarning, match="jsd_budget"):
+        mps.run_circuit_jit(ops)
+    sv = np.asarray(mps.contract_to_statevector())
+    terms = [(0.5, {1: "Z"}), (-1.5, {3: "X", 10: "X"}), (2.0, {0: "Y", 13: "Z"})]
+    expected = sum(coeff * de.pauli_expectation(sv, term) for coeff, term in terms)
+    got = mps_pauli_sum_expectation(mps, terms)
+    assert got == pytest.approx(expected, abs=1e-10)
+
