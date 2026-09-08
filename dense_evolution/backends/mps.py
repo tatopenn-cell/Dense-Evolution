@@ -898,10 +898,10 @@ class MPSSimulator:
 
 
 _PAULI_MATRICES = {
-    'I': jnp.eye(2, dtype=jnp.complex128),
-    'X': jnp.array([[0, 1], [1, 0]], dtype=jnp.complex128),
-    'Y': jnp.array([[0, -1j], [1j, 0]], dtype=jnp.complex128),
-    'Z': jnp.array([[1, 0], [0, -1]], dtype=jnp.complex128),
+    'I': np.eye(2, dtype=np.complex128),
+    'X': np.array([[0, 1], [1, 0]], dtype=np.complex128),
+    'Y': np.array([[0, -1j], [1j, 0]], dtype=np.complex128),
+    'Z': np.array([[1, 0], [0, -1]], dtype=np.complex128),
 }
 
 
