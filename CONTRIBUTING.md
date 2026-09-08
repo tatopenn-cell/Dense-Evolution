@@ -52,6 +52,7 @@ Tests are organized one file per source module, split into `tests/unit/` (a sing
 
 - Match the existing code style — no comments explaining *what* code does (names should do that); comments only for non-obvious *why* (a workaround, an invariant, a hard-won bug fix).
 - Add tests for anything you fix or add — especially anything numerical (statevector/probability outputs). A test that would have caught the bug you just fixed is worth more than a description of the fix.
+- For any function with an approximation parameter (`max_bond`, `shots`, `screening_tol`, number of noise-extrapolation scales, ...), at least one test must run in a regime where that parameter actually bites, not only the exact/unsaturated regime — three separate bugs in this repo (MPS truncation, MPS Pauli expectation, the MPS truncation-quality reference) each passed their existing tests only because those tests never pushed the approximation hard enough to expose them.
 - Update `README.md`'s changelog section if your change is user-visible.
 - Keep PRs focused — one fix or one feature per PR is easier to review than a bundle of unrelated changes.
 
