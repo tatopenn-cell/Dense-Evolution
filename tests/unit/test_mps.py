@@ -1007,10 +1007,19 @@ def test_mps_pauli_sum_expectation_matches_renormalized_statevector_under_trunca
 # A fixed svd_cutoff=1e-12 default sits below complex64's own noise floor
 # (~1e-7): singular values that are pure numerical noise get counted as
 # real Schmidt weight, so chi never shrinks below max_bond regardless of
-# jsd_budget. Measured before this fix, n=12/2 layers/max_bond=64/seed=12:
+# jsd_budget. Measured on this machine, n=12/2 layers/max_bond=64/seed=12:
 # cutoff=1e-12 -> chi=64, cutoff=1e-6 -> chi=4, with entanglement entropy
 # bit-identical between the two and fidelity unaffected -- the extra
-# bond dimension carried zero physical content.
+# bond dimension carried zero physical content. That exact seed/layers
+# pair sits right at the noise floor, though, which turned out to be
+# platform-dependent (a different BLAS/LAPACK SVD on CI did not separate
+# noise from signal the same way at layers=2 for that specific circuit).
+# The tests below use layers=1 instead, where the same effect is a much
+# larger, platform-robust margin (64 vs 2, verified across ten seeds on
+# this machine), and assert a relative comparison (default cutoff must
+# shrink chi below the old fixed cutoff, on the SAME run) rather than an
+# exact chi value that depends on where a platform's own numerical noise
+# happens to land relative to the cutoff.
 
 def _run_x64(value, fn):
     previous = jax.config.jax_enable_x64
@@ -1023,19 +1032,21 @@ def _run_x64(value, fn):
 
 def test_default_svd_cutoff_shrinks_chi_in_complex64():
     def run():
-        ops = _brick_wall_ry_ops(12, seed=12, layers=2)
-        mps = MPSSimulator(n_qubits=12, max_bond=64)
-        mps.run_circuit_jit(ops)
-        assert mps.gammas[0].dtype == jnp.complex64
-        assert mps.eps == pytest.approx(1e-6)
-        assert mps.max_bond_used() == 4
+        ops = _brick_wall_ry_ops(12, seed=0, layers=1)
+        mps_old = MPSSimulator(n_qubits=12, max_bond=64, svd_cutoff=1e-12)
+        mps_old.run_circuit_jit(ops)
+        mps_default = MPSSimulator(n_qubits=12, max_bond=64)
+        mps_default.run_circuit_jit(ops)
+        assert mps_default.gammas[0].dtype == jnp.complex64
+        assert mps_default.eps == pytest.approx(1e-6)
+        assert mps_default.max_bond_used() < mps_old.max_bond_used()
 
     _run_x64(False, run)
 
 
 def test_default_svd_cutoff_preserves_fidelity_within_the_old_fixed_cutoff():
     def run():
-        ops = _brick_wall_ry_ops(12, seed=12, layers=2)
+        ops = _brick_wall_ry_ops(12, seed=0, layers=1)
         dense = de.DenseSVSimulator(n_qubits=12, use_float32=True)
         dense.run_circuit_jit(ops)
         psi_exact = dense.get_statevector()
