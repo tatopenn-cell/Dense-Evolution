@@ -6,11 +6,21 @@ test_registry.py, test_compiler.py, test_parser.py, test_chunk.py,
 test_healing.py, test_integration.py).
 """
 import os
+import pathlib
 import sys
 
 import pytest
 
+import dense_evolution
 from dense_evolution import DenseSVSimulator
+
+_REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+assert _REPO_ROOT in pathlib.Path(dense_evolution.__file__).resolve().parents, (
+    f"dense_evolution imported from {dense_evolution.__file__}, not from this repo "
+    f"checkout ({_REPO_ROOT}) -- a stale installed copy (e.g. a leftover 'pip install .' "
+    f"or a twine build) is shadowing the local source; every test below would silently "
+    f"run against the wrong code."
+)
 
 
 @pytest.hookimpl(trylast=True)
