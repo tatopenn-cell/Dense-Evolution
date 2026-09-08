@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "dense-evolution"
 version = "8.1.72"
-description = "Micro-optimized High-Performance NISQ Statevector Quantum Circuit Simulator (Hardware-Adaptive Integration of Native NumPy and CPU/GPU/TPU JAX JIT/XLA Compilation, with Linear Kernel Fusion)"
+description = "High-performance quantum simulation toolkit -- Statevector/MPS engines with JIT compilation, noise modeling, VQE, QEC, quantum chemistry, and agent-native tooling"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "Business Source License 1.1" }
@@ -16,15 +16,17 @@ keywords = [
     "quantum-computing",
     "quantum-simulation",
     "statevector",
+    "mps",
     "jax",
-    "cupy",
-    "cuda-acceleration",
+    "vqe",
+    "qec",
+    "quantum-chemistry",
+    "mcp",
     "openqasm",
     "nisq-noise",
     "hpc",
-    "linear-kernel-fusion",
-    "dashboard",
-    "visualization"
+    "cuda-acceleration",
+    "dashboard"
 ]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
