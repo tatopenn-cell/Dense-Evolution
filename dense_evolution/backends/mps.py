@@ -376,7 +376,12 @@ def _build_mps_runner(n_qubits: int, max_bond: int, eps: float, jsd_budget: floa
     factory pattern as chunk.py's _build_multi_chunk_runner, closing over
     the static n_qubits/max_bond/eps/jsd_budget (fixed for one
     MPSSimulator instance's whole lifetime, so the returned closure is
-    built once and cached on the instance, never rebuilt per call)."""
+    built once and cached on the instance, never rebuilt per call).
+
+    step's branch_1q returns a placeholder diag tuple (zeros) for 1-qubit
+    steps -- run_circuit_jit filters these out by g_id (>=20) before using
+    the per-step history, same as _bond_history/jsd_per_bond only ever
+    growing on 2-qubit gates in the eager path."""
 
     def step(carry, row):
         gammas, lambdas = carry
@@ -393,10 +398,6 @@ def _build_mps_runner(n_qubits: int, max_bond: int, eps: float, jsd_budget: floa
             gate_1q = _mps_1q_matrix(g_id, param, dtype)
             new_g = jnp.einsum('ij,ljr->lir', gate_1q, gammas_[q1])
             new_carry = (gammas_.at[q1].set(new_g), lambdas_)
-            # Placeholder diagnostics for a 1-qubit step -- run_circuit_jit
-            # filters these out by g_id (>=20) before using the per-step
-            # history, same as _bond_history/jsd_per_bond only ever
-            # growing on 2-qubit gates in the eager path today.
             real_dtype = _real_dtype_for(dtype)
             diag = (jnp.asarray(0, dtype=jnp.int32), jnp.asarray(0.0, dtype=real_dtype),
                     jnp.asarray(0.0, dtype=real_dtype), jnp.asarray(0.0, dtype=real_dtype))
@@ -499,13 +500,18 @@ class MPSSimulator:
                           module always used (see module docstring).
                           True forces complex64 (and the complex64-
                           appropriate svd_cutoff default) even if x64 is
-                          enabled. False requests complex128 by calling
-                          the same lazy ensure_x64() DenseSVSimulator uses
-                          -- a no-op if precision was already pinned via
-                          set_precision(), in which case this still
-                          resolves dtype/eps consistently with whatever
-                          precision is actually active rather than
-                          assuming the request succeeded.
+                          enabled. False requests complex128 -- since
+                          complex128 arrays don't exist in JAX at all
+                          unless the process-wide flag is on, this calls
+                          the same lazy ensure_x64() DenseSVSimulator
+                          uses, mirroring its own use_float32=False
+                          handling. That call is a no-op if precision was
+                          already pinned via set_precision(), same
+                          deference DenseSVSimulator gives it; the flag is
+                          re-read afterward rather than assumed, so
+                          dtype/eps stay consistent with whatever
+                          precision is really active even in that
+                          pinned-False edge case.
     """
 
     def __init__(
@@ -523,15 +529,6 @@ class MPSSimulator:
         elif use_float32:
             x64_active = False
         else:
-            # Mirrors DenseSVSimulator's own use_float32=False handling:
-            # complex128 arrays don't exist in JAX at all unless the
-            # process-wide flag is on, so an explicit False has to
-            # actually request that (ensure_x64 is a no-op if the user
-            # already pinned precision via set_precision -- same
-            # deference DenseSVSimulator gives that call). Re-reading the
-            # flag afterward (not assuming it's now True) keeps eps and
-            # dtype consistent with whatever precision is really active,
-            # even in that pinned-False edge case.
             ensure_x64()
             x64_active = jax.config.jax_enable_x64
         dtype = jnp.complex128 if x64_active else jnp.complex64
