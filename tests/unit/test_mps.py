@@ -1099,6 +1099,22 @@ def test_use_float32_false_forces_complex128_even_with_x64_disabled():
     assert result.returncode == 0, result.stderr
 
 
+def test_use_float32_false_calls_ensure_x64(monkeypatch):
+    # In-process coverage companion to the subprocess test above: that
+    # test verifies the real end-to-end effect (correctness) but runs in
+    # a child process invisible to coverage measurement, leaving the
+    # ensure_x64()/x64_active-reread lines looking untested. This test
+    # verifies the same branch is actually reached and calls ensure_x64,
+    # without depending on the ambient _explicit/jax_enable_x64 state
+    # that made the subprocess isolation necessary in the first place.
+    import dense_evolution.backends.mps as mps_module
+
+    calls = []
+    monkeypatch.setattr(mps_module, "ensure_x64", lambda: calls.append(True))
+    mps_module.MPSSimulator(n_qubits=4, use_float32=False)
+    assert calls == [True]
+
+
 def test_complex64_run_emits_no_dtype_truncation_warning():
     def run():
         ops = _brick_wall_ry_ops(10, seed=4, layers=3)
