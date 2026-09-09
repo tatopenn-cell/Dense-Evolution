@@ -12,8 +12,15 @@ import numpy as np
 
 def cartesian_powers(degree: int) -> np.ndarray:
     """Returns an (M, 3) array of (lx,ly,lz) triples with lx+ly+lz == degree,
-    in a fixed canonical order (x-major, matching common conventions:
-    for p, that's px, py, pz)."""
+    in a fixed canonical order determined by the generator below -- not the
+    common lexicographic convention some other codes use. For p (degree=1)
+    that's px, pz, py, not px, py, pz (confirmed by calling this function
+    directly, not assumed from the shape of the loop); for d (degree=2),
+    xx, xz, xy, zz, yz, yy, not the lexicographic xx, xy, xz, yy, yz, zz.
+    Internally consistent (cartesian_normalization_ratios and every caller
+    in assembly.py use this exact order), but this matters for anything
+    that needs to match a DIFFERENT code's AO ordering (e.g. libcint's) --
+    see native_hf/libcint_bridge.py's per-degree permutation."""
     return np.array(
         [(lx, degree - lx - lz, lz) for lx in range(degree, -1, -1) for lz in range(degree - lx, -1, -1)],
         dtype=np.int32,

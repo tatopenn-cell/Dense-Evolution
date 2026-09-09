@@ -103,6 +103,15 @@ mcp = [
     # deliberately doesn't pull in fastapi/uvicorn/pennylane the way the
     # composer extra does.
 ]
+libcint = [
+    "pyscf>=2.0.0",
+    # native_hf.libcint_bridge -- an OPTIONAL, faster alternative ERI
+    # tensor for mixed-angular-momentum bases (real speed measured:
+    # ~0.04s vs 158-532s for native_hf's own JAX path on Ne/6-31G*, see
+    # prog.txt), not a replacement for native_hf's own engine. No Windows
+    # wheel on PyPI for pyscf -- installing this extra there needs a C
+    # toolchain to build pyscf from source.
+]
 full = [
     "cupy-cuda12x>=12.0.0",
     "streamlit>=1.30.0",
