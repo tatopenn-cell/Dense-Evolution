@@ -106,6 +106,20 @@ one-index-at-a-time transform (a different algorithm computing the same quantity
 a copy of the code under test) to `1e-10`, and a real physical invariant on H2 (a
 basis change alone cannot alter the total electronic energy) to `1e-10`.
 
+**ERI cost on mixed s/p/d bases**: `assembly.py`'s electron-repulsion tensor
+compiles one `jax.jit` program per distinct shell-quartet shape it
+encounters. A minimal s/p basis needs only a handful; a basis mixing s, p,
+and d shells (e.g. 6-31G*) needs dozens, because the compile cache keys on
+primitive count per shell too, not just angular-momentum degree. Profiling
+(Ne/6-31G*) found compile overhead alone accounted for effectively all of a
+single run's wall time, warm execution next to none -- `assembly.py` now
+pads every shell's primitive count up to the molecule-wide max (a repeated
+exponent with coefficient 0, contributing exactly zero to the sum) so
+shells of the same degree share one compiled program regardless of how many
+primitives they actually have. See `prog.txt` for the full measurement,
+including two other approaches (a persistent compilation cache, parallel
+compilation across processes) that were tried and abandoned.
+
 **Production entry point**: [`dashboard_core.hamiltonians`](dashboard_core_hamiltonians.md)
 calls this engine automatically (`bridge.build_qubit_hamiltonian`) whenever a requested
 molecule uses an element outside PennyLane's own STO-3G table -- existing catalog
