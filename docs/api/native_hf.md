@@ -61,6 +61,41 @@ determinant approximation misses entirely. At only 4 qubits, exact diagonalizati
 easy; that gap is exactly what a real VQE ansatz beyond a bare Hartree-Fock reference
 state is trying to close for larger, classically-intractable molecules.
 
+## Step 3. Large mixed-basis molecules: the optional libcint bridge
+
+```python
+import numpy as np
+from dense_evolution.native_hf.basis import build_molecule_shells
+from dense_evolution.native_hf.assembly import build_overlap_matrix, build_core_hamiltonian
+from dense_evolution.native_hf.libcint_bridge import build_repulsion_tensor_libcint
+from dense_evolution.native_hf.scf import run_scf
+
+geometry = np.array([[0.0, 0.0, 0.0]])
+shells = build_molecule_shells([10], geometry, "6-31g*")
+S = build_overlap_matrix(shells)
+H_core = build_core_hamiltonian(shells, [10.0], geometry)
+V = build_repulsion_tensor_libcint([10], geometry, "6-31g*")
+
+result = run_scf(S, H_core, V, 10, [10.0], geometry)
+result.converged, result.total_energy
+```
+
+```
+(True, -128.4744065199...)
+```
+
+Step 1's molecule only needed s functions, so `build_repulsion_tensor` (the
+default, pure-JAX path) was already fast. A basis mixing s, p, and d shells
+-- like `6-31g*` on neon here -- costs much more with the default path: the
+underlying JIT compiles one program per distinct shell-quartet shape it
+meets, and a mixed basis needs dozens of them. `build_repulsion_tensor_libcint`
+computes the identical tensor through [PySCF](https://pyscf.org/)'s own
+`libcint` instead -- a mature C library with no per-basis compile cost at
+all -- and is a drop-in replacement everywhere `build_repulsion_tensor`'s
+output was used (`S` and `H_core` above still come from native_hf itself).
+Requires the `libcint` extra (`pip install dense-evolution[libcint]`); no
+Windows wheel exists for PySCF, so that extra needs a C toolchain there.
+
 ---
 
 ## Details
@@ -89,6 +124,19 @@ depend on how the SCF loop converges), but the end-to-end Si2 number should be t
 as not yet re-verified against this independent reference. Algorithm background also
 drawn from PennyLane's own white paper (Delgado et al., "Differentiable quantum
 computational chemistry with PennyLane", [arXiv:2111.09967](https://arxiv.org/abs/2111.09967)).
+
+**The libcint bridge's AO-convention mismatch**: native_hf and PySCF/libcint agree on
+the physics but not on bookkeeping -- confirmed empirically (`mol.ao_labels()`,
+`mol.intor('int1e_ovlp')`), not assumed from either codebase's docs. Three separate
+mismatches, all handled by `libcint_bridge.py`: (1) shell order -- native_hf keeps the
+basis file's own order (s,p,s,p,d, interleaved on Ne/6-31G*), libcint groups all shells
+of an atom by ascending degree (s,s,s,p,p,d) -- matched by identity (atom, degree,
+exponents), not by assuming either list's order; (2) Cartesian component order --
+native_hf's own `cartesian_powers` uses px,pz,py and xx,xz,xy,zz,yz,yy, libcint uses the
+more common px,py,pz and xx,xy,xz,yy,yz,zz; (3) normalization -- libcint's raw d
+components are not unit-self-overlap the way native_hf's are (xx/yy/zz vs. xy/xz/yz
+differ by exactly a factor of 3 on Ne/6-31G*), corrected via a rescale computed from
+libcint's own overlap diagonal at call time, not a hardcoded constant.
 
 **SCF convergence (`run_scf`)**: DIIS-accelerated (Pulay 1980/1982) by default, not
 plain linear damping -- see [the module's own docstring](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/dense_evolution/native_hf/scf.py)
@@ -119,3 +167,5 @@ optimized against Hamiltonians built this way.
 ::: dense_evolution.native_hf.scf
 
 ::: dense_evolution.native_hf.basis
+
+::: dense_evolution.native_hf.libcint_bridge
