@@ -140,11 +140,32 @@ def _build_two_index(shells: list[ContractedShell], primitive_fn, extra=()) -> n
     return M
 
 
-def _schwarz_bound(sa: ContractedShell, sb: ContractedShell) -> float:
+def _pad_primitives(exponents: jax.Array, coeffs: jax.Array, target_n: int) -> tuple:
+    """Pad a shell's primitives up to target_n by repeating its last exponent
+    with coefficient 0 -- contributes exactly zero to the primitive sum (not
+    an approximation), so every shell in a molecule can share one primitive
+    count and _quartet_block's JIT cache stops keying on it. Unlike padding
+    the angular-momentum degree (measured as a regression: it forces cheap,
+    many-primitive low-degree shells through the expensive high-degree
+    recursion), padding primitive count doesn't touch the recursion at all --
+    it only lengthens an already-cheap vmap axis (measured warm-cache cost:
+    0.0001-0.005s regardless of primitive count)."""
+    n = exponents.shape[0]
+    if n == target_n:
+        return exponents, coeffs
+    pad_n = target_n - n
+    exponents = jnp.concatenate([exponents, jnp.full((pad_n,), exponents[-1])])
+    coeffs = jnp.concatenate([coeffs, jnp.zeros(pad_n)])
+    return exponents, coeffs
+
+
+def _schwarz_bound(sa: ContractedShell, sb: ContractedShell, max_primitives: int) -> float:
+    ea, ca = _pad_primitives(sa.exponents, sa.coefficients, max_primitives)
+    eb, cb = _pad_primitives(sb.exponents, sb.coefficients, max_primitives)
     block = np.array(
         _quartet_block(
-            (sa.exponents, sb.exponents, sa.exponents, sb.exponents),
-            (sa.coefficients, sb.coefficients, sa.coefficients, sb.coefficients),
+            (ea, eb, ea, eb),
+            (ca, cb, ca, cb),
             (sa.center, sb.center, sa.center, sb.center),
             (sa.degree, sb.degree, sa.degree, sb.degree),
             electron_repulsion,
@@ -155,12 +176,12 @@ def _schwarz_bound(sa: ContractedShell, sb: ContractedShell) -> float:
     return float(np.sqrt(np.max(np.abs(diag))))
 
 
-def _shell_pair_schwarz_bounds(shells: list[ContractedShell]) -> dict:
+def _shell_pair_schwarz_bounds(shells: list[ContractedShell], max_primitives: int) -> dict:
     bounds = {}
     for i, sa in enumerate(shells):
         for j in range(i + 1):
             sb = shells[j]
-            q = _schwarz_bound(sa, sb)
+            q = _schwarz_bound(sa, sb, max_primitives)
             bounds[(i, j)] = q
             bounds[(j, i)] = q
     return bounds
@@ -170,7 +191,8 @@ def build_repulsion_tensor(shells: list[ContractedShell], screening_tol: float =
     n = n_cartesian_functions(shells)
     offsets = _shell_offsets(shells)
     V = np.zeros((n, n, n, n))
-    schwarz = _shell_pair_schwarz_bounds(shells)
+    max_primitives = max(s.exponents.shape[0] for s in shells)
+    schwarz = _shell_pair_schwarz_bounds(shells, max_primitives)
     for i, sa in enumerate(shells):
         for j in range(i + 1):
             sb = shells[j]
@@ -183,10 +205,14 @@ def build_repulsion_tensor(shells: list[ContractedShell], screening_tol: float =
                         continue
                     if schwarz[(i, j)] * schwarz[(k, l)] < screening_tol:
                         continue
+                    ea, ca = _pad_primitives(sa.exponents, sa.coefficients, max_primitives)
+                    eb, cb = _pad_primitives(sb.exponents, sb.coefficients, max_primitives)
+                    ec, cc = _pad_primitives(sc.exponents, sc.coefficients, max_primitives)
+                    ed, cd = _pad_primitives(sd.exponents, sd.coefficients, max_primitives)
                     block = np.array(
                         _quartet_block(
-                            (sa.exponents, sb.exponents, sc.exponents, sd.exponents),
-                            (sa.coefficients, sb.coefficients, sc.coefficients, sd.coefficients),
+                            (ea, eb, ec, ed),
+                            (ca, cb, cc, cd),
                             (sa.center, sb.center, sc.center, sd.center),
                             (sa.degree, sb.degree, sc.degree, sd.degree),
                             electron_repulsion,

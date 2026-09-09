@@ -144,6 +144,69 @@ class TestRepulsionTensorSymmetry:
         assert V == pytest.approx(V.transpose(3, 2, 1, 0), abs=1e-12)
 
 
+# ── primitive-count padding (prog.txt) ────────────────────────────────────
+# _quartet_block's JIT cache keys on primitive count per shell, not just
+# angular-momentum degree (a profiled ~623s ERI build on a mixed s/p/d
+# basis turned out to be 231 distinct JIT specializations, not the 35
+# degree-tuples alone). _pad_primitives collapses that back down by
+# padding every shell to a shared primitive count via a repeated exponent
+# with coefficient 0 -- these tests check that padding is exact (not an
+# approximation) directly, without needing the expensive full ERI build
+# that exercises it in practice.
+
+class TestPrimitiveCountPadding:
+
+    def test_padding_is_a_noop_when_already_at_target(self):
+        from dense_evolution.native_hf.assembly import _pad_primitives
+        exponents = jnp.array([3.0, 1.0, 0.3])
+        coeffs = jnp.array([0.1, 0.2, 0.3])
+        padded_e, padded_c = _pad_primitives(exponents, coeffs, 3)
+        assert np.array_equal(padded_e, exponents)
+        assert np.array_equal(padded_c, coeffs)
+
+    def test_padding_adds_zero_coefficient_dummies(self):
+        from dense_evolution.native_hf.assembly import _pad_primitives
+        exponents = jnp.array([3.0, 1.0])
+        coeffs = jnp.array([0.1, 0.2])
+        padded_e, padded_c = _pad_primitives(exponents, coeffs, 5)
+        assert padded_e.shape == (5,)
+        assert padded_c.shape == (5,)
+        assert np.array_equal(padded_c[2:], np.zeros(3))
+        assert np.all(np.isfinite(padded_e))
+
+    def test_padded_repulsion_tensor_matches_unpadded_reference(self):
+        # H2/STO-3G has uniform primitive counts across its shells, so
+        # build_repulsion_tensor's own padding (target_n == every shell's
+        # real count already) never exercises the padding branch above --
+        # this calls _pad_primitives with a target deliberately larger
+        # than the real count, then verifies the padded quartet block is
+        # numerically identical to the unpadded one.
+        from dense_evolution.native_hf.assembly import _pad_primitives, _quartet_block
+        from dense_evolution.native_hf.coulomb import electron_repulsion
+
+        geometry_bohr = _linear_two_atom_geometry_bohr(0.735)
+        shells = build_molecule_shells([1, 1], geometry_bohr, "sto-3g")
+        sa = shells[0]
+
+        unpadded = np.array(_quartet_block(
+            (sa.exponents, sa.exponents, sa.exponents, sa.exponents),
+            (sa.coefficients, sa.coefficients, sa.coefficients, sa.coefficients),
+            (sa.center, sa.center, sa.center, sa.center),
+            (sa.degree, sa.degree, sa.degree, sa.degree),
+            electron_repulsion,
+        ))
+
+        target_n = sa.exponents.shape[0] + 2
+        ea, ca = _pad_primitives(sa.exponents, sa.coefficients, target_n)
+        padded = np.array(_quartet_block(
+            (ea, ea, ea, ea), (ca, ca, ca, ca),
+            (sa.center, sa.center, sa.center, sa.center),
+            (sa.degree, sa.degree, sa.degree, sa.degree),
+            electron_repulsion,
+        ))
+        assert padded == pytest.approx(unpadded, abs=1e-12)
+
+
 # ── d-shell (angular momentum L=2) support (prog.txt) ────────────────────
 # Cartesian d shells have 6 components (dxx,dyy,dzz,dxy,dxz,dyz); unlike
 # s/p, they do NOT all share the same normalization constant (dxx and dxy
