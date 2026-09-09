@@ -68,6 +68,59 @@ def _permutation_libcint_to_native_hf(degree: int) -> np.ndarray:
     return np.array([libcint_order.index(p) for p in native_order])
 
 
+def _match_pyscf_shell_ao_starts(mol, shells: list) -> list:
+    """For each native_hf shell (in native_hf's own list order), find the
+    matching PySCF basis shell and return its AO start offset in PySCF's
+    own ordering.
+
+    Confirmed empirically on Ne/6-31G* that the two engines do NOT list
+    shells in the same order: native_hf keeps the basis-definition's own
+    file order (s,s,p,s,p,d -- interleaved), while libcint groups all
+    shells of a given atom by ascending angular-momentum degree
+    (s,s,s,p,p,d). Matching by identity (atom, degree, exponents) instead
+    of assuming the two lists line up positionally is correct regardless
+    of which grouping convention either engine happens to use, and isn't
+    an assumption about libcint's grouping rule generalizing to other
+    elements/bases."""
+    ao_loc = mol.ao_loc_nr()
+    candidates = [
+        {
+            "atom": mol.bas_atom(ib),
+            "degree": mol.bas_angular(ib),
+            "exponents": np.sort(np.asarray(mol.bas_exp(ib)))[::-1],
+            "ao_start": int(ao_loc[ib]),
+            "used": False,
+        }
+        for ib in range(mol.nbas)
+    ]
+
+    starts = []
+    for shell in shells:
+        shell_exponents = np.sort(np.asarray(shell.exponents))[::-1]
+        match = next(
+            (
+                c
+                for c in candidates
+                if not c["used"]
+                and c["atom"] == shell.atom_index
+                and c["degree"] == shell.degree
+                and c["exponents"].shape[0] == shell_exponents.shape[0]
+                and np.allclose(c["exponents"], shell_exponents, rtol=1e-6)
+            ),
+            None,
+        )
+        if match is None:
+            raise ValueError(
+                f"could not match native_hf shell (atom={shell.atom_index}, "
+                f"degree={shell.degree}, exponents={shell.exponents}) to any "
+                f"PySCF basis shell -- the two engines may disagree on this "
+                f"basis set's actual shell composition, not just its ordering."
+            )
+        match["used"] = True
+        starts.append(match["ao_start"])
+    return starts
+
+
 def _import_pyscf():
     try:
         from pyscf import gto
@@ -118,11 +171,12 @@ def build_repulsion_tensor_libcint(atomic_numbers: list, geometry_bohr: np.ndarr
         * rescale[None, None, None, :]
     )
 
+    ao_starts = _match_pyscf_shell_ao_starts(mol, shells)
     perm = np.empty(n, dtype=np.int64)
     offset = 0
-    for shell in shells:
+    for shell, pyscf_start in zip(shells, ao_starts):
         block_size = len(cartesian_powers(shell.degree))
-        perm[offset : offset + block_size] = offset + _permutation_libcint_to_native_hf(shell.degree)
+        perm[offset : offset + block_size] = pyscf_start + _permutation_libcint_to_native_hf(shell.degree)
         offset += block_size
 
     return V[perm][:, perm][:, :, perm][:, :, :, perm]
