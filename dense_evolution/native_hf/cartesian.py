@@ -18,3 +18,40 @@ def cartesian_powers(degree: int) -> np.ndarray:
         [(lx, degree - lx - lz, lz) for lx in range(degree, -1, -1) for lz in range(degree - lx, -1, -1)],
         dtype=np.int32,
     )
+
+
+def _double_factorial_odd(n: int) -> float:
+    """(2n-1)!! for n >= 0, with the (2*0-1)!! = (-1)!! = 1 convention."""
+    result = 1.0
+    k = 2 * n - 1
+    while k > 1:
+        result *= k
+        k -= 2
+    return result
+
+
+def cartesian_normalization_ratios(degree: int) -> np.ndarray:
+    """Relative normalization of each Cartesian component of a shell of
+    the given degree, relative to the (degree,0,0) component -- 1.0 for
+    every component when degree<=1 (px, py, pz are equivalent by
+    symmetry), but genuinely different starting at degree=2 (e.g. dxy
+    needs a larger normalization constant than dxx, since <dxx|dxx> =
+    3*<dxy|dxy> for the same exponent).
+
+    Standard result for an unnormalized Cartesian Gaussian primitive
+    (x-Rx)^lx (y-Ry)^ly (z-Rz)^lz exp(-a|r-R|^2): its normalization
+    constant is proportional to 1/sqrt((2lx-1)!!(2ly-1)!!(2lz-1)!!), so
+    this ratio -- independent of the exponent, verified numerically
+    against overlap_3d's own self-overlap at several exponents -- is
+    sqrt((2*degree-1)!! / ((2lx-1)!!(2ly-1)!!(2lz-1)!!)).
+
+    Order matches cartesian_powers(degree) exactly, so callers can zip
+    or elementwise-multiply the two directly."""
+    powers = cartesian_powers(degree)
+    reference = _double_factorial_odd(degree)
+    return np.array(
+        [
+            np.sqrt(reference / (_double_factorial_odd(lx) * _double_factorial_odd(ly) * _double_factorial_odd(lz)))
+            for lx, ly, lz in powers
+        ]
+    )

@@ -22,6 +22,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from dense_evolution.native_hf.cartesian import cartesian_powers
 from dense_evolution.native_hf.gaussians import GaussianShell3D
 from dense_evolution.native_hf.overlap import overlap_3d
 
@@ -38,10 +39,14 @@ class ContractedShell:
 
 
 def _primitive_norm(exponent: jax.Array, degree: int) -> jax.Array:
-    """1/sqrt(self-overlap) for the (degree,0,0) Cartesian component --
-    for a shell of pure angular momentum `degree` every Cartesian
-    component (e.g. px, py, pz) has the same norm by symmetry, so one
-    component is enough."""
+    """1/sqrt(self-overlap) for the (degree,0,0) Cartesian component,
+    used as the shared reference normalization for every Cartesian
+    component of this shell. For degree<=1 that's already each
+    component's own norm (px, py, pz are equivalent by symmetry). For
+    degree>=2 it is not (dxx and dxy have different norms) --
+    cartesian_normalization_ratios supplies the per-component correction
+    relative to this same (degree,0,0) reference, applied at assembly
+    time in assembly.py rather than here."""
     g = GaussianShell3D(degree=degree, exponent=exponent, center=jnp.zeros(3))
     self_overlap = overlap_3d(g, g)[degree, 0, 0, degree, 0, 0]
     return 1.0 / jnp.sqrt(self_overlap)
@@ -81,14 +86,14 @@ def load_element_shells(basis_name: str, atomic_number: int, center: jax.Array, 
     max_degree = max(
         degree for shell in electron_shells for degree in shell["angular_momentum"]
     )
-    if max_degree > 1:
+    if max_degree > 2:
         from basis_set_exchange.lut import element_sym_from_Z
 
         sym = element_sym_from_Z(atomic_number).capitalize()
         raise NotImplementedError(
-            f"native_hf's overlap/kinetic/Coulomb integrals only implement s and p "
-            f"shells (degree <= 1); {sym} (Z={atomic_number}) needs a degree-{max_degree} "
-            f"shell (d-orbitals or higher) in {basis_name}. Not a silent approximation -- "
+            f"native_hf's overlap/kinetic/Coulomb integrals only implement s, p and d "
+            f"shells (degree <= 2); {sym} (Z={atomic_number}) needs a degree-{max_degree} "
+            f"shell (f-orbitals or higher) in {basis_name}. Not a silent approximation -- "
             f"this element genuinely isn't supported by this engine yet."
         )
 
@@ -106,8 +111,5 @@ def build_molecule_shells(atomic_numbers: list[int], geometry_bohr: np.ndarray, 
     return shells
 
 
-_DEGREE_TO_N_CARTESIAN = {0: 1, 1: 3}  # s: 1 component, p: 3 (x,y,z)
-
-
 def n_cartesian_functions(shells: list[ContractedShell]) -> int:
-    return sum(_DEGREE_TO_N_CARTESIAN[s.degree] for s in shells)
+    return sum(len(cartesian_powers(s.degree)) for s in shells)

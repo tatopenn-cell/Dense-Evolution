@@ -22,7 +22,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from dense_evolution.native_hf.basis import ContractedShell, n_cartesian_functions
-from dense_evolution.native_hf.cartesian import cartesian_powers
+from dense_evolution.native_hf.cartesian import cartesian_powers, cartesian_normalization_ratios
 from dense_evolution.native_hf.gaussians import GaussianShell3D
 from dense_evolution.native_hf.overlap import overlap_3d
 from dense_evolution.native_hf.kinetic import kinetic_3d
@@ -39,6 +39,8 @@ def _pair_block(exponents_a, coeffs_a, center_a, degree_a, exponents_b, coeffs_b
     it IS a static jit key."""
     powers_a = jnp.asarray(cartesian_powers(degree_a))
     powers_b = jnp.asarray(cartesian_powers(degree_b))
+    ratio_a = jnp.asarray(cartesian_normalization_ratios(degree_a))
+    ratio_b = jnp.asarray(cartesian_normalization_ratios(degree_b))
 
     def one_primitive_pair(ea, ca, eb, cb):
         ga = GaussianShell3D(degree=degree_a, exponent=ea, center=center_a)
@@ -51,7 +53,7 @@ def _pair_block(exponents_a, coeffs_a, center_a, degree_a, exponents_b, coeffs_b
         jax.vmap(one_primitive_pair, in_axes=(None, None, 0, 0)),
         in_axes=(0, 0, None, None),
     )(exponents_a, coeffs_a, exponents_b, coeffs_b)
-    return jnp.sum(batched, axis=(0, 1))
+    return ratio_a[:, None] * ratio_b[None, :] * jnp.sum(batched, axis=(0, 1))
 
 
 @functools.partial(jax.jit, static_argnames=("degrees", "primitive_fn"))
@@ -59,6 +61,7 @@ def _quartet_block(exponents, coeffs, centers, degrees, primitive_fn):
     """exponents/coeffs: tuples of 4 arrays (one per shell), centers: tuple
     of 4 (3,) arrays, degrees: tuple of 4 static ints."""
     powers = [jnp.asarray(cartesian_powers(d)) for d in degrees]
+    ratios = [jnp.asarray(cartesian_normalization_ratios(d)) for d in degrees]
 
     def one_quartet(ea, ca, eb, cb, ec, cc, ed, cd):
         ga = GaussianShell3D(degree=degrees[0], exponent=ea, center=centers[0])
@@ -84,7 +87,10 @@ def _quartet_block(exponents, coeffs, centers, degrees, primitive_fn):
         exponents[2], coeffs[2], exponents[3], coeffs[3],
     )
     batched = vmapped(ea, ca, eb, cb, ec, cc, ed, cd)
-    return jnp.sum(batched, axis=(0, 1, 2, 3))
+    summed = jnp.sum(batched, axis=(0, 1, 2, 3))
+    ratio_outer = ratios[0][:, None, None, None] * ratios[1][None, :, None, None] \
+        * ratios[2][None, None, :, None] * ratios[3][None, None, None, :]
+    return ratio_outer * summed
 
 
 def _shell_offsets(shells: list[ContractedShell]) -> list[int]:
