@@ -124,7 +124,7 @@ def _match_pyscf_shell_ao_starts(mol, shells: list) -> list:
 def _import_pyscf():
     try:
         from pyscf import gto
-    except ImportError as exc:
+    except ImportError as exc:  # pragma: no cover -- only reachable without pyscf installed, which CI here always has
         raise ImportError(
             "native_hf.libcint_bridge requires PySCF, an optional dependency "
             "(pip install dense-evolution[libcint]); it is not installed. "
