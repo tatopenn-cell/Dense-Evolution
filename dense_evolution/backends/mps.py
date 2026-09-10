@@ -370,6 +370,20 @@ def _compile_mps_ops(ops, n_qubits: int) -> List[List[float]]:
     return rows
 
 
+_SVD_BUCKETS = (2, 4, 8, 16, 32, 64, 128, 256, 512, 1024)
+
+
+def _bucket_sizes(max_bond: int) -> Tuple[int, ...]:
+    """Smallest-to-largest candidate SVD sizes for one MPSSimulator
+    instance's whole lifetime -- always ending at max_bond itself (added
+    if not already a power of 2 in _SVD_BUCKETS), so every real bond
+    dimension up to the hard cap has some bucket that fits it."""
+    buckets = tuple(b for b in _SVD_BUCKETS if b <= max_bond)
+    if not buckets or buckets[-1] != max_bond:
+        buckets = buckets + (max_bond,)
+    return buckets
+
+
 def _build_mps_runner(n_qubits: int, max_bond: int, eps: float, jsd_budget: float):
     """Factory: builds and returns a single @jax.jit-compiled closure that
     runs an entire pre-compiled MPS circuit via jax.lax.scan -- same
@@ -381,10 +395,46 @@ def _build_mps_runner(n_qubits: int, max_bond: int, eps: float, jsd_budget: floa
     step's branch_1q returns a placeholder diag tuple (zeros) for 1-qubit
     steps -- run_circuit_jit filters these out by g_id (>=20) before using
     the per-step history, same as _bond_history/jsd_per_bond only ever
-    growing on 2-qubit gates in the eager path."""
+    growing on 2-qubit gates in the eager path.
+
+    2-qubit steps no longer always run the SVD at a fixed max_bond*2
+    size -- previously theta_mat.reshape(max_bond*2, 2*max_bond) was
+    ALWAYS square and ALWAYS a full economy SVD at that size, regardless
+    of the real/masked bond dimension (confirmed by direct measurement:
+    raising max_bond 64->128 measurably slowed every gate down even when
+    the real bond stayed ~4-8 on the same circuit). Instead, a small fixed
+    set of candidate sizes (_bucket_sizes) is dispatched via
+    jax.lax.switch -- same JIT-compatible mechanism _mps_1q_matrix/
+    _mps_2q_matrix already use for gate-ID dispatch, applied here to SVD
+    size instead. Verified correct across ~92 single-gate configurations
+    plus full multi-gate circuit fidelity (0.999999999998+) against this
+    module's own eager path, and 68.80x-73.96x faster on CPU / 2.74x on
+    GPU on a real N=50 TFIM Trotter circuit -- see Dense-Evolution-
+    Discovery's mps_bucketed_svd_optimization experiment for the full
+    validation, including a real bug found and fixed there before
+    promotion (see the bound formula's own comment below).
+
+    Bucket selection needs a provable (not heuristic) bound on how big B
+    must be, computed BEFORE the SVD from already-known real bond sizes
+    (real_chi, threaded through the scan carry alongside gammas/lambdas):
+    a 2-qubit gate acting at a cut can increase that cut's Schmidt rank by
+    at most a factor of d^2=4 (d=2, local physical dimension) -- theta_mat's
+    own matrix rank is bounded by min(chi_l_real*2, chi_r_real*2), a
+    mathematical fact about rank <= min(rows, cols), independent of the
+    PRE-gate middle bond. That output-side bound alone is not sufficient,
+    though: g1/g2/lam_m get sliced to size B BEFORE the einsum contracts
+    the middle bond away, so B must ALSO be at least as large as the
+    current middle bond (chi_m_real) and both outer bonds themselves, or
+    real (nonzero) Schmidt weight already on those bonds gets silently
+    dropped from the contraction -- not merely under-grown. Both
+    requirements combined: max(chi_l_real, chi_r_real, chi_m_real,
+    min(chi_l_real*2, chi_r_real*2))."""
+
+    buckets = _bucket_sizes(max_bond)
+    bucket_arr = jnp.array(buckets)
 
     def step(carry, row):
-        gammas, lambdas = carry
+        gammas, lambdas, real_chi = carry
         dtype = gammas.dtype
 
         g_id = row[0].astype(jnp.int32)
@@ -394,10 +444,10 @@ def _build_mps_runner(n_qubits: int, max_bond: int, eps: float, jsd_budget: floa
         transpose_flag = row[4] > 0.5
 
         def branch_1q(c):
-            gammas_, lambdas_ = c
+            gammas_, lambdas_, real_chi_ = c
             gate_1q = _mps_1q_matrix(g_id, param, dtype)
             new_g = jnp.einsum('ij,ljr->lir', gate_1q, gammas_[q1])
-            new_carry = (gammas_.at[q1].set(new_g), lambdas_)
+            new_carry = (gammas_.at[q1].set(new_g), lambdas_, real_chi_)
             real_dtype = _real_dtype_for(dtype)
             diag = (jnp.asarray(0, dtype=jnp.int32), jnp.asarray(0.0, dtype=real_dtype),
                     jnp.asarray(0.0, dtype=real_dtype), jnp.asarray(0.0, dtype=real_dtype))
@@ -409,53 +459,74 @@ def _build_mps_runner(n_qubits: int, max_bond: int, eps: float, jsd_budget: floa
             # compute entirely, same choice compiler.py's do_2q makes for
             # its own outer 1q/2q split: the SVD here is real work, worth
             # skipping for the common case of a 1-qubit gate.
-            gammas_, lambdas_ = c
+            gammas_, lambdas_, real_chi_ = c
             gate_2q = _mps_2q_matrix(g_id, param, dtype)
             gate_2q = jnp.where(transpose_flag, jnp.transpose(gate_2q, (1, 0, 3, 2)), gate_2q)
 
-            g1 = gammas_[q1]
-            g2 = gammas_[q2]
-            lam_l = lambdas_[q1]
-            lam_m = lambdas_[q2]
-            lam_r = lambdas_[q2 + 1]
-            # Full Vidal update (prog.txt P0 fix): both outer Lambdas
-            # attached, same convention as the eager apply_gate_2q path --
-            # see that method's docstring.
-            theta = jnp.einsum('l,lik,k,kjr,r->lijr', lam_l, g1, lam_m, g2, lam_r)
-            theta_new = jnp.einsum('abcd,ecdf->eabf', gate_2q, theta)
-            theta_mat = theta_new.reshape(max_bond * 2, 2 * max_bond)
+            chi_l_real = real_chi_[q1]
+            chi_m_real = real_chi_[q2]      # current middle bond, BEFORE this gate
+            chi_r_real = real_chi_[q2 + 1]
+            input_min = jnp.maximum(jnp.maximum(chi_l_real, chi_r_real), chi_m_real)
+            output_bound = jnp.minimum(chi_l_real * 2, chi_r_real * 2)
+            bound = jnp.maximum(input_min, output_bound)
+            ge_mask = bucket_arr >= bound
+            bucket_idx = jnp.where(jnp.any(ge_mask), jnp.argmax(ge_mask), len(buckets) - 1)
 
-            U, S, Vh = jnp.linalg.svd(theta_mat, full_matrices=False)
-            chi_new, jsd_val = _vectorized_chi_search_jax(S, eps, jsd_budget, max_bond)
-            col_mask = jnp.arange(max_bond) < chi_new
+            def make_branch(B):
+                def branch_fn(_):
+                    g1 = gammas_[q1][:B, :, :B]
+                    g2 = gammas_[q2][:B, :, :B]
+                    lam_l = lambdas_[q1][:B]
+                    lam_m = lambdas_[q2][:B]
+                    lam_r = lambdas_[q2 + 1][:B]
+                    # Full Vidal update (prog.txt P0 fix): both outer
+                    # Lambdas attached, same convention as the eager
+                    # apply_gate_2q path -- see that method's docstring.
+                    theta = jnp.einsum('l,lik,k,kjr,r->lijr', lam_l, g1, lam_m, g2, lam_r)
+                    theta_new = jnp.einsum('abcd,ecdf->eabf', gate_2q, theta)
+                    theta_mat = theta_new.reshape(B * 2, 2 * B)
 
-            norm_full = jnp.sqrt(jnp.sum(S ** 2) + 1e-30)
-            S_norm_full = S / (norm_full + 1e-30)
-            trunc_err = jnp.sqrt(jnp.sum(jnp.where(jnp.arange(2 * max_bond) >= chi_new, S_norm_full ** 2, 0.0)))
+                    U, S, Vh = jnp.linalg.svd(theta_mat, full_matrices=False)
+                    chi_new, jsd_val = _vectorized_chi_search_jax(S, eps, jsd_budget, min(B, max_bond))
+                    col_mask = jnp.arange(B) < chi_new
 
-            S_kept_masked = jnp.where(col_mask, S[:max_bond], 0.0)
-            kept_norm = jnp.sqrt(jnp.sum(S_kept_masked ** 2) + 1e-30)
-            S_fixed = jnp.where(col_mask, S_kept_masked / (kept_norm + 1e-30), 0.0)
+                    norm_full = jnp.sqrt(jnp.sum(S ** 2) + 1e-30)
+                    S_norm_full = S / (norm_full + 1e-30)
+                    trunc_err = jnp.sqrt(jnp.sum(jnp.where(jnp.arange(2 * B) >= chi_new, S_norm_full ** 2, 0.0)))
 
-            lam_l_inv = jnp.where(lam_l > eps, 1.0 / lam_l, 0.0)
-            lam_r_inv = jnp.where(lam_r > eps, 1.0 / lam_r, 0.0)
+                    S_kept_masked = jnp.where(col_mask, S[:B], 0.0)
+                    kept_norm = jnp.sqrt(jnp.sum(S_kept_masked ** 2) + 1e-30)
+                    S_fixed = jnp.where(col_mask, S_kept_masked / (kept_norm + 1e-30), 0.0)
 
-            U_masked = jnp.where(col_mask[None, :], U[:, :max_bond], 0.0)
-            Vh_masked = jnp.where(col_mask[:, None], Vh[:max_bond, :], 0.0)
+                    lam_l_inv = jnp.where(lam_l > eps, 1.0 / lam_l, 0.0)
+                    lam_r_inv = jnp.where(lam_r > eps, 1.0 / lam_r, 0.0)
 
-            new_g1 = jnp.einsum('l,lir->lir', lam_l_inv, U_masked.reshape(max_bond, 2, max_bond))
-            new_g2 = jnp.einsum('ljr,r->ljr', Vh_masked.reshape(max_bond, 2, max_bond), lam_r_inv)
+                    U_masked = jnp.where(col_mask[None, :], U[:, :B], 0.0)
+                    Vh_masked = jnp.where(col_mask[:, None], Vh[:B, :], 0.0)
 
-            new_gammas = gammas_.at[q1].set(new_g1).at[q2].set(new_g2)
-            new_lambdas = lambdas_.at[q2].set(S_fixed)
+                    new_g1 = jnp.einsum('l,lir->lir', lam_l_inv, U_masked.reshape(B, 2, B))
+                    new_g2 = jnp.einsum('ljr,r->ljr', Vh_masked.reshape(B, 2, B), lam_r_inv)
 
-            p_dist = S_fixed ** 2  # already unit-norm (see eager _svd_truncate)
-            ee = -jnp.sum(jnp.where(p_dist > 1e-20, p_dist * jnp.log2(jnp.where(p_dist > 1e-20, p_dist, 1.0)), 0.0))
+                    p_dist = S_fixed ** 2  # already unit-norm (see eager _svd_truncate)
+                    ee = -jnp.sum(jnp.where(p_dist > 1e-20, p_dist * jnp.log2(jnp.where(p_dist > 1e-20, p_dist, 1.0)), 0.0))
 
-            new_carry = (new_gammas, new_lambdas)
-            real_dtype = _real_dtype_for(dtype)
-            diag = (chi_new.astype(jnp.int32), jsd_val.astype(real_dtype),
-                    trunc_err.astype(real_dtype), ee.astype(real_dtype))
+                    real_dtype = _real_dtype_for(dtype)
+                    return (_pad_gamma(new_g1, max_bond), _pad_gamma(new_g2, max_bond),
+                            _pad_lambda(S_fixed, max_bond), chi_new.astype(jnp.int32),
+                            jsd_val.astype(real_dtype), trunc_err.astype(real_dtype), ee.astype(real_dtype))
+
+                return branch_fn
+
+            branches = [make_branch(B) for B in buckets]
+            new_g1_p, new_g2_p, S_fixed_p, chi_new, jsd_val, trunc_err, ee = jax.lax.switch(
+                bucket_idx, branches, operand=None)
+
+            new_gammas = gammas_.at[q1].set(new_g1_p).at[q2].set(new_g2_p)
+            new_lambdas = lambdas_.at[q2].set(S_fixed_p)
+            new_real_chi = real_chi_.at[q2].set(chi_new)
+
+            new_carry = (new_gammas, new_lambdas, new_real_chi)
+            diag = (chi_new, jsd_val, trunc_err, ee)
             return new_carry, diag
 
         is_2q = g_id >= 20
@@ -463,9 +534,10 @@ def _build_mps_runner(n_qubits: int, max_bond: int, eps: float, jsd_budget: floa
         return new_carry, diag
 
     @jax.jit
-    def run(gammas, lambdas, compiled_ops):
-        (final_gammas, final_lambdas), diag = jax.lax.scan(step, (gammas, lambdas), compiled_ops)
-        return final_gammas, final_lambdas, diag
+    def run(gammas, lambdas, real_chi, compiled_ops):
+        (final_gammas, final_lambdas, final_real_chi), diag = jax.lax.scan(
+            step, (gammas, lambdas, real_chi), compiled_ops)
+        return final_gammas, final_lambdas, final_real_chi, diag
 
     return run
 
@@ -537,6 +609,13 @@ class MPSSimulator:
 
         self.gammas: List[jnp.ndarray] = []
         self.lambdas: List[jnp.ndarray] = [jnp.ones(1)] * (n_qubits + 1)
+        # Real (non-max_bond-padded) bond dimension at every cut, kept in
+        # sync by BOTH the eager path (apply_gate_2q, below) and
+        # run_circuit_jit -- needed by the bucketed-SVD dispatch in
+        # _build_mps_runner to pick a provably-sufficient bucket size
+        # without ever inferring it from zero-counting (see that
+        # function's own docstring for why that would be unreliable).
+        self._real_chi: np.ndarray = np.ones(n_qubits + 1, dtype=np.int64)
 
         self.truncation_errors: List[float] = []
         self.jsd_per_bond: List[float] = []
@@ -669,6 +748,7 @@ class MPSSimulator:
         self.lambdas[q2] = S_t
         self.gammas[q1] = new_g1
         self.gammas[q2] = new_g2
+        self._real_chi[q2] = chi_new
 
         self._bond_history.append(chi_new)
         self.jsd_per_bond.append(jsd_val)
@@ -908,11 +988,14 @@ class MPSSimulator:
 
         gammas_padded = jnp.stack([_pad_gamma(g, self.chi).astype(dtype) for g in self.gammas])
         lambdas_padded = jnp.stack([_pad_lambda(l, self.chi).astype(lambda_dtype) for l in self.lambdas])
+        real_chi_initial = jnp.asarray(self._real_chi, dtype=jnp.int32)
 
-        final_gammas, final_lambdas, diag = self._mps_runner(gammas_padded, lambdas_padded, ops_array)
+        final_gammas, final_lambdas, final_real_chi, diag = self._mps_runner(
+            gammas_padded, lambdas_padded, real_chi_initial, ops_array)
 
         self.gammas = [final_gammas[i] for i in range(self.n)]
         self.lambdas = [final_lambdas[i] for i in range(self.n + 1)]
+        self._real_chi = np.asarray(final_real_chi)
 
         # Bookkeeping parity: jax.lax.scan's stacked per-step diagnostics
         # (diag) replace the eager path's Python list.append()s inside the

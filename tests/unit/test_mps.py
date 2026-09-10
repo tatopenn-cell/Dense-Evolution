@@ -768,6 +768,58 @@ def test_run_circuit_jit_bookkeeping_matches_eager():
     assert mps_eager.budget_violations > 0, "test setup should genuinely stress max_bond"
 
 
+def test_run_circuit_jit_bucketed_svd_preserves_large_middle_bond():
+    """Regression test for a real bug found and fixed before promoting the
+    bucketed-SVD dispatch into _build_mps_runner: picking the bucket size
+    from only the two OUTER bonds at a cut ignores the current MIDDLE bond
+    (the bond between the two gated qubits, contracted away by the einsum
+    that builds theta) -- if that middle bond exceeds the chosen bucket,
+    real (nonzero) Schmidt weight already on it gets silently dropped
+    before the SVD ever runs, not merely under-grown. Confirmed directly
+    during development: chi_l=2, chi_m=16, chi_r=2 with an outer-bonds-only
+    bound formula discarded ~82% of the true state norm. Constructs that
+    exact asymmetry directly on a real MPSSimulator (not a reimplementation)
+    and compares run_circuit_jit against the eager reference path."""
+    n_qubits, max_bond = 4, 64
+    chi_l, chi_m, chi_r = 2, 16, 2
+
+    def make_mps():
+        mps = MPSSimulator(n_qubits=n_qubits, max_bond=max_bond)
+        dtype = mps.gammas[0].dtype
+        real_dtype = jnp.float64 if dtype == jnp.complex128 else jnp.float32
+        key = jax.random.PRNGKey(123)
+        k1, k2, k3, k4 = jax.random.split(key, 4)
+        g1 = (jax.random.normal(k1, (chi_l, 2, chi_m), dtype=real_dtype)
+              + 1j * jax.random.normal(k2, (chi_l, 2, chi_m), dtype=real_dtype)).astype(dtype)
+        g2 = (jax.random.normal(k3, (chi_m, 2, chi_r), dtype=real_dtype)
+              + 1j * jax.random.normal(k4, (chi_m, 2, chi_r), dtype=real_dtype)).astype(dtype)
+        mps.gammas[1], mps.gammas[2] = g1, g2
+        mps.lambdas[1] = jnp.ones(chi_l, dtype=real_dtype) / jnp.sqrt(chi_l)
+        mps.lambdas[2] = jnp.ones(chi_m, dtype=real_dtype) / jnp.sqrt(chi_m)
+        mps.lambdas[3] = jnp.ones(chi_r, dtype=real_dtype) / jnp.sqrt(chi_r)
+        return mps
+
+    mps_eager = make_mps()
+    mps_eager.apply_cx(1, 2)
+
+    mps_fused = make_mps()
+    mps_fused._real_chi[1] = chi_l
+    mps_fused._real_chi[2] = chi_m
+    mps_fused._real_chi[3] = chi_r
+    mps_fused.run_circuit_jit([["cx", 1, 2]])
+
+    lam_eager = np.sort(np.asarray(mps_eager.lambdas[2]))[::-1]
+    chi_new_fused = int(mps_fused._real_chi[2])
+    lam_fused = np.sort(np.asarray(mps_fused.lambdas[2])[:chi_new_fused])[::-1]
+
+    assert chi_new_fused == len(lam_eager), (
+        f"bucketed dispatch found chi_new={chi_new_fused}, eager found {len(lam_eager)} "
+        f"-- the bucket chosen from the outer bonds alone likely dropped real "
+        f"Schmidt weight already on the middle bond (chi_m={chi_m})"
+    )
+    np.testing.assert_allclose(lam_fused, lam_eager, atol=1e-5)
+
+
 @pytest.mark.parametrize("use_float64", [False, True])
 def test_run_circuit_jit_both_dtypes(use_float64):
     previous = jax.config.jax_enable_x64
