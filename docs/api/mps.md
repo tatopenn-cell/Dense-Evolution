@@ -123,6 +123,19 @@ the accuracy budget was never hit — the result is reliable at this `max_bond`.
 | `get_top_k_probable_states` misses a known state | Greedy beam search recall is not guaranteed for a fixed `k` | Increase `k` (e.g. `32 → 128`). |
 | Simulation is slow or memory is high after `run_circuit_jit` | Tensors are padded to `max_bond` for the instance lifetime | Reduce `max_bond`, or use the eager per-gate path for short, low-entanglement circuits. |
 
+### Internal: bucketed SVD dispatch
+
+`run_circuit_jit`'s 2-qubit SVD step no longer always runs at a fixed
+`max_bond`-padded size -- it dispatches to the smallest provably-sufficient
+bucket size for the real bond dimension at that cut, via `jax.lax.switch`,
+inside the same single compiled kernel. No API or behavior change; measured
+68.80x-73.96x faster on CPU and 2.74x faster on GPU on a real N=50 TFIM
+Trotter circuit. Validated first in
+[Dense-Evolution-Discovery's bucketed-SVD experiment](https://tatopenn-cell.github.io/Dense-Evolution-Discovery/mps_bucketed_svd_optimization/),
+including a real bug (an under-sized bucket could silently drop genuine
+Schmidt weight already on the bond between the two gated qubits) found and
+fixed before promotion here.
+
 ### Performance
 
 `DenseSVSimulator` and `Chunk` both require `2**n × 16` bytes for the
