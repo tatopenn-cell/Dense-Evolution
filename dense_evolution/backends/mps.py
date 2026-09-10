@@ -299,6 +299,27 @@ def _pad_lambda(lam: jnp.ndarray, max_bond: int) -> jnp.ndarray:
     return out.at[:n].set(lam)
 
 
+@partial(jax.jit, static_argnums=(1, 2))
+def _pad_all_gammas(gammas, max_bond: int, dtype) -> jnp.ndarray:
+    """Batches the whole per-gamma padding+stacking loop into one
+    compiled call instead of n_qubits separate eager _pad_gamma
+    dispatches -- profiling run_circuit_jit directly found this eager
+    loop (50-51 separate JAX dispatches for N=50) cost 52-55% of total
+    run_circuit_jit time, present equally on the fuse_gates=True and
+    default paths, diluting the real speedup ratio between them.
+    Persistent-compiled-cache wrapper, keyed by the tuple of gamma
+    shapes + max_bond + dtype -- valid across the whole process
+    lifetime, same principle as _jit_mps_1q_matrix/_jit_mps_2q_matrix."""
+    return jnp.stack([_pad_gamma(g, max_bond).astype(dtype) for g in gammas])
+
+
+@partial(jax.jit, static_argnums=(1, 2))
+def _pad_all_lambdas(lambdas, max_bond: int, dtype) -> jnp.ndarray:
+    """Same persistent-compiled-cache fix as _pad_all_gammas, for
+    lambdas."""
+    return jnp.stack([_pad_lambda(l, max_bond).astype(dtype) for l in lambdas])
+
+
 def _compile_mps_ops(ops, n_qubits: int) -> List[List[float]]:
     """Pre-compile-time (pure Python, outside any jit region) translation
     of a circuit -- list of (name, *args) tuples/lists, same convention as
@@ -1303,8 +1324,8 @@ class MPSSimulator:
             if self._fused_mps_runner is None:
                 self._fused_mps_runner = _build_fused_mps_runner(self.n, self.chi, self.eps, self.jsd_budget)
 
-            gammas_padded = jnp.stack([_pad_gamma(g, self.chi).astype(dtype) for g in self.gammas])
-            lambdas_padded = jnp.stack([_pad_lambda(l, self.chi).astype(lambda_dtype) for l in self.lambdas])
+            gammas_padded = _pad_all_gammas(tuple(self.gammas), self.chi, dtype)
+            lambdas_padded = _pad_all_lambdas(tuple(self.lambdas), self.chi, lambda_dtype)
             real_chi_initial = jnp.asarray(self._real_chi, dtype=jnp.int32)
 
             if fused:
