@@ -51,6 +51,7 @@ complementary.
 """
 
 import warnings
+from functools import partial
 from typing import List, Optional, Tuple
 
 import jax
@@ -382,6 +383,24 @@ def _embed_1q_matrix(mat1: np.ndarray, qubit: int, pair: Tuple[int, int]) -> np.
     return np.kron(mat1, eye2) if qubit == a else np.kron(eye2, mat1)
 
 
+@partial(jax.jit, static_argnums=(2,))
+def _jit_mps_1q_matrix(g_id, param, dtype):
+    """Persistent-compiled-cache wrapper around _mps_1q_matrix, keyed by
+    JAX on (g_id, param, dtype) across the whole process lifetime, not
+    just within one _fuse_compiled_rows call -- without this, each
+    separate run_circuit_jit(fuse_gates=True) call pays a real XLA
+    compile cost again for the same gate/parameter combination, since
+    _mps_1q_matrix's own jax.lax.switch is never wrapped in @jax.jit."""
+    return _mps_1q_matrix(g_id, param, dtype)
+
+
+@partial(jax.jit, static_argnums=(2,))
+def _jit_mps_2q_matrix(g_id, param, dtype):
+    """Same persistent-compiled-cache fix as _jit_mps_1q_matrix, for
+    _mps_2q_matrix."""
+    return _mps_2q_matrix(g_id, param, dtype)
+
+
 def _fuse_compiled_rows(rows: List[List[float]], dtype) -> List[tuple]:
     """Host-side (pure Python/NumPy, outside any jit region), exact --
     fuses a chain of consecutive _compile_mps_ops rows into one matrix
@@ -427,12 +446,12 @@ def _fuse_compiled_rows(rows: List[List[float]], dtype) -> List[tuple]:
             return cached, (int(q1), int(q2)) if g_id >= 20 else (int(q1),)
         g_id_arr = jnp.asarray(g_id).astype(jnp.int32)
         if g_id >= 20:
-            mat4 = np.asarray(_mps_2q_matrix(g_id_arr, jnp.asarray(param), dtype))
+            mat4 = np.asarray(_jit_mps_2q_matrix(g_id_arr, jnp.asarray(param), dtype))
             if transpose_flag > 0.5:
                 mat4 = np.transpose(mat4, (1, 0, 3, 2))
             mat = mat4.reshape(4, 4)
         else:
-            mat = np.asarray(_mps_1q_matrix(g_id_arr, jnp.asarray(param), dtype))
+            mat = np.asarray(_jit_mps_1q_matrix(g_id_arr, jnp.asarray(param), dtype))
         matrix_cache[key] = mat
         return mat, (int(q1), int(q2)) if g_id >= 20 else (int(q1),)
 
