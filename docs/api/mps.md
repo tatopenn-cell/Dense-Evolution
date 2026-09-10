@@ -129,12 +129,28 @@ the accuracy budget was never hit — the result is reliable at this `max_bond`.
 `max_bond`-padded size -- it dispatches to the smallest provably-sufficient
 bucket size for the real bond dimension at that cut, via `jax.lax.switch`,
 inside the same single compiled kernel. No API or behavior change; measured
-68.80x-73.96x faster on CPU and 2.74x faster on GPU on a real N=50 TFIM
-Trotter circuit. Validated first in
-[Dense-Evolution-Discovery's bucketed-SVD experiment](https://tatopenn-cell.github.io/Dense-Evolution-Discovery/mps_bucketed_svd_optimization/),
+68.80x-73.96x faster on CPU and ~1.41x faster on GPU (measured correctly
+through this same API, not a standalone reimplementation -- an earlier
+2.74x GPU claim here was wrong, see the correction below) on a real N=50
+TFIM Trotter circuit. Validated first in
+[Dense-Evolution-Discovery's bucketed-SVD experiment](https://tatopenn-cell.github.io/Dense-Evolution-Discovery/mps_bucketed_svd_optimization/)
+and [its GPU timing correction](https://tatopenn-cell.github.io/Dense-Evolution-Discovery/mps_bucketed_svd_gpu_timing_followup/),
 including a real bug (an under-sized bucket could silently drop genuine
 Schmidt weight already on the bond between the two gated qubits) found and
 fixed before promotion here.
+
+### Optional: gate blocking (`fuse_gates=True`)
+
+`run_circuit_jit(ops, fuse_gates=True)` fuses consecutive gates acting on
+the same (or a growing) qubit pair into one matrix on the host before
+compiling -- exact, no approximation -- cutting the number of scan steps.
+Measured ~2x faster than the bucketed dispatch alone on GPU (~2.77x-2.87x
+total over the original fixed-size SVD), at the cost of coarser
+`truncation_errors`/`entanglement_entropy`/bond-history bookkeeping (one
+entry per fused step instead of per original gate) -- default is `False`,
+unchanged behavior. Validated in
+[Dense-Evolution-Discovery's gate-blocking redesign](https://tatopenn-cell.github.io/Dense-Evolution-Discovery/mps_gate_blocking_redesign_v2/),
+including against non-adjacent-gate (SWAP-chain) and CCX circuits.
 
 ### Performance
 

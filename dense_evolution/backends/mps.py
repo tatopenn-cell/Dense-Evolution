@@ -370,6 +370,123 @@ def _compile_mps_ops(ops, n_qubits: int) -> List[List[float]]:
     return rows
 
 
+def _embed_1q_matrix(mat1: np.ndarray, qubit: int, pair: Tuple[int, int]) -> np.ndarray:
+    """Embeds a 2x2 single-qubit matrix into the 4x4 space of a 2-qubit
+    pair (a, b), acting as identity on the other qubit -- kron(mat1, I2)
+    if qubit is the pair's first (more significant) qubit, kron(I2, mat1)
+    otherwise, matching _mps_2q_matrix's own convention (its (4,4)
+    matrices are built with qubit0 as the more significant index before
+    reshaping to (2,2,2,2))."""
+    eye2 = np.eye(2, dtype=mat1.dtype)
+    a, _ = pair
+    return np.kron(mat1, eye2) if qubit == a else np.kron(eye2, mat1)
+
+
+def _fuse_compiled_rows(rows: List[List[float]], dtype) -> List[tuple]:
+    """Host-side (pure Python/NumPy, outside any jit region), exact --
+    fuses a chain of consecutive _compile_mps_ops rows into one matrix
+    via matrix multiplication, growing the active qubit pair as needed:
+    a 1-qubit gate on a qubit already inside the current chain's pair
+    gets embedded into that same 4x4 space (kron with identity on the
+    other qubit) rather than breaking the chain -- this is what actually
+    fuses a CX-RZ-CX triple (RZ acts on only one of CX's two qubits, so a
+    naive "exact qubit set match" rule never fuses anything). A chain
+    starting on a single qubit that is later joined by a 2-qubit gate
+    touching it also grows into the 2-qubit space the same way. Any gate
+    touching a qubit OUTSIDE the current chain's pair ends the chain.
+
+    Runs on _compile_mps_ops's OWN output rows, so CCX decomposition and
+    SWAP-chain expansion for non-adjacent gates have already happened --
+    fusion composes correctly with both by construction (a SWAP is just
+    another 2-qubit gate, fusable like any other), verified directly
+    against the eager reference on both a non-adjacent-gate circuit and
+    a CCX circuit, not merely assumed.
+
+    Returns a list of ('1q', q, matrix_2x2) / ('2q', q1, q2, matrix_4x4)
+    entries. transpose_flag is resolved into the matrix itself here, so
+    the fused representation never needs it downstream."""
+
+    def row_matrix(row):
+        g_id, q1, q2, param, transpose_flag = row
+        g_id_arr = jnp.asarray(g_id).astype(jnp.int32)
+        if g_id >= 20:
+            mat4 = np.asarray(_mps_2q_matrix(g_id_arr, jnp.asarray(param), dtype))
+            if transpose_flag > 0.5:
+                mat4 = np.transpose(mat4, (1, 0, 3, 2))
+            return mat4.reshape(4, 4), (int(q1), int(q2))
+        return np.asarray(_mps_1q_matrix(g_id_arr, jnp.asarray(param), dtype)), (int(q1),)
+
+    fused = []
+    i = 0
+    n = len(rows)
+    while i < n:
+        mat, qubits = row_matrix(rows[i])
+        pair = qubits if len(qubits) == 2 else None
+        active_qubit = qubits[0]
+        j = i + 1
+        while j < n:
+            nmat, nqubits = row_matrix(rows[j])
+            n_is_2q = len(nqubits) == 2
+            if pair is None:
+                if not n_is_2q:
+                    if nqubits[0] != active_qubit:
+                        break
+                    mat = nmat @ mat
+                    j += 1
+                    continue
+                if active_qubit not in nqubits:
+                    break
+                pair = nqubits
+                mat = _embed_1q_matrix(mat, active_qubit, pair)
+                mat = nmat @ mat
+                j += 1
+                continue
+            if n_is_2q:
+                if nqubits != pair:
+                    break
+            else:
+                if nqubits[0] not in pair:
+                    break
+                nmat = _embed_1q_matrix(nmat, nqubits[0], pair)
+            mat = nmat @ mat
+            j += 1
+        if pair is not None:
+            fused.append(('2q', pair[0], pair[1], mat.reshape(2, 2, 2, 2)))
+        else:
+            fused.append(('1q', active_qubit, mat))
+        i = j
+    return fused
+
+
+def _fused_entries_to_arrays(fused: List[tuple], dtype):
+    """Turns _fuse_compiled_rows's output into the parallel arrays
+    jax.lax.scan needs -- every step carries BOTH a 1q and a 2q matrix
+    slot (one is an unused identity placeholder) so shapes stay uniform
+    across the whole scanned sequence, same principle _mps_1q_matrix/
+    _mps_2q_matrix's own switch already relies on (all branches traced,
+    only one path's real work executed)."""
+    is_2q, q1s, q2s, mats2q, mats1q = [], [], [], [], []
+    eye2 = np.eye(2, dtype=dtype)
+    eye4 = np.eye(4, dtype=dtype).reshape(2, 2, 2, 2)
+    for entry in fused:
+        if entry[0] == '2q':
+            _, a, b, mat = entry
+            is_2q.append(True)
+            q1s.append(a)
+            q2s.append(b)
+            mats2q.append(mat)
+            mats1q.append(eye2)
+        else:
+            _, a, mat = entry
+            is_2q.append(False)
+            q1s.append(a)
+            q2s.append(0)
+            mats2q.append(eye4)
+            mats1q.append(mat)
+    return (jnp.asarray(is_2q), jnp.asarray(q1s, dtype=jnp.int32), jnp.asarray(q2s, dtype=jnp.int32),
+            jnp.asarray(np.stack(mats2q)), jnp.asarray(np.stack(mats1q)))
+
+
 _SVD_BUCKETS = (2, 4, 8, 16, 32, 64, 128, 256, 512, 1024)
 
 
@@ -542,6 +659,125 @@ def _build_mps_runner(n_qubits: int, max_bond: int, eps: float, jsd_budget: floa
     return run
 
 
+def _build_fused_mps_runner(n_qubits: int, max_bond: int, eps: float, jsd_budget: float):
+    """Factory for run_circuit_jit(ops, fuse_gates=True) -- same bucketed-
+    SVD dispatch as _build_mps_runner, except every step's gate matrix is
+    taken directly from a pre-fused matrix stream (built host-side by
+    _fuse_compiled_rows/_fused_entries_to_arrays from _compile_mps_ops's
+    own output) instead of being reconstructed inside the JIT via
+    _mps_1q_matrix/_mps_2q_matrix -- gate-ID dispatch is removed from the
+    traced program entirely, not just extended. Fusing consecutive
+    same-qubit-pair gates into one matrix means fewer, larger scan steps:
+    a real, measured ~2x GPU speedup on top of the bucketed dispatch
+    alone (see Dense-Evolution-Discovery's mps_gate_blocking_redesign_v2
+    experiment), on top of jax.lax.scan's own per-step GPU dispatch
+    overhead being the real bottleneck the bucketed dispatch alone
+    couldn't remove.
+
+    Returns the same (chi_new, jsd_val, trunc_err, entanglement_entropy)
+    diagnostic tuple _build_mps_runner does, one entry per FUSED step
+    rather than per original gate -- run_circuit_jit populates
+    self._bond_history/jsd_per_bond/truncation_errors/entanglement_entropy
+    from this at that coarser granularity when fuse_gates=True, an
+    explicit, documented trade-off (see MPSSimulator.run_circuit_jit's
+    own docstring), not a silent behavior change."""
+    buckets = _bucket_sizes(max_bond)
+    bucket_arr = jnp.array(buckets)
+
+    def step(carry, xs):
+        gammas, lambdas, real_chi = carry
+        dtype = gammas.dtype
+        is_2q, q1, q2, mat2q, mat1q = xs
+        q1 = q1.astype(jnp.int32)
+        q2 = q2.astype(jnp.int32)
+        real_dtype = _real_dtype_for(dtype)
+
+        def branch_1q(c):
+            gammas_, lambdas_, real_chi_ = c
+            new_g = jnp.einsum('ij,ljr->lir', mat1q, gammas_[q1])
+            new_carry = (gammas_.at[q1].set(new_g), lambdas_, real_chi_)
+            diag = (jnp.asarray(0, dtype=jnp.int32), jnp.asarray(0.0, dtype=real_dtype),
+                    jnp.asarray(0.0, dtype=real_dtype), jnp.asarray(0.0, dtype=real_dtype))
+            return new_carry, diag
+
+        def branch_2q(c):
+            gammas_, lambdas_, real_chi_ = c
+            gate_2q = mat2q
+
+            chi_l_real = real_chi_[q1]
+            chi_m_real = real_chi_[q2]
+            chi_r_real = real_chi_[q2 + 1]
+            input_min = jnp.maximum(jnp.maximum(chi_l_real, chi_r_real), chi_m_real)
+            output_bound = jnp.minimum(chi_l_real * 2, chi_r_real * 2)
+            bound = jnp.maximum(input_min, output_bound)
+            ge_mask = bucket_arr >= bound
+            bucket_idx = jnp.where(jnp.any(ge_mask), jnp.argmax(ge_mask), len(buckets) - 1)
+
+            def make_branch(B):
+                def branch_fn(_):
+                    g1 = gammas_[q1][:B, :, :B]
+                    g2 = gammas_[q2][:B, :, :B]
+                    lam_l = lambdas_[q1][:B]
+                    lam_m = lambdas_[q2][:B]
+                    lam_r = lambdas_[q2 + 1][:B]
+                    theta = jnp.einsum('l,lik,k,kjr,r->lijr', lam_l, g1, lam_m, g2, lam_r)
+                    theta_new = jnp.einsum('abcd,ecdf->eabf', gate_2q, theta)
+                    theta_mat = theta_new.reshape(B * 2, 2 * B)
+
+                    U, S, Vh = jnp.linalg.svd(theta_mat, full_matrices=False)
+                    chi_new, jsd_val = _vectorized_chi_search_jax(S, eps, jsd_budget, min(B, max_bond))
+                    col_mask = jnp.arange(B) < chi_new
+
+                    norm_full = jnp.sqrt(jnp.sum(S ** 2) + 1e-30)
+                    S_norm_full = S / (norm_full + 1e-30)
+                    trunc_err = jnp.sqrt(jnp.sum(jnp.where(jnp.arange(2 * B) >= chi_new, S_norm_full ** 2, 0.0)))
+
+                    S_kept_masked = jnp.where(col_mask, S[:B], 0.0)
+                    kept_norm = jnp.sqrt(jnp.sum(S_kept_masked ** 2) + 1e-30)
+                    S_fixed = jnp.where(col_mask, S_kept_masked / (kept_norm + 1e-30), 0.0)
+
+                    lam_l_inv = jnp.where(lam_l > eps, 1.0 / lam_l, 0.0)
+                    lam_r_inv = jnp.where(lam_r > eps, 1.0 / lam_r, 0.0)
+
+                    U_masked = jnp.where(col_mask[None, :], U[:, :B], 0.0)
+                    Vh_masked = jnp.where(col_mask[:, None], Vh[:B, :], 0.0)
+
+                    new_g1 = jnp.einsum('l,lir->lir', lam_l_inv, U_masked.reshape(B, 2, B))
+                    new_g2 = jnp.einsum('ljr,r->ljr', Vh_masked.reshape(B, 2, B), lam_r_inv)
+
+                    p_dist = S_fixed ** 2
+                    ee = -jnp.sum(jnp.where(p_dist > 1e-20, p_dist * jnp.log2(jnp.where(p_dist > 1e-20, p_dist, 1.0)), 0.0))
+
+                    return (_pad_gamma(new_g1, max_bond), _pad_gamma(new_g2, max_bond),
+                            _pad_lambda(S_fixed, max_bond), chi_new.astype(jnp.int32),
+                            jsd_val.astype(real_dtype), trunc_err.astype(real_dtype), ee.astype(real_dtype))
+
+                return branch_fn
+
+            branches = [make_branch(B) for B in buckets]
+            new_g1_p, new_g2_p, S_fixed_p, chi_new, jsd_val, trunc_err, ee = jax.lax.switch(
+                bucket_idx, branches, operand=None)
+
+            new_gammas = gammas_.at[q1].set(new_g1_p).at[q2].set(new_g2_p)
+            new_lambdas = lambdas_.at[q2].set(S_fixed_p)
+            new_real_chi = real_chi_.at[q2].set(chi_new)
+
+            new_carry = (new_gammas, new_lambdas, new_real_chi)
+            diag = (chi_new, jsd_val, trunc_err, ee)
+            return new_carry, diag
+
+        new_carry, diag = jax.lax.cond(is_2q, branch_2q, branch_1q, carry)
+        return new_carry, diag
+
+    @jax.jit
+    def run(gammas, lambdas, real_chi, xs):
+        (final_gammas, final_lambdas, final_real_chi), diag = jax.lax.scan(
+            step, (gammas, lambdas, real_chi), xs)
+        return final_gammas, final_lambdas, final_real_chi, diag
+
+    return run
+
+
 class MPSSimulator:
     """
     Matrix Product State simulator with adaptive SVD-truncated bond
@@ -634,6 +870,7 @@ class MPSSimulator:
         # for this instance's lifetime), never rebuilt per call. Same
         # caching pattern as Chunk.__init__'s self._multi_chunk_runner.
         self._mps_runner = None
+        self._fused_mps_runner = None
 
         for _ in range(n_qubits):
             g = jnp.zeros((1, 2, 1), dtype=dtype)
@@ -947,7 +1184,37 @@ class MPSSimulator:
         )
 
     # ── JIT-fused whole-circuit execution ─────────────────────────────
-    def run_circuit_jit(self, ops: List) -> None:
+    def _record_diag_bookkeeping(self, diag, q1_ids: np.ndarray, is_2q_mask: np.ndarray) -> None:
+        """Shared by both run_circuit_jit paths: jax.lax.scan's stacked
+        per-step diagnostics (diag) replace the eager path's Python
+        list.append()s inside the loop -- same final content, populated
+        differently. Only 2-qubit steps count (is_2q_mask), same as
+        _bond_history/jsd_per_bond only ever growing on 2-qubit gates in
+        the eager path."""
+        chi_history, jsd_history, trunc_err_history, entropy_history = (
+            np.asarray(diag[0]), np.asarray(diag[1]), np.asarray(diag[2]), np.asarray(diag[3]))
+        for i in np.nonzero(is_2q_mask)[0]:
+            chi_new = int(chi_history[i])
+            jsd_val = float(jsd_history[i])
+            self._bond_history.append(chi_new)
+            self.jsd_per_bond.append(jsd_val)
+            self.truncation_errors.append(float(trunc_err_history[i]))
+            q1 = q1_ids[i]
+            if q1 < len(self.entanglement_entropy):
+                self.entanglement_entropy[q1] = float(entropy_history[i])
+            if jsd_val > self.jsd_budget:
+                if self.budget_violations == 0:
+                    warnings.warn(
+                        f"MPSSimulator: bond dimension capped at max_bond={self.chi}, "
+                        f"jsd_budget={self.jsd_budget:.1e} not honored "
+                        f"(jsd={jsd_val:.2e}) -- results may be unreliable, "
+                        f"consider raising max_bond.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+                self.budget_violations += 1
+
+    def run_circuit_jit(self, ops: List, fuse_gates: bool = False) -> None:
         """Runs an entire circuit through a single jax.lax.scan-fused,
         @jax.jit-compiled kernel instead of one eager Python call per gate
         -- the eager path (apply_gate_1q/apply_gate_2q/_apply_nonlocal_2q,
@@ -972,10 +1239,50 @@ class MPSSimulator:
         -- list of (name, *args) tuples/lists. Unlike that method, SWAP is
         never decomposed into 3xCX (kept as one real gate, see
         _compile_mps_ops's docstring for why that matters here).
+
+        fuse_gates: opt-in, default False. When True, consecutive gates
+        acting on the same (or a growing) qubit pair are fused into one
+        matrix on the host before compiling (exact -- matrix
+        multiplication, no approximation), cutting the number of scan
+        steps and measurably faster on GPU (~2x on top of the bucketed
+        SVD dispatch alone, see Dense-Evolution-Discovery's
+        mps_gate_blocking_redesign_v2 experiment for the full validation,
+        including verification against non-adjacent-gate and CCX
+        circuits). The trade-off: self._bond_history/jsd_per_bond/
+        truncation_errors/entanglement_entropy get one entry per FUSED
+        step instead of per original gate -- real diagnostics, just
+        coarser-grained. Defaults to False so existing behavior and
+        per-gate bookkeeping granularity are unchanged unless requested.
         """
-        compiled_rows = _compile_mps_ops(ops, self.n)
         dtype = self.gammas[0].dtype
         lambda_dtype = self.lambdas[0].dtype
+
+        if fuse_gates:
+            compiled_rows = _compile_mps_ops(ops, self.n)
+            fused = _fuse_compiled_rows(compiled_rows, dtype) if compiled_rows else []
+
+            if self._fused_mps_runner is None:
+                self._fused_mps_runner = _build_fused_mps_runner(self.n, self.chi, self.eps, self.jsd_budget)
+
+            gammas_padded = jnp.stack([_pad_gamma(g, self.chi).astype(dtype) for g in self.gammas])
+            lambdas_padded = jnp.stack([_pad_lambda(l, self.chi).astype(lambda_dtype) for l in self.lambdas])
+            real_chi_initial = jnp.asarray(self._real_chi, dtype=jnp.int32)
+
+            if fused:
+                xs = _fused_entries_to_arrays(fused, dtype)
+                final_gammas, final_lambdas, final_real_chi, diag = self._fused_mps_runner(
+                    gammas_padded, lambdas_padded, real_chi_initial, xs)
+
+                self.gammas = [final_gammas[i] for i in range(self.n)]
+                self.lambdas = [final_lambdas[i] for i in range(self.n + 1)]
+                self._real_chi = np.asarray(final_real_chi)
+
+                q1_ids = np.asarray([entry[1] for entry in fused])
+                is_2q_mask = np.asarray([entry[0] == '2q' for entry in fused])
+                self._record_diag_bookkeeping(diag, q1_ids, is_2q_mask)
+            return
+
+        compiled_rows = _compile_mps_ops(ops, self.n)
         ops_dtype = _real_dtype_for(dtype)
 
         if compiled_rows:
@@ -997,38 +1304,11 @@ class MPSSimulator:
         self.lambdas = [final_lambdas[i] for i in range(self.n + 1)]
         self._real_chi = np.asarray(final_real_chi)
 
-        # Bookkeeping parity: jax.lax.scan's stacked per-step diagnostics
-        # (diag) replace the eager path's Python list.append()s inside the
-        # loop -- same final content, populated differently. Only 2-qubit
-        # steps (g_id >= 20, includes SWAP -- the eager _apply_nonlocal_2q
-        # path routes its SWAPs through apply_gate_2q too, so its history
-        # lists grow on those as well, not just the "real" gate) count.
         if compiled_rows:
-            chi_history, jsd_history, trunc_err_history, entropy_history = (
-                np.asarray(diag[0]), np.asarray(diag[1]), np.asarray(diag[2]), np.asarray(diag[3]))
             g_ids = np.asarray([row[0] for row in compiled_rows])
             q1_ids = np.asarray([int(row[1]) for row in compiled_rows])
             is_2q_mask = g_ids >= 20
-            for i in np.nonzero(is_2q_mask)[0]:
-                chi_new = int(chi_history[i])
-                jsd_val = float(jsd_history[i])
-                self._bond_history.append(chi_new)
-                self.jsd_per_bond.append(jsd_val)
-                self.truncation_errors.append(float(trunc_err_history[i]))
-                q1 = q1_ids[i]
-                if q1 < len(self.entanglement_entropy):
-                    self.entanglement_entropy[q1] = float(entropy_history[i])
-                if jsd_val > self.jsd_budget:
-                    if self.budget_violations == 0:
-                        warnings.warn(
-                            f"MPSSimulator: bond dimension capped at max_bond={self.chi}, "
-                            f"jsd_budget={self.jsd_budget:.1e} not honored "
-                            f"(jsd={jsd_val:.2e}) -- results may be unreliable, "
-                            f"consider raising max_bond.",
-                            UserWarning,
-                            stacklevel=2,
-                        )
-                    self.budget_violations += 1
+            self._record_diag_bookkeeping(diag, q1_ids, is_2q_mask)
 
 
 _PAULI_MATRICES = {
