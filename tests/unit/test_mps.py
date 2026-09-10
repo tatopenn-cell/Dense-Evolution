@@ -836,6 +836,74 @@ def test_run_circuit_jit_both_dtypes(use_float64):
         jax.config.update("jax_enable_x64", previous)
 
 
+def _tfim_ops(n, dt, steps, J, g):
+    theta_zz, theta_x = -2.0 * dt * J, -2.0 * dt * g
+    ops = []
+    for _ in range(steps):
+        for i in range(n - 1):
+            ops += [("cx", i, i + 1), ("rz", i + 1, theta_zz), ("cx", i, i + 1)]
+        for i in range(n):
+            ops.append(("rx", i, theta_x))
+    return ops
+
+
+def test_run_circuit_jit_fuse_gates_matches_eager():
+    ops = _tfim_ops(6, 0.1, 3, 1.0, 1.0)
+
+    mps_default = MPSSimulator(n_qubits=6, max_bond=16)
+    mps_default.run_circuit_jit(ops, fuse_gates=False)
+    sv_default = np.asarray(mps_default.contract_to_statevector())
+
+    mps_fused = MPSSimulator(n_qubits=6, max_bond=16)
+    mps_fused.run_circuit_jit(ops, fuse_gates=True)
+    sv_fused = np.asarray(mps_fused.contract_to_statevector())
+
+    fidelity = np.abs(np.vdot(sv_default, sv_fused)) ** 2
+    assert fidelity == pytest.approx(1.0, abs=1e-9)
+    assert len(mps_fused._bond_history) < len(mps_default._bond_history), (
+        "fuse_gates=True is expected to produce coarser (fewer-entry) bookkeeping "
+        "than the default per-original-gate granularity"
+    )
+
+
+def test_run_circuit_jit_fuse_gates_nonadjacent():
+    ops = [["h", 0], ["h", 2], ["cx", 4, 0], ["cx", 3, 1], ["cx", 0, 4], ["rz", 2, 0.7]]
+
+    mps_default = MPSSimulator(n_qubits=5, max_bond=16)
+    mps_default.run_circuit_jit(ops, fuse_gates=False)
+    sv_default = np.asarray(mps_default.contract_to_statevector())
+
+    mps_fused = MPSSimulator(n_qubits=5, max_bond=16)
+    mps_fused.run_circuit_jit(ops, fuse_gates=True)
+    sv_fused = np.asarray(mps_fused.contract_to_statevector())
+
+    fidelity = np.abs(np.vdot(sv_default, sv_fused)) ** 2
+    assert fidelity == pytest.approx(1.0, abs=1e-9)
+
+
+def test_run_circuit_jit_fuse_gates_ccx():
+    ops = [["x", 0], ["x", 1], ["ccx", 0, 1, 2], ["h", 3], ["cx", 2, 3]]
+
+    mps_default = MPSSimulator(n_qubits=4, max_bond=16)
+    mps_default.run_circuit_jit(ops, fuse_gates=False)
+    sv_default = np.asarray(mps_default.contract_to_statevector())
+
+    mps_fused = MPSSimulator(n_qubits=4, max_bond=16)
+    mps_fused.run_circuit_jit(ops, fuse_gates=True)
+    sv_fused = np.asarray(mps_fused.contract_to_statevector())
+
+    fidelity = np.abs(np.vdot(sv_default, sv_fused)) ** 2
+    assert fidelity == pytest.approx(1.0, abs=1e-9)
+
+
+def test_run_circuit_jit_fuse_gates_default_is_false():
+    mps = MPSSimulator(n_qubits=4, max_bond=8)
+    ops = _tfim_ops(4, 0.1, 2, 1.0, 1.0)
+    mps.run_circuit_jit(ops)
+    assert mps._fused_mps_runner is None
+    assert mps._mps_runner is not None
+
+
 def test_run_circuit_jit_rejects_unknown_gate():
     mps = MPSSimulator(n_qubits=2, max_bond=4)
     with pytest.raises(ValueError):
