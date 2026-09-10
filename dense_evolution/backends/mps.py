@@ -121,6 +121,18 @@ def _vectorized_chi_search_jax(S: jnp.ndarray, eps: float, jsd_budget: float, ma
 
     norm_full = jnp.sum(S ** 2) + 1e-15
     p_full = (S ** 2) / norm_full
+    # Real bug (found via a real-machine bisection down to 5e34a1e, not
+    # guessed): under jax.jit, _jsd_vectors_jax's own internal eps=1e-12
+    # mask does not reliably zero JSD contributions from p_full's
+    # already-negligible tail (~1e-18, from squaring SVD noise-floor
+    # singular values ~1e-9) when batched via jax.vmap across multiple
+    # candidates at once -- eager execution of the exact same formula on
+    # the exact same array gives the correct (zero) JSD there, jit does
+    # not. Zeroing p_full's own negligible tail here, before it ever
+    # reaches the vmapped JSD computation, verified to fix this under
+    # jit (confirmed both eager and jit now agree) without changing any
+    # value large enough to matter physically.
+    p_full = jnp.where(p_full > 1e-12, p_full, 0.0)
 
     candidates = jnp.arange(1, max_possible + 1)
     idx = jnp.arange(n)
