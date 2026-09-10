@@ -1189,6 +1189,36 @@ def test_explicit_svd_cutoff_is_never_rescaled():
     assert mps.eps == 1e-3
 
 
+def test_vectorized_chi_search_eager_matches_jit_with_negligible_tail():
+    """Real bug, not hypothetical: _jsd_vectors_jax's own eps=1e-12 mask
+    did not reliably zero JSD contributions from a spectrum's already-
+    negligible tail (~1e-18, from squaring SVD noise-floor singular
+    values ~1e-9) when batched via jax.vmap across multiple truncation
+    candidates under jax.jit -- the exact same formula, called eagerly
+    on the exact same array, gave the correct answer; jit did not.
+    max_bond_used() over-reported by 2x on real circuits before this was
+    fixed. A synthetic spectrum (not a real circuit's own SVD output) is
+    used deliberately, so this test's outcome doesn't depend on a
+    particular platform's BLAS/cuSOLVER noise floor -- see CONTRIBUTING.md
+    on comparing eager vs jit for any diagnostic quantity."""
+    from dense_evolution.backends.mps import _vectorized_chi_search_jax
+
+    S = jnp.array(
+        [6.11682415e-01, 5.48077226e-01, 4.36329395e-01, 3.67521614e-01,
+         2.52515853e-09, 8.16984425e-10, 1.58100519e-10, 1.10803595e-10] + [0.0] * 8,
+        dtype=jnp.float32,
+    )
+    eps, jsd_budget, max_bond = 1e-6, 1e-5, 8
+
+    chi_eager, jsd_eager = _vectorized_chi_search_jax(S, eps, jsd_budget, max_bond)
+    chi_jit, jsd_jit = jax.jit(_vectorized_chi_search_jax, static_argnums=(3,))(S, eps, jsd_budget, max_bond)
+
+    assert int(chi_eager) == 4
+    assert int(chi_jit) == 4
+    assert float(jsd_eager) == pytest.approx(0.0, abs=1e-9)
+    assert float(jsd_jit) == pytest.approx(0.0, abs=1e-9)
+
+
 def test_use_float32_true_forces_complex64_even_with_x64_enabled():
     def run():
         mps = MPSSimulator(n_qubits=4, use_float32=True)
