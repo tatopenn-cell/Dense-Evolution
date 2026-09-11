@@ -9,12 +9,22 @@ instead of reimplementing them.
 """
 
 import numpy as np
-import pennylane as qml
-import pennylane.qchem.observable_hf as _pl_observable
 
 from dense_evolution.native_hf.basis import build_molecule_shells
 from dense_evolution.native_hf.assembly import build_overlap_matrix, build_core_hamiltonian, build_repulsion_tensor
 from dense_evolution.native_hf.scf import run_scf, HFResult
+
+# pennylane is installed in this test suite's own environment, so the
+# except branch below (and the `if qml is None` check further down) is
+# only exercised by tests/unit/test_imports.py, which blocks pennylane
+# in a separate subprocess -- invisible to same-process coverage, so
+# excluded rather than chased with an artificial same-process test.
+try:
+    import pennylane as qml
+    import pennylane.qchem.observable_hf as _pl_observable
+except ModuleNotFoundError:  # pragma: no cover
+    qml = None
+    _pl_observable = None
 
 _BOHR_PER_ANGSTROM = 1.0 / 0.52917721067
 
@@ -64,6 +74,12 @@ def build_qubit_hamiltonian(
         latter useful for e.g. reporting the SCF energy alongside the
         post-mapping ground-state energy.
     """
+    if qml is None:  # pragma: no cover -- see the try/except above
+        raise ModuleNotFoundError(
+            "build_qubit_hamiltonian requires pennylane. "
+            "Install it with: pip install dense-evolution[pennylane]"
+        )
+
     geometry_bohr = np.asarray(geometry_angstrom) * _BOHR_PER_ANGSTROM
     shells = build_molecule_shells(atomic_numbers, geometry_bohr, basis_name)
 

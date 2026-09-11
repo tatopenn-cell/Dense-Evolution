@@ -23,6 +23,43 @@ assert _REPO_ROOT in pathlib.Path(dense_evolution.__file__).resolve().parents, (
 )
 
 
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "real_memory_probe: opt out of the autouse deterministic memory-budget "
+        "fixture, for tests that exercise _device_memory_budget_bytes/"
+        "_device_total_bytes themselves rather than code that merely calls them.",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _deterministic_memory_budget(request, monkeypatch):
+    """SafeMemoryGuard reads the ACTIVE compute device's real memory (or
+    host RAM via psutil on CPU) -- see guard.py's own module docstring.
+    That makes any test that builds a Chunk/SafeMemoryGuard without
+    explicitly faking the probe pass or fail depending on what else is
+    using RAM on the machine at that moment (confirmed directly: a full
+    `pytest tests/unit/test_mps.py` run raised a real, non-deterministic
+    MemoryPressureError from cumulative RAM use partway through the
+    file). Fixed at a comfortable 50% free of 8 GB by default here so the
+    guard's pass/fail branch is a property of the code, not the host --
+    tests that specifically exercise SafeMemoryGuard's own thresholds
+    override this locally with their own monkeypatch of the same two
+    functions. Tests marked real_memory_probe (those exercising the probe
+    functions' own device-detection logic) opt out entirely."""
+    if request.node.get_closest_marker("real_memory_probe") is not None:
+        return
+
+    from dense_evolution.backends.chunk import guard as guard_mod
+
+    total_bytes = 8 * 1024 ** 3
+    available_bytes = 0.5 * total_bytes
+    monkeypatch.setattr(guard_mod, "_device_memory_budget_bytes",
+                         lambda device=None: (available_bytes, "test-fixed"))
+    monkeypatch.setattr(guard_mod, "_device_total_bytes",
+                         lambda device=None: total_bytes)
+
+
 @pytest.hookimpl(trylast=True)
 def pytest_sessionfinish(session, exitstatus):
     """
