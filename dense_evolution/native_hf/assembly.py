@@ -154,7 +154,7 @@ def _overlap_primitive(ga, gb):
     return overlap_3d(ga, gb)
 
 
-def build_overlap_matrix(shells: list[ContractedShell]) -> np.ndarray:
+def build_overlap_matrix(shells: list[ContractedShell]) -> jax.Array:
     return _build_two_index(shells, _overlap_primitive)
 
 
@@ -165,27 +165,25 @@ def _core_hamiltonian_primitive(ga, gb, charges, positions):
     return -0.5 * T + V
 
 
-def build_core_hamiltonian(shells: list[ContractedShell], nuclear_charges: list[float], nuclear_positions: np.ndarray) -> np.ndarray:
+def build_core_hamiltonian(shells: list[ContractedShell], nuclear_charges: list[float], nuclear_positions: np.ndarray) -> jax.Array:
     charges = jnp.asarray(nuclear_charges, dtype=jnp.float64)
     positions = jnp.asarray(nuclear_positions, dtype=jnp.float64)
     return _build_two_index(shells, _core_hamiltonian_primitive, extra=(charges, positions))
 
 
-def _build_two_index(shells: list[ContractedShell], primitive_fn, extra=()) -> np.ndarray:
+def _build_two_index(shells: list[ContractedShell], primitive_fn, extra=()) -> jax.Array:
     n = n_cartesian_functions(shells)
     offsets = _shell_offsets(shells)
-    M = np.zeros((n, n))
+    M = jnp.zeros((n, n))
     for i, sa in enumerate(shells):
         for j, sb in enumerate(shells):
-            block = np.array(
-                _pair_block(
-                    sa.exponents, sa.coefficients, sa.center, sa.degree,
-                    sb.exponents, sb.coefficients, sb.center, sb.degree,
-                    primitive_fn, extra=extra,
-                )
+            block = _pair_block(
+                sa.exponents, sa.coefficients, sa.center, sa.degree,
+                sb.exponents, sb.coefficients, sb.center, sb.degree,
+                primitive_fn, extra=extra,
             )
             oi, oj = offsets[i], offsets[j]
-            M[oi : oi + block.shape[0], oj : oj + block.shape[1]] = block
+            M = M.at[oi : oi + block.shape[0], oj : oj + block.shape[1]].set(block)
     return M
 
 
@@ -236,47 +234,71 @@ def _shell_pair_schwarz_bounds(shells: list[ContractedShell], max_primitives: in
     return bounds
 
 
-def build_repulsion_tensor(shells: list[ContractedShell], screening_tol: float = 1e-12) -> np.ndarray:
-    n = n_cartesian_functions(shells)
-    offsets = _shell_offsets(shells)
-    V = np.zeros((n, n, n, n))
+def quartet_screening_indices(shells: list[ContractedShell], screening_tol: float = 1e-12) -> list[tuple[int, int, int, int]]:
+    """The (i,j,k,l) shell-index quartets build_repulsion_tensor would
+    compute, decided from Schwarz bounds -- split out so a caller
+    differentiating build_repulsion_tensor w.r.t. nuclear positions can
+    compute this ONCE from a concrete (non-traced) geometry and reuse it.
+
+    Schwarz screening is a discrete, structural decision (which terms
+    exist in the sum at all), not a smooth function of geometry -- Python
+    control flow like `if bound < tol` cannot run on a traced value, the
+    same reason any code with data-dependent sparsity can't be
+    differentiated as a black box. Real differentiable quantum chemistry
+    codes handle this the same way: freeze the sparsity pattern from a
+    concrete evaluation, then differentiate a numerical re-evaluation
+    that reuses that fixed pattern. Passing this list's output back into
+    build_repulsion_tensor's `quartet_indices` argument is that reuse."""
     max_primitives = max(s.exponents.shape[0] for s in shells)
     schwarz = _shell_pair_schwarz_bounds(shells, max_primitives)
-    for i, sa in enumerate(shells):
+    indices = []
+    for i in range(len(shells)):
         for j in range(i + 1):
-            sb = shells[j]
             ij_index = i * (i + 1) // 2 + j
-            for k, sc in enumerate(shells):
+            for k in range(len(shells)):
                 for l in range(k + 1):
-                    sd = shells[l]
                     kl_index = k * (k + 1) // 2 + l
                     if ij_index < kl_index:
                         continue
                     if schwarz[(i, j)] * schwarz[(k, l)] < screening_tol:
                         continue
-                    ea, ca = _pad_primitives(sa.exponents, sa.coefficients, max_primitives)
-                    eb, cb = _pad_primitives(sb.exponents, sb.coefficients, max_primitives)
-                    ec, cc = _pad_primitives(sc.exponents, sc.coefficients, max_primitives)
-                    ed, cd = _pad_primitives(sd.exponents, sd.coefficients, max_primitives)
-                    block = np.array(
-                        _canonical_quartet_block(
-                            (ea, eb, ec, ed),
-                            (ca, cb, cc, cd),
-                            (sa.center, sb.center, sc.center, sd.center),
-                            (sa.degree, sb.degree, sc.degree, sd.degree),
-                            electron_repulsion,
-                        )
-                    )
-                    oi, oj, ok, ol = offsets[i], offsets[j], offsets[k], offsets[l]
-                    for pi, pj, pk, pl, b in (
-                        (oi, oj, ok, ol, block),
-                        (oj, oi, ok, ol, block.transpose(1, 0, 2, 3)),
-                        (oi, oj, ol, ok, block.transpose(0, 1, 3, 2)),
-                        (oj, oi, ol, ok, block.transpose(1, 0, 3, 2)),
-                        (ok, ol, oi, oj, block.transpose(2, 3, 0, 1)),
-                        (ol, ok, oi, oj, block.transpose(3, 2, 0, 1)),
-                        (ok, ol, oj, oi, block.transpose(2, 3, 1, 0)),
-                        (ol, ok, oj, oi, block.transpose(3, 2, 1, 0)),
-                    ):
-                        V[pi : pi + b.shape[0], pj : pj + b.shape[1], pk : pk + b.shape[2], pl : pl + b.shape[3]] = b
+                    indices.append((i, j, k, l))
+    return indices
+
+
+def build_repulsion_tensor(
+    shells: list[ContractedShell], screening_tol: float = 1e-12,
+    quartet_indices: list[tuple[int, int, int, int]] = None,
+) -> jax.Array:
+    n = n_cartesian_functions(shells)
+    offsets = _shell_offsets(shells)
+    V = jnp.zeros((n, n, n, n))
+    max_primitives = max(s.exponents.shape[0] for s in shells)
+    if quartet_indices is None:
+        quartet_indices = quartet_screening_indices(shells, screening_tol)
+    for i, j, k, l in quartet_indices:
+        sa, sb, sc, sd = shells[i], shells[j], shells[k], shells[l]
+        ea, ca = _pad_primitives(sa.exponents, sa.coefficients, max_primitives)
+        eb, cb = _pad_primitives(sb.exponents, sb.coefficients, max_primitives)
+        ec, cc = _pad_primitives(sc.exponents, sc.coefficients, max_primitives)
+        ed, cd = _pad_primitives(sd.exponents, sd.coefficients, max_primitives)
+        block = _canonical_quartet_block(
+            (ea, eb, ec, ed),
+            (ca, cb, cc, cd),
+            (sa.center, sb.center, sc.center, sd.center),
+            (sa.degree, sb.degree, sc.degree, sd.degree),
+            electron_repulsion,
+        )
+        oi, oj, ok, ol = offsets[i], offsets[j], offsets[k], offsets[l]
+        for pi, pj, pk, pl, b in (
+            (oi, oj, ok, ol, block),
+            (oj, oi, ok, ol, block.transpose(1, 0, 2, 3)),
+            (oi, oj, ol, ok, block.transpose(0, 1, 3, 2)),
+            (oj, oi, ol, ok, block.transpose(1, 0, 3, 2)),
+            (ok, ol, oi, oj, block.transpose(2, 3, 0, 1)),
+            (ol, ok, oi, oj, block.transpose(3, 2, 0, 1)),
+            (ok, ol, oj, oi, block.transpose(2, 3, 1, 0)),
+            (ol, ok, oj, oi, block.transpose(3, 2, 1, 0)),
+        ):
+            V = V.at[pi : pi + b.shape[0], pj : pj + b.shape[1], pk : pk + b.shape[2], pl : pl + b.shape[3]].set(b)
     return V
