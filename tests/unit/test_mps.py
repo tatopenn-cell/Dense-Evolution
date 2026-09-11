@@ -95,10 +95,14 @@ def test_bell_state():
     mps.apply_cx(0, 1)
     sv = mps.contract_to_statevector()
     prob = np.abs(sv) ** 2
-    assert prob[0] == pytest.approx(0.5, abs=1e-9)
-    assert prob[3] == pytest.approx(0.5, abs=1e-9)
-    assert prob[1] == pytest.approx(0.0, abs=1e-9)
-    assert prob[2] == pytest.approx(0.0, abs=1e-9)
+    # abs=1e-6, not 1e-9: MPSSimulator defaults to complex64, and 1e-9 is
+    # below float32's own precision floor for this computation (measured
+    # ~6e-8 error here) -- see test_nonlocal_2q_gate_ctrl_greater_than_tgt_both_dtypes
+    # for the same tolerance applied explicitly across both dtypes.
+    assert prob[0] == pytest.approx(0.5, abs=1e-6)
+    assert prob[3] == pytest.approx(0.5, abs=1e-6)
+    assert prob[1] == pytest.approx(0.0, abs=1e-6)
+    assert prob[2] == pytest.approx(0.0, abs=1e-6)
 
 
 def test_ghz_chain_n_qubits():
@@ -109,9 +113,9 @@ def test_ghz_chain_n_qubits():
         mps.apply_cx(q, q + 1)
     sv = mps.contract_to_statevector()
     prob = np.abs(sv) ** 2
-    assert prob[0] == pytest.approx(0.5, abs=1e-9)
-    assert prob[-1] == pytest.approx(0.5, abs=1e-9)
-    assert prob.sum() == pytest.approx(1.0, abs=1e-9)
+    assert prob[0] == pytest.approx(0.5, abs=1e-6)
+    assert prob[-1] == pytest.approx(0.5, abs=1e-6)
+    assert prob.sum() == pytest.approx(1.0, abs=1e-6)
 
 
 def test_statevector_stays_normalized_after_many_gates():
@@ -135,8 +139,8 @@ def test_nonlocal_2q_gate_via_swap_chain():
     sv = mps.contract_to_statevector()
     prob = np.abs(sv) ** 2
     # H on q0 then CX(0,3): entangles q0/q3, q1/q2 stay |0>
-    assert prob[0b0000] == pytest.approx(0.5, abs=1e-9)
-    assert prob[0b1001] == pytest.approx(0.5, abs=1e-9)
+    assert prob[0b0000] == pytest.approx(0.5, abs=1e-6)
+    assert prob[0b1001] == pytest.approx(0.5, abs=1e-6)
 
 
 def test_toffoli_matches_classical_truth_table():
@@ -165,8 +169,8 @@ def test_nonlocal_2q_gate_ctrl_greater_than_tgt():
     sv = mps.contract_to_statevector()
     prob = np.abs(sv) ** 2
     # H on q3 then CX(ctrl=3,tgt=0): entangles q3/q0, q1/q2 stay |0>
-    assert prob[0b0000] == pytest.approx(0.5, abs=1e-9)
-    assert prob[0b1001] == pytest.approx(0.5, abs=1e-9)
+    assert prob[0b0000] == pytest.approx(0.5, abs=1e-6)
+    assert prob[0b1001] == pytest.approx(0.5, abs=1e-6)
 
 
 def test_nonlocal_2q_gate_ctrl_greater_than_tgt_matches_dense_simulator():

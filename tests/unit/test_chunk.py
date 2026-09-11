@@ -216,15 +216,18 @@ class TestChunkMultiPiece:
 
     # ── MemoryPressureError actually firing, not just "doesn't crash" ────
 
+    def _fake_budget(self, monkeypatch, free_fraction, total_bytes=8 * 1024 ** 3):
+        from dense_evolution.backends.chunk import guard as guard_mod
+        available_bytes = free_fraction * total_bytes
+        monkeypatch.setattr(guard_mod, "_device_memory_budget_bytes",
+                             lambda device=None: (available_bytes, "fake"))
+        monkeypatch.setattr(guard_mod, "_device_total_bytes",
+                             lambda device=None: total_bytes)
+
     def test_memory_pressure_error_fires_on_insufficient_ram_num_chunks_1(self, monkeypatch):
         import dense_evolution.chunk as chunk_mod
 
-        class _FakeVM:
-            total = 8 * 1024 ** 3       # 8 GB
-            available = 0.05 * 8 * 1024 ** 3  # 5% free -- below any sane threshold
-            percent = 95.0
-
-        monkeypatch.setattr(chunk_mod.psutil, "virtual_memory", lambda: _FakeVM())
+        self._fake_budget(monkeypatch, free_fraction=0.05)  # below any sane threshold
         with pytest.raises(chunk_mod.MemoryPressureError, match="MEMORIA CRITICA"):
             Chunk(10, memory_threshold=0.15)
 
@@ -233,31 +236,19 @@ class TestChunkMultiPiece:
 
         force_chunk_bits(4)  # forces num_chunks>1 at small n_qubits
 
-        class _FakeVM:
-            total = 8 * 1024 ** 3
-            available = 0.05 * 8 * 1024 ** 3
-            percent = 95.0
-
-        monkeypatch.setattr(chunk_mod.psutil, "virtual_memory", lambda: _FakeVM())
+        self._fake_budget(monkeypatch, free_fraction=0.05)
         with pytest.raises(chunk_mod.MemoryPressureError, match="MEMORIA INSUFFICIENTE"):
             Chunk(6, memory_threshold=0.15)
 
     def test_memory_pressure_error_not_raised_with_ample_ram(self, monkeypatch, force_chunk_bits):
-        # Negative control: the same fake-psutil machinery, but with
+        # Negative control: the same fake-budget machinery, but with
         # generous available memory, must NOT raise -- confirms the two
         # tests above are catching a real threshold check, not e.g. an
         # unconditional raise or a monkeypatch that broke construction
         # entirely.
-        import dense_evolution.chunk as chunk_mod
-
         force_chunk_bits(4)
 
-        class _FakeVM:
-            total = 8 * 1024 ** 3
-            available = 0.90 * 8 * 1024 ** 3
-            percent = 10.0
-
-        monkeypatch.setattr(chunk_mod.psutil, "virtual_memory", lambda: _FakeVM())
+        self._fake_budget(monkeypatch, free_fraction=0.90)
         c = Chunk(6, memory_threshold=0.15)
         assert c.num_chunks == 4
 
@@ -602,6 +593,7 @@ class TestChunkUtilities:
         bits = chunk_mod.get_dynamic_chunk(np.complex64)
         assert 16 <= bits <= 27
 
+    @pytest.mark.real_memory_probe
     def test_safe_memory_guard_status_reads_device_memory_when_present(self, monkeypatch):
         import dense_evolution.chunk as chunk_mod
 
