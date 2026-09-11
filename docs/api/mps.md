@@ -112,6 +112,45 @@ the accuracy budget was never hit — the result is reliable at this `max_bond`.
 
 ---
 
+## Step 5. Check that a result has actually converged with bond dimension
+
+`chi_used`/`avg_JSD`/`budget_violations` above describe a single run at a single
+`max_bond` — they can't tell you whether a *different* `max_bond` would have given
+a different answer. `bond_convergence` runs the same circuit at several bond
+dimensions and checks whether the observable settles down as `max_bond` grows.
+
+```python
+from dense_evolution.backends.mps import bond_convergence
+
+ops = circuit.to_tuples()
+result = bond_convergence(ops, n, observables=["Z" + "I" * (n - 1)], bonds=(2, 4, 8))
+
+print(result.verdicts[0])
+print(result.diffs[0])
+```
+
+```
+converged
+[0.0, 0.0]
+```
+
+For this GHZ chain the entanglement never grows past bond dimension 2, so `<Z0>`
+is exactly identical at `max_bond=2`, `4`, and `8` — both successive differences
+are exactly zero, and the verdict is `converged`.
+
+A highly-entangled circuit tells a different story: on a 40-qubit, 4-layer
+brickwall circuit, `bonds=(4, 8, 32)` gives successive `<Z0>` differences of
+about `4.7e-2` then `1.2e-2` — shrinking, but nowhere near a reasonable `tol`,
+so the verdict is `not_converged`. `bond_convergence` needs at least 3 bond
+values to make that call at all: two values alone give a single difference,
+with no way to tell whether it is closing in on `tol` or has already stalled
+(see the function's own docstring for the exact numbers). If even the largest
+bond dimension in `bonds` is still hitting its own cap, the verdict is
+`undecidable` instead of `converged` or `not_converged` — no tolerance can be
+certified from data where the truncation never had room to breathe.
+
+---
+
 ## Details
 
 ### Troubleshooting

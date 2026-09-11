@@ -22,7 +22,7 @@ import jax.numpy as jnp
 import dense_evolution as de
 from dense_evolution.backends.mps import (
     MPSSimulator, _jsd_vectors, _vectorized_chi_search, _expand_nonlocal_2q_positions,
-    mps_pauli_expectation, mps_pauli_sum_expectation,
+    mps_pauli_expectation, mps_pauli_sum_expectation, bond_convergence,
 )
 
 def test_backward_compat_shim_mps_reexports_mpssimulator():
@@ -1280,4 +1280,48 @@ def test_complex64_run_emits_no_dtype_truncation_warning():
         assert dtype_warnings == []
 
     _run_x64(False, run)
+
+
+# ── bond_convergence (prog.txt) ──────────────────────────────────────────
+
+def _ghz_chain_ops(n_qubits):
+    ops = [["h", 0]]
+    ops += [["cx", q, q + 1] for q in range(n_qubits - 1)]
+    return ops
+
+
+def test_bond_convergence_ghz_converges_at_small_bonds():
+    n = 50
+    ops = _ghz_chain_ops(n)
+    result = bond_convergence(ops, n, [[(0, "Z"), (n - 1, "Z")]], bonds=(2, 4, 8))
+    assert result.verdicts == ["converged"]
+
+
+def test_bond_convergence_deep_brickwall_not_converged():
+    # chi_used=[4, 8, 16] here -- below the bonds=(4, 8, 32) cap at every
+    # step, so this is a genuine not_converged (not undecidable): the
+    # successive |<Z0>| discrepancies (measured: ~4.7e-2, ~1.2e-2) decrease
+    # but stay far above tol, exactly the case bond_convergence's own
+    # verdict must catch rather than declaring victory on a shrinking-but-
+    # still-large trend.
+    n, layers = 40, 4
+    ops = _brick_wall_ry_ops(n, seed=42, layers=layers)
+    result = bond_convergence(ops, n, ["Z" + "I" * (n - 1)], bonds=(4, 8, 32))
+    assert result.chi_used[-1] < result.bonds[-1]
+    assert result.verdicts == ["not_converged"]
+
+
+@pytest.mark.parametrize("bonds", [(4,), (4, 8)])
+def test_bond_convergence_requires_at_least_three_bonds(bonds):
+    ops = _ghz_chain_ops(4)
+    with pytest.raises(ValueError):
+        bond_convergence(ops, 4, ["Z" + "I" * 3], bonds=bonds)
+
+
+def test_bond_convergence_undecidable_when_cap_saturated():
+    n, layers = 12, 10
+    ops = _brick_wall_ry_ops(n, seed=7, layers=layers)
+    result = bond_convergence(ops, n, ["Z" + "I" * (n - 1)], bonds=(2, 3, 4))
+    assert result.chi_used[-1] >= result.bonds[-1]
+    assert result.verdicts == ["undecidable"]
 

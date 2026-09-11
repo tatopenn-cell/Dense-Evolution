@@ -50,6 +50,7 @@ DenseSVSimulator has -- it is not a universal replacement, it is
 complementary.
 """
 
+import dataclasses
 import warnings
 from functools import partial
 from typing import List, Optional, Tuple
@@ -1471,3 +1472,90 @@ def mps_pauli_sum_expectation(mps: "MPSSimulator", terms) -> complex:
         for coeff, pauli_terms in terms
     )
     return raw_sum / norm_sq
+
+
+@dataclasses.dataclass
+class BondConvergenceResult:
+    bonds: List[int]
+    chi_used: List[int]
+    avg_jsd: List[float]
+    budget_violations: List[int]
+    values: List[List[complex]]
+    diffs: List[List[float]]
+    verdicts: List[str]
+
+
+def bond_convergence(
+    ops: List, n_qubits: int, observables: list, bonds: List[int],
+    tol: float = 1e-3, **mps_kwargs,
+) -> BondConvergenceResult:
+    """Runs the same circuit at every value in `bonds` (increasing) and
+    checks whether the reported observables have actually converged with
+    respect to bond dimension, instead of trusting a single run's own
+    internal diagnostics.
+
+    Requires len(bonds) >= 3. Two bonds give exactly one discrepancy,
+    which is a single number with no way to tell whether it is still
+    shrinking toward `tol` or has already stalled -- measured on a
+    40-qubit, 4-layer brickwall circuit, chi=4->8->32 gave |<Z0>|
+    discrepancies of ~4.7e-2 then ~1.2e-2 (chi_used never hit its own
+    cap, so this is a real not_converged, not an artifact of running out
+    of bond dimension): a two-bond check (chi=4 vs 8) would see only the
+    first number and have no basis to call it anything, while three
+    bonds show a trend that is decreasing but still two orders of
+    magnitude above any reasonable `tol`.
+
+    A verdict of "converged" additionally requires the successive
+    discrepancies to be monotonically non-increasing, not just that the
+    last one is below `tol` -- a single small discrepancy proves nothing
+    about the trend on its own, which is the same failure mode as the
+    two-bond case above, one level up. (Ties count as non-increasing: an
+    exactly-converged observable, e.g. a GHZ chain whose bond dimension
+    never needs to grow, produces identical values -- and therefore
+    zero discrepancies -- at every bond, which must count as converged.)
+
+    avg_jsd and budget_violations (from the underlying MPSSimulator runs)
+    are reported per bond for context only, never used to decide the
+    verdict -- a low average JSD is computed per truncation step and says
+    nothing about whether the specific observable being tracked has
+    settled down as `max_bond` grows.
+
+    If max_bond_used() at the highest bond still equals that bond's cap,
+    the truncation never had headroom below max_bond at any cut, so no
+    tolerance can be certified from this data: every observable's verdict
+    becomes "undecidable" regardless of its own discrepancies.
+    """
+    if len(bonds) < 3:
+        raise ValueError(f"bond_convergence needs at least 3 bonds to detect a trend, got {len(bonds)}")
+
+    chi_used, avg_jsd, budget_violations = [], [], []
+    values = [[] for _ in observables]
+    for bond in bonds:
+        mps = MPSSimulator(n_qubits=n_qubits, max_bond=bond, **mps_kwargs)
+        mps.run_circuit_jit(ops)
+        chi_used.append(mps.max_bond_used())
+        avg_jsd.append(mps.avg_jsd())
+        budget_violations.append(mps.budget_violations)
+        for obs_idx, obs in enumerate(observables):
+            values[obs_idx].append(mps_pauli_expectation(mps, obs))
+
+    diffs = [
+        [abs(vals[i + 1] - vals[i]) for i in range(len(vals) - 1)]
+        for vals in values
+    ]
+
+    undecidable = chi_used[-1] >= bonds[-1]
+    verdicts = []
+    for d in diffs:
+        if undecidable:
+            verdicts.append("undecidable")
+        elif all(d[i + 1] <= d[i] for i in range(len(d) - 1)) and d[-1] < tol:
+            verdicts.append("converged")
+        else:
+            verdicts.append("not_converged")
+
+    return BondConvergenceResult(
+        bonds=list(bonds), chi_used=chi_used, avg_jsd=avg_jsd,
+        budget_violations=budget_violations, values=values, diffs=diffs,
+        verdicts=verdicts,
+    )
