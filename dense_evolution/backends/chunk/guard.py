@@ -74,6 +74,27 @@ class SafeMemoryGuard:
     """
 
     _WARN_MULTIPLIER = 2.0
+    # Below this, check_allocation's own margin-after-allocation math
+    # reduces to "is ambient free RAM currently below threshold_pct?",
+    # independent of required_mb -- for a request this small that's not
+    # protecting against anything, since real machines don't run out of
+    # memory over a request this size regardless of ambient load. Sized
+    # to comfortably cover a dense statevector up to 24 qubits at
+    # complex128 (2**24 * 16 bytes = 268.4 MB) with a real margin -- the
+    # same 24-qubit figure dashboard_core.system_limits already treats as
+    # MPS's own RAM-independent ceiling, and well inside the 16-27 qubit
+    # range dense_evolution.chunk.get_dynamic_chunk considers safe on any
+    # machine (27 qubits / 2 GB is that function's own practical ceiling
+    # for a single dense block). An 8 GB minimum-spec machine can always
+    # absorb an allocation this size without real risk, even while
+    # running low on RAM from unrelated processes. A 2-qubit statevector
+    # (64 bytes) used to be refused on a machine sitting at 8% free RAM
+    # from unrelated processes, which was not a real anti-OOM save, just
+    # a false positive from a threshold designed for actual multi-GB
+    # allocations. Only bypasses when available_mb is itself comfortably
+    # above this floor too (see check_allocation below) -- a machine
+    # truly down to its last few hundred MB still gets the real check.
+    _NEGLIGIBLE_MB = 512.0
 
     def __init__(self, threshold_pct: float = 0.15, gc_before_check: bool = True):
         if not 0.0 < threshold_pct < 1.0:
@@ -134,7 +155,10 @@ class SafeMemoryGuard:
         if self.gc_before_check:
             gc.collect()
 
-        s   = self.status()
+        s = self.status()
+        if required_mb < self._NEGLIGIBLE_MB and s["available_mb"] > self._NEGLIGIBLE_MB:
+            return
+
         tag = f"[{context}] " if context else ""
         available_after_mb = s["available_mb"] - required_mb
         free_frac_after = available_after_mb / self._total_mb if self._total_mb > 0 else 0.0
