@@ -266,10 +266,10 @@ class TestChunkDiskOverflow:
     in-RAM multi-chunk path (which could share a bug with a naive
     streaming reimplementation) -- this is bit-manipulation-heavy code
     where a plausible-looking-but-wrong formula is easy to miss by
-    inspection alone. memory_threshold=0.999999 forces
-    SafeMemoryGuard.check_allocation to fail regardless of the actual
-    (tiny, forced) geometry's real size, so the disk-overflow fallback
-    triggers reliably in a test without needing a real large allocation.
+    inspection alone. _fake_low_ram (below) fakes available_mb genuinely
+    low so SafeMemoryGuard.check_allocation reliably fails despite this
+    class's real (tiny, forced) chunk geometries, and the disk-overflow
+    fallback triggers without needing a real large allocation.
     """
 
     @pytest.fixture
@@ -294,8 +294,28 @@ class TestChunkDiskOverflow:
         yield
         gc.collect()
 
+    @pytest.fixture(autouse=True)
+    def _fake_low_ram(self, monkeypatch):
+        # SafeMemoryGuard.check_allocation now skips its percentage-margin
+        # check entirely for small requests when available_mb is itself
+        # comfortably high (see guard.py's _NEGLIGIBLE_MB) -- a real fix
+        # for false positives on a machine with plenty of RAM, but it
+        # means memory_threshold=0.999999 alone no longer reliably forces
+        # a "RAM full" failure against this class's real (small, forced)
+        # chunk geometries. Faking available_mb genuinely low (below
+        # _NEGLIGIBLE_MB) makes the disk-overflow path trigger for the
+        # right reason -- real memory pressure -- instead of an
+        # unreachable threshold.
+        from dense_evolution.backends.chunk import guard as guard_mod
+        total_bytes = 8 * 1024 ** 3
+        available_bytes = 0.01 * total_bytes
+        monkeypatch.setattr(guard_mod, "_device_memory_budget_bytes",
+                             lambda device=None: (available_bytes, "fake"))
+        monkeypatch.setattr(guard_mod, "_device_total_bytes",
+                             lambda device=None: total_bytes)
+
     def _make_disk_chunk(self, n_qubits):
-        c = Chunk(n_qubits, memory_threshold=0.999999, allow_disk_overflow=True)
+        c = Chunk(n_qubits, memory_threshold=0.15, allow_disk_overflow=True)
         assert c._chunk_paths is not None  # confirms this test is really on the disk path
         return c
 
@@ -316,7 +336,7 @@ class TestChunkDiskOverflow:
         from dense_evolution.chunk import MemoryPressureError
         force_chunk_bits(4)
         with pytest.raises(MemoryPressureError):
-            Chunk(6, memory_threshold=0.999999)
+            Chunk(6, memory_threshold=0.15)
 
     def test_empty_circuit_canary(self, force_chunk_bits):
         force_chunk_bits(4)
