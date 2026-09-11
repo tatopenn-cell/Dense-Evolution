@@ -1,12 +1,26 @@
 import jax
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 from dense_evolution import continuous_pulse_evolve
 
-X = jnp.array([[0.0, 1.0], [1.0, 0.0]], dtype=jnp.complex128)
-Y = jnp.array([[0.0, -1j], [1j, 0.0]], dtype=jnp.complex128)
+X = None
+Y = None
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _x64_and_paulis():
+    # atol=1e-8 below needs complex128 -- enabled only for this module's
+    # own tests (not at import time) so it doesn't leak into other test
+    # files that run in the same pytest process.
+    previous = jax.config.jax_enable_x64
+    jax.config.update("jax_enable_x64", True)
+    global X, Y
+    X = jnp.array([[0.0, 1.0], [1.0, 0.0]], dtype=jnp.complex128)
+    Y = jnp.array([[0.0, -1j], [1j, 0.0]], dtype=jnp.complex128)
+    yield
+    jax.config.update("jax_enable_x64", previous)
 
 
 def test_constant_coefficient_matches_single_expm_step():

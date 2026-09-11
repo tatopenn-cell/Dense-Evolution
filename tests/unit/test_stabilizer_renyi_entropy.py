@@ -6,17 +6,27 @@ derived by hand from the source paper's own Eq. 5 (arXiv:2106.12587), not
 copied from anywhere else.
 """
 import jax
-jax.config.update("jax_enable_x64", True)  # needed for the tight "exactly
-# 0 for stabilizer states" tolerances below -- float32 (the default
-# without this) was measured to accumulate ~3e-7 error on a 4-qubit GHZ
-# state through this module's O(d^3) computation, same pattern already
-# used in tests/unit/test_amplitude_damping_channel.py for the same reason.
-
 import numpy as np
 import pytest
 
 from dense_evolution.mitigation import stabilizer_renyi_entropy, stabilizer_renyi_entropy_jit
 from dense_evolution import DenseSVSimulator
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _x64():
+    # Needed for the tight "exactly 0 for stabilizer states" tolerances
+    # below -- float32 (the default without this) was measured to
+    # accumulate ~3e-7 error on a 4-qubit GHZ state through this module's
+    # O(d^3) computation, same pattern used in
+    # tests/unit/test_amplitude_damping_channel.py for the same reason.
+    # Enabled only for this module's own tests (not at import time) so it
+    # doesn't leak into other test files that run in the same pytest
+    # process.
+    previous = jax.config.jax_enable_x64
+    jax.config.update("jax_enable_x64", True)
+    yield
+    jax.config.update("jax_enable_x64", previous)
 
 
 def _original_loop_reference(psi):

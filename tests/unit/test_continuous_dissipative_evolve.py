@@ -1,9 +1,20 @@
 import jax
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 from dense_evolution import continuous_dissipative_evolve, global_depolarizing_channel
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _x64():
+    # Enabled only for this module's own tests (not at import time) so it
+    # doesn't leak into other test files that run in the same pytest
+    # process.
+    previous = jax.config.jax_enable_x64
+    jax.config.update("jax_enable_x64", True)
+    yield
+    jax.config.update("jax_enable_x64", previous)
 
 
 def _pure_state_rho(dim, index=0):

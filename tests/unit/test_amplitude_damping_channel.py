@@ -1,10 +1,21 @@
 import jax
-jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
 from dense_evolution import amplitude_damping_channel
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _x64():
+    # float32 (the default without this) was measured to accumulate ~3e-7
+    # error here -- enabled only for this module's own tests (not at
+    # import time) so it doesn't leak into other test files that run in
+    # the same pytest process.
+    previous = jax.config.jax_enable_x64
+    jax.config.update("jax_enable_x64", True)
+    yield
+    jax.config.update("jax_enable_x64", previous)
 
 
 def _rho1():

@@ -10,6 +10,7 @@ ImportError path -- same reasoning as this repo's stim/pymatching tests.
 `pytest.importorskip` is per-test, not module-level, so the pure-Python
 shell-matching/permutation tests below still run without pyscf installed.
 """
+import jax
 import numpy as np
 import pytest
 
@@ -82,10 +83,19 @@ def test_shell_matching_finds_reordered_shells():
     assert starts == [0, 2, 1]
 
 
-def test_h2_sto3g_bridge_matches_native_hf_eri():
-    pytest.importorskip("pyscf")
-    import jax
+@pytest.fixture
+def _x64():
+    # Function-scoped, not module-level: restores the previous value after
+    # this one test so it doesn't leak into other test files that run in
+    # the same pytest process.
+    previous = jax.config.jax_enable_x64
     jax.config.update("jax_enable_x64", True)
+    yield
+    jax.config.update("jax_enable_x64", previous)
+
+
+def test_h2_sto3g_bridge_matches_native_hf_eri(_x64):
+    pytest.importorskip("pyscf")
     from dense_evolution.native_hf.basis import build_molecule_shells
     from dense_evolution.native_hf.assembly import build_repulsion_tensor
     from dense_evolution.native_hf.libcint_bridge import build_repulsion_tensor_libcint
@@ -99,15 +109,13 @@ def test_h2_sto3g_bridge_matches_native_hf_eri():
     assert V_bridge == pytest.approx(V_native, abs=1e-8)
 
 
-def test_ne_631gstar_bridge_matches_pyscf_anchor():
+def test_ne_631gstar_bridge_matches_pyscf_anchor(_x64):
     # The real point: a mixed s/p/d basis, where native_hf and libcint
     # disagree on both shell order (native_hf keeps basis-file order,
     # libcint groups by ascending degree) and per-component d normalization
     # -- exercises the shell-identity matching and rescale in
     # libcint_bridge.py, not just a trivial pass-through.
     pytest.importorskip("pyscf")
-    import jax
-    jax.config.update("jax_enable_x64", True)
     from dense_evolution.native_hf.basis import build_molecule_shells
     from dense_evolution.native_hf.assembly import build_overlap_matrix, build_core_hamiltonian
     from dense_evolution.native_hf.libcint_bridge import build_repulsion_tensor_libcint
