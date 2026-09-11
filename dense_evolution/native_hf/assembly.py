@@ -93,6 +93,55 @@ def _quartet_block(exponents, coeffs, centers, degrees, primitive_fn):
     return ratio_outer * summed
 
 
+_QUARTET_SYMMETRY_PERMS = (
+    (0, 1, 2, 3), (1, 0, 2, 3), (0, 1, 3, 2), (1, 0, 3, 2),
+    (2, 3, 0, 1), (2, 3, 1, 0), (3, 2, 0, 1), (3, 2, 1, 0),
+)
+
+
+def _canonical_quartet_perm(degrees: tuple) -> tuple:
+    """The electron-repulsion integral (ab|cd) is invariant under swapping
+    a<->b, swapping c<->d, and swapping the pair (a,b)<->(c,d) -- the same
+    8-element symmetry build_repulsion_tensor already uses to store one
+    computed block into 8 tensor locations via transpose. Applied here to
+    the OTHER end: _quartet_block's jax.jit cache keys on the exact
+    (a,b,c,d)-ordered `degrees` tuple, so two quartets that are physically
+    the same integral under one of these 8 relabelings still trigger two
+    separate compilations if their degrees arrive in different orders.
+    Picking the lexicographically largest of the 8 relabelings as a fixed
+    canonical form (independent of which one happens to come in) collapses
+    that duplication -- measured on Ne/6-31G*: 35 distinct compiled
+    signatures down to fewer, see native_hf_eri_profile_ne_631gstar.py in
+    Dense-Evolution-Discovery."""
+    best_perm = _QUARTET_SYMMETRY_PERMS[0]
+    best_key = tuple(degrees[i] for i in best_perm)
+    for perm in _QUARTET_SYMMETRY_PERMS[1:]:
+        key = tuple(degrees[i] for i in perm)
+        if key > best_key:
+            best_key = key
+            best_perm = perm
+    return best_perm
+
+
+def _invert_perm(perm: tuple) -> tuple:
+    inv = [0, 0, 0, 0]
+    for i, p in enumerate(perm):
+        inv[p] = i
+    return tuple(inv)
+
+
+def _canonical_quartet_block(exponents, coeffs, centers, degrees, primitive_fn):
+    perm = _canonical_quartet_perm(degrees)
+    if perm == (0, 1, 2, 3):
+        return _quartet_block(exponents, coeffs, centers, degrees, primitive_fn)
+    p_exponents = tuple(exponents[i] for i in perm)
+    p_coeffs = tuple(coeffs[i] for i in perm)
+    p_centers = tuple(centers[i] for i in perm)
+    p_degrees = tuple(degrees[i] for i in perm)
+    block = _quartet_block(p_exponents, p_coeffs, p_centers, p_degrees, primitive_fn)
+    return jnp.transpose(block, _invert_perm(perm))
+
+
 def _shell_offsets(shells: list[ContractedShell]) -> list[int]:
     offsets, running = [], 0
     for s in shells:
@@ -163,7 +212,7 @@ def _schwarz_bound(sa: ContractedShell, sb: ContractedShell, max_primitives: int
     ea, ca = _pad_primitives(sa.exponents, sa.coefficients, max_primitives)
     eb, cb = _pad_primitives(sb.exponents, sb.coefficients, max_primitives)
     block = np.array(
-        _quartet_block(
+        _canonical_quartet_block(
             (ea, eb, ea, eb),
             (ca, cb, ca, cb),
             (sa.center, sb.center, sa.center, sb.center),
@@ -210,7 +259,7 @@ def build_repulsion_tensor(shells: list[ContractedShell], screening_tol: float =
                     ec, cc = _pad_primitives(sc.exponents, sc.coefficients, max_primitives)
                     ed, cd = _pad_primitives(sd.exponents, sd.coefficients, max_primitives)
                     block = np.array(
-                        _quartet_block(
+                        _canonical_quartet_block(
                             (ea, eb, ec, ed),
                             (ca, cb, cc, cd),
                             (sa.center, sb.center, sc.center, sd.center),
