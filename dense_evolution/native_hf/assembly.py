@@ -154,7 +154,7 @@ def _overlap_primitive(ga, gb):
     return overlap_3d(ga, gb)
 
 
-def build_overlap_matrix(shells: list[ContractedShell]) -> np.ndarray:
+def build_overlap_matrix(shells: list[ContractedShell]) -> jax.Array:
     return _build_two_index(shells, _overlap_primitive)
 
 
@@ -165,27 +165,25 @@ def _core_hamiltonian_primitive(ga, gb, charges, positions):
     return -0.5 * T + V
 
 
-def build_core_hamiltonian(shells: list[ContractedShell], nuclear_charges: list[float], nuclear_positions: np.ndarray) -> np.ndarray:
+def build_core_hamiltonian(shells: list[ContractedShell], nuclear_charges: list[float], nuclear_positions: np.ndarray) -> jax.Array:
     charges = jnp.asarray(nuclear_charges, dtype=jnp.float64)
     positions = jnp.asarray(nuclear_positions, dtype=jnp.float64)
     return _build_two_index(shells, _core_hamiltonian_primitive, extra=(charges, positions))
 
 
-def _build_two_index(shells: list[ContractedShell], primitive_fn, extra=()) -> np.ndarray:
+def _build_two_index(shells: list[ContractedShell], primitive_fn, extra=()) -> jax.Array:
     n = n_cartesian_functions(shells)
     offsets = _shell_offsets(shells)
-    M = np.zeros((n, n))
+    M = jnp.zeros((n, n))
     for i, sa in enumerate(shells):
         for j, sb in enumerate(shells):
-            block = np.array(
-                _pair_block(
-                    sa.exponents, sa.coefficients, sa.center, sa.degree,
-                    sb.exponents, sb.coefficients, sb.center, sb.degree,
-                    primitive_fn, extra=extra,
-                )
+            block = _pair_block(
+                sa.exponents, sa.coefficients, sa.center, sa.degree,
+                sb.exponents, sb.coefficients, sb.center, sb.degree,
+                primitive_fn, extra=extra,
             )
             oi, oj = offsets[i], offsets[j]
-            M[oi : oi + block.shape[0], oj : oj + block.shape[1]] = block
+            M = M.at[oi : oi + block.shape[0], oj : oj + block.shape[1]].set(block)
     return M
 
 
@@ -236,10 +234,10 @@ def _shell_pair_schwarz_bounds(shells: list[ContractedShell], max_primitives: in
     return bounds
 
 
-def build_repulsion_tensor(shells: list[ContractedShell], screening_tol: float = 1e-12) -> np.ndarray:
+def build_repulsion_tensor(shells: list[ContractedShell], screening_tol: float = 1e-12) -> jax.Array:
     n = n_cartesian_functions(shells)
     offsets = _shell_offsets(shells)
-    V = np.zeros((n, n, n, n))
+    V = jnp.zeros((n, n, n, n))
     max_primitives = max(s.exponents.shape[0] for s in shells)
     schwarz = _shell_pair_schwarz_bounds(shells, max_primitives)
     for i, sa in enumerate(shells):
@@ -258,14 +256,12 @@ def build_repulsion_tensor(shells: list[ContractedShell], screening_tol: float =
                     eb, cb = _pad_primitives(sb.exponents, sb.coefficients, max_primitives)
                     ec, cc = _pad_primitives(sc.exponents, sc.coefficients, max_primitives)
                     ed, cd = _pad_primitives(sd.exponents, sd.coefficients, max_primitives)
-                    block = np.array(
-                        _canonical_quartet_block(
-                            (ea, eb, ec, ed),
-                            (ca, cb, cc, cd),
-                            (sa.center, sb.center, sc.center, sd.center),
-                            (sa.degree, sb.degree, sc.degree, sd.degree),
-                            electron_repulsion,
-                        )
+                    block = _canonical_quartet_block(
+                        (ea, eb, ec, ed),
+                        (ca, cb, cc, cd),
+                        (sa.center, sb.center, sc.center, sd.center),
+                        (sa.degree, sb.degree, sc.degree, sd.degree),
+                        electron_repulsion,
                     )
                     oi, oj, ok, ol = offsets[i], offsets[j], offsets[k], offsets[l]
                     for pi, pj, pk, pl, b in (
@@ -278,5 +274,5 @@ def build_repulsion_tensor(shells: list[ContractedShell], screening_tol: float =
                         (ok, ol, oj, oi, block.transpose(2, 3, 1, 0)),
                         (ol, ok, oj, oi, block.transpose(3, 2, 1, 0)),
                     ):
-                        V[pi : pi + b.shape[0], pj : pj + b.shape[1], pk : pk + b.shape[2], pl : pl + b.shape[3]] = b
+                        V = V.at[pi : pi + b.shape[0], pj : pj + b.shape[1], pk : pk + b.shape[2], pl : pl + b.shape[3]].set(b)
     return V
