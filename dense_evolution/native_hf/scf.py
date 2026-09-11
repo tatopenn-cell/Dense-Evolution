@@ -259,3 +259,69 @@ def run_scf(
         orbital_coefficients=C,
         density_matrix=P,
     )
+
+
+@functools.partial(jax.custom_vjp, nondiff_argnums=(3,))
+def scf_electronic_energy(S: jax.Array, H_core: jax.Array, repulsion: jax.Array, n_electrons: int) -> jax.Array:
+    """The RHF electronic energy (run_scf's own `electronic_energy`, not
+    counting nuclear repulsion) as a function of S/H_core/repulsion that
+    IS differentiable via jax.grad -- unlike run_scf itself, whose
+    jax.lax.while_loop can't be traced in reverse mode.
+
+    The gradient is NOT backprop through the SCF iteration (which
+    wouldn't even be possible) -- it's the analytic Hartree-Fock gradient
+    of Pople, Krishnan, Schlegel & Binkley, Int. J. Quantum Chem. Symp.
+    13, 225 (1979), eq. (21)-(22): at self-consistency, dE/dtheta equals
+    the derivative of `Tr[P(H_core+F(P))] - Tr[W S]` with P and the
+    energy-weighted density matrix W held fixed at their converged
+    values (an envelope-theorem/Lagrangian result -- P and W are the
+    stationary point and multipliers of the constrained HF variational
+    problem, so their own dependence on theta drops out of the total
+    derivative). W is built from ONLY the occupied orbitals:
+    `W = C_occ @ diag(2 * orbital_energies_occ) @ C_occ.T` -- the factor
+    of 2 is this module's own P convention (no explicit 2 in P itself,
+    carried instead by F = H_core + 2J - K), not part of Pople et al.'s
+    original spin-orbital formula. This automatically
+    includes the "Pulay force" terms from the atom-centered basis moving
+    with the nuclei (via H_core/repulsion/S's own theta-dependence),
+    without hand-deriving them -- jax.grad on the frozen-P expression
+    below does that part for free.
+
+    Verified against central finite differences on H2/STO-3G (see
+    tests/unit/test_native_hf_differentiable.py)."""
+    result = run_scf(S, H_core, repulsion, n_electrons, [], jnp.zeros((0, 3)))
+    return result.electronic_energy
+
+
+def _scf_electronic_energy_fwd(S, H_core, repulsion, n_electrons):
+    result = run_scf(S, H_core, repulsion, n_electrons, [], jnp.zeros((0, 3)))
+    residuals = (S, H_core, repulsion, result.density_matrix, result.orbital_coefficients, result.orbital_energies)
+    return result.electronic_energy, residuals
+
+
+def _scf_electronic_energy_bwd(n_electrons, residuals, cotangent):
+    S, H_core, repulsion, P, C, orbital_energies = residuals
+    n_occupied_pairs = n_electrons // 2
+    C_occ = C[:, :n_occupied_pairs]
+    # Lagrange multiplier for the C_occ.T @ S @ C_occ = I constraint is
+    # 2*diag(orbital_energies_occ), not diag(orbital_energies_occ) --
+    # this module's P has no explicit factor of 2 (F = H_core + 2J - K
+    # carries it instead), so stationarity of Tr[P(H_core+F(P))] -
+    # Tr[Lambda(C_occ.T S C_occ - I)] w.r.t. C_occ gives F C_occ =
+    # S C_occ (Lambda/2), which must match the Roothaan-Hall equation
+    # F C_occ = S C_occ diag(eps_occ) -- so Lambda = 2*diag(eps_occ).
+    # Verified: omitting this factor of 2 gave a gradient that disagreed
+    # with central finite differences by exactly Tr[W_undoubled dS/dx].
+    W = C_occ @ jnp.diag(2.0 * orbital_energies[:n_occupied_pairs]) @ C_occ.T
+
+    def lagrangian(S_, H_core_, repulsion_):
+        J = jnp.einsum("pqrs,rs->pq", repulsion_, P)
+        K = jnp.einsum("prqs,rs->pq", repulsion_, P)
+        F = H_core_ + 2.0 * J - K
+        return jnp.sum(P * (H_core_ + F)) - jnp.sum(W * S_)
+
+    dS, dH_core, drepulsion = jax.grad(lagrangian, argnums=(0, 1, 2))(S, H_core, repulsion)
+    return (cotangent * dS, cotangent * dH_core, cotangent * drepulsion)
+
+
+scf_electronic_energy.defvjp(_scf_electronic_energy_fwd, _scf_electronic_energy_bwd)
