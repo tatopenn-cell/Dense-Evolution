@@ -26,10 +26,18 @@ _BLOCH_COLOR = "#4589ff"
 _QSPHERE_LINE_COLOR = "#8d8d8d"
 
 
-def native_histogram_figure(counts: dict):
+def native_histogram_figure(counts: dict, statevector=None):
     """Bar chart of shot counts, bitstrings sorted ascending -- the same
     information qiskit.visualization.plot_histogram showed, built from
     nothing but the counts dict itself.
+
+    statevector (optional): when given, each bar is colored by the
+    complex phase of that basis state's amplitude (same HSV cyclic
+    colormap and convention as native_qsphere_figure's own phase
+    coloring) instead of the flat default color -- a state's phase is
+    real physical information invisible in a bare shot-count bar
+    otherwise. statevector must be in the same Qiskit little-endian
+    convention as `counts`' own bitstrings (see module docstring).
 
     Examples
     --------
@@ -43,7 +51,19 @@ def native_histogram_figure(counts: dict):
     total = sum(values)
 
     fig, ax = plt.subplots(figsize=(max(4, 0.5 * len(states)), 4))
-    bars = ax.bar(states, values, color="#648fff")
+    if statevector is not None:
+        phases = np.angle([statevector[int(s, 2)] for s in states])
+        cmap = plt.get_cmap("hsv")
+        colors = cmap((phases % (2 * np.pi)) / (2 * np.pi))
+        bars = ax.bar(states, values, color=colors)
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(0, 2 * np.pi))
+        sm.set_array([])
+        cbar = fig.colorbar(sm, ax=ax, shrink=0.8, pad=0.02)
+        cbar.set_ticks([0, np.pi / 2, np.pi, 3 * np.pi / 2, 2 * np.pi])
+        cbar.set_ticklabels(["0", "π/2", "π", "3π/2", "2π"])
+        cbar.set_label("phase", fontsize=8)
+    else:
+        bars = ax.bar(states, values, color="#648fff")
     ax.set_ylabel("Counts")
     ax.set_ylim(0, max(values) * 1.15 if values else 1)
     for bar, v in zip(bars, values):

@@ -58,6 +58,28 @@ def test_histogram_figure_returns_a_figure():
     assert isinstance(fig, Figure)
 
 
+def test_histogram_figure_with_phase_coloring_returns_a_figure():
+    result = _bell_result()
+    fig = histogram_figure(result.counts, statevector=result.statevector)
+    assert isinstance(fig, Figure)
+
+
+def test_histogram_figure_phase_colors_match_real_amplitude_angles():
+    # Bell state |00>+|11> (both amplitudes real positive, phase 0) --
+    # both bars must get the identical HSV color for phase=0, not two
+    # different colors, and it must be the actual HSV(phase=0) color,
+    # not an arbitrary default.
+    import matplotlib.pyplot as plt
+    sv = np.array([1, 0, 0, 1], dtype=complex) / np.sqrt(2)
+    counts = {'00': 512, '11': 488}
+    fig = histogram_figure(counts, statevector=sv)
+    ax = fig.axes[0]
+    bar_colors = [bar.get_facecolor() for bar in ax.patches]
+    expected = plt.get_cmap('hsv')(0.0)
+    assert bar_colors[0] == pytest.approx(expected, abs=1e-6)
+    assert bar_colors[1] == pytest.approx(expected, abs=1e-6)
+
+
 def test_qsphere_figure_returns_a_figure():
     result = _bell_result()
     fig = qsphere_figure(result.statevector)

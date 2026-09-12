@@ -276,7 +276,15 @@ elif section == "Risultati":
             st.dataframe(rows, width="stretch")
         with tab_prob:
             st.caption("1000 shot reali campionati dallo statevector calcolato")
-            st.pyplot(dc.histogram_figure(result.counts))
+            color_by_phase = st.checkbox(
+                "Colora per fase", key="prob_color_by_phase",
+                help="Colora ogni barra secondo la fase complessa dell'ampiezza di quello "
+                     "stato (colormap ciclica) -- l'altezza della barra resta il conteggio "
+                     "di shot reale, invariata.",
+            )
+            st.pyplot(dc.histogram_figure(
+                result.counts, statevector=result.statevector if color_by_phase else None,
+            ))
         with tab_qsphere:
             st.pyplot(dc.qsphere_figure(result.statevector))
         with tab_bloch:
