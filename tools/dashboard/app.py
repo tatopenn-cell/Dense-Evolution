@@ -755,10 +755,19 @@ elif section == "QEC":
         try:
             syndrome = dense_evolution.compute_syndrome(pauli_error, stabilizers)
             st.session_state["qec_syndrome"] = syndrome
+            st.session_state["qec_syndrome_error"] = pauli_error
         except Exception as exc:
             st.error(f"Errore: {exc}")
     if "qec_syndrome" in st.session_state:
         st.write(f"Sindrome: `{st.session_state['qec_syndrome']}`")
+        st.caption(
+            "In rosso gli stabilizzatori che anticommutano con l'errore (bit di sindrome 1, "
+            "rilevato) -- in grigio quelli che commutano (bit 0, non rilevato). Il qubit "
+            "marcato è dove agisce l'errore iniettato."
+        )
+        st.pyplot(dc.qec_syndrome_map_figure(
+            stabilizers, st.session_state["qec_syndrome"], st.session_state["qec_syndrome_error"],
+        ))
 
     st.subheader("Decodifica")
     observed_text = st.text_input("Sindrome osservata (es. '1,0')", value="1,0", key="qec_observed")

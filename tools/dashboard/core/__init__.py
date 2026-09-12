@@ -29,7 +29,7 @@ from .engine import (
 )
 from .visuals import (
     draw_circuit_figure, histogram_figure, qsphere_figure, bloch_multivector_figure,
-    energy_landscape_figure, zne_bar_figure,
+    energy_landscape_figure, zne_bar_figure, qec_syndrome_map_figure,
 )
 from .graphical_builder import GATE_PALETTE, ops_to_native_tuples
 from .circuit_builder_component import mount_circuit_builder
@@ -65,7 +65,7 @@ __all__ = [
     'LargeScaleMPSResult', 'run_large_circuit_mps', 'MPS_DENSE_CONTRACTION_LIMIT',
     'run_bond_convergence_check',
     'draw_circuit_figure', 'histogram_figure', 'qsphere_figure', 'bloch_multivector_figure',
-    'energy_landscape_figure', 'zne_bar_figure',
+    'energy_landscape_figure', 'zne_bar_figure', 'qec_syndrome_map_figure',
     'GATE_PALETTE', 'ops_to_native_tuples',
     'mount_circuit_builder',
     'MOLECULE_CATALOG', 'build_molecular_hamiltonian', 'get_compatible_molecules',
