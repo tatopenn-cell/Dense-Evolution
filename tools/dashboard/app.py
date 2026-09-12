@@ -62,7 +62,8 @@ if "result" not in st.session_state:
 
 _BASE_SECTIONS = ["Costruisci", "Risultati", "Chimica", "Rumore", "Sistema"]
 _ADVANCED_SECTIONS = [
-    "Dinamica", "Wormhole", "QEC", "Magia & Divergenze", "Materia Condensata", "Importa Circuito",
+    "Dinamica", "Wormhole", "QEC", "Magia & Divergenze", "Materia Condensata",
+    "Grandi Sistemi", "Importa Circuito",
 ]
 
 # ── Barra di salute, sempre visibile in cima alla sidebar ───────────────
@@ -91,6 +92,22 @@ with st.sidebar:
         )
         n_shots = st.number_input("Shots", min_value=1, max_value=100_000, value=1000, step=100)
         seed = st.number_input("Seed", min_value=0, max_value=2 ** 31 - 1, value=42, step=1)
+        with st.expander("Rumore & backend"):
+            run_noise_model = st.selectbox(
+                "Modello di rumore", ["ideal", "depolarizing", "bitflip", "phaseflip",
+                                      "amplitude_damping", "combined"],
+                key="run_noise_model",
+            )
+            run_noise_p = st.slider(
+                "Intensità rumore (p)", 0.0, 1.0, 0.0, key="run_noise_p",
+                disabled=(run_noise_model == "ideal"),
+            )
+            run_backend = st.selectbox(
+                "Backend", ["dense", "mps"], key="run_backend",
+                help="mps (Matrix Product State) usa meno memoria su circuiti poco "
+                     "entangled, fino a 24 qubit -- oltre, serve la modalità MPS di "
+                     "Grandi Sistemi (non ancora collegata qui).",
+            )
         run_clicked = st.button("▶ Esegui", type="primary", width="stretch")
     else:
         run_clicked = False
@@ -99,6 +116,7 @@ if run_clicked:
     try:
         st.session_state["result"] = dc.run_circuit_from_qasm(
             qasm_text, n_shots=int(n_shots), seed=int(seed),
+            noise_model=run_noise_model, noise_p=float(run_noise_p), backend=run_backend,
         )
         st.session_state["error"] = None
     except Exception as exc:
@@ -165,6 +183,18 @@ elif section == "Risultati":
             f"{result.n_qubits} qubit — puoi aggiungere rumore (Rumore) o costruirne "
             "uno nuovo (Costruisci)."
         )
+        if result.fidelity_vs_ideal is not None or result.backend == "mps":
+            cols = st.columns(4)
+            i = 0
+            if result.fidelity_vs_ideal is not None:
+                cols[i].metric("Fedeltà vs. ideale", f"{result.fidelity_vs_ideal:.4f}")
+                i += 1
+            if result.backend == "mps":
+                cols[i].metric("Backend", "MPS")
+                cols[i + 1].metric("Bond massimo usato", result.mps_max_bond_used)
+                cols[i + 2].metric("Memoria MPS (MB)", f"{result.mps_memory_mb:.2f}")
+            if result.fidelity_vs_ideal is not None:
+                st.caption("Fedeltà = quanto il run rumoroso si discosta dal circuito ideale (1.0 = identico).")
         tab_sv, tab_prob, tab_qsphere, tab_bloch, tab_entropy = st.tabs(
             ["Statevector", "Probabilità", "Q-sphere", "Bloch per qubit", "Entropia & informazione mutua"]
         )
@@ -676,6 +706,49 @@ elif section == "Materia Condensata":
             st.metric(f"Energia di stato fondamentale ({n_qubits_hub} qubit)", f"{e0:.6f}")
         except Exception as exc:
             st.error(f"Errore: {exc}")
+
+
+# ── GRANDI SISTEMI ───────────────────────────────────────────────────────
+elif section == "Grandi Sistemi":
+    st.header("Grandi Sistemi (MPS oltre il limite denso)")
+    st.caption(
+        f"Sopra {dc.MPS_DENSE_CONTRACTION_LIMIT} qubit non esiste più un array "
+        "statevector denso da costruire -- run_large_circuit_mps trova i "
+        "k stati più probabili con probabilità ESATTE (non campionate), "
+        "senza mai materializzare lo stato completo. Backend/rumore di "
+        "Costruisci non si applicano qui: è un percorso di esecuzione separato."
+    )
+    default_large_qasm = dc.gate_tuples_to_qasm(dense_evolution.ghz_state(30), 30)
+    large_qasm_text = st.text_area(
+        "OpenQASM 2.0 (circuito grande)", value=default_large_qasm, height=200, key="large_qasm_text",
+    )
+    k_states = st.slider("k (quanti stati più probabili mostrare)", 1, 100, 32, key="large_k")
+    large_seed = st.number_input("Seed", min_value=0, max_value=2 ** 31 - 1, value=42, step=1, key="large_seed")
+
+    if st.button("Esegui in modalità MPS", type="primary"):
+        try:
+            large_result = dc.run_large_circuit_mps(large_qasm_text, k=int(k_states), seed=int(large_seed))
+            st.session_state["large_mps_result"] = large_result
+            st.session_state["large_mps_error"] = None
+        except Exception as exc:
+            st.session_state["large_mps_result"] = None
+            st.session_state["large_mps_error"] = str(exc)
+
+    large_error = st.session_state.get("large_mps_error")
+    large_result = st.session_state.get("large_mps_result")
+    if large_error:
+        st.error(f"Errore: {large_error}")
+    elif large_result is not None:
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Qubit", large_result.n_qubits)
+        col2.metric("Bond massimo usato", large_result.mps_max_bond_used)
+        col3.metric("Memoria MPS (MB)", f"{large_result.mps_memory_mb:.2f}")
+        st.caption(f"Errore medio di troncamento (JSD): {large_result.mps_avg_jsd:.2e}")
+        top_states_sorted = sorted(large_result.top_k_states, key=lambda t: -t[1])
+        st.dataframe(
+            [{"stato": bits, "probabilità": p} for bits, p in top_states_sorted],
+            width="stretch",
+        )
 
 
 # ── IMPORTA CIRCUITO ─────────────────────────────────────────────────────
