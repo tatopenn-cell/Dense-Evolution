@@ -96,6 +96,14 @@ def test_qec_syndrome_map_figure_without_error_marked():
     assert isinstance(fig, Figure)
 
 
+def test_qec_syndrome_map_figure_skips_identity_only_stabilizer():
+    # A stabilizer with no non-identity positions has nothing to draw a
+    # bracket between -- must be skipped, not raise or draw a
+    # degenerate zero-width bracket.
+    fig = qec_syndrome_map_figure(['III', 'IZZ'], (0, 1), 'IXI')
+    assert isinstance(fig, Figure)
+
+
 class TestReducedDensityMatrixAndBlochVector:
     """dashboard_core.state_visuals' own partial-trace math, checked
     against known analytic states -- the same real-physics standard the
