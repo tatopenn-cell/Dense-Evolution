@@ -25,6 +25,7 @@ from .qasm_library import QASM_LIBRARY, gate_tuples_to_qasm
 from .engine import (
     SimulationResult, run_circuit_from_qasm,
     LargeScaleMPSResult, run_large_circuit_mps, MPS_DENSE_CONTRACTION_LIMIT,
+    run_bond_convergence_check,
 )
 from .visuals import (
     draw_circuit_figure, histogram_figure, qsphere_figure, bloch_multivector_figure,
@@ -61,6 +62,7 @@ __all__ = [
     'QASM_LIBRARY', 'gate_tuples_to_qasm',
     'SimulationResult', 'run_circuit_from_qasm',
     'LargeScaleMPSResult', 'run_large_circuit_mps', 'MPS_DENSE_CONTRACTION_LIMIT',
+    'run_bond_convergence_check',
     'draw_circuit_figure', 'histogram_figure', 'qsphere_figure', 'bloch_multivector_figure',
     'GATE_PALETTE', 'ops_to_native_tuples',
     'mount_circuit_builder',

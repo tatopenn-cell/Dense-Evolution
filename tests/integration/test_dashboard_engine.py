@@ -16,7 +16,10 @@ docstring for why that matters on macOS).
 import numpy as np
 import pytest
 
-from dashboard_core.engine import run_circuit_from_qasm, _to_qiskit_bit_order, _qiskit_bit_order_perm
+from dashboard_core.engine import (
+    run_circuit_from_qasm, _to_qiskit_bit_order, _qiskit_bit_order_perm,
+    run_bond_convergence_check,
+)
 
 _INV_SQRT2 = 1 / np.sqrt(2)
 
@@ -140,3 +143,19 @@ def test_qiskit_bit_order_perm_is_read_only():
     perm = _qiskit_bit_order_perm(4)
     with pytest.raises(ValueError):
         perm[0] = 999
+
+
+def test_bond_convergence_check_ghz_chain_is_trivially_converged():
+    # A GHZ chain's bond dimension never needs to grow past 2 -- <Z0>
+    # is exactly 0 at every bond tested, so the observable is trivially
+    # identical everywhere and the verdict must be "converged" with
+    # zero diffs, matching bond_convergence's own documented edge case.
+    result = run_bond_convergence_check(GHZ_QASM, ["ZII"], [2, 4, 8], tol=1e-3)
+    assert result.verdicts == ["converged"]
+    assert result.values[0] == pytest.approx([0.0, 0.0, 0.0], abs=1e-9)
+    assert result.diffs[0] == pytest.approx([0.0, 0.0], abs=1e-9)
+
+
+def test_bond_convergence_check_needs_at_least_three_bonds():
+    with pytest.raises(ValueError, match="at least 3 bonds"):
+        run_bond_convergence_check(GHZ_QASM, ["ZII"], [2, 4], tol=1e-3)
