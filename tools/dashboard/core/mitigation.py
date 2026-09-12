@@ -36,6 +36,7 @@ class MitigationResult:
     noisy_expectations: list
     zne_extrapolated: float
     extrapolation_method: str = "richardson"
+    noisy_sems: list = None
 
 
 def run_zne_mitigation(
@@ -126,6 +127,7 @@ def run_zne_mitigation(
 
     rng = np.random.default_rng(seed)
     noisy_expectations = []
+    noisy_sems = []
     for factor in noise_factors:
         scaled_p = min(noise_p * factor, 1.0)
         trial_values = np.empty(n_trials)
@@ -135,6 +137,11 @@ def run_zne_mitigation(
             )
             trial_values[i] = np.real(de.pauli_expectation(sv_noisy, pauli_string))
         noisy_expectations.append(float(trial_values.mean()))
+        # Standard error of the mean (sample std / sqrt(n_trials)), not
+        # the per-trial spread itself -- this is the real Monte Carlo
+        # uncertainty on the plotted mean, from the n_trials draws
+        # already computed above, not a separate/approximate estimate.
+        noisy_sems.append(float(trial_values.std(ddof=1) / np.sqrt(n_trials)))
 
     if extrapolation_method == "polynomial":
         zne_value = float(de.polynomial_extrapolate(noisy_expectations, list(noise_factors), degree=_POLYNOMIAL_DEGREE))
@@ -149,6 +156,7 @@ def run_zne_mitigation(
         noisy_expectations=noisy_expectations,
         zne_extrapolated=zne_value,
         extrapolation_method=extrapolation_method,
+        noisy_sems=noisy_sems,
     )
 
 

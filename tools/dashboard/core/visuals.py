@@ -19,7 +19,7 @@ from .state_visuals import native_histogram_figure, native_qsphere_figure, nativ
 
 __all__ = [
     'draw_circuit_figure', 'histogram_figure', 'qsphere_figure', 'bloch_multivector_figure',
-    'energy_landscape_figure',
+    'energy_landscape_figure', 'zne_bar_figure',
 ]
 
 # dense_evolution.registry sets plt.style.use('dark_background') globally
@@ -82,5 +82,26 @@ def energy_landscape_figure(
         ax.set_xlabel(f'θ[{param_i}]')
         ax.set_ylabel(f'θ[{param_j}]')
         ax.legend(loc='upper right', fontsize=8)
+        fig.tight_layout()
+        return fig
+
+
+def zne_bar_figure(noise_factors, noisy_expectations, noisy_sems, zne_extrapolated, ideal_expectation):
+    """Real ZNE measurement chart with a +-1 SEM (standard error of the
+    mean, not the raw per-trial spread) band around each measured point
+    -- the Monte Carlo uncertainty on run_zne_mitigation's own
+    n_trials-averaged expectation values, not a decorative estimate."""
+    with plt.style.context(_LIGHT_STYLE):
+        fig, ax = plt.subplots(figsize=(5, 4))
+        ax.errorbar(
+            noise_factors, noisy_expectations, yerr=noisy_sems,
+            fmt='o-', color='#1f77b4', capsize=4, label='Misurato (media Monte Carlo ±1 SEM)',
+        )
+        ax.axhline(ideal_expectation, color='green', linestyle='--', label=f'Ideale ({ideal_expectation:.4f})')
+        ax.scatter([0], [zne_extrapolated], color='red', marker='*', s=150, zorder=5,
+                   label=f'Estrapolato a 0 ({zne_extrapolated:.4f})')
+        ax.set_xlabel('Fattore di scala del rumore')
+        ax.set_ylabel('<P> misurato')
+        ax.legend(loc='best', fontsize=8)
         fig.tight_layout()
         return fig

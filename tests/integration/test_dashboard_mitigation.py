@@ -33,6 +33,18 @@ class TestScalarZne:
         assert all(v == pytest.approx(1.0, abs=1e-9) for v in result.noisy_expectations)
         assert result.zne_extrapolated == pytest.approx(1.0, abs=1e-9)
 
+    def test_no_noise_means_zero_sem_at_every_scale(self):
+        # noise_p=0.0 short-circuits to the ideal channel -- every trial
+        # returns the identical value, so the sample std (and therefore
+        # the SEM) is exactly zero, not just small.
+        result = run_zne_mitigation(BELL_QASM, 'ZZ', 'ideal', 0.0, seed=1, n_trials=5)
+        assert result.noisy_sems == pytest.approx([0.0, 0.0, 0.0], abs=1e-12)
+
+    def test_real_noise_gives_positive_sem(self):
+        result = run_zne_mitigation(BELL_QASM, 'ZZ', 'depolarizing', 0.1, seed=7, n_trials=100)
+        assert len(result.noisy_sems) == 3
+        assert all(sem > 0.0 for sem in result.noisy_sems)
+
     def test_real_depolarizing_noise_decays_with_scale(self):
         result = run_zne_mitigation(BELL_QASM, 'ZZ', 'depolarizing', 0.1, seed=7, n_trials=100)
         # Real depolarizing channel: <ZZ> should decrease monotonically
