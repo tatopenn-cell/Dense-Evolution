@@ -6,7 +6,8 @@ from .observables import (pauli_expectation, pauli_sum_expectation, pauli_hamilt
 from .entropy import partial_trace, von_neumann_entropy, mutual_information, central_charge
 from .fermions import majorana_pauli_terms, total_parity_operator, hubbard_hamiltonian_pauli_terms, square_lattice_edges
 from .qec import (pauli_commutes, compute_syndrome, erasure_aware_decode, pymatching_decode,
-                   blind_minimum_weight_decode, nearest_coset_decode)
+                   blind_minimum_weight_decode, decode_with_erasure_fallback,
+                   counts_in_intervals_dimension, nearest_coset_decode)
 
 __all__ = [
     "ghz_state",
@@ -16,5 +17,5 @@ __all__ = [
     "partial_trace", "von_neumann_entropy", "mutual_information", "central_charge",
     "majorana_pauli_terms", "total_parity_operator", "hubbard_hamiltonian_pauli_terms", "square_lattice_edges",
     "pauli_commutes", "compute_syndrome", "erasure_aware_decode", "pymatching_decode", "blind_minimum_weight_decode",
-    "nearest_coset_decode",
+    "decode_with_erasure_fallback", "counts_in_intervals_dimension", "nearest_coset_decode",
 ]

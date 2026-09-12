@@ -48,13 +48,17 @@ class LocalPhase:
 
 
 class ConditionalPhase:
-    """A single 2-qubit gate with ctrl chunk-select (q1 < m), tgt local
-    (q2 >= m) -- applied to each chunk independently, conditioned on
-    that chunk's own absolute index (see _case_2q_ctrl_chunk_tgt_local)."""
-    __slots__ = ("op",)
+    """A maximal run of consecutive 2-qubit gates with ctrl chunk-select
+    (q1 < m), tgt local (q2 >= m) -- applied to each chunk independently,
+    each op conditioned on that chunk's own absolute index (see
+    _case_2q_ctrl_chunk_tgt_local). Batched the same way LocalPhase is
+    (was: strictly one gate per phase object, so consecutive
+    ConditionalPhase-eligible gates did one full disk load/save cycle per
+    chunk PER GATE instead of once for the whole run -- prog.txt point 5b)."""
+    __slots__ = ("ops",)
 
-    def __init__(self, op):
-        self.op = op  # single (g_id, q1, q2, param)
+    def __init__(self, ops):
+        self.ops = ops  # list of (g_id, q1, q2, param) python tuples
 
 
 class MixPhase:
@@ -78,30 +82,41 @@ def partition_ops_into_phases(compiled_ops, m: int):
     rows = np.asarray(compiled_ops)
     phases = []
     pending_local = []
+    pending_conditional = []
 
-    def flush():
+    def flush_local():
         if pending_local:
             phases.append(LocalPhase(list(pending_local)))
             pending_local.clear()
+
+    def flush_conditional():
+        if pending_conditional:
+            phases.append(ConditionalPhase(list(pending_conditional)))
+            pending_conditional.clear()
 
     for row in rows:
         g_id, q1, q2, param = int(row[0]), int(row[1]), int(row[2]), float(row[3])
         is_2q = g_id >= 20
         if not is_2q:
             if q1 < m:
-                flush()
+                flush_local()
+                flush_conditional()
                 phases.append(MixPhase((g_id, q1, q2, param), q1))
             else:
+                flush_conditional()
                 pending_local.append((g_id, q1, q2, param))
         elif q1 < m and q2 >= m:
-            flush()
-            phases.append(ConditionalPhase((g_id, q1, q2, param)))
+            flush_local()
+            pending_conditional.append((g_id, q1, q2, param))
         elif q2 < m:
-            flush()
+            flush_local()
+            flush_conditional()
             phases.append(MixPhase((g_id, q1, q2, param), q2))
         else:
+            flush_conditional()
             pending_local.append((g_id, q1, q2, param))
-    flush()
+    flush_local()
+    flush_conditional()
     return phases
 
 
@@ -122,16 +137,17 @@ def _run_local_phase_on_chunk(chunk_arr, ops, m: int, k: int):
     return c[0]
 
 
-def _run_conditional_phase_on_chunk(chunk_arr, op, chunk_index: int, m: int, k: int):
-    """A single ConditionalPhase gate, applied to one chunk whose real
+def _run_conditional_phase_on_chunk(chunk_arr, ops, chunk_index: int, m: int, k: int):
+    """A run of ConditionalPhase gates, applied to one chunk whose real
     absolute index is `chunk_index` (needed for the ctrl-bit decision;
-    see _case_2q_ctrl_chunk_tgt_local's own docstring)."""
-    g_id, q1, q2, param = op
+    see _case_2q_ctrl_chunk_tgt_local's own docstring). Same load-once/
+    apply-all/save-once shape as _run_local_phase_on_chunk."""
     dtype = chunk_arr.dtype
-    _, _, _, _, u00, u01, u10, u11 = _gate_matrix_elements(g_id, param, dtype)
     c = chunk_arr[None, :]
     idxc = jnp.array([chunk_index], dtype=jnp.int32)
-    c = _case_2q_ctrl_chunk_tgt_local(c, u00, u01, u10, u11, q1, q2, m, k, idxc)
+    for g_id, q1, q2, param in ops:
+        _, _, _, _, u00, u01, u10, u11 = _gate_matrix_elements(g_id, param, dtype)
+        c = _case_2q_ctrl_chunk_tgt_local(c, u00, u01, u10, u11, q1, q2, m, k, idxc)
     return c[0]
 
 
@@ -197,7 +213,7 @@ def run_disk_overflow_circuit(chunk_paths, compiled_ops, m: int, k: int):
         elif isinstance(phase, ConditionalPhase):
             for i, path in enumerate(chunk_paths):
                 arr = jnp.asarray(np.load(path))
-                arr = _run_conditional_phase_on_chunk(arr, phase.op, i, m, k)
+                arr = _run_conditional_phase_on_chunk(arr, phase.ops, i, m, k)
                 np.save(path, np.asarray(arr))
 
         elif isinstance(phase, MixPhase):

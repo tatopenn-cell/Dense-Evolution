@@ -401,6 +401,18 @@ class TestChunkDiskOverflow:
             sv_chunk, sv_ref = self._compare_to_reference(6, circuit)
             np.testing.assert_allclose(sv_chunk, sv_ref, atol=1e-9)
 
+    def test_consecutive_conditional_phases_batch_correctly(self, force_chunk_bits):
+        # prog.txt point 5b: ConditionalPhase used to be strictly one gate
+        # per phase object, so two consecutive ctrl-chunk-select/tgt-local
+        # gates did two full load/save cycles per chunk instead of one --
+        # a correctness bar for the batching fix, not just a speed
+        # micro-benchmark: two back-to-back 'cp'/'crz' gates here, both
+        # eligible for the same ConditionalPhase batch.
+        force_chunk_bits(4)
+        circuit = [('h', 0), ('h', 3), ('cp', 0, 3, 0.7), ('crz', 0, 3, 1.3)]
+        sv_chunk, sv_ref = self._compare_to_reference(6, circuit)
+        np.testing.assert_allclose(sv_chunk, sv_ref, atol=1e-9)
+
     def test_random_mixed_circuits_num_chunks_8(self, force_chunk_bits):
         # num_chunks=8 (m=3) exercises the middle chunk-select bit, not
         # just the most-significant one -- same rationale as the in-RAM

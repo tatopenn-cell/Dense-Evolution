@@ -6,6 +6,9 @@ QuantumHardwareRegistry, and NoiseSpec's JAX PyTree registration.
 Split out of the original monolithic test_dense_evolution.py -- see
 test_simulator.py's module docstring for why.
 """
+import subprocess
+import sys
+
 import numpy as np
 import pytest
 import jax
@@ -223,6 +226,35 @@ class TestQuantumHardwareRegistry:
         monkeypatch.setattr(subprocess, "check_output", lambda *a, **kw: b"fake gpu output")
         reg = QuantumHardwareRegistry()
         assert reg.has_gpu is True
+
+    def test_import_does_not_change_matplotlib_style(self):
+        # prog.txt point 2: plt.style.use('dark_background') used to run
+        # as a module-level side effect here, so merely `import
+        # dense_evolution` silently recolored every matplotlib figure a
+        # caller made afterward, dashboard or not. Now opt-in via
+        # apply_dark_theme(). Subprocess isolation: matplotlib's rcParams
+        # are process-wide and other tests may already have touched them.
+        code = (
+            "import matplotlib; matplotlib.use('Agg')\n"
+            "import matplotlib.pyplot as plt\n"
+            "before = dict(plt.rcParams)\n"
+            "import dense_evolution\n"
+            "after = plt.rcParams['axes.facecolor']\n"
+            "assert after == before['axes.facecolor'], "
+            "f'import changed axes.facecolor from {before[\"axes.facecolor\"]!r} to {after!r}'\n"
+        )
+        result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+
+    def test_apply_dark_theme_sets_expected_style(self):
+        import matplotlib
+        import matplotlib.pyplot as plt
+        from dense_evolution.circuits.registry import apply_dark_theme
+        try:
+            apply_dark_theme()
+            assert plt.rcParams['axes.facecolor'] == '#0d1117'
+        finally:
+            matplotlib.rcdefaults()
 
     def test_noise_spec_repr(self):
         from dense_evolution import NoiseSpec

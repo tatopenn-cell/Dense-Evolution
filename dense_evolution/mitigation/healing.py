@@ -22,6 +22,7 @@ naming it as such would be the overclaiming this note is trying to
 avoid, not fix.
 """
 
+import math
 import warnings
 
 import jax
@@ -38,7 +39,13 @@ GLOBAL_CONSTANTS = {
     'V_DINAMIC_K_COEFF': 5.0,
     'V_STATIC_K_PRIME_COEFF': 1.0,
     'V_DINAMIC_MIN_EFFECTIVE_VALUE': 0.01,
-    'MAX_SEMANTIC_DISTANCE': jnp.sqrt(2.0),
+    # Plain math.sqrt, not jnp.sqrt -- a bare jnp constant built at
+    # import time bakes in whatever precision jax_enable_x64 happens to
+    # be at that exact moment (permanently truncated to float32 if it's
+    # still False), the same class of bug config.py's ensure_x64()
+    # exists to avoid. This constant only ever divides a jnp array, so a
+    # plain Python float sidesteps the process-wide flag entirely.
+    'MAX_SEMANTIC_DISTANCE': math.sqrt(2.0),
     'WEIGHT_SEMANTIC': 0.6,
     'WEIGHT_COHERENCE': 0.4,
     'NON_STATIC_THRESHOLD_A': 1e-2,
@@ -47,7 +54,7 @@ GLOBAL_CONSTANTS = {
 }
 
 # =====================================================================
-# 📊 STRATO CORE
+# 📊 CORE LAYER
 # =====================================================================
 
 @jax.jit
@@ -83,7 +90,7 @@ def calculate_advanced_sigma(kappa: jnp.ndarray, H: jnp.ndarray, Psi: jnp.ndarra
 
 @jax.jit
 def calculate_phi_ab(state_A: jnp.ndarray, state_B: jnp.ndarray, ipg_vector: jnp.ndarray) -> jnp.ndarray:
-    """Calcola il fattore di allineamento e coerenza spaziale Phi_AB."""
+    """Computes the Phi_AB spatial alignment and coherence factor."""
     semantic_change = state_B - state_A
     norm_change = jnp.linalg.norm(semantic_change)
     norm_ipg = jnp.linalg.norm(ipg_vector)
@@ -113,7 +120,7 @@ def calculate_phi_ab(state_A: jnp.ndarray, state_B: jnp.ndarray, ipg_vector: jnp
 
 @jax.jit
 def calculate_vettore_dinamico(E_A: jnp.ndarray, E_B: jnp.ndarray, Phi_AB: jnp.ndarray) -> jnp.ndarray:
-    """Calcola il Vettore Dinamico (V_dinamic) come variazione logaritmica differenziale energetica.
+    """Computes the Dynamic Vector (V_dinamic) as a differential logarithmic energy variation.
 
     log(E_B / E_A) is a log-likelihood ratio -- the same elementary
     quantity Kullback-Leibler divergence is built from (see this
@@ -129,19 +136,19 @@ def calculate_vettore_dinamico(E_A: jnp.ndarray, E_B: jnp.ndarray, Phi_AB: jnp.n
 
 @jax.jit
 def calculate_vettore_statico(v_dinamic_value: jnp.ndarray) -> jnp.ndarray:
-    """Calcola l'indicatore di stasi tensoriale Vettore Statico."""
+    """Computes the Static Vector tensorial-stasis indicator."""
     is_growing = v_dinamic_value > GLOBAL_CONSTANTS['V_DINAMIC_MIN_EFFECTIVE_VALUE']
     return GLOBAL_CONSTANTS['V_STATIC_K_PRIME_COEFF'] * (1.0 - jnp.where(is_growing, 1.0, 0.0))
 
 @jax.jit
 def calculate_delta_preemp(current_sigma: jnp.ndarray, target_sigma_ideal: float = 10.0) -> jnp.ndarray:
-    """Calcola la deviazione predittiva Delta_Pre_emp normalizzata rispetto all'autostato ideale."""
+    """Computes the predictive deviation Delta_Pre_emp normalized against the ideal eigenstate."""
     safe_target = jnp.where(target_sigma_ideal <= 0.0, 1.0, target_sigma_ideal)
     return jnp.abs(current_sigma - target_sigma_ideal) / safe_target
 
 @jax.jit
 def evaluate_phi_trigger(deterministic_dq_dt_a: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Valuta lo stato del Phi-Trigger calcolando i coefficienti di damping condizionati."""
+    """Evaluates the Phi-Trigger state by computing the conditional damping coefficients."""
     magnitude_change_a = jnp.abs(deterministic_dq_dt_a)
     trigger_active = magnitude_change_a > GLOBAL_CONSTANTS['NON_STATIC_THRESHOLD_A']
 
@@ -153,7 +160,7 @@ def evaluate_phi_trigger(deterministic_dq_dt_a: jnp.ndarray) -> Tuple[jnp.ndarra
 
 @jax.jit
 def calculate_jax_reflection(coherence_values: jnp.ndarray, noise_levels: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Esegue l'aggregazione statistica spettrale (Zero-Drift) sul runtime XLA."""
+    """Performs spectral statistical aggregation (Zero-Drift) on the XLA runtime."""
     n_coh = coherence_values.shape[0]
     avg_coherence = jnp.where(n_coh > 0, jnp.mean(coherence_values), 0.0)
     var_coherence = jnp.where(n_coh > 0, jnp.var(coherence_values), 0.0)
@@ -164,7 +171,7 @@ def calculate_jax_reflection(coherence_values: jnp.ndarray, noise_levels: jnp.nd
     return avg_coherence, var_coherence, avg_noise
 
 # =====================================================================
-#  STRATO OPERATIVO:  LOGGING E STORICIZZAZIONE
+#  OPERATIONAL LAYER: LOGGING AND HISTORY TRACKING
 # =====================================================================
 
 class MemoryReflectionEngine:

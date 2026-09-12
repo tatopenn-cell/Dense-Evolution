@@ -3,6 +3,9 @@ Unit tests for dense_evolution/observables.py -- pauli_expectation and
 pauli_sum_expectation, cross-checked against brute-force dense Pauli
 matrices (kron products), not just against their own derivation.
 """
+import subprocess
+import sys
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -382,3 +385,32 @@ class TestMultiplyPauliTerms:
         coeff_xy, _ = multiply_pauli_terms([(1.0, 'X'), (1.0, 'Y')])
         coeff_yx, _ = multiply_pauli_terms([(1.0, 'Y'), (1.0, 'X')])
         assert coeff_xy == pytest.approx(-coeff_yx)
+
+
+# ── _apply_pauli_term_jax dtype propagation (prog.txt point 1) ──────────
+# coeff is built via jnp.ones(dim, dtype=jnp.complex128) unconditionally,
+# never matching statevector's own dtype. Under jax_enable_x64=False this
+# fires a real UserWarning on EVERY call -- not a one-off import-time
+# truncation, since coeff is rebuilt fresh each call (verified directly:
+# the warning reproduces on every invocation, and this function runs once
+# per Pauli term per pauli_sum_matvec_jax call, i.e. once per VQE
+# gradient step per Hamiltonian term). Subprocess isolation is required
+# since jax_enable_x64 is process-wide and other tests may have already
+# enabled it.
+
+def test_apply_pauli_term_jax_no_dtype_warning_when_x64_disabled():
+    code = (
+        "import warnings\n"
+        "import jax; jax.config.update('jax_enable_x64', False)\n"
+        "import jax.numpy as jnp\n"
+        "from dense_evolution.physics.observables import _apply_pauli_term_jax\n"
+        "sv = jnp.array([1, 0, 0, 0], dtype=jnp.complex64)\n"
+        "with warnings.catch_warnings(record=True) as caught:\n"
+        "    warnings.simplefilter('always')\n"
+        "    out = _apply_pauli_term_jax(sv, {0: 'Z'}, 2)\n"
+        "assert out.dtype == jnp.complex64, out.dtype\n"
+        "bad = [str(w.message) for w in caught if 'truncated to dtype' in str(w.message)]\n"
+        "assert not bad, bad\n"
+    )
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr

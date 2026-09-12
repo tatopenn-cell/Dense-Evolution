@@ -1325,3 +1325,35 @@ def test_bond_convergence_undecidable_when_cap_saturated():
     assert result.chi_used[-1] >= result.bonds[-1]
     assert result.verdicts == ["undecidable"]
 
+
+# ── _sample_bitstring dtype propagation (prog.txt point 1) ──────────────
+# state = jnp.ones(1, dtype=complex) hardcodes "complex" (the ambient
+# x64-flag default), not self.gammas[0].dtype. Verified directly: with
+# use_float32=True forcing complex64 gammas while jax_enable_x64 is True
+# ambient, "complex" still resolves to complex128, silently upcasting
+# every einsum in the sampling loop and defeating the whole point of
+# use_float32=True (no crash, no wrong probabilities -- JAX's automatic
+# type promotion protects correctness -- but a silent memory/speed
+# regression on an explicit opt-in). _run_x64(True, ...) reproduces the
+# ambient state most test suites actually run under.
+
+def test_sample_bitstring_state_dtype_matches_gammas_dtype_under_use_float32(monkeypatch):
+    def run():
+        mps = MPSSimulator(n_qubits=3, use_float32=True)
+        assert mps.gammas[0].dtype == jnp.complex64
+
+        captured = {}
+        real_einsum = jnp.einsum
+
+        def spy(subscripts, *operands, **kwargs):
+            if "state_dtype" not in captured:
+                captured["state_dtype"] = operands[0].dtype
+            return real_einsum(subscripts, *operands, **kwargs)
+
+        monkeypatch.setattr(jnp, "einsum", spy)
+        rng = np.random.default_rng(0)
+        mps._sample_bitstring(rng)
+        assert captured["state_dtype"] == mps.gammas[0].dtype
+
+    _run_x64(True, run)
+

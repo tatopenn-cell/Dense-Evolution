@@ -139,3 +139,12 @@ class TestMutualInformation:
         mi_ab = mutual_information(psi, n_qubits=3, qubits_a=[0], qubits_b=[2])
         mi_ba = mutual_information(psi, n_qubits=3, qubits_a=[2], qubits_b=[0])
         assert mi_ab == pytest.approx(mi_ba, abs=1e-10)
+
+    def test_overlapping_qubits_raises(self):
+        # prog.txt point 4(e): an accidental overlap between qubits_a and
+        # qubits_b used to silently corrupt the result (the shared qubit
+        # gets traced into S(A), S(B) AND S(A union B) inconsistently)
+        # instead of raising.
+        psi = _ghz_state(3)
+        with pytest.raises(ValueError, match="disjoint"):
+            mutual_information(psi, n_qubits=3, qubits_a=[0, 1], qubits_b=[1, 2])

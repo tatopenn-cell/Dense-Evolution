@@ -330,7 +330,7 @@ def _apply_pauli_term_jax(statevector, terms, inferred_n_qubits):
     indices = jnp.arange(dim)
     source_idx = indices ^ flip_mask
 
-    coeff = jnp.ones(dim, dtype=jnp.complex128)
+    coeff = jnp.ones(dim, dtype=statevector.dtype)
     for q, p in terms.items():
         bit = (source_idx >> bit_pos(q)) & 1
         if p == 'Y':
