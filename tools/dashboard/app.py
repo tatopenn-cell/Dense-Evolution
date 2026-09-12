@@ -91,6 +91,22 @@ with st.sidebar:
         )
         n_shots = st.number_input("Shots", min_value=1, max_value=100_000, value=1000, step=100)
         seed = st.number_input("Seed", min_value=0, max_value=2 ** 31 - 1, value=42, step=1)
+        with st.expander("Rumore & backend"):
+            run_noise_model = st.selectbox(
+                "Modello di rumore", ["ideal", "depolarizing", "bitflip", "phaseflip",
+                                      "amplitude_damping", "combined"],
+                key="run_noise_model",
+            )
+            run_noise_p = st.slider(
+                "Intensità rumore (p)", 0.0, 1.0, 0.0, key="run_noise_p",
+                disabled=(run_noise_model == "ideal"),
+            )
+            run_backend = st.selectbox(
+                "Backend", ["dense", "mps"], key="run_backend",
+                help="mps (Matrix Product State) usa meno memoria su circuiti poco "
+                     "entangled, fino a 24 qubit -- oltre, serve la modalità MPS di "
+                     "Grandi Sistemi (non ancora collegata qui).",
+            )
         run_clicked = st.button("▶ Esegui", type="primary", width="stretch")
     else:
         run_clicked = False
@@ -99,6 +115,7 @@ if run_clicked:
     try:
         st.session_state["result"] = dc.run_circuit_from_qasm(
             qasm_text, n_shots=int(n_shots), seed=int(seed),
+            noise_model=run_noise_model, noise_p=float(run_noise_p), backend=run_backend,
         )
         st.session_state["error"] = None
     except Exception as exc:
@@ -165,6 +182,18 @@ elif section == "Risultati":
             f"{result.n_qubits} qubit — puoi aggiungere rumore (Rumore) o costruirne "
             "uno nuovo (Costruisci)."
         )
+        if result.fidelity_vs_ideal is not None or result.backend == "mps":
+            cols = st.columns(4)
+            i = 0
+            if result.fidelity_vs_ideal is not None:
+                cols[i].metric("Fedeltà vs. ideale", f"{result.fidelity_vs_ideal:.4f}")
+                i += 1
+            if result.backend == "mps":
+                cols[i].metric("Backend", "MPS")
+                cols[i + 1].metric("Bond massimo usato", result.mps_max_bond_used)
+                cols[i + 2].metric("Memoria MPS (MB)", f"{result.mps_memory_mb:.2f}")
+            if result.fidelity_vs_ideal is not None:
+                st.caption("Fedeltà = quanto il run rumoroso si discosta dal circuito ideale (1.0 = identico).")
         tab_sv, tab_prob, tab_qsphere, tab_bloch = st.tabs(
             ["Statevector", "Probabilità", "Q-sphere", "Bloch per qubit"]
         )
