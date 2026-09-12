@@ -150,7 +150,14 @@ docs = [
     # mkdocstrings/griffe version bump surfaced as a real, reproducible
     # docs-build failure.
     "pennylane>=0.35.0",
-    "basis_set_exchange>=0.9"
+    "basis_set_exchange>=0.9",
+    # Same gap, same root cause, one module further: dashboard_core also
+    # transitively imports band_structure.py (PR #251), which does
+    # `import plotly.graph_objects as go` at module level -- plotly was
+    # added to the dashboard/full extras but not here, so the docs build
+    # broke again with the identical ModuleNotFoundError pattern the
+    # pennylane comment above already documents.
+    "plotly>=5.0.0"
 ]
 
 [project.urls]
