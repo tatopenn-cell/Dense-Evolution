@@ -43,10 +43,12 @@ def draw_circuit_figure(ops, n_qubits: int):
         return draw_native_circuit_diagram(ops, n_qubits)
 
 
-def histogram_figure(counts: dict):
-    """Native shot-count histogram (dashboard_core.state_visuals)."""
+def histogram_figure(counts: dict, statevector=None):
+    """Native shot-count histogram (dashboard_core.state_visuals).
+    statevector (optional): color bars by amplitude phase instead of a
+    flat color -- see native_histogram_figure's own docstring."""
     with plt.style.context(_LIGHT_STYLE):
-        return native_histogram_figure(counts)
+        return native_histogram_figure(counts, statevector=statevector)
 
 
 def qsphere_figure(statevector):
