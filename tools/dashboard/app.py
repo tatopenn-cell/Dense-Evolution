@@ -257,6 +257,23 @@ elif section == "Chimica":
             "più vicina a zero la differenza rispetto all'energia esatta, meglio ha "
             "approssimato il circuito."
         )
+        # Heuristic flattening check, not a formal Barren Plateau detector:
+        # BP is a training-time property (gradient variance vanishing with
+        # system size); this only looks at whether energy_history's own
+        # tail stopped moving, using data run_vqe already returns -- an
+        # honest proxy for "the optimizer may be stuck", not a claim to
+        # have measured the real phenomenon.
+        history = np.asarray(vqe_result["energy_history"], dtype=np.float64)
+        if len(history) >= 10:
+            tail = history[-max(5, len(history) // 5):]
+            spread = float(np.ptp(history)) or 1.0
+            tail_std = float(np.std(np.diff(tail)))
+            if tail_std < 1e-4 * spread:
+                st.warning(
+                    "La curva si è appiattita nelle ultime iterazioni (variazione energia "
+                    "quasi nulla) — possibile plateau o minimo locale, non necessariamente "
+                    "il minimo globale. Prova a ridurre n_layers o usa l'ansatz UCCSD."
+                )
         if st.button("→ Carica il circuito VQE nell'Editor QASM"):
             st.session_state["preset_select"] = "Custom"
             st.session_state["qasm_text__Custom"] = vqe_result["qasm"]
