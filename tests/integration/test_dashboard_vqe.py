@@ -176,6 +176,24 @@ class TestEnergyLandscapeScan:
         assert energies.shape == (2, 1)
         assert energies[0, 0] != pytest.approx(energies[1, 0], abs=1e-6)
 
+    def test_raises_on_param_count_mismatch(self, monkeypatch):
+        # Same desync guard as run_vqe's own (see TestParamCountMismatch
+        # above) -- can't happen through the normal public API, forced
+        # here via monkeypatching circuit_to_energy_fn's return value.
+        import dashboard_core.vqe as vqe_module
+        real_circuit_to_energy_fn = vqe_module.de.circuit_to_energy_fn
+
+        def wrong_count(parsed, n_qubits):
+            energy_fn, n_params = real_circuit_to_energy_fn(parsed, n_qubits)
+            return energy_fn, n_params + 1  # deliberately wrong
+
+        monkeypatch.setattr(vqe_module.de, "circuit_to_energy_fn", wrong_count)
+        with pytest.raises(ValueError, match="circuit_to_energy_fn found"):
+            scan_hardware_efficient_energy_landscape(
+                H2_SYMBOLS, H2_GEOMETRY, 0, 1, [1, 1, 0, 0], np.zeros(4),
+                0, 1, np.array([0.0]), np.array([0.0]),
+            )
+
 
 def build_h2_pauli_terms():
     from dashboard_core.hamiltonians import build_molecular_hamiltonian
