@@ -49,6 +49,68 @@ st.set_page_config(
 
 st.title("⚛️ Dense Evolution — Dashboard")
 
+# ── Tour guidato: overlay a step, solo al primo avvio della sessione ────
+_TOUR_STEPS = [
+    (
+        "👋 Benvenuto in Dense Evolution",
+        "Qui a sinistra trovi le sezioni: **Costruisci**, **Risultati**, "
+        "**Chimica**, **Rumore**, **Sistema** -- ogni circuito che esegui "
+        "gira sul motore reale della libreria, mai su dati finti.",
+    ),
+    (
+        "🔀 Modalità Semplice / Avanzata",
+        "Il toggle **\"Modalità avanzata\"** in alto nella sidebar mostra o "
+        "nasconde le sezioni più specialistiche (Wormhole, QEC, Materia "
+        "Condensata, ...). Parti in modalità Semplice: le 5 sezioni base "
+        "bastano per il primo circuito.",
+    ),
+    (
+        "✍️ L'editor QASM",
+        "In **Costruisci** scrivi o incolli un circuito in OpenQASM 2.0 -- "
+        "lo stesso formato standard usato da Qiskit -- oppure trascina le "
+        "porte nell'Editor Grafico e caricalo automaticamente nell'editor.",
+    ),
+    (
+        "▶ Esegui",
+        "Il pulsante **▶ Esegui** nella sidebar lancia il circuito sul "
+        "simulatore reale (statevector denso, con shots e seed che scegli "
+        "tu) e salva il risultato per tutte le altre sezioni.",
+    ),
+    (
+        "📊 Risultati",
+        "Vai su **Risultati** per vedere statevector, probabilità, "
+        "Q-sphere, sfere di Bloch ed entropia del circuito appena "
+        "eseguito. Buon lavoro!",
+    ),
+]
+
+
+@st.dialog("Tour guidato")
+def _show_tour_dialog():
+    step = st.session_state["tour_step"]
+    title, body = _TOUR_STEPS[step]
+    st.subheader(title)
+    st.write(body)
+    st.caption(f"Passo {step + 1}/{len(_TOUR_STEPS)}")
+    col_skip, col_next = st.columns([1, 1])
+    if col_skip.button("Salta", width="stretch"):
+        st.session_state["tour_dismissed"] = True
+        st.rerun()
+    next_label = "Fine" if step == len(_TOUR_STEPS) - 1 else "Avanti →"
+    if col_next.button(next_label, type="primary", width="stretch"):
+        if step == len(_TOUR_STEPS) - 1:
+            st.session_state["tour_dismissed"] = True
+        else:
+            st.session_state["tour_step"] = step + 1
+        st.rerun()
+
+
+if "tour_dismissed" not in st.session_state:
+    st.session_state["tour_dismissed"] = False
+    st.session_state["tour_step"] = 0
+if not st.session_state["tour_dismissed"]:
+    _show_tour_dialog()
+
 # ── Stato iniziale non vuoto: il Bell state gira già al primo avvio ─────
 if "result" not in st.session_state:
     try:
