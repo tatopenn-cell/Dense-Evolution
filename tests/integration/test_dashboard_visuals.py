@@ -19,7 +19,7 @@ from matplotlib.figure import Figure
 from dashboard_core.engine import run_circuit_from_qasm
 from dashboard_core.visuals import (
     bloch_multivector_figure, draw_circuit_figure, histogram_figure, qsphere_figure,
-    energy_landscape_figure,
+    energy_landscape_figure, zne_bar_figure,
 )
 from dashboard_core.state_visuals import _reduced_density_matrix, _bloch_vector
 
@@ -75,6 +75,14 @@ def test_energy_landscape_figure_returns_a_figure():
     values_j = np.linspace(-1.0, 1.0, 5)
     energies = np.outer(values_i, values_j)
     fig = energy_landscape_figure(values_i, values_j, energies, 0, 1, 0.0, 0.0, energies[2, 2])
+    assert isinstance(fig, Figure)
+
+
+def test_zne_bar_figure_returns_a_figure():
+    fig = zne_bar_figure(
+        noise_factors=[1.0, 2.0, 3.0], noisy_expectations=[0.8, 0.6, 0.4],
+        noisy_sems=[0.02, 0.03, 0.04], zne_extrapolated=1.0, ideal_expectation=1.0,
+    )
     assert isinstance(fig, Figure)
 
 

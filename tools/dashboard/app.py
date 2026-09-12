@@ -565,13 +565,15 @@ elif section == "Rumore":
             col1, col2 = st.columns(2)
             col1.metric("Valore ideale", f"{zne_result.ideal_expectation:.4f}")
             col2.metric("Estrapolato a rumore zero", f"{zne_result.zne_extrapolated:.4f}")
-            chart_data = {
-                str(f): v for f, v in zip(zne_result.noise_factors, zne_result.noisy_expectations)
-            }
-            st.bar_chart(chart_data)
+            st.pyplot(dc.zne_bar_figure(
+                zne_result.noise_factors, zne_result.noisy_expectations, zne_result.noisy_sems,
+                zne_result.zne_extrapolated, zne_result.ideal_expectation,
+            ))
             st.caption(
-                "Ogni barra è il valore misurato a quella scala di rumore (1x, 2x, 3x...) -- "
-                "l'estrapolazione stima cosa accadrebbe a rumore zero."
+                "Ogni punto è il valore misurato a quella scala di rumore (1x, 2x, 3x...), con "
+                "barra d'errore ±1 SEM (errore standard della media sui n_trials campioni Monte "
+                "Carlo -- non la dispersione dei singoli trial) -- l'estrapolazione stima cosa "
+                "accadrebbe a rumore zero."
             )
 
     st.divider()
