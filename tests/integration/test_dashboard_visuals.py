@@ -19,6 +19,7 @@ from matplotlib.figure import Figure
 from dashboard_core.engine import run_circuit_from_qasm
 from dashboard_core.visuals import (
     bloch_multivector_figure, draw_circuit_figure, histogram_figure, qsphere_figure,
+    energy_landscape_figure,
 )
 from dashboard_core.state_visuals import _reduced_density_matrix, _bloch_vector
 
@@ -66,6 +67,14 @@ def test_qsphere_figure_returns_a_figure():
 def test_bloch_multivector_figure_returns_a_figure():
     result = _bell_result()
     fig = bloch_multivector_figure(result.statevector)
+    assert isinstance(fig, Figure)
+
+
+def test_energy_landscape_figure_returns_a_figure():
+    values_i = np.linspace(-1.0, 1.0, 5)
+    values_j = np.linspace(-1.0, 1.0, 5)
+    energies = np.outer(values_i, values_j)
+    fig = energy_landscape_figure(values_i, values_j, energies, 0, 1, 0.0, 0.0, energies[2, 2])
     assert isinstance(fig, Figure)
 
 

@@ -77,7 +77,7 @@ import dense_evolution as de
 
 from .hamiltonians import _get_pennylane_hamiltonian, build_molecular_hamiltonian
 
-__all__ = ['run_vqe']
+__all__ = ['run_vqe', 'scan_hardware_efficient_energy_landscape']
 
 
 def _hardware_efficient_ansatz(params, n_qubits, n_layers, hf_occupation):
@@ -458,4 +458,56 @@ def run_vqe(symbols, geometry, charge=0, ansatz_type="hardware_efficient", n_lay
         'vqe_energy_hartree': final_energy,
         'exact_energy_hartree': exact_energy,
         'qasm': qasm,
+        'params': params.tolist(),
     }
+
+
+def scan_hardware_efficient_energy_landscape(
+    symbols, geometry, charge, n_layers, hf_occupation, base_params,
+    param_i, param_j, values_i, values_j,
+    active_electrons=None, active_orbitals=None,
+):
+    """Real 2D energy-landscape scan around a converged hardware_efficient
+    VQE result: re-evaluates <psi(theta)|H|psi(theta)> on
+    dense_evolution's own circuit_to_energy_fn for every (values_i,
+    values_j) grid point, holding every parameter except param_i/param_j
+    fixed at its converged value from base_params -- the same real
+    Hamiltonian and ansatz circuit run_vqe itself used for this molecule,
+    not a separate or approximate model.
+
+    hardware_efficient only: UCCSD's parameter space is an affine
+    expansion over full per-gate values (_uccsd_native_expansion), not a
+    direct one-parameter-per-rotation-gate mapping, so "parameter i"
+    doesn't correspond to a single rotation angle the way it does here.
+
+    Returns a (len(values_i), len(values_j)) numpy array of energies in
+    Hartree.
+    """
+    import jax
+    import jax.numpy as jnp
+
+    n_qubits = len(hf_occupation)
+    n_params = n_qubits * n_layers
+    H_dense, _ = build_molecular_hamiltonian(
+        symbols, geometry, charge, "jordan_wigner", active_electrons, active_orbitals,
+    )
+    qasm_template = _hardware_efficient_qasm(np.zeros(n_params), n_qubits, n_layers, hf_occupation)
+    parsed = de.QASMParser().parse(qasm_template)
+    energy_fn, n_params_native = de.circuit_to_energy_fn(parsed, n_qubits)
+    if n_params_native != n_params:
+        raise ValueError(
+            f"circuit_to_energy_fn found {n_params_native} parametric gates, expected {n_params}"
+        )
+
+    h_matrix = jnp.array(H_dense)
+    base = jnp.array(base_params)
+    energy_fn_jit = jax.jit(energy_fn)
+
+    energies = np.zeros((len(values_i), len(values_j)))
+    for a, vi in enumerate(values_i):
+        theta_a = base.at[param_i].set(vi)
+        for b, vj in enumerate(values_j):
+            theta_ab = theta_a.at[param_j].set(vj)
+            energy, _sv = energy_fn_jit(theta_ab, h_matrix)
+            energies[a, b] = float(energy)
+    return energies
