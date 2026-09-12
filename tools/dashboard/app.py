@@ -767,6 +767,63 @@ elif section == "Grandi Sistemi":
             width="stretch",
         )
 
+    with st.expander("Convergenza rispetto al bond dimension"):
+        st.caption(
+            "mps_avg_jsd sopra è un errore di troncamento medio su tutto lo stato -- non dice "
+            "se l'osservabile che ti interessa si è davvero assestato al crescere del bond. "
+            "Qui il circuito viene rieseguito a bond crescenti e si guarda se il valore atteso "
+            "smette di cambiare. Se 'chi_used' al bond più alto è già uguale al suo tetto, il "
+            "verdetto è 'undecidable': il troncamento non ha mai avuto margine per dimostrare "
+            "la convergenza, non un converged/not_converged nascosto."
+        )
+        bc_qasm_text = st.text_area(
+            "OpenQASM 2.0 (circuito per il check)", value=default_large_qasm, height=150, key="bc_qasm_text",
+        )
+        bc_observable = st.text_input(
+            "Osservabile (stringa Pauli, es. ZIII)", value="Z" + "I" * 29, key="bc_observable",
+        )
+        bc_bonds_text = st.text_input("Bond da testare (crescenti, separati da virgola)", value="4,8,16,32", key="bc_bonds")
+        bc_tol = st.number_input("Tolleranza", min_value=1e-6, max_value=1.0, value=1e-3, format="%.6f", key="bc_tol")
+        if st.button("Esegui check di convergenza"):
+            try:
+                bonds = [int(b) for b in bc_bonds_text.split(",") if b.strip() != ""]
+                bc_result = dc.run_bond_convergence_check(bc_qasm_text, [bc_observable], bonds, tol=float(bc_tol))
+                st.session_state["bond_convergence_result"] = bc_result
+                st.session_state["bond_convergence_error"] = None
+            except Exception as exc:
+                st.session_state["bond_convergence_result"] = None
+                st.session_state["bond_convergence_error"] = str(exc)
+
+        bc_error = st.session_state.get("bond_convergence_error")
+        bc_result = st.session_state.get("bond_convergence_result")
+        if bc_error:
+            st.error(f"Errore: {bc_error}")
+        elif bc_result is not None:
+            verdict = bc_result.verdicts[0]
+            verdict_label = {
+                "converged": "✅ converged",
+                "not_converged": "⚠️ not_converged",
+                "undecidable": "❔ undecidable",
+            }[verdict]
+            st.metric("Verdetto", verdict_label)
+            st.dataframe(
+                [
+                    {
+                        "bond": b, "chi_used": c, "avg_jsd": j, "budget_violations": v,
+                        "|<P>|": abs(val),
+                    }
+                    for b, c, j, v, val in zip(
+                        bc_result.bonds, bc_result.chi_used, bc_result.avg_jsd,
+                        bc_result.budget_violations, bc_result.values[0],
+                    )
+                ],
+                width="stretch",
+            )
+            st.caption(
+                "diffs (variazione tra bond consecutivi): "
+                + ", ".join(f"{d:.2e}" for d in bc_result.diffs[0])
+            )
+
 
 # ── IMPORTA CIRCUITO ─────────────────────────────────────────────────────
 elif section == "Importa Circuito":

@@ -30,7 +30,10 @@ import numpy as np
 
 import dense_evolution as de
 
-__all__ = ['SimulationResult', 'run_circuit_from_qasm', 'LargeScaleMPSResult', 'run_large_circuit_mps']
+__all__ = [
+    'SimulationResult', 'run_circuit_from_qasm', 'LargeScaleMPSResult',
+    'run_large_circuit_mps', 'run_bond_convergence_check',
+]
 
 
 def _qasm_to_tuples(qasm_text: str):
@@ -292,3 +295,22 @@ def run_large_circuit_mps(qasm_text: str, k: int = 32, seed: Optional[int] = Non
         mps_memory_mb=mps.memory_mb(),
         mps_avg_jsd=mps.avg_jsd(),
     )
+
+
+def run_bond_convergence_check(qasm_text: str, observables: list, bonds: list, tol: float = 1e-3):
+    """Runs the circuit at every bond dimension in `bonds` and checks
+    whether each observable's expectation value has actually converged
+    as bond dimension grows -- a single MPS run's own diagnostics
+    (avg_jsd, budget_violations) say nothing about whether a *specific*
+    observable has settled, since they are truncation-error proxies
+    averaged over the whole state, not the observable itself.
+
+    Thin wrapper around dense_evolution.backends.mps.bond_convergence:
+    parses qasm_text the same way as every other entry point here, then
+    delegates. See that function's own docstring for the "undecidable"
+    verdict (fires when chi_used at the top bond already equals its own
+    cap, i.e. truncation never had headroom to demonstrate convergence).
+    """
+    n_qubits, raw_ops = _qasm_to_tuples(qasm_text)
+    ops = de.QuantumTranspiler.transpile(raw_ops)
+    return de.backends.mps.bond_convergence(ops, n_qubits, observables, bonds, tol=tol)
