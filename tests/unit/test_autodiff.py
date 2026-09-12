@@ -304,6 +304,27 @@ class TestEnergyFnNoiseSpec:
         e, sv = energy_fn(theta, h_matrix, None, noise)
         assert sv.shape == (2 ** circ.n_qubits,)
 
+    def test_empty_qubits_list_means_no_qubits_not_all_qubits(self):
+        # prog.txt point 4(d): energy_fn used to convert noise.qubits=[]
+        # to None via `if noise.qubits else None` -- Python's own falsy-
+        # empty-list rule collapsing "explicitly zero qubits" into "no
+        # restriction", and apply_to_sv's qubits=None means "all qubits"
+        # (see kraus_channels.py's own docstring: "defaults to all").
+        # NoiseSpec itself keeps these two states genuinely distinct
+        # (qubits=None vs qubits=() are different __init__ results), so
+        # this was a real silent-wrong-answer bug: a caller asking for
+        # noise on zero qubits got it applied to every qubit instead.
+        # High p (0.9) makes an all-qubits application detectable with
+        # near certainty against the true no-op.
+        circ = de.QASMParser().parse(VQE_QASM)
+        energy_fn, n_params = de.circuit_to_energy_fn(circ, circ.n_qubits)
+        h_matrix = _random_hamiltonian(circ.n_qubits)
+        theta = jnp.asarray(np.random.default_rng(10).uniform(-np.pi, np.pi, n_params))
+        e_ideal, _ = energy_fn(theta, h_matrix)
+        noise = de.NoiseSpec(model='depolarizing', p=0.9, jax_key=jax.random.PRNGKey(0), qubits=[])
+        e_empty_qubits, _ = energy_fn(theta, h_matrix, None, noise)
+        assert float(e_empty_qubits) == pytest.approx(float(e_ideal))
+
 
 class TestImportSafety:
 

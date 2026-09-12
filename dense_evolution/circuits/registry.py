@@ -14,7 +14,7 @@ from ..config import ensure_x64
 from ..noise import NoiseModel, NoiseSpec
 from ..noise.kraus_channels import HAS_JAX
 
-__all__ = ["QuantumHardwareRegistry", "NoiseModel", "NoiseSpec", "HAS_JAX"]
+__all__ = ["QuantumHardwareRegistry", "NoiseModel", "NoiseSpec", "HAS_JAX", "apply_dark_theme"]
 
 
 class QuantumHardwareRegistry:
@@ -54,12 +54,21 @@ class QuantumHardwareRegistry:
 # construction defeated it one level up. Removed entirely: nothing
 # needs it, and QuantumHardwareRegistry() remains available for any
 # caller who actually wants one, constructed on their own schedule.
-plt.style.use('dark_background')
-matplotlib.rcParams.update({
-    'figure.facecolor': '#010409',
-    'axes.facecolor': '#0d1117',
-    'axes.edgecolor': '#21262d',
-    'grid.color': '#21262d',
-    'font.family': 'monospace',
-    'font.size': 9,
-})
+
+
+def apply_dark_theme():
+    """Dashboard-only diagnostic-plot styling (dark background + GitHub-
+    dark-ish palette). Used to run as a `plt.style.use('dark_background')`
+    module-level side effect here, so it fired on ANY `import
+    dense_evolution` and silently recolored every matplotlib figure a
+    caller made afterward, dashboard or not (prog.txt point 2). Now
+    opt-in: call this explicitly from the dashboard's own startup."""
+    plt.style.use('dark_background')
+    matplotlib.rcParams.update({
+        'figure.facecolor': '#010409',
+        'axes.facecolor': '#0d1117',
+        'axes.edgecolor': '#21262d',
+        'grid.color': '#21262d',
+        'font.family': 'monospace',
+        'font.size': 9,
+    })

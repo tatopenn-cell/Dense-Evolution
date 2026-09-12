@@ -4,7 +4,7 @@ from typing import List
 import jax
 import jax.numpy as jnp
 
-from ._engine_imports import QuantumTranspiler, GATE_IDS
+from ._engine_imports import QuantumTranspiler, GATE_IDS, _gate_1q_matrix
 
 __all__ = [
     "_build_multi_chunk_step", "_build_multi_chunk_runner",
@@ -44,45 +44,17 @@ def _gate_matrix_elements(g_id, param, dtype):
     be traced (the in-RAM scan) or concrete Python/jnp scalars (a single
     known gate in a phase); jax.lax.switch works identically either way.
 
-    Table is a copy of compiler.py's _apply_gate_fast_step / (this
-    module's own step() before this extraction) -- must stay in sync
-    with both, most notably index 14 (GPhase(alpha) = e^{i*alpha} * I)."""
-    inv2         = jnp.asarray(1.0 / jnp.sqrt(2.0), dtype=dtype)
+    The 1-qubit table itself lives in compiler.py's _gate_1q_matrix now
+    (was: an independent hand-copied switch here, with a "must stay in
+    sync" comment -- prog.txt point 2); only the 2-qubit controlled-U
+    table below is local to this module."""
     half_p       = param * jnp.float64(0.5)
-    cos_p        = jnp.cos(half_p).astype(dtype)
-    sin_p        = jnp.sin(half_p).astype(dtype)
     exp_pos      = jnp.exp(1j * param).astype(dtype)
-    exp_ph4      = jnp.exp(1j * jnp.pi / 4.0).astype(dtype)
-    exp_mh4      = jnp.exp(-1j * jnp.pi / 4.0).astype(dtype)
     exp_pos_half = jnp.exp(1j * half_p).astype(dtype)
     exp_neg_half = jnp.exp(-1j * half_p).astype(dtype)
 
     g_id = jnp.asarray(g_id).astype(jnp.int32)
-    safe_gid = jnp.clip(g_id, 0, 14)
-    g_1q = jax.lax.switch(
-        safe_gid,
-        [
-            lambda _: jnp.eye(2, dtype=dtype),
-            lambda _: jnp.array([[inv2, inv2], [inv2, -inv2]], dtype=dtype),
-            lambda _: jnp.array([[0.0 + 0j, 1.0 + 0j], [1.0 + 0j, 0.0 + 0j]], dtype=dtype),
-            lambda _: jnp.array([[0.0 + 0j, -1j], [1j, 0.0 + 0j]], dtype=dtype),
-            lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, -1.0 + 0j]], dtype=dtype),
-            lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, 1j]], dtype=dtype),
-            lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, -1j]], dtype=dtype),
-            lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, exp_ph4]], dtype=dtype),
-            lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, exp_mh4]], dtype=dtype),
-            lambda _: jnp.array([[cos_p, -1j * sin_p], [-1j * sin_p, cos_p]], dtype=dtype),
-            lambda _: jnp.array([[cos_p, -sin_p], [sin_p, cos_p]], dtype=dtype),
-            lambda _: jnp.array([[jnp.exp(-1j * half_p), 0.0 + 0j], [0.0 + 0j, jnp.exp(1j * half_p)]], dtype=dtype),
-            lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, exp_pos]], dtype=dtype),
-            lambda _: jnp.array([[0.5 + 0.5j, 0.5 - 0.5j], [0.5 - 0.5j, 0.5 + 0.5j]], dtype=dtype),
-            # 14  GPhase(alpha) = e^{i*alpha} * I -- see compiler.py's
-            # _apply_gate_fast_step index 14 for the derivation; this
-            # table must stay in sync with that one (see comment above).
-            lambda _: jnp.array([[exp_pos, 0.0 + 0j], [0.0 + 0j, exp_pos]], dtype=dtype),
-        ],
-        operand=None,
-    )
+    g_1q = _gate_1q_matrix(g_id, param, dtype)
 
     # Controlled-U submatrix for the 5 two-qubit gate types (mat[2:,2:]
     # of each gate's full 4x4 form — same values _apply_gate_multi's
@@ -319,59 +291,10 @@ def _build_distributed_chunk_step(num_chunks: int, m: int, k: int, axis_name: st
 
         my_id = jax.lax.axis_index(axis_name).astype(jnp.int32)
 
-        inv2         = jnp.asarray(1.0 / jnp.sqrt(2.0), dtype=dtype)
-        half_p       = param * jnp.float64(0.5)
-        cos_p        = jnp.cos(half_p).astype(dtype)
-        sin_p        = jnp.sin(half_p).astype(dtype)
-        exp_pos      = jnp.exp(1j * param).astype(dtype)
-        exp_ph4      = jnp.exp(1j * jnp.pi / 4.0).astype(dtype)
-        exp_mh4      = jnp.exp(-1j * jnp.pi / 4.0).astype(dtype)
-        exp_pos_half = jnp.exp(1j * half_p).astype(dtype)
-        exp_neg_half = jnp.exp(-1j * half_p).astype(dtype)
-
-        safe_gid = jnp.clip(g_id, 0, 14)
-        g_1q = jax.lax.switch(
-            safe_gid,
-            [
-                lambda _: jnp.eye(2, dtype=dtype),
-                lambda _: jnp.array([[inv2, inv2], [inv2, -inv2]], dtype=dtype),
-                lambda _: jnp.array([[0.0 + 0j, 1.0 + 0j], [1.0 + 0j, 0.0 + 0j]], dtype=dtype),
-                lambda _: jnp.array([[0.0 + 0j, -1j], [1j, 0.0 + 0j]], dtype=dtype),
-                lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, -1.0 + 0j]], dtype=dtype),
-                lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, 1j]], dtype=dtype),
-                lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, -1j]], dtype=dtype),
-                lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, exp_ph4]], dtype=dtype),
-                lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, exp_mh4]], dtype=dtype),
-                lambda _: jnp.array([[cos_p, -1j * sin_p], [-1j * sin_p, cos_p]], dtype=dtype),
-                lambda _: jnp.array([[cos_p, -sin_p], [sin_p, cos_p]], dtype=dtype),
-                lambda _: jnp.array([[jnp.exp(-1j * half_p), 0.0 + 0j], [0.0 + 0j, jnp.exp(1j * half_p)]], dtype=dtype),
-                lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, exp_pos]], dtype=dtype),
-                lambda _: jnp.array([[0.5 + 0.5j, 0.5 - 0.5j], [0.5 - 0.5j, 0.5 + 0.5j]], dtype=dtype),
-                # 14  GPhase(alpha) = e^{i*alpha} * I -- must stay in sync
-                # with _apply_gate_fast_step (compiler.py) and the
-                # non-distributed copy of this table above.
-                lambda _: jnp.array([[exp_pos, 0.0 + 0j], [0.0 + 0j, exp_pos]], dtype=dtype),
-            ],
-            operand=None,
-        )
-
-        two_q_idx = jnp.where(g_id == 20, 0,
-                    jnp.where(g_id == 21, 1,
-                    jnp.where(g_id == 22, 2,
-                    jnp.where(g_id == 24, 3, 4))))
-        U = jax.lax.switch(
-            two_q_idx,
-            [
-                lambda _: jnp.array([[0.0 + 0j, 1.0 + 0j], [1.0 + 0j, 0.0 + 0j]], dtype=dtype),
-                lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, -1.0 + 0j]], dtype=dtype),
-                lambda _: jnp.array([[1.0 + 0j, 0.0 + 0j], [0.0 + 0j, exp_pos]], dtype=dtype),
-                lambda _: jnp.array([[0.0 + 0j, -1j], [1j, 0.0 + 0j]], dtype=dtype),
-                lambda _: jnp.array([[exp_neg_half, 0.0 + 0j], [0.0 + 0j, exp_pos_half]], dtype=dtype),
-            ],
-            operand=None,
-        )
-        g00, g01, g10, g11 = g_1q[0, 0], g_1q[0, 1], g_1q[1, 0], g_1q[1, 1]
-        u00, u01, u10, u11 = U[0, 0], U[0, 1], U[1, 0], U[1, 1]
+        # Same table _build_multi_chunk_step uses (was: an independent
+        # hand-copied switch here -- prog.txt point 2, "must stay in
+        # sync" comment on both sides).
+        g00, g01, g10, g11, u00, u01, u10, u11 = _gate_matrix_elements(g_id, param, dtype)
 
         is_2q    = g_id >= 20
         q1_chunk = q1 < m

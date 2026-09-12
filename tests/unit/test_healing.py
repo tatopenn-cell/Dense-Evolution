@@ -14,6 +14,9 @@ module had 0% test coverage. Values below were hand-verified
 output, matching the audit's methodology of confirming behavior rather
 than padding a coverage number.
 """
+import subprocess
+import sys
+
 import numpy as np
 import pytest
 import jax.numpy as jnp
@@ -189,3 +192,25 @@ class TestMemoryReflectionEngine:
 
         assert eng2.memory == eng.memory
         assert eng2.reflect() == eng.reflect()
+
+
+# ── GLOBAL_CONSTANTS survives import-time precision (prog.txt point 1) ──
+# MAX_SEMANTIC_DISTANCE = jnp.sqrt(2.0) is built at module import time,
+# same class of bug as test_config.py's TestModuleLevelConstantsSurvive
+# ImportTimePrecision: if jax_enable_x64 is still False at that exact
+# moment, the value is silently truncated to float32 and stays that way
+# forever, even after x64 gets enabled later for real work. Subprocess
+# isolation is required -- jax_enable_x64 is process-wide and other
+# tests may have already flipped it on by the time this one runs.
+
+def test_max_semantic_distance_not_baked_to_float32_at_import():
+    code = (
+        "import jax; jax.config.update('jax_enable_x64', False)\n"
+        "from dense_evolution.mitigation import healing\n"
+        "jax.config.update('jax_enable_x64', True)\n"
+        "import math\n"
+        "v = float(healing.GLOBAL_CONSTANTS['MAX_SEMANTIC_DISTANCE'])\n"
+        "assert abs(v - math.sqrt(2.0)) < 1e-12, v\n"
+    )
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr

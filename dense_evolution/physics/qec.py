@@ -546,10 +546,10 @@ def counts_in_intervals_dimension(
     3 dimensions) from noise alone, not from any real structure in the
     data -- always inspect R^2 before quoting D.
 
-    Cost is O(len(window_sizes) * n_events^2) in the worst case (every
-    event checked against every other at every radius) -- fine for the
-    thousands-of-events regime a per-run error/erasure log produces, not
-    intended for streaming/online use on millions of events.
+    Cost is O(len(window_sizes) * n_events * log(n_events)) -- `event_times`
+    is sorted once up front, and each radius's per-reference-point count
+    is a pair of `np.searchsorted` calls (vectorized across all reference
+    points at once) rather than an O(n_events) brute-force scan per point.
 
     Parameters
     ----------
@@ -608,7 +608,15 @@ def counts_in_intervals_dimension(
         valid_refs = event_times[(event_times - r >= t_min) & (event_times + r <= t_max)]
         if valid_refs.size < min_reference_points:
             continue
-        counts = np.array([np.sum(np.abs(event_times - t) <= r) - 1 for t in valid_refs])
+        # event_times is sorted (see above), so "count within r of t" is a
+        # pair of binary searches instead of an O(n) scan per reference
+        # point (prog.txt point 5c) -- both bounds inclusive, matching the
+        # brute-force `abs(event_times - t) <= r` this replaces exactly
+        # (verified: side='left'/'right' at t-r/t+r reproduces it for
+        # every t, including ties exactly on the r boundary).
+        lo = np.searchsorted(event_times, valid_refs - r, side='left')
+        hi = np.searchsorted(event_times, valid_refs + r, side='right')
+        counts = (hi - lo) - 1
         mean_counts[float(r)] = float(np.mean(counts))
 
     valid_items = sorted((r, c) for r, c in mean_counts.items() if c > 0)

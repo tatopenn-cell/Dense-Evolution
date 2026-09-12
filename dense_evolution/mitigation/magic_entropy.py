@@ -120,7 +120,13 @@ def _self_convolve_3_core(rho: jnp.ndarray) -> jnp.ndarray:
 def _magic_entropy_core(rho: jnp.ndarray, eps: float = 1e-12) -> jnp.ndarray:
     reduced = _self_convolve_3_core(rho)
     ev = jnp.linalg.eigvalsh(reduced)
-    safe_ev = jnp.clip(jnp.real(ev), eps, 1.0)
+    # Clip then renormalize (same order magic_entropy_from_shadows uses),
+    # not clip alone: an unclipped-then-unnormalized eigenvalue sum that
+    # has drifted off 1 (numerical trace error in `reduced`) would
+    # otherwise get silently truncated at the eps/1.0 clip bounds instead
+    # of corrected -- masking the drift rather than fixing it.
+    safe_ev = jnp.clip(jnp.real(ev), eps, None)
+    safe_ev = safe_ev / jnp.sum(safe_ev)
     return -jnp.sum(safe_ev * jnp.log2(safe_ev))
 
 

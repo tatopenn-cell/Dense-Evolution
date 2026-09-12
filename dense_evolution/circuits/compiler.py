@@ -49,6 +49,90 @@ if HAS_JAX:
 
 if HAS_JAX:
 
+    def _gate_1q_matrix(g_id, param, dtype):
+        """The 1-qubit gate matrix table (indices 0-14, see the g_id
+        table above), factored out of _apply_gate_fast_step so
+        backends/chunk/kernels.py's _gate_matrix_elements can call this
+        SAME table instead of carrying its own hand-copied switch (was:
+        two independently-maintained copies, each with a "must stay in
+        sync" comment pointing at the other -- prog.txt point 2)."""
+        inv2    = jnp.asarray(1.0 / jnp.sqrt(2.0), dtype=dtype)
+        half_p  = param * jnp.float64(0.5)
+        cos_p   = jnp.cos(half_p).astype(dtype)
+        sin_p   = jnp.sin(half_p).astype(dtype)
+        exp_pos = jnp.exp(1j * param).astype(dtype)
+        exp_ph4 = jnp.exp(1j * jnp.pi / 4.0).astype(dtype)
+        exp_mh4 = jnp.exp(-1j * jnp.pi / 4.0).astype(dtype)
+        half_pos = jnp.exp(1j * half_p).astype(dtype)
+        half_neg = jnp.exp(-1j * half_p).astype(dtype)
+
+        safe_gid = jnp.clip(jnp.asarray(g_id).astype(jnp.int32), 0, 14)
+        return jax.lax.switch(
+            safe_gid,
+            [
+                # 0  I
+                lambda _: jnp.eye(2, dtype=dtype),
+                # 1  H
+                lambda _: jnp.array(
+                    [[inv2,  inv2],
+                     [inv2, -inv2]], dtype=dtype),
+                # 2  X
+                lambda _: jnp.array(
+                    [[0.0+0j, 1.0+0j],
+                     [1.0+0j, 0.0+0j]], dtype=dtype),
+                # 3  Y
+                lambda _: jnp.array(
+                    [[0.0+0j, -1j],
+                     [1j,      0.0+0j]], dtype=dtype),
+                # 4  Z
+                lambda _: jnp.array(
+                    [[1.0+0j,  0.0+0j],
+                     [0.0+0j, -1.0+0j]], dtype=dtype),
+                # 5  S
+                lambda _: jnp.array(
+                    [[1.0+0j, 0.0+0j],
+                     [0.0+0j, 1j    ]], dtype=dtype),
+                # 6  Sdg
+                lambda _: jnp.array(
+                    [[1.0+0j, 0.0+0j],
+                     [0.0+0j, -1j   ]], dtype=dtype),
+                # 7  T
+                lambda _: jnp.array(
+                    [[1.0+0j, 0.0+0j],
+                     [0.0+0j, exp_ph4]], dtype=dtype),
+                # 8  Tdg
+                lambda _: jnp.array(
+                    [[1.0+0j, 0.0+0j],
+                     [0.0+0j, exp_mh4]], dtype=dtype),
+                # 9  Rx(θ)
+                lambda _: jnp.array(
+                    [[cos_p,      -1j * sin_p],
+                     [-1j * sin_p, cos_p     ]], dtype=dtype),
+                # 10  Ry(θ)
+                lambda _: jnp.array(
+                    [[cos_p,  -sin_p],
+                     [sin_p,   cos_p]], dtype=dtype),
+                # 11  Rz(θ)
+                lambda _: jnp.array(
+                    [[half_neg, 0.0+0j],
+                     [0.0+0j,   half_pos]], dtype=dtype),
+                # 12  Phase / P(θ) / U1(θ)
+                lambda _: jnp.array(
+                    [[1.0+0j, 0.0+0j],
+                     [0.0+0j, exp_pos]], dtype=dtype),
+                # 13  SX (√X)
+                lambda _: jnp.array(
+                    [[0.5+0.5j, 0.5-0.5j],
+                     [0.5-0.5j, 0.5+0.5j]], dtype=dtype),
+                # 14  GPhase(α) = e^{iα} * I -- see the g_id table's own
+                # comment above for the derivation.
+                lambda _: jnp.array(
+                    [[exp_pos, 0.0+0j],
+                     [0.0+0j, exp_pos]], dtype=dtype),
+            ],
+            operand=None,
+        )
+
     @jax.jit
     def _apply_gate_fast_step(sv: "jnp.ndarray",
                                operation: "jnp.ndarray"):
@@ -86,99 +170,16 @@ if HAS_JAX:
         # 1-qubit gates, since do_2q's body (and this cond) is traced
         # unconditionally as part of the is_1q/is_2q dispatch below.
         sv_dtype = sv.dtype
-        inv2    = jnp.asarray(1.0 / jnp.sqrt(2.0), dtype=sv_dtype)
-        half_p  = param * jnp.float64(0.5)
-        cos_p   = jnp.cos(half_p).astype(sv_dtype)
-        sin_p   = jnp.sin(half_p).astype(sv_dtype)
-        exp_pos = jnp.exp( 1j * param).astype(sv_dtype)
-        exp_neg = jnp.exp(-1j * param).astype(sv_dtype)
-        exp_ph4 = jnp.exp( 1j * jnp.pi / 4.0).astype(sv_dtype)
-        exp_mh4 = jnp.exp(-1j * jnp.pi / 4.0).astype(sv_dtype)
-        # half-angle phases for CRZ(θ) — same convention as the 1-qubit
-        # RZ(θ) switch entry below, named here since apply_crz (do_2q) needs
-        # them inside a conditional function rather than an inline literal.
-        exp_pos_half = jnp.exp( 1j * half_p).astype(sv_dtype)
+        half_p = param * jnp.float64(0.5)
+        # apply_cp/apply_crz (do_2q, below) need these directly -- the
+        # shared 1-qubit table's own copies are internal to
+        # _gate_1q_matrix and not returned.
+        exp_pos      = jnp.exp(1j * param).astype(sv_dtype)
+        exp_pos_half = jnp.exp(1j * half_p).astype(sv_dtype)
         exp_neg_half = jnp.exp(-1j * half_p).astype(sv_dtype)
 
-        # ── 1-qubit gate matrix selection via lax.switch ──────────────
-        # Index must be in [0, 14]; anything outside is clamped to 0 (I).
-        safe_gid = jnp.clip(g_id, 0, 14)
-
-        g_1q = jax.lax.switch(
-            safe_gid,
-            [
-                # 0  I
-                lambda _: jnp.eye(2, dtype=sv_dtype),
-                # 1  H
-                lambda _: jnp.array(
-                    [[inv2,  inv2],
-                     [inv2, -inv2]], dtype=sv_dtype),
-                # 2  X
-                lambda _: jnp.array(
-                    [[0.0+0j, 1.0+0j],
-                     [1.0+0j, 0.0+0j]], dtype=sv_dtype),
-                # 3  Y
-                lambda _: jnp.array(
-                    [[0.0+0j, -1j],
-                     [1j,      0.0+0j]], dtype=sv_dtype),
-                # 4  Z
-                lambda _: jnp.array(
-                    [[1.0+0j,  0.0+0j],
-                     [0.0+0j, -1.0+0j]], dtype=sv_dtype),
-                # 5  S
-                lambda _: jnp.array(
-                    [[1.0+0j, 0.0+0j],
-                     [0.0+0j, 1j    ]], dtype=sv_dtype),
-                # 6  Sdg
-                lambda _: jnp.array(
-                    [[1.0+0j, 0.0+0j],
-                     [0.0+0j, -1j   ]], dtype=sv_dtype),
-                # 7  T
-                lambda _: jnp.array(
-                    [[1.0+0j, 0.0+0j],
-                     [0.0+0j, exp_ph4]], dtype=sv_dtype),
-                # 8  Tdg
-                lambda _: jnp.array(
-                    [[1.0+0j, 0.0+0j],
-                     [0.0+0j, exp_mh4]], dtype=sv_dtype),
-                # 9  Rx(θ)  = [[cos θ/2, -i sin θ/2], [-i sin θ/2, cos θ/2]]
-                lambda _: jnp.array(
-                    [[cos_p,      -1j * sin_p],
-                     [-1j * sin_p, cos_p     ]], dtype=sv_dtype),
-                # 10  Ry(θ) = [[cos θ/2, -sin θ/2], [sin θ/2, cos θ/2]]
-                lambda _: jnp.array(
-                    [[cos_p,  -sin_p],
-                     [sin_p,   cos_p]], dtype=sv_dtype),
-                # 11  Rz(θ) = [[e^{-iθ/2}, 0], [0, e^{iθ/2}]]
-                lambda _: jnp.array(
-                    [[jnp.exp(-1j * half_p), 0.0+0j            ],
-                     [0.0+0j,                jnp.exp(1j * half_p)]],
-                    dtype=sv_dtype),
-                # 12  Phase / P(θ) / U1(θ) = [[1, 0], [0, e^{iθ}]]
-                lambda _: jnp.array(
-                    [[1.0+0j, 0.0+0j],
-                     [0.0+0j, exp_pos]], dtype=sv_dtype),
-                # 13  SX (√X) = 0.5 * [[1+i, 1-i], [1-i, 1+i]]
-                lambda _: jnp.array(
-                    [[0.5+0.5j, 0.5-0.5j],
-                     [0.5-0.5j, 0.5+0.5j]], dtype=sv_dtype),
-                # 14  GPhase(α) = e^{iα} * I -- a scalar phase e^{iα} on the
-                # WHOLE statevector, not just the |1> component (unlike gate
-                # 12, P(θ)). Applying e^{iα}*I locally to any one qubit's
-                # 2x2 subspace is mathematically identical to multiplying
-                # the full n-qubit state by e^{iα}, since e^{iα}*I commutes
-                # with the identity on every other qubit. Exists so U2/U3
-                # (see QuantumTranspiler.decompose_u3) can decompose into
-                # {Rz, Ry, Rz, GPhase} and reproduce the literal U3 matrix
-                # EXACTLY (not just up to global phase) -- verified
-                # numerically against dense_evolution.circuits.gates.
-                # PARAMETRIC_GATES['u3'] before this was added.
-                lambda _: jnp.array(
-                    [[exp_pos, 0.0+0j],
-                     [0.0+0j, exp_pos]], dtype=sv_dtype),
-            ],
-            operand=None,
-        )
+        # ── 1-qubit gate matrix selection ──────────────────────────────
+        g_1q = _gate_1q_matrix(g_id, param, sv_dtype)
 
         # ── 1-qubit application ────────────────────────────────────────
         def do_1q(_sv):
@@ -281,31 +282,20 @@ if HAS_JAX:
                 partner   = idx_full ^ (jnp.int64(1) << ctrl) ^ (jnp.int64(1) << trgt)
                 return jnp.where(swap_mask, __sv[partner], __sv)
 
-            # Dispatch on g_id: 20=CX, 21=CZ, 22=CP, 23=SWAP, 24=CY, 25=CRZ
-            is_cx   = g_id == 20
-            is_cz   = g_id == 21
-            is_cp   = g_id == 22
-            is_cy   = g_id == 24
-            is_crz  = g_id == 25
-            # is_swap = g_id == 23 (default branch — never actually reached,
-            # see comment at the top of this file: QuantumTranspiler always
-            # decomposes 'swap' into 3xCX before a gate name reaches here)
-
-            after_cx   = jax.lax.cond(is_cx,   apply_cx,   lambda s: s, _sv)
-            after_cz   = jax.lax.cond(is_cz,   apply_cz,   lambda s: s, _sv)
-            after_cp   = jax.lax.cond(is_cp,   apply_cp,   lambda s: s, _sv)
-            after_cy   = jax.lax.cond(is_cy,   apply_cy,   lambda s: s, _sv)
-            after_crz  = jax.lax.cond(is_crz,  apply_crz,  lambda s: s, _sv)
-            after_swap = apply_swap(_sv)
-
-            # Pick the right result
-            result = jnp.where(is_cx,  after_cx,
-                     jnp.where(is_cz,  after_cz,
-                     jnp.where(is_cp,  after_cp,
-                     jnp.where(is_cy,  after_cy,
-                     jnp.where(is_crz, after_crz,
-                                       after_swap)))))
-            return result
+            # Dispatch on g_id: 20=CX, 21=CZ, 22=CP, 23=SWAP, 24=CY, 25=CRZ.
+            # A single lax.switch, not 5 independent lax.cond calls each
+            # feeding a jnp.where chain (was: apply_swap in particular
+            # got computed on EVERY 2-qubit gate regardless of g_id, even
+            # though swap never actually reaches here -- QuantumTranspiler
+            # always decomposes 'swap' into 3xCX first, see the comment at
+            # the top of this file -- prog.txt point 2). lax.switch only
+            # traces/executes the one selected branch at runtime.
+            two_q_idx = jnp.clip(g_id - 20, 0, 5)
+            return jax.lax.switch(
+                two_q_idx,
+                [apply_cx, apply_cz, apply_cp, apply_swap, apply_cy, apply_crz],
+                _sv,
+            )
 
         # ── branch on 1-qubit vs 2-qubit ─────────────────────────────
         # g_id <= 14 → 1-qubit;  g_id >= 20 → 2-qubit.

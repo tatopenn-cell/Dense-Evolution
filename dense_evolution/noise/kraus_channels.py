@@ -1,3 +1,4 @@
+import functools
 import os
 import time
 from typing import Optional, List, Dict, Any
@@ -34,10 +35,21 @@ def _fresh_rng() -> np.random.Generator:
     return np.random.default_rng(seed)
 
 
+@functools.lru_cache(maxsize=None)
 def _qubit_index_pairs(dim: int, q: int):
     """
     Return (idx_0, idx_1) — two integer arrays of length dim/2 — where
     idx_0[i] has bit q == 0 and idx_1[i] = idx_0[i] | (1 << q).
+
+    Cached on (dim, q) (prog.txt point 5a): apply_to_sv recomputes these
+    two O(dim/2) NumPy arrays from scratch on every call, once per qubit
+    in `target_qubits` -- and apply_to_sv itself runs once per shot in a
+    Monte Carlo ZNE loop, so the same (dim, q) pair gets rebuilt
+    thousands of times for a fixed circuit size. Both arguments are
+    always plain Python ints (dim = len(sv), a concrete value even for a
+    traced JAX sv; q comes from a plain int qubit list), so caching is
+    safe -- the returned arrays are read-only outputs of channel.apply,
+    never mutated in place.
     """
     step   = 1 << q
     all_i  = np.arange(dim, dtype=np.intp)

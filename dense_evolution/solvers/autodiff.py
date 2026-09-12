@@ -160,7 +160,7 @@ def circuit_to_energy_fn(
         if noise is not None:
             sv = NoiseModel.apply_to_sv(
                 sv, n_qubits, model=noise.model, p=noise.p,
-                jax_key=noise.jax_key, qubits=list(noise.qubits) if noise.qubits else None,
+                jax_key=noise.jax_key, qubits=list(noise.qubits) if noise.qubits is not None else None,
             )
 
         energy = jnp.real(jnp.vdot(sv, h_matrix @ sv))

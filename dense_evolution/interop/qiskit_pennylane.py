@@ -123,8 +123,15 @@ def _to_qiskit_bit_order(probs: np.ndarray, n_qubits: int) -> np.ndarray:
     A plain bit-reversal permutation of the index — verified against
     Statevector.from_instruction(...).probabilities() on an asymmetric
     circuit (exact match only after this reversal, not before).
+
+    Vectorized bit-reversal (prog.txt point 3): loops over n_qubits bit
+    positions, not over the 2**n_qubits indices themselves like the
+    previous `format(i, ...)[::-1]`-per-index Python loop did.
     """
-    perm = [int(format(i, f'0{n_qubits}b')[::-1], 2) for i in range(2 ** n_qubits)]
+    idx = np.arange(2 ** n_qubits)
+    perm = np.zeros_like(idx)
+    for b in range(n_qubits):
+        perm |= ((idx >> b) & 1) << (n_qubits - 1 - b)
     return probs[perm]
 
 

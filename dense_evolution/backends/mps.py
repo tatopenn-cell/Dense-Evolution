@@ -51,6 +51,7 @@ complementary.
 """
 
 import dataclasses
+import heapq
 import warnings
 from functools import partial
 from typing import List, Optional, Tuple
@@ -1161,7 +1162,7 @@ class MPSSimulator:
     # candidate as a whole regardless of backend.
     def _sample_bitstring(self, rng: np.random.Generator) -> List[int]:
         bits = []
-        state = jnp.ones(1, dtype=complex)
+        state = jnp.ones(1, dtype=self.gammas[0].dtype)
         for i in range(self.n):
             g = self.gammas[i]
             lam = self.lambdas[i + 1] if i < self.n - 1 else jnp.ones(g.shape[2])
@@ -1214,8 +1215,15 @@ class MPSSimulator:
                     new_vec = jnp.einsum("l,lr->r", vec_p, gamma[:, bit, :]) * lam
                     weight = float(jnp.sum(jnp.abs(new_vec) ** 2))
                     candidates.append(((idx_p << 1) | bit, new_vec, weight))
-            candidates.sort(key=lambda c: c[2], reverse=True)
-            paths = [(idx, vec) for idx, vec, _ in candidates[:k]]
+            # heapq.nlargest instead of a full sort-then-slice (prog.txt
+            # point 5e): only the top k by weight are ever used below, and
+            # this avoids materializing/sorting the full candidates list
+            # when len(candidates) >> k. Final probability order is
+            # re-derived from scratch at the end of this function anyway
+            # (`order = np.argsort(-probabilities)`), so which of two
+            # equal-weight candidates heapq happens to prefer over sort's
+            # stable order has no effect on the result.
+            paths = [(idx, vec) for idx, vec, _ in heapq.nlargest(k, candidates, key=lambda c: c[2])]
 
         indices = np.array([p[0] for p in paths])
         amplitudes = np.array([

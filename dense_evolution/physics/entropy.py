@@ -56,7 +56,13 @@ def von_neumann_entropy(rho):
     zero eigenvalues (which a numerically pure/near-pure state produces,
     and which are mathematically forbidden from being exactly negative
     for a real density matrix but can land at a tiny negative float) are
-    clipped before the log rather than raising or propagating a NaN."""
+    clipped before the log rather than raising or propagating a NaN.
+
+    Natural log (nats), NOT log2 (bits) -- unlike this package's other
+    entropy-family quantities (magic_entropy, kl_divergence,
+    sandwiched_renyi_divergence, stabilizer_renyi_entropy), which all
+    use log2 and say so explicitly. mutual_information/central_charge
+    below inherit this same nats convention."""
     eigs = np.clip(np.linalg.eigvalsh(rho).real, 1e-14, None)
     return float(-np.sum(eigs * np.log(eigs)))
 
@@ -64,6 +70,9 @@ def von_neumann_entropy(rho):
 def mutual_information(state, n_qubits, qubits_a, qubits_b):
     """I(A:B) = S(A) + S(B) - S(A union B), the standard quantum mutual
     information between two disjoint subsystems of a pure global state.
+    In nats (natural log), same as von_neumann_entropy above -- see its
+    docstring for how this differs from this package's other,
+    log2-based entropy quantities.
 
     Why this and not a single-qubit expectation value: a qubit entangled
     in a Bell pair (or more generally, maximally mixed on its own) has a
@@ -76,6 +85,13 @@ def mutual_information(state, n_qubits, qubits_a, qubits_b):
     alone. Verified in tests/unit/test_entropy.py against the exact textbook
     value for a Bell pair (I = 2*ln(2), maximal) and a GHZ state.
     """
+    if not set(qubits_a).isdisjoint(qubits_b):
+        raise ValueError(
+            f"qubits_a and qubits_b must be disjoint, got qubits_a={qubits_a!r}, "
+            f"qubits_b={qubits_b!r} -- an overlapping qubit would be traced "
+            "into S(A), S(B) AND S(A union B) inconsistently, silently "
+            "corrupting the result rather than raising."
+        )
     s_a = von_neumann_entropy(partial_trace(state, n_qubits, qubits_a))
     s_b = von_neumann_entropy(partial_trace(state, n_qubits, qubits_b))
     s_ab = von_neumann_entropy(partial_trace(state, n_qubits, list(qubits_a) + list(qubits_b)))
@@ -87,6 +103,9 @@ def central_charge(Ls, S, n_qubits):
     Cardy CFT prediction S(L) = (c/6)*ln[(2N/pi)*sin(pi*L/N)] + const
     (Calabrese & Cardy, J. Stat. Mech. 2004, P06002, eq. 4/19 combined via
     the standard open-chain doubling trick) and return (c, r_squared).
+    The fit itself is in the natural-log (nats) convention shown above --
+    `S` must be too (von_neumann_entropy's own convention) for the fitted
+    `c` to come out right; a log2-based S would scale it off by ln(2).
 
     Backend-agnostic: `S` can come from any source (exact diagonalization
     via `partial_trace`/`von_neumann_entropy` on this package's own
