@@ -19,7 +19,7 @@ from .state_visuals import native_histogram_figure, native_qsphere_figure, nativ
 
 __all__ = [
     'draw_circuit_figure', 'histogram_figure', 'qsphere_figure', 'bloch_multivector_figure',
-    'energy_landscape_figure', 'zne_bar_figure',
+    'energy_landscape_figure', 'zne_bar_figure', 'qec_syndrome_map_figure',
 ]
 
 # dense_evolution.registry sets plt.style.use('dark_background') globally
@@ -103,5 +103,47 @@ def zne_bar_figure(noise_factors, noisy_expectations, noisy_sems, zne_extrapolat
         ax.set_xlabel('Fattore di scala del rumore')
         ax.set_ylabel('<P> misurato')
         ax.legend(loc='best', fontsize=8)
+        fig.tight_layout()
+        return fig
+
+
+def qec_syndrome_map_figure(stabilizers, syndrome, pauli_error=None):
+    """Real syndrome-measurement map: physical qubits laid out in a line,
+    each stabilizer drawn as a bracket connecting the qubits it acts on
+    (its own non-identity Pauli positions), colored red if its syndrome
+    bit is 1 (anticommutes / detected, from dense_evolution's own
+    compute_syndrome output) or gray if 0 (commutes / undetected) --
+    not a schematic, the real per-stabilizer outcome. Qubits touched by
+    pauli_error (if given) are marked filled and labeled with their
+    Pauli letter."""
+    with plt.style.context(_LIGHT_STYLE):
+        n_qubits = len(stabilizers[0]) if stabilizers else (len(pauli_error) if pauli_error else 1)
+        error_positions = {i for i, p in enumerate(pauli_error) if p != 'I'} if pauli_error else set()
+
+        fig_height = 2.2 + 0.4 * max(1, len(stabilizers))
+        fig, ax = plt.subplots(figsize=(max(4, n_qubits * 1.2), fig_height))
+
+        for i in range(n_qubits):
+            if i in error_positions:
+                ax.scatter([i], [0], s=350, color='#d62728', edgecolors='black', zorder=3)
+                ax.annotate(pauli_error[i], (i, 0), ha='center', va='center', color='white',
+                            fontsize=9, fontweight='bold', zorder=4)
+            else:
+                ax.scatter([i], [0], s=350, color='white', edgecolors='black', zorder=3)
+            ax.annotate(f'q{i}', (i, -0.35), ha='center', fontsize=8)
+
+        for s_idx, (stab, bit) in enumerate(zip(stabilizers, syndrome)):
+            positions = [i for i, p in enumerate(stab) if p != 'I']
+            if not positions:
+                continue
+            height = 0.5 + 0.4 * s_idx
+            color = '#d62728' if bit else '#999999'
+            lo, hi = min(positions), max(positions)
+            ax.plot([lo, lo, hi, hi], [0.15, height, height, 0.15], color=color, linewidth=2)
+            ax.annotate(stab, ((lo + hi) / 2, height + 0.05), ha='center', fontsize=8, color=color)
+
+        ax.set_xlim(-0.7, n_qubits - 0.3)
+        ax.set_ylim(-0.6, fig_height - 1.9)
+        ax.axis('off')
         fig.tight_layout()
         return fig

@@ -19,7 +19,7 @@ from matplotlib.figure import Figure
 from dashboard_core.engine import run_circuit_from_qasm
 from dashboard_core.visuals import (
     bloch_multivector_figure, draw_circuit_figure, histogram_figure, qsphere_figure,
-    energy_landscape_figure, zne_bar_figure,
+    energy_landscape_figure, zne_bar_figure, qec_syndrome_map_figure,
 )
 from dashboard_core.state_visuals import _reduced_density_matrix, _bloch_vector
 
@@ -83,6 +83,24 @@ def test_zne_bar_figure_returns_a_figure():
         noise_factors=[1.0, 2.0, 3.0], noisy_expectations=[0.8, 0.6, 0.4],
         noisy_sems=[0.02, 0.03, 0.04], zne_extrapolated=1.0, ideal_expectation=1.0,
     )
+    assert isinstance(fig, Figure)
+
+
+def test_qec_syndrome_map_figure_returns_a_figure():
+    fig = qec_syndrome_map_figure(['ZZI', 'IZZ'], (1, 1), 'IXI')
+    assert isinstance(fig, Figure)
+
+
+def test_qec_syndrome_map_figure_without_error_marked():
+    fig = qec_syndrome_map_figure(['ZZI', 'IZZ'], (0, 0), None)
+    assert isinstance(fig, Figure)
+
+
+def test_qec_syndrome_map_figure_skips_identity_only_stabilizer():
+    # A stabilizer with no non-identity positions has nothing to draw a
+    # bracket between -- must be skipped, not raise or draw a
+    # degenerate zero-width bracket.
+    fig = qec_syndrome_map_figure(['III', 'IZZ'], (0, 1), 'IXI')
     assert isinstance(fig, Figure)
 
 
