@@ -29,6 +29,7 @@ from .engine import (
 )
 from .visuals import (
     draw_circuit_figure, histogram_figure, qsphere_figure, bloch_multivector_figure,
+    energy_landscape_figure,
 )
 from .graphical_builder import GATE_PALETTE, ops_to_native_tuples
 from .circuit_builder_component import mount_circuit_builder
@@ -42,7 +43,7 @@ from .mitigation import (
     MitigationResult, run_zne_mitigation, DensityMatrixZNEResult, run_density_matrix_zne,
 )
 from .system_limits import max_safe_dense_qubits
-from .vqe import run_vqe
+from .vqe import run_vqe, scan_hardware_efficient_energy_landscape
 from .qmmm import (
     ATOMIC_MASSES_AMU,
     compute_hellmann_feynman_forces, md_step, run_md_trajectory,
@@ -64,6 +65,7 @@ __all__ = [
     'LargeScaleMPSResult', 'run_large_circuit_mps', 'MPS_DENSE_CONTRACTION_LIMIT',
     'run_bond_convergence_check',
     'draw_circuit_figure', 'histogram_figure', 'qsphere_figure', 'bloch_multivector_figure',
+    'energy_landscape_figure',
     'GATE_PALETTE', 'ops_to_native_tuples',
     'mount_circuit_builder',
     'MOLECULE_CATALOG', 'build_molecular_hamiltonian', 'get_compatible_molecules',
@@ -73,7 +75,7 @@ __all__ = [
     'MitigationResult', 'run_zne_mitigation',
     'DensityMatrixZNEResult', 'run_density_matrix_zne',
     'max_safe_dense_qubits',
-    'run_vqe',
+    'run_vqe', 'scan_hardware_efficient_energy_landscape',
     'ATOMIC_MASSES_AMU',
     'compute_hellmann_feynman_forces', 'md_step', 'run_md_trajectory',
     'build_sparse_syk_terms', 'commuting_pair_count', 'select_good_instance',

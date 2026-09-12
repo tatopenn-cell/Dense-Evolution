@@ -13,7 +13,7 @@ run against H2's real Hamiltonian, not a stub. No Qiskit involved
 import numpy as np
 import pytest
 
-from dashboard_core.vqe import run_vqe
+from dashboard_core.vqe import run_vqe, scan_hardware_efficient_energy_landscape
 
 H2_SYMBOLS = ['H', 'H']
 H2_GEOMETRY = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.7414]])
@@ -149,6 +149,32 @@ class TestParamCountConsistencyCheck:
         monkeypatch.setattr(vqe_module.de, "circuit_to_energy_fn", wrong_count)
         with pytest.raises(ValueError, match="circuit_to_energy_fn found"):
             run_vqe(H2_SYMBOLS, H2_GEOMETRY, charge=0, ansatz_type="uccsd", maxiter=1)
+
+
+class TestEnergyLandscapeScan:
+
+    def test_center_of_scan_matches_converged_energy(self):
+        result = run_vqe(H2_SYMBOLS, H2_GEOMETRY, charge=0, ansatz_type='hardware_efficient',
+                          n_layers=1, maxiter=5, seed=0)
+        base_params = np.asarray(result['params'])
+        energies = scan_hardware_efficient_energy_landscape(
+            H2_SYMBOLS, H2_GEOMETRY, 0, result['n_layers'], result['hf_occupation'],
+            base_params, 0, 1, base_params[0:1], base_params[1:2],
+        )
+        assert energies.shape == (1, 1)
+        assert energies[0, 0] == pytest.approx(result['vqe_energy_hartree'], abs=1e-9)
+
+    def test_energy_varies_away_from_converged_point(self):
+        result = run_vqe(H2_SYMBOLS, H2_GEOMETRY, charge=0, ansatz_type='hardware_efficient',
+                          n_layers=1, maxiter=5, seed=0)
+        base_params = np.asarray(result['params'])
+        values_i = np.array([base_params[0], base_params[0] + np.pi])
+        energies = scan_hardware_efficient_energy_landscape(
+            H2_SYMBOLS, H2_GEOMETRY, 0, result['n_layers'], result['hf_occupation'],
+            base_params, 0, 1, values_i, base_params[1:2],
+        )
+        assert energies.shape == (2, 1)
+        assert energies[0, 0] != pytest.approx(energies[1, 0], abs=1e-6)
 
 
 def build_h2_pauli_terms():

@@ -416,6 +416,59 @@ elif section == "Chimica":
             st.session_state["nav_section"] = "Costruisci"
             st.rerun()
 
+        with st.expander("Paesaggio energetico 2D"):
+            if vqe_result["ansatz_type"] != "hardware_efficient" or vqe_result["n_params"] < 2:
+                st.info(
+                    "Disponibile solo per l'ansatz hardware_efficient con almeno 2 "
+                    "parametri -- UCCSD usa una mappatura affine tra pesi ed angoli "
+                    "reali (non un parametro per rotazione), quindi 'parametro i' non "
+                    "corrisponde qui a un singolo angolo."
+                )
+            else:
+                st.caption(
+                    "Rieseguendo il circuito reale a griglia fissa attorno al minimo "
+                    "trovato dal VQE, tenendo fissi tutti gli altri parametri -- non "
+                    "un'interpolazione, ogni punto è un'energia calcolata da zero."
+                )
+                n_p = vqe_result["n_params"]
+                col_pi, col_pj = st.columns(2)
+                land_i = col_pi.number_input(
+                    "Parametro A (indice)", min_value=0, max_value=n_p - 1, value=0, key="land_param_i",
+                )
+                land_j = col_pj.number_input(
+                    "Parametro B (indice)", min_value=0, max_value=n_p - 1,
+                    value=min(1, n_p - 1), key="land_param_j",
+                )
+                land_res = st.slider("Risoluzione griglia", 5, 41, 21, step=2, key="land_resolution")
+                if land_i == land_j:
+                    st.warning("Scegli due indici diversi.")
+                elif st.button("Calcola paesaggio energetico"):
+                    base_params = np.asarray(vqe_result["params"], dtype=np.float64)
+                    center_i, center_j = base_params[int(land_i)], base_params[int(land_j)]
+                    values_i = np.linspace(center_i - np.pi, center_i + np.pi, int(land_res))
+                    values_j = np.linspace(center_j - np.pi, center_j + np.pi, int(land_res))
+                    try:
+                        energies = dc.scan_hardware_efficient_energy_landscape(
+                            mol["symbols"], mol["geometry"], mol["charge"], vqe_result["n_layers"],
+                            vqe_result["hf_occupation"], base_params, int(land_i), int(land_j),
+                            values_i, values_j,
+                        )
+                        st.session_state["landscape_result"] = (
+                            values_i, values_j, energies, int(land_i), int(land_j),
+                            center_i, center_j, vqe_result["vqe_energy_hartree"],
+                        )
+                        st.session_state["landscape_error"] = None
+                    except Exception as exc:
+                        st.session_state["landscape_result"] = None
+                        st.session_state["landscape_error"] = str(exc)
+
+                land_error = st.session_state.get("landscape_error")
+                land_data = st.session_state.get("landscape_result")
+                if land_error:
+                    st.error(f"Errore: {land_error}")
+                elif land_data is not None:
+                    st.pyplot(dc.energy_landscape_figure(*land_data))
+
     if advanced_mode:
         st.divider()
         with st.expander("Ottimizza geometria (dE/dR analitico, native_hf)"):
