@@ -82,8 +82,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pytest-cov numpy scipy pandas matplotlib psutil ipython seaborn plotly
-          pip install setuptools pytest pytest-cov numpy scipy pandas matplotlib psutil ipython jax jaxlib seaborn plotly
+          pip install pytest pytest-cov pytest-xdist numpy scipy pandas matplotlib psutil ipython seaborn plotly
+          pip install setuptools pytest pytest-cov pytest-xdist numpy scipy pandas matplotlib psutil ipython jax jaxlib seaborn plotly
           pip install qiskit pennylane pylatexenc
           pip install basis_set_exchange # dashboard_core.hamiltonians' native_hf fallback (e.g. Si2 -- PennyLane's own STO-3G table stops at Ne)
           pip install qiskit-ibm-runtime # tests/integration/test_interop_calibration_noise.py -- FakeSherbrooke, real historical IBM Eagle-127 calibration data, offline/no account needed
@@ -104,8 +104,18 @@ jobs:
           # non era un bug di Codecov.
 
       - name: Run test suite
+        # -n auto (pytest-xdist): splits the suite across the runner's own
+        # CPU cores, each in its own process -- measured locally (8-core
+        # machine, tests/unit only): -n 4 cut an ~885s serial run to
+        # ~536s (0 new failures, same 0-failure/21-skipped result), not
+        # linear speedup (JAX/XLA per-worker startup cost and uneven test
+        # sizes eat into it) but a real, verified win. The distributed-
+        # chunk step below stays serial deliberately -- it forces an
+        # 8-simulated-device JAX device mesh via XLA_FLAGS, and forking
+        # that across multiple xdist worker processes is a separate
+        # question this change doesn't touch.
         run: |
-          pytest tests/ -v --tb=short --junitxml=pytest-results.xml --cov=. --cov-report=term-missing
+          pytest tests/ -n auto -v --tb=short --junitxml=pytest-results.xml --cov=. --cov-report=term-missing
 
       - name: Run distributed-chunk tests (simulated multi-device)
         # TestChunkDistributed (issue #1) needs >= 8 JAX devices to exercise
