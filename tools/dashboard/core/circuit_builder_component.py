@@ -136,8 +136,8 @@ export default function(component) {
   root.appendChild(gridEl);
   parentElement.appendChild(root);
 
-  const countEl = root.querySelector('[data-role="count"]');
-  root.querySelector('[data-role="clear"]').addEventListener('click', () => {
+  const countEl = parentElement.querySelector('[data-role="count"]');
+  parentElement.querySelector('[data-role="clear"]').addEventListener('click', () => {
     for (let r = 0; r < nQubits; r++) {
       for (let c = 0; c < nCols; c++) {
         grid[r][c] = null;
