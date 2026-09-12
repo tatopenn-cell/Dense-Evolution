@@ -58,6 +58,7 @@ from .noise_tools import (
     OscillatingNoiseResult, run_oscillating_noise,
     DensityMatrixChannelResult, run_density_matrix_channel,
 )
+from .band_structure import scan_bands_along_path, band_structure_figure
 
 __all__ = [
     'QASM_LIBRARY', 'gate_tuples_to_qasm',
@@ -84,4 +85,5 @@ __all__ = [
     'CosmicRayBurstResult', 'run_cosmic_ray_burst',
     'OscillatingNoiseResult', 'run_oscillating_noise',
     'DensityMatrixChannelResult', 'run_density_matrix_channel',
+    'scan_bands_along_path', 'band_structure_figure',
 ]

@@ -61,7 +61,11 @@ gpu = [
 dashboard = [
     "streamlit>=1.30.0",
     "qiskit>=1.0.0",
-    "pylatexenc>=2.10"
+    "pylatexenc>=2.10",
+    # dashboard_core.band_structure's Plotly band-structure plot is the
+    # one interactive (hover/zoom) visualization in the dashboard --
+    # everywhere else is static matplotlib (dashboard_core.visuals).
+    "plotly>=5.0.0"
 ]
 qiskit = [
     "qiskit>=1.0.0"
@@ -117,6 +121,7 @@ full = [
     "streamlit>=1.30.0",
     "qiskit>=1.0.0",
     "pylatexenc>=2.10",
+    "plotly>=5.0.0",
     "pennylane>=0.35.0",
     "basis_set_exchange>=0.9",
     "fastapi>=0.110.0",

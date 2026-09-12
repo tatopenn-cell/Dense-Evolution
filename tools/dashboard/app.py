@@ -835,6 +835,19 @@ elif section == "Materia Condensata":
             "\"Calcola gap a Gamma\" da solo darebbe il valore sbagliato per quelli."
         )
 
+    if st.button("Disegna struttura a bande (Γ→X, interattiva)"):
+        t_path, bands = dc.scan_bands_along_path(material, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0), n_points=201)
+        st.session_state["band_structure_result"] = (t_path, bands, material)
+
+    if "band_structure_result" in st.session_state:
+        t_path, bands, band_material = st.session_state["band_structure_result"]
+        st.plotly_chart(dc.band_structure_figure(t_path, bands, band_material))
+        st.caption(
+            "Tutte e 10 le bande sp3s* reali lungo Γ→X -- passa il mouse su un punto "
+            "per vedere energia esatta e posizione nel k-path. Banda 3 (rossa) e "
+            "banda 4 (blu) sono la VBM/CBM che \"Scansiona banda Γ→X\" riassume in un numero."
+        )
+
     st.divider()
     st.header("Modello di Hubbard")
     n_sites = st.slider("n_sites", 2, 6, 4, key="hub_n_sites")
