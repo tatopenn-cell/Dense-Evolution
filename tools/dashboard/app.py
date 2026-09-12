@@ -62,7 +62,8 @@ if "result" not in st.session_state:
 
 _BASE_SECTIONS = ["Costruisci", "Risultati", "Chimica", "Rumore", "Sistema"]
 _ADVANCED_SECTIONS = [
-    "Dinamica", "Wormhole", "QEC", "Magia & Divergenze", "Materia Condensata", "Importa Circuito",
+    "Dinamica", "Wormhole", "QEC", "Magia & Divergenze", "Materia Condensata",
+    "Grandi Sistemi", "Importa Circuito",
 ]
 
 # ── Barra di salute, sempre visibile in cima alla sidebar ───────────────
@@ -625,6 +626,49 @@ elif section == "Materia Condensata":
             st.metric(f"Energia di stato fondamentale ({n_qubits_hub} qubit)", f"{e0:.6f}")
         except Exception as exc:
             st.error(f"Errore: {exc}")
+
+
+# ── GRANDI SISTEMI ───────────────────────────────────────────────────────
+elif section == "Grandi Sistemi":
+    st.header("Grandi Sistemi (MPS oltre il limite denso)")
+    st.caption(
+        f"Sopra {dc.MPS_DENSE_CONTRACTION_LIMIT} qubit non esiste più un array "
+        "statevector denso da costruire -- run_large_circuit_mps trova i "
+        "k stati più probabili con probabilità ESATTE (non campionate), "
+        "senza mai materializzare lo stato completo. Backend/rumore di "
+        "Costruisci non si applicano qui: è un percorso di esecuzione separato."
+    )
+    default_large_qasm = dc.gate_tuples_to_qasm(dense_evolution.ghz_state(30), 30)
+    large_qasm_text = st.text_area(
+        "OpenQASM 2.0 (circuito grande)", value=default_large_qasm, height=200, key="large_qasm_text",
+    )
+    k_states = st.slider("k (quanti stati più probabili mostrare)", 1, 100, 32, key="large_k")
+    large_seed = st.number_input("Seed", min_value=0, max_value=2 ** 31 - 1, value=42, step=1, key="large_seed")
+
+    if st.button("Esegui in modalità MPS", type="primary"):
+        try:
+            large_result = dc.run_large_circuit_mps(large_qasm_text, k=int(k_states), seed=int(large_seed))
+            st.session_state["large_mps_result"] = large_result
+            st.session_state["large_mps_error"] = None
+        except Exception as exc:
+            st.session_state["large_mps_result"] = None
+            st.session_state["large_mps_error"] = str(exc)
+
+    large_error = st.session_state.get("large_mps_error")
+    large_result = st.session_state.get("large_mps_result")
+    if large_error:
+        st.error(f"Errore: {large_error}")
+    elif large_result is not None:
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Qubit", large_result.n_qubits)
+        col2.metric("Bond massimo usato", large_result.mps_max_bond_used)
+        col3.metric("Memoria MPS (MB)", f"{large_result.mps_memory_mb:.2f}")
+        st.caption(f"Errore medio di troncamento (JSD): {large_result.mps_avg_jsd:.2e}")
+        top_states_sorted = sorted(large_result.top_k_states, key=lambda t: -t[1])
+        st.dataframe(
+            [{"stato": bits, "probabilità": p} for bits, p in top_states_sorted],
+            width="stretch",
+        )
 
 
 # ── IMPORTA CIRCUITO ─────────────────────────────────────────────────────
