@@ -195,8 +195,8 @@ elif section == "Risultati":
                 cols[i + 2].metric("Memoria MPS (MB)", f"{result.mps_memory_mb:.2f}")
             if result.fidelity_vs_ideal is not None:
                 st.caption("Fedeltà = quanto il run rumoroso si discosta dal circuito ideale (1.0 = identico).")
-        tab_sv, tab_prob, tab_qsphere, tab_bloch = st.tabs(
-            ["Statevector", "Probabilità", "Q-sphere", "Bloch per qubit"]
+        tab_sv, tab_prob, tab_qsphere, tab_bloch, tab_entropy = st.tabs(
+            ["Statevector", "Probabilità", "Q-sphere", "Bloch per qubit", "Entropia & informazione mutua"]
         )
         with tab_sv:
             st.caption(f"{result.n_qubits} qubit — {len(result.statevector)} ampiezze (convenzione Qiskit)")
@@ -220,6 +220,50 @@ elif section == "Risultati":
         with tab_bloch:
             st.caption("Una sfera di Bloch per ogni qubit -- dalla sua matrice densità ridotta.")
             st.pyplot(dc.bloch_multivector_figure(result.statevector))
+        with tab_entropy:
+            st.caption(
+                "Un qubit entangled ha <Z>=0 anche se il suo partner ha subito un'operazione -- "
+                "l'informazione mutua vede correlazioni che un valore di aspettazione singolo non "
+                "può vedere per costruzione (teorema no-signaling). Numerazione qubit: come in "
+                "Risultati (convenzione Qiskit)."
+            )
+            all_qubits = list(range(result.n_qubits))
+            qa_text = st.text_input("Sottosistema A (indici separati da virgola)", value="0", key="entropy_a")
+            qb_text = st.text_input("Sottosistema B (indici separati da virgola)", value="1" if result.n_qubits > 1 else "", key="entropy_b")
+            if st.button("Calcola entropia e informazione mutua"):
+                try:
+                    qa = [int(x) for x in qa_text.split(",") if x.strip() != ""]
+                    qb = [int(x) for x in qb_text.split(",") if x.strip() != ""]
+                    if set(qa) & set(qb):
+                        raise ValueError("i due sottosistemi devono essere disgiunti")
+                    # Same Qiskit-little-endian -> native-MSB-first conversion
+                    # as Magia & Divergenze: flip each index before calling
+                    # partial_trace/mutual_information, which use dense_evolution's
+                    # own convention, not Qiskit's.
+                    n = result.n_qubits
+                    native_a = [n - 1 - q for q in qa]
+                    native_b = [n - 1 - q for q in qb]
+                    rho_a = dense_evolution.partial_trace(result.statevector, n, native_a)
+                    rho_b = dense_evolution.partial_trace(result.statevector, n, native_b)
+                    s_a = dense_evolution.von_neumann_entropy(rho_a)
+                    s_b = dense_evolution.von_neumann_entropy(rho_b)
+                    i_ab = dense_evolution.mutual_information(result.statevector, n, native_a, native_b)
+                    st.session_state["entropy_result"] = (s_a, s_b, i_ab)
+                    st.session_state["entropy_error"] = None
+                except Exception as exc:
+                    st.session_state["entropy_result"] = None
+                    st.session_state["entropy_error"] = str(exc)
+
+            entropy_error = st.session_state.get("entropy_error")
+            entropy_result = st.session_state.get("entropy_result")
+            if entropy_error:
+                st.error(f"Errore: {entropy_error}")
+            elif entropy_result is not None:
+                s_a, s_b, i_ab = entropy_result
+                col1, col2, col3 = st.columns(3)
+                col1.metric("S(A) (nat)", f"{s_a:.4f}")
+                col2.metric("S(B) (nat)", f"{s_b:.4f}")
+                col3.metric("I(A:B) (nat)", f"{i_ab:.4f}")
 
 
 # ── CHIMICA ──────────────────────────────────────────────────────────────
@@ -630,10 +674,17 @@ elif section == "Magia & Divergenze":
         st.caption("Zero per ogni stato stabilizzatore, positiva per stati 'magici' (non-Clifford).")
 
         qubit_idx = st.number_input(
-            "Qubit per magic_entropy (singolo qubit)", min_value=0, max_value=result.n_qubits - 1,
-            value=0, key="magic_qubit",
+            "Qubit per magic_entropy (singolo qubit, numerazione Qiskit -- come in Risultati)",
+            min_value=0, max_value=result.n_qubits - 1, value=0, key="magic_qubit",
         )
-        rho = dense_evolution.partial_trace(result.statevector, result.n_qubits, [int(qubit_idx)])
+        # result.statevector is in Qiskit's little-endian order; partial_trace
+        # uses dense_evolution's own MSB-first convention -- the two disagree
+        # on which physical qubit index N means, so the Qiskit-facing index
+        # has to be flipped before calling it (BUG FIX: this used to pass
+        # qubit_idx straight through, silently tracing out a different qubit
+        # than the one displayed everywhere else in the app).
+        native_qubit_idx = result.n_qubits - 1 - int(qubit_idx)
+        rho = dense_evolution.partial_trace(result.statevector, result.n_qubits, [native_qubit_idx])
         st.metric(f"magic_entropy (qubit {qubit_idx})", f"{magic_entropy(rho):.6f} bit")
         st.caption("Costruzione Key-Unitary a 3 copie -- 0 per |0>,|1>,|+>,|->,|+i>,|-i>, 0.811 per T e H.")
 
