@@ -28,6 +28,7 @@ import dense_evolution
 import streamlit as st
 
 import dashboard_core as dc
+dc.enable_dashboard_precision()
 
 from dense_evolution.mitigation.magic_entropy import magic_entropy
 from dense_evolution.mitigation.stabilizer_renyi_entropy import stabilizer_renyi_entropy

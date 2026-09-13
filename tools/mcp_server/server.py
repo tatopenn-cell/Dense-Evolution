@@ -33,8 +33,12 @@ own response can be tens of thousands of floats for a 20+ qubit circuit.
 Structure (prog.txt Sezione 3, now complete): settings live in config.py,
 the HTTP client + error handling in client.py, the Pydantic input schemas
 in models.py (Phase 1); image saving/truncation/molecule-catalog caching
-in utils/ and molecules.py (Phase 2); the 22 tools themselves, split by
-topic, in tools/ (Phase 3, this file). This file's only job is to create
+in utils/ and molecules.py (Phase 2); the 25 tools themselves (7 system +
+2 circuit + 7 chemistry + 3 mitigation + 3 wormhole + 3 noise -- counted
+directly from the imports below, not assumed: this docstring previously
+said 22, a real drift a `len(...) == 25` regression test now guards
+against, see test_mcp_server.py), split by topic, in tools/ (Phase 3,
+this file). This file's only job is to create
 the MCPServer instance, import each tools/*.py module so its `@mcp.tool`
 decorators register against it, re-export every tool function (so
 `from mcp_server.server import dense_evolution_health` keeps working for

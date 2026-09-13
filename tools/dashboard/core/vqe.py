@@ -208,7 +208,21 @@ def _uccsd_native_expansion(n_qubits, singles, doubles, hf_occupation, n_params)
     uses the weights=0 reference circuit -- gate order/wires depend only
     on singles/doubles/hf_occupation, never on the numeric weight
     values, so any reference weight vector would produce the same
-    structure."""
+    structure.
+
+    Cost (prog.txt, dashboard_core audit point 4d): probing builds the
+    full gate list n_params + 1 times (the zero_weights baseline, then
+    one basis vector e_i per excitation) -- necessary for correctness
+    (expansion_matrix is derived empirically here, not assumed), but
+    each build is O(n_qubits) Python-level gate-tuple construction, so
+    this is real, linear-in-n_params up-front cost before optimization
+    even starts. Fine for the handful-to-dozens of excitations typical
+    molecules in MOLECULE_CATALOG produce; a molecule with many more
+    excitations would feel this as a real, if one-time, per-run delay.
+    Not parallelized (e.g. via jax.vmap over the n_params probing
+    vectors) -- this is plain Python/NumPy gate-tuple assembly, not a
+    JAX computation, so vmap would need restructuring this as a JAX-
+    traceable operation first, not just wrapping the existing loop."""
     def param_values(weights):
         ops = _uccsd_native_ops(weights, n_qubits, singles, doubles, hf_occupation)
         # 'cx' is also a 3-tuple (name, control, target) -- must be
@@ -434,12 +448,18 @@ def run_vqe(symbols, geometry, charge=0, ansatz_type="hardware_efficient", n_lay
     exact_energy = None
     dim = 2 ** n_qubits
     if dim <= 4096:  # dense diagonalization budget: 4096^2 complex128 = 128 MB
-        if ansatz_type == "hardware_efficient" and n_params > 0:
-            exact_energy = float(np.linalg.eigvalsh(H_dense).min())
-        else:
-            H_dense_check, _ = build_molecular_hamiltonian(symbols, geometry, charge, "jordan_wigner",
-                                                             active_electrons, active_orbitals)
-            exact_energy = float(np.linalg.eigvalsh(H_dense_check).min())
+        # Both the uccsd and hardware_efficient-with-params branches above
+        # already built H_dense with these exact same arguments -- only
+        # the n_params==0 (Hartree-Fock-only, no ansatz built at all)
+        # branch never did. Reusing it there instead of a second
+        # "H_dense_check" call was previously a redundant cache lookup
+        # every time, not a bug (build_molecular_hamiltonian is cached,
+        # so it returned the identical matrix either way), but confusing
+        # flow (prog.txt, dashboard_core audit point 3c).
+        if n_params == 0:
+            H_dense, _ = build_molecular_hamiltonian(symbols, geometry, charge, "jordan_wigner",
+                                                       active_electrons, active_orbitals)
+        exact_energy = float(np.linalg.eigvalsh(H_dense).min())
 
     if n_params == 0:
         qasm = _hardware_efficient_qasm(params, n_qubits, 0, hf_occupation)

@@ -681,3 +681,13 @@ def test_per_tool_timeouts_reach_the_real_http_call(monkeypatch):
     assert seen_timeouts["/api/health"] == 5.0
     assert seen_timeouts["/api/vqe"] == 600.0
     assert seen_timeouts["/api/health"] != seen_timeouts["/api/vqe"]
+
+
+def test_registered_tool_count_matches_documented_count():
+    # prog.txt (dense_evolution_mcp audit, transversal note): server.py's
+    # own module docstring used to claim "22 tools" while the real count
+    # (counted directly from the imports at the top of that file: 7
+    # system + 2 circuit + 7 chemistry + 3 mitigation + 3 wormhole + 3
+    # noise) was 25 -- undetected drift, not a functional bug, but the
+    # exact kind a trivial len()==N test catches for free going forward.
+    assert len(mcp_adapter.mcp._tool_manager._tools) == 25

@@ -154,12 +154,24 @@ MOLECULE_CATALOG = {
 _pennylane_hamiltonian_cache = {}
 _dense_hamiltonian_cache = {}
 
-# Same physical floor as dashboard_core.qmmm.MIN_NUCLEAR_DISTANCE_ANGSTROM
-# (kept as a separate constant here, not imported, since qmmm.py already
-# imports from this module -- importing back would be circular). Any real
-# atomic radius is well above this; two nuclei closer than this in an
-# *input* geometry (as opposed to qmmm's own post-MD-step divergence
-# check) means malformed input, not physics.
+
+def _geometry_key(geometry):
+    """Hashable form of a geometry array for the three caches below
+    (prog.txt, dashboard_core audit point 5b): the one genuinely
+    fiddly, drift-prone part of each cache key -- rounding to 10
+    decimals so float noise doesn't spuriously miss a cache hit, then
+    converting to a tuple-of-tuples so it's hashable at all. Shared
+    here instead of each cache re-deriving its own copy of this exact
+    conversion, which had already drifted slightly (np.asarray(...)
+    wrapping present in one call site, absent in another, before this)."""
+    return tuple(map(tuple, np.asarray(geometry, dtype=float).round(10)))
+
+# Single source of truth for this constant (prog.txt, dashboard_core audit
+# point 1d) -- dashboard_core.qmmm imports it from here instead of
+# redefining it (it already imports several other names from this module,
+# so this isn't circular). Any real atomic radius is well above this; two
+# nuclei closer than this in an *input* geometry (as opposed to qmmm's own
+# post-MD-step divergence check) means malformed input, not physics.
 MIN_NUCLEAR_DISTANCE_ANGSTROM = 0.3
 
 
@@ -225,8 +237,7 @@ def _get_native_hamiltonian(symbols, geometry, charge, mapping, active_electrons
 
     geometry = _validate_geometry(symbols, geometry)
 
-    key = (tuple(symbols), tuple(map(tuple, geometry.round(10))), charge,
-           active_electrons, active_orbitals)
+    key = (tuple(symbols), _geometry_key(geometry), charge, active_electrons, active_orbitals)
     if key in _native_hamiltonian_cache:
         return _native_hamiltonian_cache[key]
 
@@ -255,8 +266,7 @@ def _get_pennylane_hamiltonian(symbols, geometry, charge, mapping, active_electr
 
     geometry = _validate_geometry(symbols, geometry)
 
-    key = (tuple(symbols), tuple(map(tuple, geometry.round(10))), charge, mapping,
-           active_electrons, active_orbitals)
+    key = (tuple(symbols), _geometry_key(geometry), charge, mapping, active_electrons, active_orbitals)
     if key in _pennylane_hamiltonian_cache:
         return _pennylane_hamiltonian_cache[key]
 
@@ -365,8 +375,7 @@ def build_molecular_hamiltonian(symbols, geometry, charge: int = 0, mapping: str
     """
     H, n_qubits = _get_hamiltonian(symbols, geometry, charge, mapping, active_electrons, active_orbitals)
 
-    dense_key = (tuple(symbols), tuple(map(tuple, np.asarray(geometry).round(10))), charge, mapping,
-                 active_electrons, active_orbitals)
+    dense_key = (tuple(symbols), _geometry_key(geometry), charge, mapping, active_electrons, active_orbitals)
     if dense_key in _dense_hamiltonian_cache:
         return _dense_hamiltonian_cache[dense_key]
 

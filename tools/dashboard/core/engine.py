@@ -61,8 +61,18 @@ def _qiskit_bit_order_perm(n_qubits: int) -> np.ndarray:
     fixed molecule/preset re-run with different parameters) was
     rebuilding an identical array every single call. lru_cache keys on
     the (hashable) n_qubits argument only -- the returned array itself
-    doesn't need to be hashable."""
-    perm = np.array([int(format(i, f'0{n_qubits}b')[::-1], 2) for i in range(2 ** n_qubits)])
+    doesn't need to be hashable.
+
+    Vectorized bit-reversal (prog.txt, dashboard_core audit point 1b/4c):
+    loops over n_qubits bit positions, not over the 2**n_qubits indices
+    themselves like the previous `format(i, ...)[::-1]`-per-index Python
+    loop did -- the same fix already applied to
+    dense_evolution.interop.qiskit_pennylane's own copy of this exact
+    permutation."""
+    idx = np.arange(2 ** n_qubits)
+    perm = np.zeros_like(idx)
+    for b in range(n_qubits):
+        perm |= ((idx >> b) & 1) << (n_qubits - 1 - b)
     perm.setflags(write=False)  # cached and shared across calls -- never mutate in place
     return perm
 

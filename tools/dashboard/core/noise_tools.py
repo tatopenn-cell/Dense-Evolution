@@ -93,6 +93,16 @@ def run_density_matrix_channel(qasm_text: str, channel: str, param: float) -> De
 
     parsed = de.QASMParser().parse(qasm_text)
     n_qubits = parsed.n_qubits
+    # BUG FIX (prog.txt, dashboard_core audit point 3d): this function
+    # builds two full dim x dim density matrices (rho, rho_noisy) but,
+    # unlike engine.py's and mitigation.py's own equivalents, never
+    # checked SafeMemoryGuard before allocating -- the same class of OOM
+    # the rest of the dashboard already prevents. Same dim*dim*16-per-
+    # matrix estimate mitigation.py's own density-matrix guard uses.
+    dim = 2 ** n_qubits
+    required_mb = dim * dim * 16 / 1e6 * 2
+    de.chunk.SafeMemoryGuard().check_allocation(required_mb, context=f"{n_qubits}-qubit density matrix channel")
+
     sim = de.DenseSVSimulator(n_qubits)
     sim.run_circuit(parsed.to_tuples())
     sv = np.asarray(sim.get_statevector())

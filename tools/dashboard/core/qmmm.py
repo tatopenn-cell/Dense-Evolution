@@ -39,29 +39,34 @@ Hellmann-Feynman, not a fully relaxed force), rising sharply and
 correctly signed as a restoring force at a stretched 1.2 A bond.
 """
 import numpy as np
-import pennylane as qml
 from scipy import constants as _c
 
-import dense_evolution as de
-from .hamiltonians import MOLECULE_CATALOG, build_molecular_hamiltonian, _pennylane_hamiltonian_to_pauli_terms
+from .hamiltonians import (
+    MOLECULE_CATALOG, build_molecular_hamiltonian, MIN_NUCLEAR_DISTANCE_ANGSTROM,
+)
 
 __all__ = [
     'ATOMIC_MASSES_AMU', 'compute_hellmann_feynman_forces', 'md_step', 'run_md_trajectory',
     'MIN_NUCLEAR_DISTANCE_ANGSTROM',
 ]
 
-# Real MD safety floor, not a fabricated number: shorter than any real
-# covalent bond this project's molecule catalog could ever produce (H2's
-# own equilibrium is 0.7414 A) -- run_md_trajectory checks new positions
-# against this after every Velocity-Verlet step, since Hartree-Fock at a
-# near-collided geometry (the failure mode a too-large dt_fs drives
-# light atoms like H toward) diverges rather than raising a clear error,
-# making the actual cause hard to diagnose from the resulting crash.
-# md_step itself stays a bare, unchecked F=ma primitive -- the check
-# belongs at run_md_trajectory's real-simulation boundary, not the
-# mechanical formula (tests exercise md_step directly with synthetic,
-# not physically meaningful, starting positions).
-MIN_NUCLEAR_DISTANCE_ANGSTROM = 0.3
+# MIN_NUCLEAR_DISTANCE_ANGSTROM itself lives in hamiltonians.py now (prog.txt,
+# dashboard_core audit point 1d) -- this module already imports several
+# other names from there (see above), so importing this one too is not
+# circular; it was previously redefined here under a comment reasoning
+# the opposite (that importing it WOULD be circular), which had the
+# import direction backwards. Real MD safety floor, not a fabricated
+# number: shorter than any real covalent bond this project's molecule
+# catalog could ever produce (H2's own equilibrium is 0.7414 A) --
+# run_md_trajectory checks new positions against this after every
+# Velocity-Verlet step, since Hartree-Fock at a near-collided geometry
+# (the failure mode a too-large dt_fs drives light atoms like H toward)
+# diverges rather than raising a clear error, making the actual cause
+# hard to diagnose from the resulting crash. md_step itself stays a
+# bare, unchecked F=ma primitive -- the check belongs at
+# run_md_trajectory's real-simulation boundary, not the mechanical
+# formula (tests exercise md_step directly with synthetic, not
+# physically meaningful, starting positions).
 
 
 def _assert_no_nuclear_collision(positions, step, dt_fs):
@@ -88,7 +93,7 @@ def _assert_no_nuclear_collision(positions, step, dt_fs):
 # molecule catalog actually uses (H2, HeH+, H3+, LiH, H2O) -- only what's
 # needed, not the full periodic table, so nothing here is an unverified
 # guess for an element no catalog molecule contains.
-ATOMIC_MASSES_AMU = {'H': 1.008, 'He': 4.0026, 'Li': 6.94, 'O': 16.00}
+ATOMIC_MASSES_AMU = {'H': 1.008, 'He': 4.0026, 'Li': 6.94, 'O': 16.00, 'Si': 28.085}
 
 # a [Angstrom/fs^2] = ACCEL_CONVERSION * F[Hartree/Angstrom] / mass[amu]
 # -- derived from CODATA (scipy.constants), verified 2026-08-05:
@@ -100,20 +105,27 @@ ACCEL_CONVERSION = (
 )
 
 
-def _reference_ground_state(symbols, geometry, charge, mapping):
+def _reference_ground_state(symbols, geometry, charge, mapping, active_electrons=None, active_orbitals=None):
     """Real ground-state eigenvector of the molecule's real Hamiltonian at
-    the given geometry, via this project's own native dense-matrix builder
-    (dense_evolution.pauli_hamiltonian_to_matrix from PennyLane's real
-    Pauli decomposition -- same construction dashboard_core.hamiltonians
-    uses, verified there to match qml.matrix(H) exactly). Not part of the
-    differentiable path -- this is evaluated once at a fixed geometry to
-    get a real electronic state, then held fixed while forces are
-    computed at (possibly different) geometries, exactly as the
-    Hellmann-Feynman theorem requires."""
-    molecule = qml.qchem.Molecule(symbols, np.asarray(geometry), charge=charge, unit="angstrom")
-    H, n_qubits = qml.qchem.molecular_hamiltonian(molecule, method="dhf", mapping=mapping)
-    terms = _pennylane_hamiltonian_to_pauli_terms(H, n_qubits)
-    h_matrix = de.pauli_hamiltonian_to_matrix(terms, n_qubits)
+    the given geometry, via build_molecular_hamiltonian -- the same
+    construction dashboard_core.hamiltonians' own energy/VQE panels use,
+    with its own native_hf fallback for elements outside PennyLane's
+    bundled STO-3G table (e.g. Si). Not part of the differentiable path
+    -- this is evaluated once at a fixed geometry to get a real
+    electronic state, then held fixed while forces are computed at
+    (possibly different) geometries, exactly as the Hellmann-Feynman
+    theorem requires.
+
+    BUG FIX (prog.txt, dashboard_core audit point 3a): this used to call
+    qml.qchem.Molecule/molecular_hamiltonian directly instead of going
+    through build_molecular_hamiltonian, so any molecule needing the
+    native_hf fallback (Si2 is in MOLECULE_CATALOG precisely because it
+    needs it) crashed here with PennyLane's own "basis set data is not
+    available for Si" error -- even though the rest of this module
+    (energy_at, below) already used the fallback-aware path and would
+    otherwise have worked."""
+    h_matrix, n_qubits = build_molecular_hamiltonian(
+        symbols, geometry, charge, mapping, active_electrons, active_orbitals)
     eigvals, eigvecs = np.linalg.eigh(h_matrix)
     return eigvecs[:, 0], float(eigvals[0]), n_qubits
 
@@ -135,6 +147,25 @@ def compute_hellmann_feynman_forces(name: str, statevector=None, mapping: str = 
     same fixed catalog geometry again (the actual bug this parameter was
     added to fix: run_md_trajectory originally never passed its own
     updated positions back in here).
+
+    Cost (prog.txt, dashboard_core audit point 4a): the central-difference
+    derivative evaluates energy_at 6*n_atoms+1 times (H2's 2 atoms -> 13
+    Hamiltonian builds per call, each at a genuinely different geometry).
+    This looks like it should be cacheable -- build_molecular_hamiltonian
+    already caches by exact geometry -- but it isn't in practice: every
+    one of the 13 geometries differs by fd_step_angstrom, so every call
+    is a cache miss. Measured directly on H2 (dhf/PennyLane path) before
+    deciding not to add a "cache the Pauli-term basis" layer here: HF +
+    fermion-to-qubit mapping took 0.130s, Pauli-term extraction 0.0005s,
+    dense matrix assembly 0.0031s -- the Hartree-Fock solve itself is
+    96%+ of the cost, not the bookkeeping after it, so caching the
+    Pauli-term structure would save a few percent at best, not the
+    6*n_atoms multiplier prog.txt's framing suggests. A real geometry
+    change requires a real HF re-solve regardless of how its output gets
+    packaged afterward -- see the module docstring's own account of why
+    analytic differentiation (which WOULD avoid re-solving HF this many
+    times) was tried and dropped for a real cross-platform PennyLane/
+    autograd bug, not reattempted here.
 
     Parameters
     ----------
@@ -168,6 +199,17 @@ def compute_hellmann_feynman_forces(name: str, statevector=None, mapping: str = 
     if geometry is None:
         geometry = spec["geometry"]() if callable(spec["geometry"]) else spec["geometry"]
     charge = spec["charge"]
+    # BUG FIX (prog.txt, dashboard_core audit point 3a): these two were
+    # never read from spec at all, so any catalog entry needing active-
+    # space reduction (Si2 is the reason it's in MOLECULE_CATALOG) built
+    # the FULL Hamiltonian instead of the reduced one here -- for Si2
+    # specifically, 36 qubits instead of the intended 8, which
+    # SafeMemoryGuard correctly refuses to allocate. Both
+    # _reference_ground_state and energy_at below need these to build
+    # the same, correctly-reduced Hamiltonian this molecule's other
+    # dashboard panels (VQE, energy scan) already use.
+    active_electrons = spec.get("active_electrons")
+    active_orbitals = spec.get("active_orbitals")
 
     unknown = [s for s in symbols if s not in ATOMIC_MASSES_AMU]
     if unknown:
@@ -175,12 +217,14 @@ def compute_hellmann_feynman_forces(name: str, statevector=None, mapping: str = 
                           f"ATOMIC_MASSES_AMU before using this molecule here")
 
     if statevector is None:
-        statevector, _gs_energy, _n_qubits = _reference_ground_state(symbols, geometry, charge, mapping)
+        statevector, _gs_energy, _n_qubits = _reference_ground_state(
+            symbols, geometry, charge, mapping, active_electrons, active_orbitals)
     sv = np.asarray(statevector, dtype=np.complex128)
     geometry = np.asarray(geometry, dtype=np.float64)
 
     def energy_at(geom):
-        h_matrix, _n_qubits = build_molecular_hamiltonian(symbols, geom, charge, mapping)
+        h_matrix, _n_qubits = build_molecular_hamiltonian(
+            symbols, geom, charge, mapping, active_electrons, active_orbitals)
         return float(np.real(np.vdot(sv, h_matrix @ sv)))
 
     energy = energy_at(geometry)
@@ -274,8 +318,11 @@ def run_md_trajectory(name: str, n_steps: int, dt_fs: float = 0.5, mapping: str 
     symbols = spec["symbols"]
     geometry = spec["geometry"]() if callable(spec["geometry"]) else spec["geometry"]
     charge = spec["charge"]
+    active_electrons = spec.get("active_electrons")
+    active_orbitals = spec.get("active_orbitals")
 
-    statevector, _gs_energy, _n_qubits = _reference_ground_state(symbols, geometry, charge, mapping)
+    statevector, _gs_energy, _n_qubits = _reference_ground_state(
+        symbols, geometry, charge, mapping, active_electrons, active_orbitals)
     positions = np.asarray(geometry, dtype=np.float64)
     velocities = np.zeros_like(positions)
 
@@ -294,6 +341,7 @@ def run_md_trajectory(name: str, n_steps: int, dt_fs: float = 0.5, mapping: str 
         _assert_no_nuclear_collision(positions, step, dt_fs)
 
         if recompute_electronic_state:
-            statevector, _gs_energy, _n_qubits = _reference_ground_state(symbols, positions, charge, mapping)
+            statevector, _gs_energy, _n_qubits = _reference_ground_state(
+                symbols, positions, charge, mapping, active_electrons, active_orbitals)
 
     return trajectory

@@ -8,15 +8,12 @@ any custom circuit typed in by hand.
 
 import dense_evolution as de
 
-__all__ = ['QASM_LIBRARY', 'gate_tuples_to_qasm']
+from ._gate_tables import (
+    _ONE_QUBIT_STATIC, _ONE_QUBIT_PARAM, _TWO_QUBIT_STATIC,
+    _TWO_QUBIT_PARAM, _THREE_QUBIT_STATIC,
+)
 
-# Matches dense_evolution/compiler.py's own gate categories (same split
-# dense_evolution/drawing.py uses for _LABELS / _TWO_QUBIT_TARGET_SYMBOL).
-_ONE_QUBIT_STATIC = {"h", "x", "y", "z", "s", "sdg", "t", "tdg", "sx", "id"}
-_ONE_QUBIT_PARAM = {"rx", "ry", "rz", "p", "u1", "phase"}
-_TWO_QUBIT_STATIC = {"cx", "cz", "cy", "swap"}
-_TWO_QUBIT_PARAM = {"cp", "crz"}
-_THREE_QUBIT_STATIC = {"ccx"}
+__all__ = ['QASM_LIBRARY', 'gate_tuples_to_qasm']
 
 
 def gate_tuples_to_qasm(ops, n_qubits: int, measure: bool = True) -> str:
