@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dense-evolution"
-version = "8.1.79"
+version = "8.1.80"
 description = "High-performance quantum simulation toolkit -- Statevector/MPS engines with JIT compilation, noise modeling, VQE, QEC, quantum chemistry, and agent-native tooling"
 readme = "README.md"
 requires-python = ">=3.9"
