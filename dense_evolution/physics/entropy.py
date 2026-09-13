@@ -30,6 +30,13 @@ __all__ = ['partial_trace', 'von_neumann_entropy', 'mutual_information', 'centra
 def partial_trace(state, n_qubits, keep_qubits):
     """Reduced density matrix on `keep_qubits`, tracing out the rest.
 
+    MSB-first (qubit 0 = most significant bit), this package's own
+    convention everywhere else -- NOT the same as dashboard_core.
+    state_visuals._reduced_density_matrix, which is deliberately
+    little-endian (Qiskit's convention) for its own Bloch-sphere/Q-sphere
+    display consumers. Two genuinely different conventions for two
+    different consumers, not an accidental divergence.
+
     Parameters
     ----------
     state : np.ndarray
@@ -37,13 +44,6 @@ def partial_trace(state, n_qubits, keep_qubits):
     n_qubits : int
     keep_qubits : list[int]
         Qubit indices (this package's MSB-first convention) to keep.
-
-    MSB-first (qubit 0 = most significant bit), this package's own
-    convention everywhere else -- NOT the same as dashboard_core.
-    state_visuals._reduced_density_matrix, which is deliberately
-    little-endian (Qiskit's convention) for its own Bloch-sphere/Q-sphere
-    display consumers. Two genuinely different conventions for two
-    different consumers, not an accidental divergence.
 
     Returns
     -------
