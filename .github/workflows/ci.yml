@@ -54,7 +54,13 @@ jobs:
           python-version: "3.12"
       - run: |
           python -m pip install --upgrade pip
-          pip install pytest numpy jax jaxlib pennylane psutil matplotlib
+          # plotly: tests/integration/conftest.py's autouse fixture imports
+          # dashboard_core, which imports band_structure.py (import plotly.
+          # graph_objects at module level) -- this job's own install list
+          # never had it, so ANY docs-only change hitting this fast path
+          # (not just the incidental 0-diff push that first surfaced this)
+          # would fail here with ModuleNotFoundError: no module named 'plotly'.
+          pip install pytest numpy jax jaxlib pennylane psutil matplotlib plotly
           pip install -e . --no-deps
       - run: pytest tests/integration/test_docs_examples.py -v --tb=short
 
