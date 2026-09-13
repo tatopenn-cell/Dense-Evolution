@@ -22,10 +22,17 @@ __all__ = [
     'energy_landscape_figure', 'zne_bar_figure', 'qec_syndrome_map_figure',
 ]
 
-# dense_evolution.registry sets plt.style.use('dark_background') globally
-# for its own diagnostic plots (import-time side effect). Rendering inside
-# style.context('default') pins every figure here to matplotlib's light
-# default regardless of whatever other modules have globally changed.
+# dense_evolution.registry's dark_background styling used to be a bare
+# import-time side effect -- fixed (prog.txt, core audit point 2, PR
+# #256) into an explicit, opt-in apply_dark_theme(), so it no longer
+# fires just from importing dense_evolution. Nothing in this dashboard
+# calls it today, but plt.style.use() is a genuinely global, process-wide
+# mutation, so the wrapper below isn't guarding a stale concern (prog.txt,
+# dashboard_core audit point 5a) -- it's still real protection: rendering
+# inside style.context('default') pins every figure here to matplotlib's
+# light default regardless of whatever ELSE in the same process (a future
+# caller of apply_dark_theme(), another library, a user's own
+# matplotlibrc) may have changed globally.
 _LIGHT_STYLE = 'default'
 
 

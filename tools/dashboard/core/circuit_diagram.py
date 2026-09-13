@@ -10,27 +10,39 @@ keep using Qiskit's own drawer without constructing that object, so this
 module draws directly from the same (name, *qubits[, param]) gate-tuple
 format every other dense_evolution entry point already uses.
 
-Gate vocabulary mirrors dashboard_core/engine.py's dispatch tables
-exactly (_ONE_QUBIT_STATIC / _ONE_QUBIT_PARAM / _TWO_QUBIT_STATIC /
-_TWO_QUBIT_PARAM / _THREE_QUBIT_STATIC) -- the same gate set QASMParser
-can ever hand back, so nothing here can see a name it doesn't recognize.
+Gate vocabulary comes from dashboard_core._gate_tables (_ONE_QUBIT_STATIC /
+_ONE_QUBIT_PARAM / _TWO_QUBIT_STATIC / _TWO_QUBIT_PARAM /
+_THREE_QUBIT_STATIC), shared with qasm_library.py -- the same gate set
+QASMParser can ever hand back, so nothing here can see a name it doesn't
+recognize. Was a second, independently hand-copied set of these 5
+constants until this shared import (prog.txt, dashboard_core audit point
+2): this copy was missing the 'u1'/'phase' aliases the other one had,
+so a circuit using either of those two real gate names crashed this
+function with "unsupported gate for native circuit diagram" -- a real
+bug the duplication caused, not just a divergence risk.
 """
 
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle, Rectangle
 
-__all__ = ['draw_native_circuit_diagram']
+from ._gate_tables import (
+    _ONE_QUBIT_STATIC, _ONE_QUBIT_PARAM, _TWO_QUBIT_STATIC,
+    _TWO_QUBIT_PARAM, _THREE_QUBIT_STATIC,
+)
 
-_ONE_QUBIT_STATIC = {"h", "x", "y", "z", "s", "sdg", "t", "tdg", "sx", "id"}
-_ONE_QUBIT_PARAM = {"rx", "ry", "rz", "p"}
-_TWO_QUBIT_STATIC = {"cx", "cz", "cy", "swap"}
-_TWO_QUBIT_PARAM = {"cp", "crz"}
-_THREE_QUBIT_STATIC = {"ccx"}
+__all__ = ['draw_native_circuit_diagram']
 
 _BOX_LABEL = {
     "h": "H", "x": "X", "y": "Y", "z": "Z", "s": "S", "sdg": "S†",
     "t": "T", "tdg": "T†", "sx": "√X", "id": "I",
     "rx": "RX", "ry": "RY", "rz": "RZ", "p": "P",
+    # u1/phase are the same gate as 'p' (see _gate_tables.py) -- without
+    # an entry here they'd still draw (that bug is fixed), just as the
+    # raw uppercased name ("U1"/"PHASE") instead of the same "P" label
+    # 'p' gets, inconsistent with dense_evolution/utils/drawing.py's own
+    # _LABELS, which already maps all three to "P" (prog.txt, dashboard_core
+    # audit point 5e).
+    "u1": "P", "phase": "P",
     "cy": "Y", "cp": "P", "crz": "RZ",
 }
 

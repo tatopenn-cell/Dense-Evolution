@@ -59,38 +59,13 @@ from functools import lru_cache
 import numpy as np
 
 import dense_evolution as de
-from dense_evolution import mutual_information, majorana_pauli_terms, trotter_evolve_ops
+from dense_evolution import mutual_information, majorana_pauli_terms, trotter_evolve_ops, multiply_pauli_terms
 
 __all__ = [
     'build_sparse_syk_terms', 'commuting_pair_count', 'select_good_instance',
     'run_wormhole_protocol', 'run_wormhole_protocol_trotter',
     'run_wormhole_protocol_finite_beta', 'find_delta_beta_bands',
 ]
-
-
-def _multiply_pauli_dicts(dicts):
-    """Multiply several single-qubit-Pauli dicts together, per qubit,
-    tracking the i^k phase from same-qubit Pauli products (XY=iZ etc.).
-    Returns (phase, merged_dict)."""
-    mul = {
-        ('X', 'X'): (1, None), ('Y', 'Y'): (1, None), ('Z', 'Z'): (1, None),
-        ('X', 'Y'): (1j, 'Z'), ('Y', 'X'): (-1j, 'Z'),
-        ('Y', 'Z'): (1j, 'X'), ('Z', 'Y'): (-1j, 'X'),
-        ('Z', 'X'): (1j, 'Y'), ('X', 'Z'): (-1j, 'Y'),
-    }
-    merged, phase = {}, 1.0
-    for d in dicts:
-        for q, p in d.items():
-            if q not in merged:
-                merged[q] = p
-            else:
-                ph, newp = mul[(merged[q], p)]
-                phase *= ph
-                if newp is None:
-                    del merged[q]
-                else:
-                    merged[q] = newp
-    return phase, merged
 
 
 def _embed(mode_index, n_qubits_side, offset):
@@ -133,7 +108,13 @@ def build_sparse_syk_terms(n_majorana, k_terms, J, seed):
         quad = all_quads[idx]
         sign = rng.choice([-1.0, 1.0])
         dicts = [majorana_pauli_terms(m, n_qubits)[1] for m in quad]
-        phase, merged = _multiply_pauli_dicts(dicts)
+        # prog.txt (dashboard_core audit) point 1a: this used to be a
+        # private, hand-copied _multiply_pauli_dicts here -- the same
+        # multiplication table dense_evolution.multiply_pauli_terms
+        # already implements (its own docstring says it was "Promoted
+        # from dashboard_core.wormhole's _multiply_pauli_dicts", but this
+        # module was never updated to actually import it back).
+        phase, merged = multiply_pauli_terms([(1.0, d) for d in dicts])
         raw_coeff = sign * coupling * phase
         # BUG FIX: raw_coeff carried a complex128 dtype all the way
         # downstream into trotter.py's pauli_rotation_ops (angle=coeff*dt),
@@ -149,12 +130,17 @@ def build_sparse_syk_terms(n_majorana, k_terms, J, seed):
         # is exactly 0.0 across 120 (n_majorana, seed) combinations tested
         # (8/12/16/20 Majoranas x 30 seeds each), so this asserts the
         # documented physics instead of silently trusting it.
-        assert abs(raw_coeff.imag) < 1e-12, (
-            f"SYK term coefficient has a non-negligible imaginary part "
-            f"({raw_coeff.imag}) -- a real bug (this should be exactly real, "
-            f"see this function's docstring), not the harmless complex128 "
-            f"dtype-with-zero-imaginary-part this assertion normally guards."
-        )
+        if abs(raw_coeff.imag) >= 1e-12:
+            # BUG FIX (prog.txt, dashboard_core audit point 3b): was
+            # `assert`, silently stripped under python -O -- same fix
+            # already applied in vqe.py's own two desync checks, not yet
+            # applied here.
+            raise ValueError(
+                f"SYK term coefficient has a non-negligible imaginary part "
+                f"({raw_coeff.imag}) -- a real bug (this should be exactly real, "
+                f"see this function's docstring), not the harmless complex128 "
+                f"dtype-with-zero-imaginary-part this check normally guards."
+            )
         terms.append((float(raw_coeff.real), merged))
     return n_qubits, terms
 

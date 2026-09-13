@@ -190,6 +190,18 @@ def run_density_matrix_zne(
     zne_density_matrix's own docstring (experiments/matrix_healing_zne.py:
     raw ~0.865, corrected ~0.947 on a 2-qubit Bell state).
 
+    noise_factors defaults to the same 3-point set as run_zne_mitigation's
+    own Richardson default (prog.txt, dashboard_core audit point 5c: this
+    used to have no stated reason here, unlike that function's explicit
+    one) -- zne_density_matrix always fits via polynomial_extrapolate
+    (degree=2), which is mathematically IDENTICAL to exact Richardson
+    interpolation at exactly 3 points (its own "original design point")
+    but, unlike Richardson, stays well-behaved with MORE than 3 -- so a
+    caller can safely pass extra noise_factors here for more averaging,
+    without the interpolation degradation that would apply to
+    run_zne_mitigation's Richardson path at the same move (see
+    zne_density_matrix's own docstring for the measured numbers).
+
     Examples
     --------
     >>> from dashboard_core.mitigation import run_density_matrix_zne

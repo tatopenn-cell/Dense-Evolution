@@ -87,6 +87,17 @@ def _reduced_density_matrix(statevector: np.ndarray, n_qubits: int, qubit: int) 
     traced out via M @ M^dagger. Verified directly against a Bell pair:
     each qubit's reduced state comes back exactly I/2 (maximally mixed),
     the known analytic answer for a maximally entangled 2-qubit state.
+
+    Deliberately NOT dense_evolution.physics.entropy.partial_trace (prog.txt,
+    dashboard_core audit point 1c): that function is MSB-first (qubit 0 =
+    most significant bit, this project's own native convention everywhere
+    else), single-qubit-only here needs the opposite, Qiskit-matching
+    little-endian layout, since this feeds the Bloch-sphere/Q-sphere
+    panels that display in Qiskit's own bit order (see engine.py's
+    SimulationResult docstring: "statevector, Qiskit bit order"). Two
+    genuinely different conventions for two different consumers, not an
+    accidental reimplementation -- kept separate rather than adding a
+    bit_order flag to the core function for a dashboard-only need.
     """
     tensor = statevector.reshape((2,) * n_qubits)
     axis = n_qubits - 1 - qubit
@@ -148,6 +159,23 @@ def native_bloch_multivector_figure(statevector: np.ndarray):
     return fig
 
 
+def _popcount(x: np.ndarray) -> np.ndarray:
+    """Vectorized Hamming weight (bit count) of each element -- a portable
+    SWAR bit-counting trick (numpy int/bitwise ops only), not np.bitwise_
+    count, which needs NumPy >=2.0 (this project declares numpy>=1.22.0).
+    Replaces a `bin(int(i)).count("1")` Python-level loop over indices
+    (prog.txt, dashboard_core audit point 4b) -- real cost at high qubit
+    count with many states above prob_threshold, even though the initial
+    threshold filter itself was already vectorized. Verified to match
+    the Python reference exactly on 5000 random 24-bit values before
+    replacing it."""
+    x = x.astype(np.uint64)
+    x = x - ((x >> np.uint64(1)) & np.uint64(0x5555555555555555))
+    x = (x & np.uint64(0x3333333333333333)) + ((x >> np.uint64(2)) & np.uint64(0x3333333333333333))
+    x = (x + (x >> np.uint64(4))) & np.uint64(0x0f0f0f0f0f0f0f0f)
+    return ((x * np.uint64(0x0101010101010101)) >> np.uint64(56)).astype(np.int64)
+
+
 def native_qsphere_figure(statevector: np.ndarray, prob_threshold: float = 1e-3):
     """Q-sphere: every basis state with non-negligible probability placed
     on a sphere by Hamming weight (latitude -- |00...0> at the north pole,
@@ -182,7 +210,7 @@ def native_qsphere_figure(statevector: np.ndarray, prob_threshold: float = 1e-3)
         # single most probable state rather than an empty sphere, so
         # there's always at least one real point plotted.
         indices = np.array([int(np.argmax(probs))])
-    weights = np.array([bin(int(i)).count("1") for i in indices], dtype=int)
+    weights = _popcount(indices)
 
     # phi (azimuthal position within a weight's ring) needs each point's
     # rank among same-weight points, in index order -- np.unique's

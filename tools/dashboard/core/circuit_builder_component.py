@@ -60,8 +60,8 @@ _CSS = """
 
 _HTML = """
 <div class="cb-toolbar">
-  <span class="cb-count" data-role="count">0 porte piazzate</span>
-  <button data-role="clear">Pulisci griglia</button>
+  <span class="cb-count" data-role="count">0 gates placed</span>
+  <button data-role="clear">Clear grid</button>
 </div>
 """
 
@@ -196,7 +196,7 @@ export default function(component) {
 
   function emit() {
     const ops = buildOps();
-    countEl.textContent = `${ops.length} porte piazzate`;
+    countEl.textContent = `${ops.length} gates placed`;
     setStateValue('circuit', ops);
   }
 

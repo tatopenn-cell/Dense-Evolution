@@ -52,6 +52,19 @@ def test_draw_circuit_figure_returns_a_figure():
     assert isinstance(fig, Figure)
 
 
+@pytest.mark.parametrize("gate_name", ["u1", "phase"])
+def test_draw_circuit_figure_supports_u1_and_phase_aliases(gate_name):
+    # prog.txt (dashboard_core audit point 2): circuit_diagram.py used to
+    # have its own independently hand-copied _ONE_QUBIT_PARAM set,
+    # missing the 'u1'/'phase' aliases qasm_library.py's copy had -- both
+    # are real gate names dense_evolution.circuits.gates.GATE_IDS
+    # recognizes (mapped to the same gate as 'p'), so a circuit using
+    # either crashed this function with "unsupported gate for native
+    # circuit diagram" before the two duplicated tables were unified.
+    fig = draw_circuit_figure([(gate_name, 0, 0.5)], 1)
+    assert isinstance(fig, Figure)
+
+
 def test_histogram_figure_returns_a_figure():
     result = _bell_result()
     fig = histogram_figure(result.counts)

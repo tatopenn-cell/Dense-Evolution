@@ -12,14 +12,27 @@ branches and will be reintegrated selectively once this base is solid.
 
 import dense_evolution as _de
 
-# dense_evolution no longer forces jax_enable_x64 as an import-time side
-# effect (see dense_evolution/config.py) -- it's enabled lazily, only by
-# the specific call that needs complex128 (e.g. DenseSVSimulator). Some
-# paths here (MPSSimulator-only branches in engine.py, Chunk usage in
-# system_limits.py/wormhole.py) never construct a DenseSVSimulator, so
-# this dashboard -- which always wants float64 -- sets it explicitly
-# once, up front, instead of relying on that now-removed side effect.
-_de.set_precision(True)
+
+def enable_dashboard_precision():
+    """Enables float64 precision for the dashboard (prog.txt,
+    dashboard_core audit point 2). dense_evolution no longer forces
+    jax_enable_x64 as an import-time side effect (see
+    dense_evolution/config.py) -- it's enabled lazily, only by the
+    specific call that needs complex128 (e.g. DenseSVSimulator). Some
+    paths here (MPSSimulator-only branches in engine.py, Chunk usage in
+    system_limits.py/wormhole.py) never construct a DenseSVSimulator, so
+    this dashboard -- which always wants float64 -- must set it
+    explicitly rather than relying on that now-removed side effect.
+
+    This used to run as a bare module-level `_de.set_precision(True)`
+    call here, so merely `from dashboard_core.circuit_diagram import
+    draw_native_circuit_diagram` paid the x64-enable cost even though
+    that submodule never touches precision -- exactly the import-time
+    side effect dense_evolution's own config.py was written to eliminate
+    (see its module docstring), just not yet applied one level up here.
+    Call this explicitly from the dashboard's own entry point
+    (tools/dashboard/app.py) instead."""
+    _de.set_precision(True)
 
 from .qasm_library import QASM_LIBRARY, gate_tuples_to_qasm
 from .engine import (
@@ -61,6 +74,7 @@ from .noise_tools import (
 from .band_structure import scan_bands_along_path, band_structure_figure
 
 __all__ = [
+    'enable_dashboard_precision',
     'QASM_LIBRARY', 'gate_tuples_to_qasm',
     'SimulationResult', 'run_circuit_from_qasm',
     'LargeScaleMPSResult', 'run_large_circuit_mps', 'MPS_DENSE_CONTRACTION_LIMIT',

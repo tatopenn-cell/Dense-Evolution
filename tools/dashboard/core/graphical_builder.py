@@ -62,6 +62,15 @@ def ops_to_native_tuples(n_qubits: int, ops: list) -> list:
         Each dict has 'gate' (one of the GATE_PALETTE gate ids: h/x/y/z/s/t/
         rx/ry/rz/cx/cy/cz/swap) and 'qubits' (list[int]).
 
+    Notes
+    -----
+    A graphically-placed rx/ry/rz always gets a fixed pi/2 rotation angle
+    (_DEFAULT_ROTATION_ANGLE, prog.txt dashboard_core audit point 5d) --
+    the drag-and-drop grid has no angle-entry UI yet, so this places a
+    real, working rotation rather than a fake/placeholder one. A user
+    who drops an Rx expecting to pick its own angle should know this is
+    fixed, not something this function silently decided for them.
+
     Returns
     -------
     list[tuple]
