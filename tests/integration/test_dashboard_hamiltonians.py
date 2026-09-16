@@ -207,11 +207,32 @@ class TestNativeHfFallback:
     """Si2 needs native_hf (dense_evolution.native_hf), since Si isn't in
     PennyLane's own bundled STO-3G table -- see _get_hamiltonian's
     dispatch and the module docstring. Slow (real Hartree-Fock on a
-    2-atom/8-qubit active space, not PennyLane's), but relies on caching
-    (this class runs after TestCatalog, which already built Si2's
-    Hamiltonian once) to stay reasonably fast in the full suite."""
+    2-atom/8-qubit active space, not PennyLane's).
+
+    prog.txt test-suite audit (issue #269 point 3): this class does NOT
+    actually break if run alone or reordered -- _get_hamiltonian's cache
+    is shared by both get_molecule_n_qubits and
+    get_molecular_hamiltonian_matrix, so whichever test in this class (or
+    TestCatalog above, if it happened to run first in the same process)
+    calls either one first pays the real SCF cost once, and every other
+    call anywhere in the process reuses it. The _warm_si2_cache fixture
+    below makes that first payment explicit and class-local instead of an
+    undocumented cross-class speed dependency -- under pytest-xdist,
+    where TestCatalog and this class can land in different worker
+    processes with no shared cache at all, this class now pays its own
+    cost exactly once instead of silently losing the speedup with no
+    indication why."""
 
     SI2_NAME = "Si2 (Disilicio) - R = 2.184 A [equilibrio reale, active space minimo]"
+
+    @classmethod
+    @pytest.fixture(scope="class", autouse=True)
+    def _warm_si2_cache(cls):
+        spec = MOLECULE_CATALOG[cls.SI2_NAME]
+        get_molecule_n_qubits(
+            spec["symbols"], spec["geometry"](), spec["charge"],
+            active_electrons=spec["active_electrons"], active_orbitals=spec["active_orbitals"],
+        )
 
     def test_si2_ground_state_matches_independent_verification(self):
         # BUG FOUND AND FIXED (see dense_evolution/native_hf/scf.py's
