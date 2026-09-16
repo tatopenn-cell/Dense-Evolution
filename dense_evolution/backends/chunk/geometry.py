@@ -19,7 +19,17 @@ def get_dynamic_chunk(dtype_target) -> int:
         bpe = 8
     max_elements = safe_bytes / bpe
     max_bits = int(np.floor(np.log2(max(max_elements, 2.0))))
-    return max(16, min(max_bits, 27))
+    # Upper bound raised 27 -> 30 (prog.txt / user request): the real
+    # constraint is already _device_memory_budget_bytes's own VRAM/RAM
+    # reading (a 27-bit chunk is only 2.1GB regardless of dtype -- any
+    # GPU with more than ~2.5GB free was being capped well below what it
+    # could actually hold). 30 keeps a ceiling at all (avoids ever
+    # returning a chunk_size_bits so large a single chunk's own indexing
+    # arithmetic elsewhere risks int32 overflow) without arbitrarily
+    # discarding real headroom on 16GB+ GPUs (a Kaggle T4/P100 at
+    # ~0.85*16GB/16B per complex128 element already computes max_bits
+    # near 30 on its own -- this line was the thing throwing that away).
+    return max(16, min(max_bits, 30))
 
 
 def _dtype_for_qubits(n_qubits: int):
