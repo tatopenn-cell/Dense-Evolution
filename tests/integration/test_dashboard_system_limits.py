@@ -15,7 +15,7 @@ def test_returns_real_structure_with_sane_values():
     assert 0 < limits["available_mb"] <= limits["total_mb"]
     assert 0 < limits["threshold_pct"] < 1
     # get_dynamic_chunk's own documented clamp (dashboard_core/system_limits.py).
-    assert 16 <= limits["max_qubits_dense"] <= 27
+    assert 16 <= limits["max_qubits_dense"] <= 30
 
 
 def test_max_qubits_is_an_int():

@@ -586,12 +586,12 @@ class TestChunkUtilities:
     def test_get_dynamic_chunk_numpy_complex128(self):
         from dense_evolution.chunk import get_dynamic_chunk
         bits = get_dynamic_chunk(np.complex128)
-        assert 16 <= bits <= 27
+        assert 16 <= bits <= 30
 
     def test_get_dynamic_chunk_other_dtype(self):
         from dense_evolution.chunk import get_dynamic_chunk
         bits = get_dynamic_chunk(np.float32)
-        assert 16 <= bits <= 27
+        assert 16 <= bits <= 30
 
     def test_get_dynamic_chunk_reads_device_memory_stats_when_present(self, monkeypatch):
         # get_dynamic_chunk/SafeMemoryGuard used to read psutil.virtual_
@@ -615,6 +615,23 @@ class TestChunkUtilities:
         # 190MB free * 0.85 / 8 bytes ~= 2.02e7 elements -> floor(log2(..)) = 24
         assert bits == 24
 
+    def test_get_dynamic_chunk_ceiling_is_30_not_27_on_large_vram_device(self, monkeypatch):
+        # Before this fix, get_dynamic_chunk capped at 27 bits (2.1GB)
+        # regardless of how much MORE memory a real device reported --
+        # a 16GB+ GPU (Kaggle T4/P100, Colab A100) was thrown away below
+        # what device.memory_stats() itself said was safely available.
+        # A fake device reporting 40GB free proves the ceiling moved.
+        import dense_evolution.chunk as chunk_mod
+
+        class BigVramDevice:
+            def memory_stats(self):
+                return {"bytes_limit": 40 * 1024 ** 3, "bytes_in_use": 0}
+
+        monkeypatch.setattr(chunk_mod.jax, "devices", lambda: [BigVramDevice()])
+        bits = chunk_mod.get_dynamic_chunk(np.complex128)
+        # 40GB * 0.85 / 16 bytes ~= 2.28e9 elements -> floor(log2(..)) = 31, capped at 30
+        assert bits == 30
+
     def test_get_dynamic_chunk_falls_back_to_host_ram_without_memory_stats(self, monkeypatch):
         # A device with no memory_stats() attribute at all (the real
         # shape of a plain CPU backend) must fall back to
@@ -626,7 +643,7 @@ class TestChunkUtilities:
 
         monkeypatch.setattr(chunk_mod.jax, "devices", lambda: [CpuLikeDevice()])
         bits = chunk_mod.get_dynamic_chunk(np.complex64)
-        assert 16 <= bits <= 27
+        assert 16 <= bits <= 30
 
     @pytest.mark.real_memory_probe
     def test_safe_memory_guard_status_reads_device_memory_when_present(self, monkeypatch):
