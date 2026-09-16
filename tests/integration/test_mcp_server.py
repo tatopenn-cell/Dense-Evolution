@@ -693,6 +693,66 @@ def test_registered_tool_count_matches_documented_count():
     assert len(mcp_adapter.mcp._tool_manager._tools) == 25
 
 
+def test_kernel_error_response_kind_is_classified_and_prefix_preserved():
+    # Issue #258 point 10: catch_errors' output stays "Error: ..." (every
+    # existing result.startswith("Error:") check keeps working) but now
+    # carries a stable "Error: <kind>: ..." token a client can branch on.
+    result = run(mcp_adapter.dense_evolution_energy_scan(mcp_models.EnergyScanInput(
+        symbols=["H", "H"],
+        geometries=[[[0, 0, 0], [0, 0, 0.7]], [[0, 0, 0], [0, 0, 0.8]]],
+        labels=["only-one-label"],
+    )))
+    assert result.startswith("Error: invalid_input:")
+
+
+def test_kernel_unreachable_error_is_classified_as_unreachable(monkeypatch):
+    monkeypatch.setattr(mcp_client, "_TEST_TRANSPORT", None)
+    monkeypatch.setattr(mcp_client, "KERNEL_URL", "http://127.0.0.1:1")
+    result = run(mcp_adapter.dense_evolution_health())
+    assert result.startswith("Error: unreachable:")
+
+
+def test_kernel_remote_protocol_error_gives_actionable_blas_hint(monkeypatch):
+    class _ProtocolErrorClient:
+        async def request(self, method, path, **kwargs):
+            raise httpx.RemoteProtocolError("simulated malformed response")
+
+    monkeypatch.setattr(mcp_client, "_get_client", lambda: _ProtocolErrorClient())
+    result = run(mcp_adapter.dense_evolution_health())
+    assert result.startswith("Error: protocol_error:")
+    assert "BLAS" in result
+
+
+def test_kernel_read_error_gives_actionable_error(monkeypatch):
+    class _ReadErrorClient:
+        async def request(self, method, path, **kwargs):
+            raise httpx.ReadError("simulated connection closed mid-response")
+
+    monkeypatch.setattr(mcp_client, "_get_client", lambda: _ReadErrorClient())
+    result = run(mcp_adapter.dense_evolution_health())
+    assert result.startswith("Error: connection_closed:")
+
+
+def test_generic_httpx_error_falls_back_to_kernel_error_kind(monkeypatch):
+    # Covers _request's generic `except httpx.HTTPError` catch-all --
+    # anything in httpx's exception hierarchy not specific enough to get
+    # its own KernelError subclass above (WriteError here, arbitrarily).
+    class _WriteErrorClient:
+        async def request(self, method, path, **kwargs):
+            raise httpx.WriteError("simulated write failure")
+
+    monkeypatch.setattr(mcp_client, "_get_client", lambda: _WriteErrorClient())
+    result = run(mcp_adapter.dense_evolution_health())
+    assert result.startswith("Error: kernel_error:")
+
+
+def test_handle_error_classifies_a_non_kernel_non_value_error_as_internal():
+    # Covers _handle_error's final "internal" branch -- an exception that
+    # is neither a KernelError (kernel-communication failure) nor a
+    # ValueError (input validation).
+    assert mcp_client._handle_error(KeyError("boom")) == "Error: internal: 'boom'"
+
+
 def test_close_shared_client_closes_and_resets_the_cached_client():
     # Issue #258 point 6: close_shared_client() is the actual shutdown
     # hook (called from server.py's main() try/finally) -- verify it both
