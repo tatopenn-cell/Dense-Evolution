@@ -14,10 +14,9 @@ Same macOS skip as tests/test_interop.py: qiskit's own QuantumCircuit
 construction is known to segfault the whole process on macOS/arm64, so
 this whole file's real-circuit-touching class is skipped there rather
 than defined at all (an importorskip-only guard still imports qiskit at
-collection time and doesn't remove the trigger).
+collection time and doesn't remove the trigger) -- shared condition in
+tests/_qiskit_guard.py.
 """
-import sys
-
 import numpy as np
 import pytest
 
@@ -26,6 +25,7 @@ from dense_evolution.interop import qiskit_pennylane as interop
 from dense_evolution.interop import noise_model_from_qiskit_backend
 from dense_evolution.registry import NoiseModel
 from dense_evolution.measurement import statevector_fidelity
+from _qiskit_guard import QISKIT_UNSTABLE_ON_DARWIN, QISKIT_DARWIN_SKIP_REASON
 
 
 class TestImportSafety:
@@ -39,9 +39,9 @@ class TestImportSafety:
             noise_model_from_qiskit_backend(None)
 
 
-if sys.platform == 'darwin':
+if QISKIT_UNSTABLE_ON_DARWIN:
 
-    @pytest.mark.skip(reason="qiskit destabilizes the process on macOS CI runners -- see tests/test_interop.py")
+    @pytest.mark.skip(reason=QISKIT_DARWIN_SKIP_REASON)
     class TestCalibrationNoise:
         pass
 

@@ -45,8 +45,30 @@ measure q[1] -> c[1];
 """
 
 
+# prog.txt test-suite audit (issue #269 point 7): run() used to be
+# `asyncio.run(coro)` -- a fresh event loop per call, immediately closed
+# afterward. client.py::_get_client() caches the shared httpx.AsyncClient
+# across calls, so the second call's asyncio.run() would hand it a
+# NEW loop while its transport/connection-pool internals may still be
+# bound to the FIRST (now-closed) one -- test_request_reuses_the_same_client_across_calls
+# only ever passed because httpx.ASGITransport (the test-only transport
+# used here) doesn't hold any loop-bound state the way a real TCP
+# transport's connection pool does; that test was verifying something
+# never actually exercised the way production (one long-lived stdio
+# loop, see server.py's main()) uses this client. A single loop for the
+# whole module, closed once at teardown, makes the caching this suite
+# already asserts on genuinely tested against a stable loop instead.
+_shared_loop = asyncio.new_event_loop()
+
+
 def run(coro):
-    return asyncio.run(coro)
+    return _shared_loop.run_until_complete(coro)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _close_shared_loop_at_module_end():
+    yield
+    _shared_loop.close()
 
 
 @pytest.fixture(autouse=True)
@@ -645,6 +667,23 @@ def test_request_reuses_the_same_client_across_calls():
     assert mcp_client._shared_client is client_after_first_call
 
 
+def test_run_helper_reuses_one_event_loop_not_a_fresh_one_per_call():
+    # prog.txt test-suite audit (issue #269 point 7): this file's run()
+    # used to be asyncio.run(coro) -- a new loop, closed immediately
+    # after each call -- which the test above's cached-client assertion
+    # never actually exercised realistically (only true because
+    # ASGITransport holds no loop-bound state). Confirms run() now
+    # executes on the same, still-open loop across calls, matching
+    # production's single long-lived stdio loop (server.py's main()).
+    async def _current_loop():
+        return asyncio.get_running_loop()
+
+    loop_a = run(_current_loop())
+    loop_b = run(_current_loop())
+    assert loop_a is loop_b
+    assert not loop_a.is_closed()
+
+
 def test_request_rebuilds_client_when_transport_or_url_changes(monkeypatch):
     run(mcp_adapter.dense_evolution_health())
     stale_client = mcp_client._shared_client
@@ -691,3 +730,126 @@ def test_registered_tool_count_matches_documented_count():
     # noise) was 25 -- undetected drift, not a functional bug, but the
     # exact kind a trivial len()==N test catches for free going forward.
     assert len(mcp_adapter.mcp._tool_manager._tools) == 25
+
+
+def test_kernel_error_response_kind_is_classified_and_prefix_preserved():
+    # Issue #258 point 10: catch_errors' output stays "Error: ..." (every
+    # existing result.startswith("Error:") check keeps working) but now
+    # carries a stable "Error: <kind>: ..." token a client can branch on.
+    result = run(mcp_adapter.dense_evolution_energy_scan(mcp_models.EnergyScanInput(
+        symbols=["H", "H"],
+        geometries=[[[0, 0, 0], [0, 0, 0.7]], [[0, 0, 0], [0, 0, 0.8]]],
+        labels=["only-one-label"],
+    )))
+    assert result.startswith("Error: invalid_input:")
+
+
+def test_kernel_unreachable_error_is_classified_as_unreachable(monkeypatch):
+    monkeypatch.setattr(mcp_client, "_TEST_TRANSPORT", None)
+    monkeypatch.setattr(mcp_client, "KERNEL_URL", "http://127.0.0.1:1")
+    result = run(mcp_adapter.dense_evolution_health())
+    assert result.startswith("Error: unreachable:")
+
+
+def test_kernel_remote_protocol_error_gives_actionable_blas_hint(monkeypatch):
+    class _ProtocolErrorClient:
+        async def request(self, method, path, **kwargs):
+            raise httpx.RemoteProtocolError("simulated malformed response")
+
+    monkeypatch.setattr(mcp_client, "_get_client", lambda: _ProtocolErrorClient())
+    result = run(mcp_adapter.dense_evolution_health())
+    assert result.startswith("Error: protocol_error:")
+    assert "BLAS" in result
+
+
+def test_kernel_read_error_gives_actionable_error(monkeypatch):
+    class _ReadErrorClient:
+        async def request(self, method, path, **kwargs):
+            raise httpx.ReadError("simulated connection closed mid-response")
+
+    monkeypatch.setattr(mcp_client, "_get_client", lambda: _ReadErrorClient())
+    result = run(mcp_adapter.dense_evolution_health())
+    assert result.startswith("Error: connection_closed:")
+
+
+def test_generic_httpx_error_falls_back_to_kernel_error_kind(monkeypatch):
+    # Covers _request's generic `except httpx.HTTPError` catch-all --
+    # anything in httpx's exception hierarchy not specific enough to get
+    # its own KernelError subclass above (WriteError here, arbitrarily).
+    class _WriteErrorClient:
+        async def request(self, method, path, **kwargs):
+            raise httpx.WriteError("simulated write failure")
+
+    monkeypatch.setattr(mcp_client, "_get_client", lambda: _WriteErrorClient())
+    result = run(mcp_adapter.dense_evolution_health())
+    assert result.startswith("Error: kernel_error:")
+
+
+def test_handle_error_classifies_a_non_kernel_non_value_error_as_internal():
+    # Covers _handle_error's final "internal" branch -- an exception that
+    # is neither a KernelError (kernel-communication failure) nor a
+    # ValueError (input validation).
+    assert mcp_client._handle_error(KeyError("boom")) == "Error: internal: 'boom'"
+
+
+def test_close_shared_client_closes_and_resets_the_cached_client():
+    # Issue #258 point 6: close_shared_client() is the actual shutdown
+    # hook (called from server.py's main() try/finally) -- verify it both
+    # closes the real client's connection pool and resets the module
+    # cache so a later call rebuilds a fresh one instead of reusing a
+    # closed client.
+    run(mcp_adapter.dense_evolution_health())
+    client = mcp_client._shared_client
+    assert client is not None and not client.is_closed
+
+    run(mcp_client.close_shared_client())
+    assert client.is_closed
+    assert mcp_client._shared_client is None
+
+    run(mcp_adapter.dense_evolution_health())
+    assert mcp_client._shared_client is not None
+    assert mcp_client._shared_client is not client
+
+
+def test_main_closes_the_shared_client_after_mcp_run_returns(monkeypatch):
+    from mcp_server.server import main
+
+    monkeypatch.setattr(mcp_adapter.mcp, "run", lambda: None)
+    closed = []
+
+    async def _fake_close():
+        closed.append(True)
+
+    monkeypatch.setattr(mcp_client, "close_shared_client", _fake_close)
+    main()
+    assert closed == [True]
+
+
+def test_main_still_closes_the_shared_client_if_mcp_run_raises(monkeypatch):
+    from mcp_server.server import main
+
+    def _raising_run():
+        raise ValueError("simulated stdio transport crash")
+
+    monkeypatch.setattr(mcp_adapter.mcp, "run", _raising_run)
+    closed = []
+
+    async def _fake_close():
+        closed.append(True)
+
+    monkeypatch.setattr(mcp_client, "close_shared_client", _fake_close)
+    with pytest.raises(ValueError, match="simulated stdio transport crash"):
+        main()
+    assert closed == [True]
+
+
+def test_main_swallows_runtime_error_from_close_shared_client(monkeypatch):
+    from mcp_server.server import main
+
+    monkeypatch.setattr(mcp_adapter.mcp, "run", lambda: None)
+
+    async def _raising_close():
+        raise RuntimeError("simulated event-loop-already-closed at shutdown")
+
+    monkeypatch.setattr(mcp_client, "close_shared_client", _raising_close)
+    main()  # must not raise -- the RuntimeError is swallowed

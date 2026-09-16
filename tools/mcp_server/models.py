@@ -7,7 +7,7 @@ explanation for a human or agent reading the tool's full documentation.
 """
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ListMoleculesInput(BaseModel):
@@ -52,6 +52,24 @@ class RunCircuitInput(BaseModel):
         "rendering costs extra time and the paths are not useful without viewing them.",
     )
 
+    @model_validator(mode="after")
+    def _noise_p_requires_a_noise_model(self):
+        # prog.txt Sezione 3, punto 8: noise_p > 0 with noise_model='ideal'
+        # was silently ignored by the kernel (ideal = no channel applied at
+        # all) -- catch it here so the caller sees why their noise had no
+        # effect, instead of a passing-but-surprising ideal-circuit result.
+        # (The other invariant prog.txt names for this model -- backend='mps'
+        # + include_visualizations + n_qubits>24 -- needs the parsed qubit
+        # count, which only the kernel has for a raw QASM string; not
+        # checkable here without parsing QASM locally too.)
+        if self.noise_model == "ideal" and self.noise_p != 0.0:
+            raise ValueError(
+                f"noise_p={self.noise_p} has no effect with noise_model='ideal' (ideal means no "
+                "noise channel is applied at all) -- set noise_model to a real model name from "
+                "dense_evolution_list_noise_models, or leave noise_p at its default 0.0."
+            )
+        return self
+
 
 class MoleculeEnergyInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -70,6 +88,15 @@ class MixMoleculesInput(BaseModel):
     weight_a: float = Field(default=0.5, description="Weight of the first Hamiltonian in the mix.")
     weight_b: float = Field(default=0.5, description="Weight of the second Hamiltonian in the mix.")
     mapping: str = Field(default="jordan_wigner", description="'jordan_wigner' or 'bravyi_kitaev'.")
+
+    # prog.txt's third invariant for this model (same qubit count between
+    # name_a and name_b) is NOT added here: it needs a molecule-catalog
+    # lookup, which is an async kernel request (molecules.py's cache) --
+    # Pydantic's own validators are synchronous. Today that check happens
+    # only server-side, inside the kernel's /api/hamiltonian/mix endpoint
+    # (see chemistry_tools.py::dense_evolution_mix_molecules's own
+    # docstring) -- a mismatched pair is still rejected, just one round
+    # trip later than a local schema check could catch it.
 
 
 class CustomMoleculeInput(BaseModel):
@@ -117,6 +144,18 @@ class RunVqeInput(BaseModel):
     beta1: float = Field(default=0.9, description="Adam optimizer beta1.")
     beta2: float = Field(default=0.999, description="Adam optimizer beta2.")
     seed: int = Field(default=0, description="Random seed for the initial variational parameters.")
+
+    @model_validator(mode="after")
+    def _name_xor_custom_molecule(self):
+        has_name = self.name is not None
+        has_custom = self.symbols is not None or self.geometry is not None
+        if has_name and has_custom:
+            raise ValueError("provide `name` OR `symbols`+`geometry`, not both.")
+        if not has_name and not has_custom:
+            raise ValueError("provide either `name` (a catalog molecule) or `symbols`+`geometry` (a custom one).")
+        if has_custom and (self.symbols is None or self.geometry is None):
+            raise ValueError("a custom molecule needs both `symbols` and `geometry`, not just one.")
+        return self
 
 
 class QmmmForcesInput(BaseModel):

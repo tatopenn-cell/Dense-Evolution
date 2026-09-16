@@ -54,7 +54,13 @@ jobs:
           python-version: "3.12"
       - run: |
           python -m pip install --upgrade pip
-          pip install pytest numpy jax jaxlib pennylane psutil matplotlib
+          # plotly: tests/integration/conftest.py's autouse fixture imports
+          # dashboard_core, which imports band_structure.py (import plotly.
+          # graph_objects at module level) -- this job's own install list
+          # never had it, so ANY docs-only change hitting this fast path
+          # (not just the incidental 0-diff push that first surfaced this)
+          # would fail here with ModuleNotFoundError: no module named 'plotly'.
+          pip install pytest numpy jax jaxlib pennylane psutil matplotlib plotly
           pip install -e . --no-deps
       - run: pytest tests/integration/test_docs_examples.py -v --tb=short
 
@@ -82,8 +88,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pytest-cov pytest-xdist numpy scipy pandas matplotlib psutil ipython seaborn plotly
-          pip install setuptools pytest pytest-cov pytest-xdist numpy scipy pandas matplotlib psutil ipython jax jaxlib seaborn plotly
+          pip install pytest pytest-cov pytest-xdist pytest-randomly numpy scipy pandas matplotlib psutil ipython seaborn plotly
+          pip install setuptools pytest pytest-cov pytest-xdist pytest-randomly numpy scipy pandas matplotlib psutil ipython jax jaxlib seaborn plotly
           pip install qiskit pennylane pylatexenc
           pip install basis_set_exchange # dashboard_core.hamiltonians' native_hf fallback (e.g. Si2 -- PennyLane's own STO-3G table stops at Ne)
           pip install qiskit-ibm-runtime # tests/integration/test_interop_calibration_noise.py -- FakeSherbrooke, real historical IBM Eagle-127 calibration data, offline/no account needed
@@ -114,8 +120,15 @@ jobs:
         # 8-simulated-device JAX device mesh via XLA_FLAGS, and forking
         # that across multiple xdist worker processes is a separate
         # question this change doesn't touch.
+        #
+        # -p no:randomly: pytest-randomly (installed above for the
+        # dedicated step further down, prog.txt test-suite audit issue
+        # #269 point 9) auto-activates and randomizes collection order the
+        # moment it's importable, with no flag needed -- this keeps the
+        # main suite's ordering exactly as before until the dedicated
+        # step's findings are addressed.
         run: |
-          pytest tests/ -n auto -v --tb=short --junitxml=pytest-results.xml --cov=. --cov-report=term-missing
+          pytest tests/ -n auto -p no:randomly -v --tb=short --junitxml=pytest-results.xml --cov=. --cov-report=term-missing
 
       - name: Run distributed-chunk tests (simulated multi-device)
         # TestChunkDistributed (issue #1) needs >= 8 JAX devices to exercise
@@ -135,7 +148,46 @@ jobs:
         env:
           XLA_FLAGS: "--xla_force_host_platform_device_count=8"
         run: |
-          pytest tests/unit/test_chunk.py -k TestChunkDistributed -v --tb=short --junitxml=pytest-results-distributed.xml --cov=. --cov-append --cov-report=term-missing
+          pytest tests/unit/test_chunk.py -k TestChunkDistributed -m slow -p no:randomly -v --tb=short --junitxml=pytest-results-distributed.xml --cov=. --cov-append --cov-report=term-missing
+        # -m slow: TestChunkDistributed is marked @pytest.mark.slow (prog.txt
+        # test-suite audit, issue #269 point 8) -- pyproject.toml's own
+        # addopts now defaults every pytest invocation to `-m "not slow"`,
+        # which would otherwise silently exclude this class from this
+        # already-dedicated step too. Passing -m slow here overrides that
+        # default (standard pytest last-`-m`-wins behavior). -p no:randomly:
+        # same reasoning as the main suite step above (point 9) -- keep this
+        # step's ordering unchanged until the dedicated diagnostic step below
+        # has surfaced and this audit has addressed any collection-order
+        # dependencies.
+
+      - name: Run slow tests (excluded by default -- see pyproject.toml addopts)
+        # Everything ELSE marked @pytest.mark.slow (30k+-shot statistical
+        # tests, dense-matrix Majorana sweeps, real multi-Chunk construction,
+        # subprocess-isolated interpreters) -- run as its own step so a
+        # failure here is diagnosable separately from the main suite, per
+        # prog.txt's own suggestion. -k "not TestChunkDistributed" excludes
+        # the one slow class that already has its own dedicated step above
+        # (with the XLA_FLAGS env it actually needs) -- running it again
+        # here without that env would just hit its own internal
+        # device-count skip, harmless but redundant.
+        run: |
+          pytest tests/ -m slow -k "not TestChunkDistributed" -p no:randomly -v --tb=short --junitxml=pytest-results-slow.xml --cov=. --cov-append --cov-report=term-missing
+
+      - name: Run test suite with randomized collection order (diagnostic)
+        # prog.txt test-suite audit (issue #269 point 9): pytest-xdist was
+        # already active above (added in #255) -- only pytest-randomly was
+        # genuinely missing. Kept as its own non-blocking step (continue-on-error)
+        # rather than folded into the main run above: this is meant to
+        # actively surface latent collection-order dependencies (the class
+        # points 3/6/7 of this same audit already fixed some of), not to
+        # gate every PR red while any remaining ones are still being found.
+        # Once this step has run clean for a while, fold pytest-randomly's
+        # default (no -p no:randomly) into the main step instead of keeping
+        # this one separate.
+        continue-on-error: true
+        if: matrix.python-version == '3.12' && matrix.os == 'ubuntu-latest'
+        run: |
+          pytest tests/ -v --tb=short
 
       - name: Generate combined coverage report
         # Runs after both pytest invocations above so coverage.xml reflects

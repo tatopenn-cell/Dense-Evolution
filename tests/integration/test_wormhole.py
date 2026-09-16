@@ -175,6 +175,7 @@ class TestCommutingPairCount:
         commuting, anticommuting = commuting_pair_count(terms, n_qubits)
         assert (commuting, anticommuting) == (34, 11)
 
+    @pytest.mark.slow
     @pytest.mark.parametrize("n_majorana,seeds", [
         (8, range(20)),
         (12, range(5)),

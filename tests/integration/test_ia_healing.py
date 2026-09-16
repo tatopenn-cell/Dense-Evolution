@@ -1,8 +1,9 @@
-import builtins
+import sys
 import unittest
 import warnings
 
 import numpy as np
+import pytest
 
 from ia_utils.vector_healing import enhanced_dense_healing_hybrid, median_healing
 
@@ -13,28 +14,32 @@ class TestEnhancedDenseHealingHybrid(unittest.TestCase):
         # to be unguarded -- a real import failure (e.g. ia_utils used
         # standalone without dense_evolution.healing available) surfaced as
         # a bare ModuleNotFoundError with no hint this function needed it.
-        # Force a REAL ImportError (not a monkeypatched downstream
-        # consequence) via builtins.__import__, matching how this failure
-        # actually happens at import time. (Phase 4: vector_healing.py now
-        # imports from the canonical dense_evolution.mitigation.healing
-        # path rather than the flat backward-compat shim -- intercept that
+        # Force a REAL ImportError, matching how this failure actually
+        # happens at import time. (Phase 4: vector_healing.py now imports
+        # from the canonical dense_evolution.mitigation.healing path
+        # rather than the flat backward-compat shim -- intercept that
         # exact name, matching what actually gets imported.)
-        real_import = builtins.__import__
-
-        def fake_import(name, *args, **kwargs):
-            if name == 'dense_evolution.mitigation.healing':
-                raise ImportError('simulated missing module')
-            return real_import(name, *args, **kwargs)
-
-        builtins.__import__ = fake_import
-        try:
+        #
+        # prog.txt test-suite audit (issue #269 point 6): this used to
+        # replace builtins.__import__ wholesale with a manual try/finally
+        # restore -- global and unscoped to just this one name, unlike
+        # pytest.MonkeyPatch's setitem(sys.modules, name, None), which
+        # Python's import system treats as "this import must fail" for
+        # that one name specifically, and which auto-restores even if the
+        # test raises partway through (the manual finally: here already
+        # covered that case correctly, but only for this one test -- the
+        # monkeypatch version is the same safe pattern already used
+        # elsewhere in the suite, e.g. test_mcp_server.py).
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setitem(sys.modules, 'dense_evolution.mitigation.healing', None)
             with self.assertRaises(ImportError) as ctx:
                 enhanced_dense_healing_hybrid(np.random.default_rng(0).normal(size=(5, 3)))
-        finally:
-            builtins.__import__ = real_import
 
         self.assertIn('enhanced_dense_healing_hybrid requires jax and dense_evolution.healing', str(ctx.exception))
-        self.assertIn('simulated missing module', str(ctx.exception))
+        # Python's own real ImportError message for a sys.modules[name]=None
+        # halt, confirming THIS specific module was what failed to import,
+        # not some other unrelated import inside the function.
+        self.assertIn('dense_evolution.mitigation.healing halted', str(ctx.exception))
 
     def test_output_and_reconstruction_error_with_nan_inf_input(self):
         rng = np.random.default_rng(42)

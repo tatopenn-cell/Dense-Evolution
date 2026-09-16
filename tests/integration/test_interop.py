@@ -17,6 +17,7 @@ from dense_evolution.interop.qiskit_pennylane import (
     from_qiskit, from_pennylane, run_qiskit_circuit, run_pennylane_circuit,
     _to_qiskit_bit_order,
 )
+from _qiskit_guard import QISKIT_UNSTABLE_ON_DARWIN, QISKIT_DARWIN_SKIP_REASON
 
 
 # ─────────────────────────────────────────────────────────────
@@ -99,13 +100,14 @@ class TestMacOSQiskitWarning:
 # on the class, so qiskit was still being loaded into the process either
 # way. The only fix that actually removes the trigger is to stop
 # importing qiskit at all on macOS, by never defining the class there in
-# the first place. Not a Dense-Evolution bug: every Dense-Evolution-only
-# test (including the rest of this file, TestPennyLaneInterop) passes
-# cleanly and deterministically on macOS. Re-enable once this is
-# confirmed fixed upstream or traced to a specific dependency conflict.
-if sys.platform == 'darwin':
+# the first place (see tests/_qiskit_guard.py for the shared condition).
+# Not a Dense-Evolution bug: every Dense-Evolution-only test (including
+# the rest of this file, TestPennyLaneInterop) passes cleanly and
+# deterministically on macOS. Re-enable once this is confirmed fixed
+# upstream or traced to a specific dependency conflict.
+if QISKIT_UNSTABLE_ON_DARWIN:
 
-    @pytest.mark.skip(reason="qiskit destabilizes the process on macOS CI runners -- see comment above")
+    @pytest.mark.skip(reason=QISKIT_DARWIN_SKIP_REASON)
     class TestQiskitInterop:
         pass
 

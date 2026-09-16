@@ -1232,6 +1232,7 @@ def test_use_float32_true_forces_complex64_even_with_x64_enabled():
     _run_x64(True, run)
 
 
+@pytest.mark.slow
 def test_use_float32_false_forces_complex128_even_with_x64_disabled():
     # Subprocess-isolated, unlike the sibling precision tests above: this
     # path calls ensure_x64() internally, which is a no-op once anything
