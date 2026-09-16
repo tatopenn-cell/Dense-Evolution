@@ -691,3 +691,66 @@ def test_registered_tool_count_matches_documented_count():
     # noise) was 25 -- undetected drift, not a functional bug, but the
     # exact kind a trivial len()==N test catches for free going forward.
     assert len(mcp_adapter.mcp._tool_manager._tools) == 25
+
+
+def test_close_shared_client_closes_and_resets_the_cached_client():
+    # Issue #258 point 6: close_shared_client() is the actual shutdown
+    # hook (called from server.py's main() try/finally) -- verify it both
+    # closes the real client's connection pool and resets the module
+    # cache so a later call rebuilds a fresh one instead of reusing a
+    # closed client.
+    run(mcp_adapter.dense_evolution_health())
+    client = mcp_client._shared_client
+    assert client is not None and not client.is_closed
+
+    run(mcp_client.close_shared_client())
+    assert client.is_closed
+    assert mcp_client._shared_client is None
+
+    run(mcp_adapter.dense_evolution_health())
+    assert mcp_client._shared_client is not None
+    assert mcp_client._shared_client is not client
+
+
+def test_main_closes_the_shared_client_after_mcp_run_returns(monkeypatch):
+    from mcp_server.server import main
+
+    monkeypatch.setattr(mcp_adapter.mcp, "run", lambda: None)
+    closed = []
+
+    async def _fake_close():
+        closed.append(True)
+
+    monkeypatch.setattr(mcp_client, "close_shared_client", _fake_close)
+    main()
+    assert closed == [True]
+
+
+def test_main_still_closes_the_shared_client_if_mcp_run_raises(monkeypatch):
+    from mcp_server.server import main
+
+    def _raising_run():
+        raise ValueError("simulated stdio transport crash")
+
+    monkeypatch.setattr(mcp_adapter.mcp, "run", _raising_run)
+    closed = []
+
+    async def _fake_close():
+        closed.append(True)
+
+    monkeypatch.setattr(mcp_client, "close_shared_client", _fake_close)
+    with pytest.raises(ValueError, match="simulated stdio transport crash"):
+        main()
+    assert closed == [True]
+
+
+def test_main_swallows_runtime_error_from_close_shared_client(monkeypatch):
+    from mcp_server.server import main
+
+    monkeypatch.setattr(mcp_adapter.mcp, "run", lambda: None)
+
+    async def _raising_close():
+        raise RuntimeError("simulated event-loop-already-closed at shutdown")
+
+    monkeypatch.setattr(mcp_client, "close_shared_client", _raising_close)
+    main()  # must not raise -- the RuntimeError is swallowed

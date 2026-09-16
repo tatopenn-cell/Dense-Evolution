@@ -85,7 +85,21 @@ def main():
     stdio transport: this process is meant to be launched by an MCP
     client (Claude Code, Claude Desktop, ...) as a subprocess, not run
     standalone in a terminal."""
-    mcp.run()  # pragma: no cover -- blocks on the real stdio transport loop
+    import asyncio
+    from .client import close_shared_client
+    try:
+        mcp.run()  # pragma: no cover -- blocks on the real stdio transport loop
+    finally:
+        # Best-effort: mcp.run() has already torn down its own event loop
+        # by the time this runs, so close_shared_client() executes under a
+        # fresh one here -- fine for aclose() (it just closes the pool),
+        # but swallow a RuntimeError anyway rather than let cleanup crash
+        # shutdown for what's ultimately a leaked-socket warning, not a
+        # correctness issue.
+        try:
+            asyncio.run(close_shared_client())
+        except RuntimeError:
+            pass
 
 
 if __name__ == "__main__":
