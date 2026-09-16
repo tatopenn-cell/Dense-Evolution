@@ -24,10 +24,30 @@ REPO_ROOT = pathlib.Path(__file__).parent.parent.parent
 
 
 def _extract_section_code(md_path, heading):
+    # prog.txt test-suite audit (issue #269 point 5): text.index(heading)
+    # used to raise a bare ValueError with no indication of which heading
+    # was missing or what the file actually contains, and the regex
+    # search ran over the entire REMAINDER of the file, not just this
+    # section -- if a later, unrelated section in the same file gained
+    # its own ```python fence before this one's, this would silently pick
+    # up the wrong block instead of failing. Bounding the search to this
+    # section (up to the next '## ' heading, or end of file) fixes the
+    # second problem without a new markdown-parsing dependency; a
+    # same-section ordering issue (a non-executable fence appearing
+    # before the real one, under the same heading) would still need an
+    # explicit marker to fully rule out -- not done here.
     text = (REPO_ROOT / md_path).read_text(encoding='utf-8')
-    heading_pos = text.index(heading)
-    remainder = text[heading_pos + len(heading):]
-    match = re.search(r"```python\n(.*?)\n```", remainder, re.DOTALL)
+    heading_pos = text.find(heading)
+    if heading_pos == -1:
+        available = re.findall(r'^#{1,6} .+$', text, re.MULTILINE)
+        raise AssertionError(
+            f"heading {heading!r} not found in {md_path}. Headings present: {available}"
+        )
+    section_start = heading_pos + len(heading)
+    next_heading = re.search(r'^## ', text[section_start:], re.MULTILINE)
+    section_end = section_start + next_heading.start() if next_heading else len(text)
+    section = text[section_start:section_end]
+    match = re.search(r"```python\n(.*?)\n```", section, re.DOTALL)
     assert match is not None, f"no python fence found under {heading!r} in {md_path}"
     return match.group(1)
 

@@ -148,7 +148,30 @@ jobs:
         env:
           XLA_FLAGS: "--xla_force_host_platform_device_count=8"
         run: |
-          pytest tests/unit/test_chunk.py -k TestChunkDistributed -p no:randomly -v --tb=short --junitxml=pytest-results-distributed.xml --cov=. --cov-append --cov-report=term-missing
+          pytest tests/unit/test_chunk.py -k TestChunkDistributed -m slow -p no:randomly -v --tb=short --junitxml=pytest-results-distributed.xml --cov=. --cov-append --cov-report=term-missing
+        # -m slow: TestChunkDistributed is marked @pytest.mark.slow (prog.txt
+        # test-suite audit, issue #269 point 8) -- pyproject.toml's own
+        # addopts now defaults every pytest invocation to `-m "not slow"`,
+        # which would otherwise silently exclude this class from this
+        # already-dedicated step too. Passing -m slow here overrides that
+        # default (standard pytest last-`-m`-wins behavior). -p no:randomly:
+        # same reasoning as the main suite step above (point 9) -- keep this
+        # step's ordering unchanged until the dedicated diagnostic step below
+        # has surfaced and this audit has addressed any collection-order
+        # dependencies.
+
+      - name: Run slow tests (excluded by default -- see pyproject.toml addopts)
+        # Everything ELSE marked @pytest.mark.slow (30k+-shot statistical
+        # tests, dense-matrix Majorana sweeps, real multi-Chunk construction,
+        # subprocess-isolated interpreters) -- run as its own step so a
+        # failure here is diagnosable separately from the main suite, per
+        # prog.txt's own suggestion. -k "not TestChunkDistributed" excludes
+        # the one slow class that already has its own dedicated step above
+        # (with the XLA_FLAGS env it actually needs) -- running it again
+        # here without that env would just hit its own internal
+        # device-count skip, harmless but redundant.
+        run: |
+          pytest tests/ -m slow -k "not TestChunkDistributed" -p no:randomly -v --tb=short --junitxml=pytest-results-slow.xml --cov=. --cov-append --cov-report=term-missing
 
       - name: Run test suite with randomized collection order (diagnostic)
         # prog.txt test-suite audit (issue #269 point 9): pytest-xdist was

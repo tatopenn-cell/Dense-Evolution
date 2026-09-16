@@ -199,6 +199,20 @@ local_site = "research/local_site"
 # lives in -- pytest's own sanctioned mechanism for exactly this case.
 pythonpath = ["tests", "tools"]
 
+# prog.txt test-suite audit (issue #269 point 8): several files accumulate
+# minutes of runtime (30k+-shot statistical tests, dense-matrix Majorana
+# sweeps, real multi-Chunk construction, subprocess-isolated interpreters)
+# with nothing marking them for exclusion from a fast local dev loop.
+# `-m "not slow"` here is the DEFAULT for a bare `pytest` invocation --
+# explicitly pass `-m slow` (which overrides this addopts value, standard
+# pytest last-`-m`-wins behavior) to run only the slow ones, or omit any
+# `-m` filter's effect entirely by passing `-m ""`. CI's own dedicated
+# slow step (.github/workflows/ci.yml) does the former.
+addopts = '-m "not slow"'
+markers = [
+    "slow: takes noticeably longer than the rest of the suite (statistical convergence, subprocess isolation, real multi-Chunk construction) -- excluded by default, see addopts above",
+]
+
 [tool.black]
 line-length = 100
 target-version = ['py39', 'py310', 'py311', 'py312']

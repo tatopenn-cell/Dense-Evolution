@@ -129,19 +129,28 @@ class TestDensityMatrixZne:
         # combination, but for this real case (Bell state, real
         # depolarizing channel) it does.
         #
-        # seed=0 (not the original seed=7), pinned values updated: the
-        # real per-qubit-per-shot fix to apply_to_sv's 'depolarizing'
-        # branch (registry.py) changed the true noise strength on this
-        # entangled Bell state -- verified deterministic and reproducible
-        # at this seed/n_trials before pinning (0.81 / 1.0 across 3
-        # repeat runs). seed=7 still shows fidelity_corrected >
-        # fidelity_raw post-fix, just at different (0.77/0.81) values, so
-        # only the pinned-value assertions needed updating, not the seed
-        # -- switched to seed=0 anyway for a comfortably wider margin.
-        result = run_density_matrix_zne(BELL_QASM, 'depolarizing', 0.1, seed=0, n_trials=100)
-        assert result.fidelity_corrected > result.fidelity_raw
-        assert result.fidelity_raw == pytest.approx(0.81, abs=0.03)
-        assert result.fidelity_corrected == pytest.approx(1.0, abs=0.03)
+        # prog.txt test-suite audit (issue #269 point 2): the previous
+        # version of this test pinned exact fidelity_raw/fidelity_corrected
+        # values (0.81/1.0) at one fixed seed -- fragile the same way the
+        # class docstring warns about (an unrelated noise-model fix
+        # already forced re-pinning once, seed=7 -> seed=0). The property
+        # that actually matters -- correction improves fidelity, and lands
+        # much closer to ideal than raw -- holds across seeds (verified:
+        # seed=7 still passes post-fix, just at different 0.77/0.81
+        # values), so average over several seeds instead of trusting one,
+        # same pattern as test_mcp_server.py's
+        # test_mitigate_zne_richardson_extrapolates_toward_ideal.
+        raw_gaps = []
+        corrected_gaps = []
+        for seed in range(5):
+            result = run_density_matrix_zne(BELL_QASM, 'depolarizing', 0.1, seed=seed, n_trials=100)
+            assert result.fidelity_corrected > result.fidelity_raw
+            raw_gaps.append(1.0 - result.fidelity_raw)
+            corrected_gaps.append(1.0 - result.fidelity_corrected)
+        # Averaged over seeds: correction should land much closer to the
+        # ideal fidelity of 1.0 than the raw noisy measurement does, not
+        # just barely ahead of it on one lucky draw.
+        assert sum(corrected_gaps) / len(corrected_gaps) < 0.3 * (sum(raw_gaps) / len(raw_gaps))
 
     def test_fidelities_are_valid_probabilities(self):
         result = run_density_matrix_zne(BELL_QASM, "depolarizing", 0.2, seed=2, n_trials=100)

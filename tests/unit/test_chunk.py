@@ -54,6 +54,7 @@ class TestChunkPublicAPI:
         np.testing.assert_allclose(np.asarray(sim._inner_sim.sv), new_sv, atol=1e-12)
 
 
+@pytest.mark.slow
 class TestChunkMultiPiece:
     """Chunk(n_qubits) beyond the RAM-safe budget used to silently simulate
     FEWER qubits than requested (inner simulator sized to
@@ -253,6 +254,7 @@ class TestChunkMultiPiece:
         assert c.num_chunks == 4
 
 
+@pytest.mark.slow
 class TestChunkDiskOverflow:
     """dense_evolution/backends/chunk/disk_overflow.py -- Pednault et al.
     2019 (arXiv:1910.09534)-style disk-backed overflow: when num_chunks
@@ -464,6 +466,7 @@ class TestChunkDiskOverflow:
         c.close()
 
 
+@pytest.mark.slow
 class TestChunkMultiPieceJIT:
     """dense_evolution.chunk's multi-chunk dispatch (num_chunks>1) used to
     apply gates one at a time via a Python loop calling
@@ -713,6 +716,7 @@ class TestChunkUtilities:
         np.testing.assert_allclose(np.asarray(c.sv), original_sv, atol=1e-12)
 
 
+@pytest.mark.slow
 class TestChunkDistributed:
     """Chunk.run_chunk_distributed (issue #1): dispatches the multi-chunk
     kernel across a real JAX device mesh (jax.shard_map + jax.lax.ppermute

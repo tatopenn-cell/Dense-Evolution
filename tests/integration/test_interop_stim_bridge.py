@@ -12,6 +12,7 @@ import dense_evolution as de
 from dense_evolution.interop import qiskit_pennylane as interop
 from dense_evolution.interop import to_stim
 from dense_evolution.simulator import DenseSVSimulator
+from _helpers import _bit_reversal_perm
 
 stim = pytest.importorskip("stim")
 
@@ -23,8 +24,7 @@ def _to_le_order(probs: np.ndarray, n_qubits: int) -> np.ndarray:
     must not pass raw amplitudes here (squaring already-squared
     probabilities silently halves the apparent magnitude and was a real
     bug caught in this exact test)."""
-    perm = [int(format(i, f'0{n_qubits}b')[::-1], 2) for i in range(2 ** n_qubits)]
-    return probs[perm]
+    return probs[_bit_reversal_perm(n_qubits)]
 
 
 class TestToStimCliffordCircuits:

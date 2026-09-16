@@ -63,6 +63,7 @@ class TestNoiseModel:
             assert isinstance(desc, dict)
             assert 'kraus' in desc
 
+    @pytest.mark.slow
     def test_depolarizing_matches_analytic_prediction(self):
         # Found via independent statistical fuzzing: the docstring promises
         # 'depolarizing' {sqrt(1-p)I, sqrt(p/3)X, sqrt(p/3)Y, sqrt(p/3)Z} —
@@ -108,6 +109,7 @@ class TestNoiseModel:
         assert y_gate.sum() / n_fire == pytest.approx(third, abs=0.01)
         assert z_gate.sum() / n_fire == pytest.approx(third, abs=0.01)
 
+    @pytest.mark.slow
     def test_combined_model_depolarizing_subchannel_also_fixed(self):
         # The same buggy threshold pattern was duplicated in 'combined'
         # (depolarizing sub-channel) — verify it matches the closed-form
@@ -158,6 +160,7 @@ class TestNoiseModel:
         sv_out = NoiseModel.apply_to_sv(sv, n=1, model='bitflip', p=0.5, rng=None)
         assert abs(np.linalg.norm(sv_out) - 1.0) < 1e-10
 
+    @pytest.mark.slow
     def test_amplitude_damping_pure_1_state_matches_flat_probability(self):
         # A qubit purely in |1> is the ONE case where the old (buggy) flat
         # decay probability and the correct Born-rule probability
@@ -178,6 +181,7 @@ class TestNoiseModel:
         freq = counts / n_shots
         assert freq[0] == pytest.approx(gamma, abs=0.02)
 
+    @pytest.mark.slow
     def test_amplitude_damping_superposition_matches_born_rule_not_flat_probability(self):
         # BUG FIX: the decay branch used to fire with a flat probability
         # `gamma`, independent of the qubit's actual |1> population, AND
@@ -347,6 +351,7 @@ class TestNoiseSpecPyTree:
         assert doubled.p == pytest.approx(0.2)
 
 
+@pytest.mark.slow
 class TestNoiseModelEntangledStateCorrectness:
     """Regression tests for a real bug: every apply_to_sv channel used to
     draw dim/2 INDEPENDENT fire/no-fire decisions per qubit per shot --
