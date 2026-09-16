@@ -203,6 +203,7 @@ class TestMemoryReflectionEngine:
 # isolation is required -- jax_enable_x64 is process-wide and other
 # tests may have already flipped it on by the time this one runs.
 
+@pytest.mark.slow
 def test_max_semantic_distance_not_baked_to_float32_at_import():
     code = (
         "import jax; jax.config.update('jax_enable_x64', False)\n"

@@ -62,6 +62,7 @@ def _run(code: str) -> subprocess.CompletedProcess:
     return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
 
 
+@pytest.mark.slow
 class TestImportDoesNotTogglePrecision:
 
     def test_import_does_not_flip_true_to_false(self):
@@ -86,6 +87,7 @@ class TestImportDoesNotTogglePrecision:
         assert result.returncode == 0, result.stderr
 
 
+@pytest.mark.slow
 class TestLazyEnsureX64:
     """Confirms the OTHER half of config.py's contract: precision isn't
     just left alone at import time -- it's still enabled lazily, on
@@ -119,6 +121,7 @@ _COMPLEX_MODULE_CONSTANTS = [
 ]
 
 
+@pytest.mark.slow
 class TestModuleLevelConstantsSurviveImportTimePrecision:
     """The regression this class exists for: a dict of complex-valued
     matrices built once, at module import time, via jax.numpy bakes a
