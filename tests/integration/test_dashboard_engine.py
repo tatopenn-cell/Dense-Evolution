@@ -20,6 +20,7 @@ from dashboard_core.engine import (
     run_circuit_from_qasm, _to_qiskit_bit_order, _qiskit_bit_order_perm,
     run_bond_convergence_check,
 )
+from _helpers import _bit_reversal_perm
 
 _INV_SQRT2 = 1 / np.sqrt(2)
 
@@ -112,8 +113,7 @@ def test_noisy_run_fidelity_vs_ideal_matches_direct_overlap_computation():
 def _reference_qiskit_bit_order(values, n_qubits):
     """The pre-caching implementation, kept only as an independent
     reference for the tests below."""
-    perm = [int(format(i, f'0{n_qubits}b')[::-1], 2) for i in range(2 ** n_qubits)]
-    return values[perm]
+    return values[_bit_reversal_perm(n_qubits)]
 
 
 @pytest.mark.parametrize("n_qubits", [1, 2, 3, 4, 5, 8])
