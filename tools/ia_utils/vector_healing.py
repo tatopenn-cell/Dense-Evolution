@@ -1,5 +1,33 @@
+from collections import OrderedDict
+
 import numpy as np
 from scipy.ndimage import median_filter
+
+# Issue #258 point 7: an MCP agent calling dense_evolution_vector_healing
+# typically uses a different `n` (sequence length) almost every call (50,
+# then 200, then 1200 steps), not the same one repeatedly -- measured
+# directly: a genuinely new n costs ~0.5s (a fresh XLA compile of the
+# vmapped 'phi' path below) vs ~0.013s once that exact n has recurred, a
+# ~40x penalty that hits nearly every call in that usage pattern. This
+# bounded LRU tracks which batch sizes (n-2, the vmap axis below) have
+# already paid that compile once THIS process -- see _phi_trigger_batch's
+# own branch on it.
+_PHI_VMAP_WARM_SIZES: "OrderedDict[int, None]" = OrderedDict()
+_PHI_VMAP_WARM_MAXSIZE = 8
+
+
+def _mark_and_check_warm(size: int) -> bool:
+    """Returns True if `size` was already warmed (JAX's own jit cache will
+    reuse the compiled executable for it, so the vmapped path is free);
+    False the first time `size` is seen this process, in which case the
+    caller should use the per-index loop instead of paying a fresh XLA
+    compile for a batch size the MCP calling pattern likely never revisits."""
+    was_warm = size in _PHI_VMAP_WARM_SIZES
+    _PHI_VMAP_WARM_SIZES[size] = None
+    _PHI_VMAP_WARM_SIZES.move_to_end(size)
+    if len(_PHI_VMAP_WARM_SIZES) > _PHI_VMAP_WARM_MAXSIZE:
+        _PHI_VMAP_WARM_SIZES.popitem(last=False)
+    return was_warm
 
 def median_healing(vettori: np.ndarray, radius_baseline: int = None) -> (np.ndarray, int):
     """
@@ -239,19 +267,45 @@ def enhanced_dense_healing_hybrid(
             safe_norm = np.where(norm_ipg_raw > 1e-9, norm_ipg_raw, 1.0)
             ipg_vectors = np.where((norm_ipg_raw > 1e-9)[:, None], ipg_raw / safe_norm[:, None], ipg_raw)
 
-            state_A = jnp.asarray(baseline_means)
-            state_B = jnp.asarray(processed_vettori[idx])
-            ipg_vector_batch = jnp.asarray(ipg_vectors)
+            if _mark_and_check_warm(idx.size):
+                # This batch size has been compiled once already this
+                # process -- JAX's own jit cache (keyed on calculate_phi_ab
+                # et al.'s abstract input shapes, batch dim included) reuses
+                # that executable, so vmap really is ~free here.
+                state_A = jnp.asarray(baseline_means)
+                state_B = jnp.asarray(processed_vettori[idx])
+                ipg_vector_batch = jnp.asarray(ipg_vectors)
 
-            phi_ab = jax.vmap(calculate_phi_ab)(state_A, state_B, ipg_vector_batch)
-            E_A = jnp.linalg.norm(state_A, axis=1)
-            E_B = jnp.linalg.norm(state_B, axis=1)
-            v_dinamic = jax.vmap(calculate_vettore_dinamico)(E_A, E_B, phi_ab)
-            trigger, _, _ = jax.vmap(evaluate_phi_trigger)(v_dinamic)
+                phi_ab = jax.vmap(calculate_phi_ab)(state_A, state_B, ipg_vector_batch)
+                E_A = jnp.linalg.norm(state_A, axis=1)
+                E_B = jnp.linalg.norm(state_B, axis=1)
+                v_dinamic = jax.vmap(calculate_vettore_dinamico)(E_A, E_B, phi_ab)
+                trigger, _, _ = jax.vmap(evaluate_phi_trigger)(v_dinamic)
+                is_dynamic_arr = np.asarray(trigger) > GLOBAL_CONSTANTS['NON_STATIC_THRESHOLD_A']
+            else:
+                # First time this exact batch size is seen this process --
+                # calculate_phi_ab/calculate_vettore_dinamico/evaluate_phi_trigger
+                # are each jitted on a fixed (hidden_dim,)/scalar shape,
+                # compiled once ever regardless of n, so calling them one
+                # index at a time here pays no compile cost at all (unlike
+                # vmap's batch-shaped call above, which would). Same
+                # arithmetic as the batched path, just per-index -- verified
+                # to match it exactly in tests/unit/test_ia_utils_vector_healing.py.
+                is_dynamic_list = []
+                for k in range(idx.size):
+                    state_A_k = jnp.asarray(baseline_means[k])
+                    state_B_k = jnp.asarray(processed_vettori[idx[k]])
+                    ipg_k = jnp.asarray(ipg_vectors[k])
+                    phi_ab_k = calculate_phi_ab(state_A_k, state_B_k, ipg_k)
+                    v_dinamic_k = calculate_vettore_dinamico(
+                        jnp.linalg.norm(state_A_k), jnp.linalg.norm(state_B_k), phi_ab_k
+                    )
+                    trigger_k, _, _ = evaluate_phi_trigger(v_dinamic_k)
+                    is_dynamic_list.append(bool(np.asarray(trigger_k) > GLOBAL_CONSTANTS['NON_STATIC_THRESHOLD_A']))
+                is_dynamic_arr = np.array(is_dynamic_list, dtype=bool)
 
             # trigger == 1.0: ciclo aperto/dinamico -> cambio genuino, si tiene il valore
             # trigger == 0.0: ciclo chiuso/statico -> rumore, si sostituisce con la mediana locale
-            is_dynamic_arr = np.asarray(trigger) > GLOBAL_CONSTANTS['NON_STATIC_THRESHOLD_A']
 
             dynamic_idx = idx[is_dynamic_arr]
             out[dynamic_idx] = processed_vettori[dynamic_idx]
