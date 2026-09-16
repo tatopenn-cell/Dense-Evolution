@@ -691,3 +691,22 @@ def test_registered_tool_count_matches_documented_count():
     # noise) was 25 -- undetected drift, not a functional bug, but the
     # exact kind a trivial len()==N test catches for free going forward.
     assert len(mcp_adapter.mcp._tool_manager._tools) == 25
+
+
+def test_close_shared_client_closes_and_resets_the_cached_client():
+    # Issue #258 point 6: close_shared_client() is the actual shutdown
+    # hook (called from server.py's main() try/finally) -- verify it both
+    # closes the real client's connection pool and resets the module
+    # cache so a later call rebuilds a fresh one instead of reusing a
+    # closed client.
+    run(mcp_adapter.dense_evolution_health())
+    client = mcp_client._shared_client
+    assert client is not None and not client.is_closed
+
+    run(mcp_client.close_shared_client())
+    assert client.is_closed
+    assert mcp_client._shared_client is None
+
+    run(mcp_adapter.dense_evolution_health())
+    assert mcp_client._shared_client is not None
+    assert mcp_client._shared_client is not client
