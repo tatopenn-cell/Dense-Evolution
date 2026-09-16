@@ -710,3 +710,43 @@ def test_close_shared_client_closes_and_resets_the_cached_client():
     run(mcp_adapter.dense_evolution_health())
     assert mcp_client._shared_client is not None
     assert mcp_client._shared_client is not client
+
+
+def test_kernel_error_response_kind_is_classified_and_prefix_preserved():
+    # Issue #258 point 10: catch_errors' output stays "Error: ..." (every
+    # existing result.startswith("Error:") check keeps working) but now
+    # carries a stable "Error: <kind>: ..." token a client can branch on.
+    result = run(mcp_adapter.dense_evolution_energy_scan(mcp_models.EnergyScanInput(
+        symbols=["H", "H"],
+        geometries=[[[0, 0, 0], [0, 0, 0.7]], [[0, 0, 0], [0, 0, 0.8]]],
+        labels=["only-one-label"],
+    )))
+    assert result.startswith("Error: invalid_input:")
+
+
+def test_kernel_unreachable_error_is_classified_as_unreachable(monkeypatch):
+    monkeypatch.setattr(mcp_client, "_TEST_TRANSPORT", None)
+    monkeypatch.setattr(mcp_client, "KERNEL_URL", "http://127.0.0.1:1")
+    result = run(mcp_adapter.dense_evolution_health())
+    assert result.startswith("Error: unreachable:")
+
+
+def test_kernel_remote_protocol_error_gives_actionable_blas_hint(monkeypatch):
+    class _ProtocolErrorClient:
+        async def request(self, method, path, **kwargs):
+            raise httpx.RemoteProtocolError("simulated malformed response")
+
+    monkeypatch.setattr(mcp_client, "_get_client", lambda: _ProtocolErrorClient())
+    result = run(mcp_adapter.dense_evolution_health())
+    assert result.startswith("Error: protocol_error:")
+    assert "BLAS" in result
+
+
+def test_kernel_read_error_gives_actionable_error(monkeypatch):
+    class _ReadErrorClient:
+        async def request(self, method, path, **kwargs):
+            raise httpx.ReadError("simulated connection closed mid-response")
+
+    monkeypatch.setattr(mcp_client, "_get_client", lambda: _ReadErrorClient())
+    result = run(mcp_adapter.dense_evolution_health())
+    assert result.startswith("Error: connection_closed:")

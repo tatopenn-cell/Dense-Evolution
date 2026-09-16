@@ -93,6 +93,36 @@ async def close_shared_client() -> None:
         await client.aclose()
 
 
+class KernelError(RuntimeError):
+    """Base for every error this adapter raises about reaching or talking to
+    the kernel. `kind` is a short, stable token -- not the message text --
+    that catch_errors below embeds in its "Error: <kind>: ..." output, so
+    an MCP client can branch on error type (prog.txt Sezione 3, punto 10:
+    "ConnectError -> suggerisci dense-evolution serve; TimeoutException ->
+    suggerisci di ridurre n_qubits; ...") without parsing prose."""
+    kind = "kernel_error"
+
+
+class KernelUnreachableError(KernelError):
+    kind = "unreachable"
+
+
+class KernelTimeoutError(KernelError):
+    kind = "timeout"
+
+
+class KernelProtocolError(KernelError):
+    kind = "protocol_error"
+
+
+class KernelConnectionClosedError(KernelError):
+    kind = "connection_closed"
+
+
+class KernelHTTPError(KernelError):
+    kind = "http_error"
+
+
 async def _request(method: str, path: str, timeout: float = DEFAULT_TIMEOUT, **kwargs) -> dict:
     """Reusable request helper for every tool. `timeout` (seconds) should be
     sized to the specific endpoint's real expected cost -- see each tool's
@@ -101,29 +131,63 @@ async def _request(method: str, path: str, timeout: float = DEFAULT_TIMEOUT, **k
     try:
         resp = await client.request(method, path, timeout=timeout, **kwargs)
     except httpx.ConnectError:
-        raise RuntimeError(
+        raise KernelUnreachableError(
             f"Dense Evolution kernel not reachable at {KERNEL_URL}. Start it with "
             "`dense-evolution serve` (or `python -m local_site.app.server` from the "
             "repo root), then retry. Use dense_evolution_health to check connectivity."
         )
     except httpx.TimeoutException:
-        raise RuntimeError(
+        raise KernelTimeoutError(
             f"Request to the Dense Evolution kernel timed out after {timeout:g}s -- the "
             "simulation may be too large or slow for this request (e.g. high qubit "
             "count, many VQE iterations, or a long MD trajectory). Try reducing its size."
         )
+    except httpx.RemoteProtocolError:
+        # kernel process died/crashed mid-response rather than closing the
+        # connection cleanly -- the exact symptom documented in the README
+        # for the BLAS/eigh thread-safety issue under wormhole_scan's heavy
+        # linear algebra, not a generic network blip.
+        raise KernelProtocolError(
+            "Dense Evolution kernel terminated mid-response, likely the BLAS "
+            "thread-safety issue documented in the README for heavy linear "
+            "algebra (e.g. wormhole_scan). Retry, or reduce the request's size."
+        )
+    except httpx.ReadError:
+        raise KernelConnectionClosedError(
+            f"Connection to the Dense Evolution kernel at {KERNEL_URL} was closed "
+            "before the response finished -- the kernel process may have crashed. "
+            "Use dense_evolution_health to check it's still up, then retry."
+        )
+    except httpx.HTTPError as e:
+        # Catch-all for the rest of httpx's exception hierarchy (e.g.
+        # WriteError, PoolTimeout) that isn't specific enough to warrant its
+        # own message/kind above.
+        raise KernelError(f"Dense Evolution kernel request failed: {e}")
     if resp.status_code >= 400:
         try:
             detail = resp.json().get("detail", resp.text)
         except Exception:
             detail = resp.text
-        raise RuntimeError(f"Dense Evolution kernel returned HTTP {resp.status_code}: {detail}")
+        raise KernelHTTPError(f"Dense Evolution kernel returned HTTP {resp.status_code}: {detail}")
     return resp.json()
 
 
 def _handle_error(e: Exception) -> str:
-    """Consistent error formatting across all tools."""
-    return f"Error: {e}"
+    """Consistent error formatting across all tools: "Error: <kind>:
+    <message>". `kind` is a stable token (see the KernelError hierarchy
+    above for kernel-communication errors; "invalid_input" for a
+    ValueError a tool's own validation raised, e.g. models.py's
+    cross-field checks; "internal" for anything else) an MCP client can
+    branch on programmatically, without parsing message prose -- the
+    "Error: " prefix itself is unchanged so every existing
+    `result.startswith("Error:")` check still holds."""
+    if isinstance(e, KernelError):
+        kind = e.kind
+    elif isinstance(e, ValueError):
+        kind = "invalid_input"
+    else:
+        kind = "internal"
+    return f"Error: {kind}: {e}"
 
 
 def catch_errors(func):
