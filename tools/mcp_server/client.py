@@ -20,6 +20,7 @@ what happens here.
 """
 import functools
 import os
+import threading
 from typing import Optional
 
 import httpx
@@ -49,19 +50,47 @@ _TEST_TRANSPORT = None
 # transport or base_url must not be reused across either kind of swap.
 _shared_client: Optional[httpx.AsyncClient] = None
 _shared_client_key = None  # (transport identity, base_url) the cached client was built with
+# Issue #258 point 6 asked whether the originally-suspected data race here
+# is actually reachable: verified by reading the installed mcp package
+# (mcp/shared/jsonrpc_dispatcher.py) -- tool calls are dispatched via
+# `anyio.create_task_group()` / `start_soon`, i.e. concurrent tasks on ONE
+# event loop, never separate OS threads. _get_client() has no `await`
+# inside it, so it can't actually be preempted mid-check-then-create by
+# another task today -- the race prog.txt described isn't currently live.
+# This threading.Lock (not asyncio.Lock -- that was the first attempt,
+# reverted for breaking 3 tests that monkeypatch _get_client as a plain
+# sync callable) is defensive, not a fix for an active bug: near-zero cost
+# uncontended, and it keeps this safe if a future edit ever adds an
+# `await` here or a caller ever invokes it off the event-loop thread.
+_client_lock = threading.Lock()
 
 
 def _get_client() -> httpx.AsyncClient:
     global _shared_client, _shared_client_key
     current_key = (id(_TEST_TRANSPORT), KERNEL_URL)
-    if _shared_client is None or _shared_client_key != current_key:
-        # Client-level timeout is just the fallback ceiling -- every real
-        # call site passes its own timeout= to _request, sized to that
-        # endpoint's actual expected cost (a health check and a 10-minute
-        # VQE run have nothing in common).
-        _shared_client = httpx.AsyncClient(base_url=KERNEL_URL, transport=_TEST_TRANSPORT, timeout=DEFAULT_TIMEOUT)
-        _shared_client_key = current_key
-    return _shared_client
+    with _client_lock:
+        if _shared_client is None or _shared_client_key != current_key:
+            # Client-level timeout is just the fallback ceiling -- every real
+            # call site passes its own timeout= to _request, sized to that
+            # endpoint's actual expected cost (a health check and a 10-minute
+            # VQE run have nothing in common).
+            _shared_client = httpx.AsyncClient(base_url=KERNEL_URL, transport=_TEST_TRANSPORT, timeout=DEFAULT_TIMEOUT)
+            _shared_client_key = current_key
+        return _shared_client
+
+
+async def close_shared_client() -> None:
+    """Closes the shared client's connection pool, if one was ever created,
+    and resets the cache so a later call rebuilds a fresh one. Call this
+    once at process shutdown (server.py's main(), in a try/finally around
+    mcp.run()) -- without it httpx logs unclosed-connection warnings when
+    the interpreter exits, and a dev reload can leave the client bound to
+    an event loop that's already gone."""
+    global _shared_client, _shared_client_key
+    with _client_lock:
+        client, _shared_client, _shared_client_key = _shared_client, None, None
+    if client is not None:
+        await client.aclose()
 
 
 class KernelError(RuntimeError):
