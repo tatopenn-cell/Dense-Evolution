@@ -42,17 +42,27 @@ def test_run_vector_healing_raises_clear_error_if_ia_utils_missing(monkeypatch):
         run_vector_healing(np.zeros((5, 2)))
 
 
-def test_module_import_guard_actually_triggers_on_a_real_import_failure():
+def test_module_import_guard_actually_triggers_on_a_real_import_failure(monkeypatch):
     # The test above only simulates the *consequence* of a failed import
     # (patching the resulting module attributes after a successful real
     # import) -- this one forces the actual `except ImportError` branch
     # at module-load time, via the standard sys.modules=None trick
     # (Python's import system treats that as "this import must fail").
-    # Restored manually (not via monkeypatch, whose teardown runs too
-    # late to matter here) before reloading back to the real state, so
-    # later tests in this file see the genuine module either way.
-    original = sys.modules.get("ia_utils.vector_healing")
-    sys.modules["ia_utils.vector_healing"] = None
+    #
+    # prog.txt test-suite audit (issue #269 point 6): the sys.modules
+    # entry is now set via monkeypatch.setitem instead of manual
+    # get/pop/set bookkeeping -- but the *timing* of the restore still
+    # has to be manual, not left to monkeypatch's own fixture teardown:
+    # reloading dashboard_core.vector_healing while the import is broken
+    # is itself a lasting side effect (the ALREADY-IMPORTED module's own
+    # enhanced_dense_healing_hybrid/_IMPORT_ERROR attributes get set to
+    # the broken state), and the reload-back below needs sys.modules
+    # already restored to the REAL module to succeed -- if it ran first
+    # and monkeypatch's automatic teardown ran after, the reload-back
+    # would still see the broken entry and fail. monkeypatch.undo() runs
+    # the restore immediately, in the right order relative to the
+    # reload-back, instead of waiting for fixture teardown.
+    monkeypatch.setitem(sys.modules, "ia_utils.vector_healing", None)
     try:
         importlib.reload(vector_healing)
         assert vector_healing.enhanced_dense_healing_hybrid is None
@@ -60,9 +70,6 @@ def test_module_import_guard_actually_triggers_on_a_real_import_failure():
         with pytest.raises(ImportError, match="run_vector_healing requires ia_utils.vector_healing"):
             vector_healing.run_vector_healing(np.zeros((5, 2)))
     finally:
-        if original is None:
-            sys.modules.pop("ia_utils.vector_healing", None)
-        else:
-            sys.modules["ia_utils.vector_healing"] = original
+        monkeypatch.undo()
         importlib.reload(vector_healing)
         assert vector_healing.enhanced_dense_healing_hybrid is not None
