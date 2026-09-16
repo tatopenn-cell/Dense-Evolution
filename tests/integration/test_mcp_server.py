@@ -710,3 +710,47 @@ def test_close_shared_client_closes_and_resets_the_cached_client():
     run(mcp_adapter.dense_evolution_health())
     assert mcp_client._shared_client is not None
     assert mcp_client._shared_client is not client
+
+
+def test_main_closes_the_shared_client_after_mcp_run_returns(monkeypatch):
+    from mcp_server.server import main
+
+    monkeypatch.setattr(mcp_adapter.mcp, "run", lambda: None)
+    closed = []
+
+    async def _fake_close():
+        closed.append(True)
+
+    monkeypatch.setattr(mcp_client, "close_shared_client", _fake_close)
+    main()
+    assert closed == [True]
+
+
+def test_main_still_closes_the_shared_client_if_mcp_run_raises(monkeypatch):
+    from mcp_server.server import main
+
+    def _raising_run():
+        raise ValueError("simulated stdio transport crash")
+
+    monkeypatch.setattr(mcp_adapter.mcp, "run", _raising_run)
+    closed = []
+
+    async def _fake_close():
+        closed.append(True)
+
+    monkeypatch.setattr(mcp_client, "close_shared_client", _fake_close)
+    with pytest.raises(ValueError, match="simulated stdio transport crash"):
+        main()
+    assert closed == [True]
+
+
+def test_main_swallows_runtime_error_from_close_shared_client(monkeypatch):
+    from mcp_server.server import main
+
+    monkeypatch.setattr(mcp_adapter.mcp, "run", lambda: None)
+
+    async def _raising_close():
+        raise RuntimeError("simulated event-loop-already-closed at shutdown")
+
+    monkeypatch.setattr(mcp_client, "close_shared_client", _raising_close)
+    main()  # must not raise -- the RuntimeError is swallowed
