@@ -23,12 +23,13 @@ __all__ = ['max_safe_dense_qubits']
 def max_safe_dense_qubits() -> dict:
     """Suggested max qubit count for the Composer's Qubits field, from
     dense_evolution.chunk.get_dynamic_chunk(complex128) -- floor 16,
-    ceiling 27 by that function's own design (a chunk always has *some*
-    minimum useful size, and 27 qubits/2 GB is its own practical ceiling
-    for a single dense block). MPS's contract_to_statevector has a
-    separate, RAM-independent hard ceiling of 24 qubits; picking 25-27
-    with the MPS backend surfaces that function's own real error rather
-    than being silently blocked here.
+    ceiling 30 by that function's own design (a chunk always has *some*
+    minimum useful size, and 30 qubits/~17 GB is its own practical ceiling
+    for a single dense block -- raised from 27 in Dense-Evolution PR #278,
+    which was discarding real headroom on any 16GB+ GPU). MPS's
+    contract_to_statevector has a separate, RAM-independent hard ceiling
+    of 24 qubits; picking 25-30 with the MPS backend surfaces that
+    function's own real error rather than being silently blocked here.
 
     Returns
     -------
@@ -44,7 +45,7 @@ def max_safe_dense_qubits() -> dict:
     >>> limits = max_safe_dense_qubits()
     >>> sorted(limits.keys())
     ['available_mb', 'max_qubits_dense', 'threshold_pct', 'total_mb']
-    >>> 16 <= limits['max_qubits_dense'] <= 27
+    >>> 16 <= limits['max_qubits_dense'] <= 30
     True
     """
     guard = de.chunk.SafeMemoryGuard()
