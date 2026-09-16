@@ -45,8 +45,30 @@ measure q[1] -> c[1];
 """
 
 
+# prog.txt test-suite audit (issue #269 point 7): run() used to be
+# `asyncio.run(coro)` -- a fresh event loop per call, immediately closed
+# afterward. client.py::_get_client() caches the shared httpx.AsyncClient
+# across calls, so the second call's asyncio.run() would hand it a
+# NEW loop while its transport/connection-pool internals may still be
+# bound to the FIRST (now-closed) one -- test_request_reuses_the_same_client_across_calls
+# only ever passed because httpx.ASGITransport (the test-only transport
+# used here) doesn't hold any loop-bound state the way a real TCP
+# transport's connection pool does; that test was verifying something
+# never actually exercised the way production (one long-lived stdio
+# loop, see server.py's main()) uses this client. A single loop for the
+# whole module, closed once at teardown, makes the caching this suite
+# already asserts on genuinely tested against a stable loop instead.
+_shared_loop = asyncio.new_event_loop()
+
+
 def run(coro):
-    return asyncio.run(coro)
+    return _shared_loop.run_until_complete(coro)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _close_shared_loop_at_module_end():
+    yield
+    _shared_loop.close()
 
 
 @pytest.fixture(autouse=True)
@@ -643,6 +665,23 @@ def test_request_reuses_the_same_client_across_calls():
     client_after_first_call = mcp_client._shared_client
     run(mcp_adapter.dense_evolution_health())
     assert mcp_client._shared_client is client_after_first_call
+
+
+def test_run_helper_reuses_one_event_loop_not_a_fresh_one_per_call():
+    # prog.txt test-suite audit (issue #269 point 7): this file's run()
+    # used to be asyncio.run(coro) -- a new loop, closed immediately
+    # after each call -- which the test above's cached-client assertion
+    # never actually exercised realistically (only true because
+    # ASGITransport holds no loop-bound state). Confirms run() now
+    # executes on the same, still-open loop across calls, matching
+    # production's single long-lived stdio loop (server.py's main()).
+    async def _current_loop():
+        return asyncio.get_running_loop()
+
+    loop_a = run(_current_loop())
+    loop_b = run(_current_loop())
+    assert loop_a is loop_b
+    assert not loop_a.is_closed()
 
 
 def test_request_rebuilds_client_when_transport_or_url_changes(monkeypatch):
