@@ -166,7 +166,15 @@ docs = [
     # added to the dashboard/full extras but not here, so the docs build
     # broke again with the identical ModuleNotFoundError pattern the
     # pennylane comment above already documents.
-    "plotly>=5.0.0"
+    "plotly>=5.0.0",
+    # Same gap, one more hop: dashboard_core/__init__.py imports
+    # dashboard_core.qmmm (the backward-compat shim), which imports
+    # dense_evolution.qmmm.forces, whose package __init__.py eagerly
+    # imports .region, which needs rdkit at module level (issue #283) --
+    # broke the docs build with "accessing 'dashboard_core' raises
+    # ModuleNotFoundError: No module named 'rdkit'" the same way pennylane
+    # and plotly did above.
+    "rdkit>=2023.9.1"
 ]
 
 [project.urls]
