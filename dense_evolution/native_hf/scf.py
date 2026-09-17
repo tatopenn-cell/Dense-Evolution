@@ -92,6 +92,8 @@ import functools
 import jax
 import jax.numpy as jnp
 
+from dense_evolution.config import ensure_x64
+
 _DIIS_DIM = 8
 
 
@@ -184,6 +186,7 @@ def run_scf(
     damping: float = 0.5,
     diis_dim: int = _DIIS_DIM,
 ) -> HFResult:
+    ensure_x64()
     if n_electrons % 2 != 0:
         raise ValueError("Only closed-shell (even electron count) systems are supported.")
     n_occupied_pairs = n_electrons // 2
