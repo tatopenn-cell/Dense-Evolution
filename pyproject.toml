@@ -116,6 +116,15 @@ libcint = [
     # wheel on PyPI for pyscf -- installing this extra there needs a C
     # toolchain to build pyscf from source.
 ]
+qmmm = [
+    "rdkit>=2023.9.1",
+    # dense_evolution.qmmm.region/propagation -- molecule graph
+    # partitioning, capping, and Diffuse2Seg-derived relevance
+    # propagation (issue #283). Validated on Dense-Evolution-Discovery
+    # before promotion here; forces.py (Hellmann-Feynman/MD, moved from
+    # dashboard_core.qmmm) needs no extra dependency of its own beyond
+    # what dashboard_core already requires.
+]
 full = [
     "cupy-cuda12x>=12.0.0",
     "streamlit>=1.30.0",

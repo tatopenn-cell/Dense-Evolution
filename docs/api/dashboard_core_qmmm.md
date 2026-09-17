@@ -1,9 +1,12 @@
 # Dashboard Core — QM/MM
 
-Real Hellmann-Feynman nuclear forces and a real Velocity-Verlet MD step
-for this project's molecule catalog — no fabricated geometry, no
-placeholder forces. Backs Composer's QM/MM force and MD-trajectory
-panels.
+**Moved to [`dense_evolution.qmmm`](qmmm.md)** — this page documents the
+backward-compatible re-export only; `dashboard_core.qmmm` still works
+unchanged, but the real implementation and any new QM/MM work (region
+partitioning, embedding) now live in the library itself, alongside real
+Hellmann-Feynman nuclear forces and a real Velocity-Verlet MD step for
+this project's molecule catalog — no fabricated geometry, no placeholder
+forces. Backs Composer's QM/MM force and MD-trajectory panels.
 
 ```python
 from dashboard_core.qmmm import compute_hellmann_feynman_forces, run_md_trajectory

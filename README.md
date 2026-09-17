@@ -196,7 +196,7 @@ sim.run_chunk(circuit.to_tuples(), chunk_size_gates=500)
 - **Real noise, real mitigation.** Stochastic Kraus channels, real-device noise imported from Qiskit backends, and Zero-Noise Extrapolation to correct for it. [Noise](https://tatopenn-cell.github.io/Dense-Evolution/api/noise/) · [Mitigation](https://tatopenn-cell.github.io/Dense-Evolution/api/mitigation/) · [what noise/mitigation/healing each mean](https://tatopenn-cell.github.io/Dense-Evolution/concepts/).
 - **Differentiable VQE, from scratch.** `circuit_to_energy_fn` is the same JAX-differentiable engine real molecular VQE runs on — real Hartree-Fock Hamiltonians, UCCSD/hardware-efficient ansätze, Adam optimization. [Autodiff](https://tatopenn-cell.github.io/Dense-Evolution/api/autodiff/).
 - **OpenQASM 2.0/3.0, both directions.** A real parser, plus Qiskit/PennyLane interop bridges. [QASM Parser](https://tatopenn-cell.github.io/Dense-Evolution/api/parser/) · [Interop](https://tatopenn-cell.github.io/Dense-Evolution/api/interop/).
-- **Code-agnostic QEC decoding**, Majorana/Jordan-Wigner fermion mapping, from-scratch Hartree-Fock for elements outside PennyLane's own basis set, and a traversable-wormhole-inspired teleportation protocol — see the [full API reference](https://tatopenn-cell.github.io/Dense-Evolution/api/) for all of it.
+- **Code-agnostic QEC decoding**, Majorana/Jordan-Wigner fermion mapping, from-scratch Hartree-Fock for elements outside PennyLane's own basis set, a traversable-wormhole-inspired teleportation protocol, and real QM/MM region partitioning (ring-safe BFS, Diffuse2Seg-derived relevance propagation) — see the [full API reference](https://tatopenn-cell.github.io/Dense-Evolution/api/) for all of it.
 
 ## ▍ Benchmarks
 
