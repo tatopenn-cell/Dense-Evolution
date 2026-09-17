@@ -145,6 +145,24 @@ vs. 53 for damping alone, same converged energy to 12 significant figures) and r
 both density and energy to stop changing before declaring convergence, not density
 alone.
 
+**Level shifting for harder near-degeneracies (`run_scf(..., level_shift=...)`)**:
+DIIS alone fixes the textbook Si2 case above, but a real, harder case found via a
+Dense-Evolution-Discovery experiment (a 30-heavy-atom aromatic fragment from the CASMI26
+molecule-ID Kaggle competition wiring) still took 1114 iterations to converge, passing
+through three wildly different intermediate energies (-622, -521, -839 Hartree) at
+200/1000/5000 iterations first -- the same near-degenerate-orbital oscillation as Si2,
+just harder to escape. `level_shift` (Saunders & Hillier, "A `level shifting' method for
+converging closed shell Hartree-Fock wave functions", Int. J. Quantum Chem. 7, 699-705
+(1973)) pushes the previous iteration's virtual orbitals up in energy before each
+diagonalization, opening a numerical gap that stops the occupied/virtual split from
+flip-flopping. On that same fragment, `level_shift=0.5` converges in 60 iterations and
+`level_shift=1.0` in 83 -- both to the identical energy (-838.928114 Hartree, matching
+the unshifted 1114-iteration result to full precision) -- while `level_shift=0.1` was too
+weak to help within 200 iterations. Default is `0.0` (off, backward compatible): the
+transform is an exact algebraic no-op at zero shift, verified both algebraically and
+numerically (H2/STO-3G gives the identical converged energy at `level_shift` in
+`{0.0, 0.5, 2.0}`).
+
 **AO-to-MO integral transformation**: `bridge._ao_to_mo`'s 4-index `einsum` +
 `swapaxes` (converting AO-basis integrals to the molecular-orbital basis, using the
 converged Hartree-Fock coefficients) is exactly the kind of operation where an

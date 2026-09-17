@@ -22,6 +22,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from dense_evolution.config import ensure_x64
 from dense_evolution.native_hf.cartesian import cartesian_powers
 from dense_evolution.native_hf.gaussians import GaussianShell3D
 from dense_evolution.native_hf.overlap import overlap_3d
@@ -105,6 +106,7 @@ def load_element_shells(basis_name: str, atomic_number: int, center: jax.Array, 
 
 def build_molecule_shells(atomic_numbers: list[int], geometry_bohr: np.ndarray, basis_name: str) -> list[ContractedShell]:
     """geometry_bohr: shape (n_atoms, 3), atomic units."""
+    ensure_x64()
     shells = []
     for i, (z, r) in enumerate(zip(atomic_numbers, geometry_bohr)):
         shells.extend(load_element_shells(basis_name, z, jnp.asarray(r), i))
