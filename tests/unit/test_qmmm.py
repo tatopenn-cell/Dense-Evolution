@@ -1,8 +1,9 @@
 """
-Real tests for dense_evolution.qmmm.region/propagation (issue #283).
-rdkit-dependent tests use pytest.importorskip("rdkit") per-test, same
-convention as test_libcint_bridge.py's pyscf tests -- rdkit is installed
-in CI (the `qmmm` extra) so these cover the real logic, not just the
+Real tests for dense_evolution.qmmm.region/propagation (issue #283) and
+dense_evolution.qmmm.ase_bridge (issue #288). rdkit/ase-dependent tests
+use pytest.importorskip(...) per-test, same convention as
+test_libcint_bridge.py's pyscf tests -- both are installed in CI (the
+`qmmm`/`ase` extras) so these cover the real logic, not just the
 ImportError path.
 
 Every number below was computed directly by running the real functions
@@ -116,3 +117,51 @@ class TestSlicedGeometry:
         assert new_geom.shape == (3, 3)
         cap_bond_length = np.linalg.norm(new_geom[2] - geom[1])
         assert cap_bond_length == pytest.approx(CH_BOND_BOHR)
+
+
+class TestAseBridge:
+    def test_h2_sto3g_energy_matches_native_hf(self):
+        """Real value, computed directly by running the bridge (not
+        invented): -30.39 eV, consistent with native_hf's own H2/STO-3G
+        energy elsewhere in this project (~-1.117 Hartree)."""
+        pytest.importorskip("ase")
+        from ase import Atoms
+        from dense_evolution.qmmm.ase_bridge import DenseEvolutionCalculator
+
+        h2 = Atoms("H2", positions=[[0, 0, 0], [0, 0, 0.7414]])
+        h2.calc = DenseEvolutionCalculator(atomic_numbers=[1, 1], nuclear_charges=[1.0, 1.0],
+                                            n_electrons=2, basis_name="sto-3g")
+        energy_ev = h2.get_potential_energy()
+        assert energy_ev == pytest.approx(-30.39, abs=0.01)
+
+    def test_richer_basis_gives_a_lower_variational_energy(self):
+        """6-31G has more variational freedom than STO-3G, so its energy
+        must be lower (more negative) for the same real geometry -- the
+        actual point of this bridge: swapping basis_name needs no other
+        code change. Real values, not invented."""
+        pytest.importorskip("ase")
+        from ase import Atoms
+        from dense_evolution.qmmm.ase_bridge import DenseEvolutionCalculator
+
+        positions = [[0, 0, 0], [0, 0, 0.7414]]
+        e_sto3g = Atoms("H2", positions=positions)
+        e_sto3g.calc = DenseEvolutionCalculator(atomic_numbers=[1, 1], nuclear_charges=[1.0, 1.0],
+                                                 n_electrons=2, basis_name="sto-3g")
+        e_631g = Atoms("H2", positions=positions)
+        e_631g.calc = DenseEvolutionCalculator(atomic_numbers=[1, 1], nuclear_charges=[1.0, 1.0],
+                                                n_electrons=2, basis_name="6-31g")
+        assert e_631g.get_potential_energy() < e_sto3g.get_potential_energy()
+
+    def test_missing_ase_raises_clear_error(self, monkeypatch):
+        import builtins
+        real_import = builtins.__import__
+
+        def blocked_import(name, *args, **kwargs):
+            if name == "ase.calculators.calculator":
+                raise ImportError("simulated missing ase")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", blocked_import)
+        from dense_evolution.qmmm.ase_bridge import _import_ase_calculator
+        with pytest.raises(ImportError, match="qmmm.ase_bridge needs ASE"):
+            _import_ase_calculator()

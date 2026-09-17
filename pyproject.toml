@@ -125,6 +125,15 @@ qmmm = [
     # dashboard_core.qmmm) needs no extra dependency of its own beyond
     # what dashboard_core already requires.
 ]
+ase = [
+    "ase>=3.22.0",
+    # dense_evolution.qmmm.ase_bridge (issue #288) -- an ASE Calculator
+    # wrapping native_hf's own build_energy_fn, for interop with ASE's
+    # optimizers/MD drivers and other engines' Atoms representations.
+    # Does not add any basis-set capability native_hf didn't already
+    # have (basis_name was already a plain string parameter) -- this is
+    # purely the ecosystem-interop layer.
+]
 full = [
     "cupy-cuda12x>=12.0.0",
     "streamlit>=1.30.0",
