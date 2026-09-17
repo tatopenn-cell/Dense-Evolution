@@ -8,6 +8,7 @@ from .fermions import majorana_pauli_terms, total_parity_operator, hubbard_hamil
 from .qec import (pauli_commutes, compute_syndrome, erasure_aware_decode, pymatching_decode,
                    blind_minimum_weight_decode, decode_with_erasure_fallback,
                    counts_in_intervals_dimension, nearest_coset_decode)
+from .spectral import has_exact_degeneracy, matrix_function_eigh, spectral_evolve
 
 __all__ = [
     "ghz_state",
@@ -18,4 +19,5 @@ __all__ = [
     "majorana_pauli_terms", "total_parity_operator", "hubbard_hamiltonian_pauli_terms", "square_lattice_edges",
     "pauli_commutes", "compute_syndrome", "erasure_aware_decode", "pymatching_decode", "blind_minimum_weight_decode",
     "decode_with_erasure_fallback", "counts_in_intervals_dimension", "nearest_coset_decode",
+    "has_exact_degeneracy", "matrix_function_eigh", "spectral_evolve",
 ]
