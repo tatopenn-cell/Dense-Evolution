@@ -50,14 +50,43 @@ change.
 import numpy as np
 from scipy import constants as _c
 
-from dashboard_core.hamiltonians import (
-    MOLECULE_CATALOG, build_molecular_hamiltonian, MIN_NUCLEAR_DISTANCE_ANGSTROM,
-)
-
 __all__ = [
     'ATOMIC_MASSES_AMU', 'compute_hellmann_feynman_forces', 'md_step', 'run_md_trajectory',
-    'MIN_NUCLEAR_DISTANCE_ANGSTROM',
+    'MIN_NUCLEAR_DISTANCE_ANGSTROM', 'ACCEL_CONVERSION',
 ]
+
+
+def _import_dashboard_hamiltonians():
+    # Lazy, not module-level: dense_evolution.qmmm is walked by
+    # test_imports.py::test_all_submodules_importable_with_only_base_dependencies,
+    # which must succeed with ONLY dense_evolution's own base dependencies
+    # installed. dashboard_core is a separate, heavier, optional tool (its
+    # own 'dashboard' extra: streamlit, qiskit, pennylane, ...) built ON
+    # TOP of this library -- the core library must never require it just
+    # to be imported. A real bug found in CI: an earlier version of this
+    # module imported dashboard_core.hamiltonians at module level, so
+    # merely importing dense_evolution.qmmm (even for region.py/
+    # propagation.py, which need neither dashboard_core nor this
+    # function) forced a dashboard_core import and broke that test.
+    try:
+        from dashboard_core.hamiltonians import MOLECULE_CATALOG, build_molecular_hamiltonian
+    except ImportError as exc:
+        raise ImportError(
+            "dense_evolution.qmmm.forces's Hellmann-Feynman/MD functions need "
+            "dashboard_core (the 'dashboard' extra: pip install dense-evolution[dashboard]); "
+            "it is not installed."
+        ) from exc
+    return MOLECULE_CATALOG, build_molecular_hamiltonian
+
+
+# A plain physical-safety-floor constant (0.3 A -- shorter than any real
+# covalent bond dashboard_core's molecule catalog could ever produce),
+# not something that needs dashboard_core's dynamic Hamiltonian
+# machinery -- kept as a real, always-available module-level constant
+# here (must stay numerically in sync with
+# dashboard_core.hamiltonians.MIN_NUCLEAR_DISTANCE_ANGSTROM, which is
+# itself just this same literal).
+MIN_NUCLEAR_DISTANCE_ANGSTROM = 0.3
 
 # MIN_NUCLEAR_DISTANCE_ANGSTROM itself lives in hamiltonians.py now (prog.txt,
 # dashboard_core audit point 1d) -- this module already imports several
@@ -133,6 +162,7 @@ def _reference_ground_state(symbols, geometry, charge, mapping, active_electrons
     available for Si" error -- even though the rest of this module
     (energy_at, below) already used the fallback-aware path and would
     otherwise have worked."""
+    _MOLECULE_CATALOG, build_molecular_hamiltonian = _import_dashboard_hamiltonians()
     h_matrix, n_qubits = build_molecular_hamiltonian(
         symbols, geometry, charge, mapping, active_electrons, active_orbitals)
     eigvals, eigvecs = np.linalg.eigh(h_matrix)
@@ -201,6 +231,7 @@ def compute_hellmann_feynman_forces(name: str, statevector=None, mapping: str = 
     >>> 0.01 < result['force_norm'] < 0.02  # small residual at equilibrium, not exactly zero
     True
     """
+    MOLECULE_CATALOG, build_molecular_hamiltonian = _import_dashboard_hamiltonians()
     if name not in MOLECULE_CATALOG:
         raise ValueError(f"unknown molecule {name!r}; available: {sorted(MOLECULE_CATALOG)}")
     spec = MOLECULE_CATALOG[name]
@@ -321,6 +352,7 @@ def run_md_trajectory(name: str, n_steps: int, dt_fs: float = 0.5, mapping: str 
     >>> len(traj['force_norm'])
     3
     """
+    MOLECULE_CATALOG, _build_molecular_hamiltonian = _import_dashboard_hamiltonians()
     if name not in MOLECULE_CATALOG:
         raise ValueError(f"unknown molecule {name!r}; available: {sorted(MOLECULE_CATALOG)}")
     spec = MOLECULE_CATALOG[name]

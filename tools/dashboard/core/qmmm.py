@@ -7,10 +7,10 @@ code needed to change: `from dashboard_core.qmmm import ...` still works.
 """
 from dense_evolution.qmmm.forces import (
     ATOMIC_MASSES_AMU, compute_hellmann_feynman_forces, md_step, run_md_trajectory,
-    MIN_NUCLEAR_DISTANCE_ANGSTROM,
+    MIN_NUCLEAR_DISTANCE_ANGSTROM, ACCEL_CONVERSION,
 )
 
 __all__ = [
     'ATOMIC_MASSES_AMU', 'compute_hellmann_feynman_forces', 'md_step', 'run_md_trajectory',
-    'MIN_NUCLEAR_DISTANCE_ANGSTROM',
+    'MIN_NUCLEAR_DISTANCE_ANGSTROM', 'ACCEL_CONVERSION',
 ]
