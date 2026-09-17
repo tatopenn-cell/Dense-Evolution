@@ -150,6 +150,31 @@ def test_ne_631gstar_fully_libcint_pipeline_matches_anchor(_x64):
     assert result.total_energy == pytest.approx(NE_631GSTAR_PYSCF_RHF_ENERGY, abs=1e-6)
 
 
+def test_run_scf_converges_without_caller_enabling_x64_first():
+    # The real bug this guards: run_scf's own default tolerances (1e-10)
+    # are unreachable in JAX's default float32 mode (machine epsilon
+    # ~1.19e-7), so without run_scf enabling x64 itself, `converged` comes
+    # back False even for a trivially-converged H2/STO-3G case whose
+    # total_energy is already numerically correct -- found via a real
+    # Kaggle run whose own convergence gate then nulled out a valid energy.
+    # Deliberately does NOT use the `_x64` fixture: starts from whatever
+    # jax_enable_x64 already is (commonly False), to prove run_scf fixes
+    # this on its own rather than relying on the caller.
+    pytest.importorskip("pyscf")
+    from dense_evolution.native_hf.libcint_bridge import (
+        build_overlap_and_core_hamiltonian_libcint, build_repulsion_tensor_libcint,
+    )
+    from dense_evolution.native_hf.scf import run_scf
+
+    geometry_bohr = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.735]]) * _BOHR_PER_ANGSTROM
+    S, H_core = build_overlap_and_core_hamiltonian_libcint([1, 1], geometry_bohr, "sto-3g")
+    V = build_repulsion_tensor_libcint([1, 1], geometry_bohr, "sto-3g")
+
+    result = run_scf(S, H_core, V, 2, [1.0, 1.0], geometry_bohr)
+    assert result.converged
+    assert result.n_iterations < 200
+
+
 def test_ne_631gstar_bridge_matches_pyscf_anchor(_x64):
     # The real point: a mixed s/p/d basis, where native_hf and libcint
     # disagree on both shell order (native_hf keeps basis-file order,
