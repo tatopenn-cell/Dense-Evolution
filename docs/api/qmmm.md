@@ -65,6 +65,26 @@ Dense-Evolution-Discovery's `docs/qmmm_utils.md` for the full lambda
 sweep. Included here as a real, correctly-implemented primitive; not a
 proven QM/MM region-selection win yet.
 
+```python
+from ase import Atoms
+from dense_evolution.qmmm.ase_bridge import DenseEvolutionCalculator
+
+h2 = Atoms("H2", positions=[[0, 0, 0], [0, 0, 0.7414]])
+h2.calc = DenseEvolutionCalculator(atomic_numbers=[1, 1], nuclear_charges=[1.0, 1.0],
+                                    n_electrons=2, basis_name="sto-3g")
+print(h2.get_potential_energy())  # -30.39 eV
+```
+
+`DenseEvolutionCalculator` (issue #288, needs the `ase` extra:
+`pip install dense-evolution[ase]`) is an ASE Calculator backed by
+`native_hf`'s own differentiable energy (`build_energy_fn`) -- real
+Obara-Saika integrals and SCF, not a stub, for interop with ASE's
+optimizers/MD drivers and other engines' `Atoms` representations.
+`basis_name` is a plain string (`"sto-3g"`, `"6-31g*"`, anything
+`basis_set_exchange` has data for) -- this bridge doesn't add any
+basis-set capability native_hf didn't already have, it's purely the
+ecosystem-interop layer.
+
 ::: dense_evolution.qmmm
 
 ---
