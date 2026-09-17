@@ -1,4 +1,10 @@
-"""Optional PySCF/libcint bridge for native_hf's electron-repulsion tensor.
+"""Optional PySCF/libcint bridge for native_hf's electron-repulsion tensor,
+and (build_overlap_and_core_hamiltonian_libcint) its one-electron overlap
+and core-Hamiltonian integrals too -- found necessary, not just faster in
+principle: a larger basis (6-31G*) ran native_hf's own one-electron JAX
+assembly out of memory during XLA JIT compilation on a real Kaggle CPU
+kernel, even with the ERI tensor already libcint-backed (see that
+function's own docstring for the concrete case).
 
 native_hf's own build_repulsion_tensor (assembly.py) computes the ERI
 tensor via JAX-jitted Obara-Saika recursions -- correct, differentiable,
@@ -134,19 +140,15 @@ def _import_pyscf():
     return gto
 
 
-def build_repulsion_tensor_libcint(atomic_numbers: list, geometry_bohr: np.ndarray, basis_name: str) -> np.ndarray:
-    """Same contract as assembly.build_repulsion_tensor, but computed via
-    PySCF/libcint instead of native_hf's own JAX recursions -- takes
-    (atomic_numbers, geometry_bohr, basis_name) rather than a shells list
-    since PySCF needs to build its own `Mole` from the same spec, not
-    native_hf's ContractedShell objects.
-
-    geometry_bohr: shape (n_atoms, 3), atomic units, same convention as
-    build_molecule_shells."""
+def _libcint_mol_and_perm_rescale(atomic_numbers: list, geometry_bohr: np.ndarray, basis_name: str):
+    """Shared Mole/permutation/rescale setup for every one- and two-electron
+    libcint integral below -- S, H_core, and the ERI tensor all live in the
+    same AO basis and need the identical native_hf<->libcint AO reordering
+    and per-AO normalization (see module docstring), so this factors out
+    what build_repulsion_tensor_libcint used to compute standalone."""
     gto = _import_pyscf()
     shells = build_molecule_shells(atomic_numbers, geometry_bohr, basis_name)
     n = n_cartesian_functions(shells)
-
     atom_spec = [
         (int(z), (float(r[0]), float(r[1]), float(r[2])))
         for z, r in zip(atomic_numbers, geometry_bohr)
@@ -158,9 +160,58 @@ def build_repulsion_tensor_libcint(atomic_numbers: list, geometry_bohr: np.ndarr
             f"for basis {basis_name!r} -- the two engines disagree on this basis "
             f"set's shell composition, not just component ordering."
         )
-
     overlap_diag = np.diag(mol.intor("int1e_ovlp"))
     rescale = 1.0 / np.sqrt(overlap_diag)
+    ao_starts = _match_pyscf_shell_ao_starts(mol, shells)
+    perm = np.empty(n, dtype=np.int64)
+    offset = 0
+    for shell, pyscf_start in zip(shells, ao_starts):
+        block_size = len(cartesian_powers(shell.degree))
+        perm[offset : offset + block_size] = pyscf_start + _permutation_libcint_to_native_hf(shell.degree)
+        offset += block_size
+    return mol, perm, rescale
+
+
+def build_overlap_and_core_hamiltonian_libcint(
+    atomic_numbers: list, geometry_bohr: np.ndarray, basis_name: str
+) -> tuple[np.ndarray, np.ndarray]:
+    """Same contract as assembly.build_overlap_matrix + build_core_hamiltonian
+    combined, but computed via PySCF/libcint instead of native_hf's own
+    JAX-jitted one-electron integrals.
+
+    Found necessary, not just faster in principle: on a real Kaggle CPU
+    kernel, native_hf's own one-electron assembly ran out of memory during
+    XLA JIT compilation for a 4-heavy-atom molecule at 6-31G* -- even with
+    the (much more expensive) ERI tensor already routed through
+    build_repulsion_tensor_libcint above, the one-electron path alone was
+    enough to exhaust available memory on that larger basis. Extending the
+    same libcint bridge to S/H_core fixed it (verified: the same molecule/
+    basis that crashed before completed in this repo's own Discovery
+    isodesmic-scission-energy experiment once this function existed).
+
+    Returns (S, H_core) in native_hf's own AO ordering/normalization, ready
+    to pass directly into scf.run_scf alongside build_repulsion_tensor_libcint's
+    own output.
+    """
+    mol, perm, rescale = _libcint_mol_and_perm_rescale(atomic_numbers, geometry_bohr, basis_name)
+    S = mol.intor("int1e_ovlp") * rescale[:, None] * rescale[None, :]
+    T = mol.intor("int1e_kin") * rescale[:, None] * rescale[None, :]
+    V_nuc = mol.intor("int1e_nuc") * rescale[:, None] * rescale[None, :]
+    H_core = T + V_nuc
+    return S[perm][:, perm], H_core[perm][:, perm]
+
+
+def build_repulsion_tensor_libcint(atomic_numbers: list, geometry_bohr: np.ndarray, basis_name: str) -> np.ndarray:
+    """Same contract as assembly.build_repulsion_tensor, but computed via
+    PySCF/libcint instead of native_hf's own JAX recursions -- takes
+    (atomic_numbers, geometry_bohr, basis_name) rather than a shells list
+    since PySCF needs to build its own `Mole` from the same spec, not
+    native_hf's ContractedShell objects.
+
+    geometry_bohr: shape (n_atoms, 3), atomic units, same convention as
+    build_molecule_shells."""
+    mol, perm, rescale = _libcint_mol_and_perm_rescale(atomic_numbers, geometry_bohr, basis_name)
+    n = perm.shape[0]
 
     V = np.asarray(mol.intor("int2e", aosym="s1")).reshape(n, n, n, n)
     V = (
@@ -170,13 +221,5 @@ def build_repulsion_tensor_libcint(atomic_numbers: list, geometry_bohr: np.ndarr
         * rescale[None, None, :, None]
         * rescale[None, None, None, :]
     )
-
-    ao_starts = _match_pyscf_shell_ao_starts(mol, shells)
-    perm = np.empty(n, dtype=np.int64)
-    offset = 0
-    for shell, pyscf_start in zip(shells, ao_starts):
-        block_size = len(cartesian_powers(shell.degree))
-        perm[offset : offset + block_size] = pyscf_start + _permutation_libcint_to_native_hf(shell.degree)
-        offset += block_size
 
     return V[perm][:, perm][:, :, perm][:, :, :, perm]
