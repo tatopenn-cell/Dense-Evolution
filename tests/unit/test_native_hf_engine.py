@@ -130,6 +130,29 @@ class TestScfEnergies:
         assert result.converged is True
         assert result.n_iterations < 20
 
+    def test_level_shift_is_an_exact_noop_at_zero_and_invariant_when_nonzero(self):
+        # level_shift=0.0 (the default) must reproduce this file's own
+        # H2/STO-3G anchor exactly -- verified algebraically in scf.py's
+        # _level_shift_fock docstring, checked here numerically. A nonzero
+        # shift changes the iteration PATH (see the real 30-atom CASMI26
+        # fragment case in docs/api/native_hf.md: level_shift=0.5 converges
+        # in 60 iterations vs. 1114 without it) but must converge to the
+        # SAME energy, since level shifting only perturbs virtual orbitals
+        # that don't enter the converged occupied density.
+        geometry_bohr = _linear_two_atom_geometry_bohr(0.735)
+        shells = build_molecule_shells([1, 1], geometry_bohr, "sto-3g")
+        S = build_overlap_matrix(shells)
+        H_core = build_core_hamiltonian(shells, [1.0, 1.0], geometry_bohr)
+        repulsion = build_repulsion_tensor(shells)
+
+        baseline = run_scf(S, H_core, repulsion, 2, [1.0, 1.0], geometry_bohr, level_shift=0.0)
+        assert baseline.converged is True
+
+        for level_shift in (0.5, 2.0):
+            shifted = run_scf(S, H_core, repulsion, 2, [1.0, 1.0], geometry_bohr, level_shift=level_shift)
+            assert shifted.converged is True
+            assert shifted.total_energy == pytest.approx(baseline.total_energy, abs=1e-9)
+
 
 class TestRepulsionTensorSymmetry:
 
