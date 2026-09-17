@@ -173,6 +173,27 @@ def _diis_extrapolate(fock_history: jax.Array, error_history: jax.Array, history
     return jnp.where(is_finite, F_diis, fock_history[-1])
 
 
+def _level_shift_fock(F_ao: jax.Array, C_prev: jax.Array, S: jax.Array, n_occupied_pairs: int, level_shift: float) -> jax.Array:
+    """Saunders & Hillier level shifting (Int. J. Quantum Chem. 7, 699
+    (1973)): push the virtual orbitals of the PREVIOUS iteration's MO
+    basis up by `level_shift` before this iteration's diagonalization,
+    to open a numerical gap and stop the occupied/virtual split from
+    flip-flopping across a near-degeneracy (see this module's own Si2
+    docstring above -- damping/DIIS already fix the textbook case, but a
+    real, harder case (a 30-atom aromatic fragment from the CASMI26
+    wiring kernel) still took 1114 iterations, swinging through three
+    wildly different intermediate energies first). Exact no-op at
+    level_shift=0.0: since C_prev is a full, S-orthonormal basis
+    (C_prev.T @ S @ C_prev = I, hence C_prev @ C_prev.T = S^{-1}), the
+    round-trip S @ C_prev @ (C_prev.T @ F_ao @ C_prev) @ C_prev.T @ S
+    reduces algebraically to exactly F_ao before any shift is added."""
+    F_mo_prev = C_prev.T @ F_ao @ C_prev
+    n = F_mo_prev.shape[0]
+    shift_diag = jnp.where(jnp.arange(n) >= n_occupied_pairs, level_shift, 0.0)
+    F_mo_prev_shifted = F_mo_prev + jnp.diag(shift_diag)
+    return S @ C_prev @ F_mo_prev_shifted @ C_prev.T @ S
+
+
 def run_scf(
     S: jax.Array,
     H_core: jax.Array,
@@ -185,6 +206,7 @@ def run_scf(
     energy_tol: float = 1e-10,
     damping: float = 0.5,
     diis_dim: int = _DIIS_DIM,
+    level_shift: float = 0.0,
 ) -> HFResult:
     ensure_x64()
     if n_electrons % 2 != 0:
@@ -209,7 +231,7 @@ def run_scf(
         return jnp.logical_and(jnp.logical_not(converged), iteration < max_iterations)
 
     def body_fun(state):
-        iteration, P, _C, _orbital_energies, energy_prev, _converged, fock_history, error_history = state
+        iteration, P, C_prev, _orbital_energies, energy_prev, _converged, fock_history, error_history = state
 
         F, energy = _fock_and_energy(P)
         error = _diis_error(F, P, S, X)
@@ -224,7 +246,8 @@ def run_scf(
             F,
         )
 
-        orbital_energies, C_ortho = jnp.linalg.eigh(X.T @ F_step @ X)
+        F_diag = _level_shift_fock(F_step, C_prev, S, n_occupied_pairs, level_shift)
+        orbital_energies, C_ortho = jnp.linalg.eigh(X.T @ F_diag @ X)
         C = X @ C_ortho
         P_new = _density_from_coefficients(C, n_occupied_pairs)
 
