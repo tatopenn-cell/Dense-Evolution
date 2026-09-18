@@ -98,6 +98,7 @@ jobs:
           pip install pyscf # tests/unit/test_libcint_bridge.py -- real libcint-backed ERI correctness, not just the ImportError path (same reasoning as stim/pymatching above); no Windows wheel, but this matrix is ubuntu/macos only
           pip install rdkit # tests/unit/test_qmmm.py -- real region-partitioning correctness, not just the ImportError path (same reasoning as pyscf above); rdkit ships real Windows wheels too, unlike pyscf
           pip install ase # tests/unit/test_qmmm.py::TestAseBridge -- real ASE Calculator correctness, not just the ImportError path (same reasoning as rdkit/pyscf above)
+          pip install dense-armor # tests/unit/test_native_hf_engine.py::TestEnergyHistory -- real Hampel/Tukey anomaly detection on the real SCF energy trace, not just the ImportError path (same reasoning as rdkit/pyscf/ase above)
           pip install streamlit>=1.30.0 ipywidgets>=8.0.0
           pip install fastapi uvicorn pydantic httpx2 # composer extra -- local_site/app/server.py + tests/integration/test_local_site_server.py (httpx2: starlette.testclient's current required client)
           pip install mcp httpx # mcp extra -- mcp_server/server.py + tests/integration/test_mcp_server.py (real httpx, not the httpx2 alias above -- the MCP adapter imports httpx directly)

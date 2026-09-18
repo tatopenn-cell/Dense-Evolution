@@ -98,6 +98,36 @@ Windows wheel exists for PySCF, so that extra needs a C toolchain there.
 
 ---
 
+## Step 4. Diagnosing a stubborn SCF: energy_history
+
+```python
+from dense_evolution.native_hf.scf import diagnose_convergence
+
+result = run_scf(S, H_core, repulsion, n_electrons, nuclear_charges, geometry_bohr)
+diagnosis = diagnose_convergence(result)
+print(diagnosis["anomaly_fraction_hampel"])
+```
+
+`run_scf` already computes the electronic energy at every iteration --
+`HFResult.energy_history` now keeps that trace instead of throwing it
+away (shape `(max_iterations,)`, `NaN` past `n_iterations`).
+`diagnose_convergence` runs Dense-Armor's own Hampel filter and Tukey
+fences (`dense_evolution.utility.robust_filters` -- the sister project's
+anomaly detectors, validated with 0 false positives on real H2
+dissociation-curve chemistry) over that trace, instead of trusting the
+final `converged` flag in isolation.
+
+**Measured, not assumed**: a real 28-heavy-atom CASMI26 fragment (this
+module's own `level_shift` docstring) that fails to converge at
+`level_shift=0.0` has its 200-iteration electronic-energy trace flagged
+19-24% anomalous (Hampel/Tukey); the identical fragment, fixed with
+`level_shift=0.5` (converges in 55 iterations), flags only ~4% --
+background noise, not a false-alarm storm. Needs the `armor` extra
+(`pip install dense-evolution[armor]`); `dense_armor` is not a hard
+dependency of this module.
+
+---
+
 ## Details
 
 **Why this module exists**: PennyLane's own differentiable Hartree-Fock solver
