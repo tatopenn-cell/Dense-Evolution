@@ -154,6 +154,68 @@ class TestScfEnergies:
             assert shifted.total_energy == pytest.approx(baseline.total_energy, abs=1e-9)
 
 
+class TestEnergyHistory:
+
+    def test_shape_and_nan_padding(self):
+        geometry_bohr = _linear_two_atom_geometry_bohr(0.735)
+        shells = build_molecule_shells([1, 1], geometry_bohr, "sto-3g")
+        S = build_overlap_matrix(shells)
+        H_core = build_core_hamiltonian(shells, [1.0, 1.0], geometry_bohr)
+        repulsion = build_repulsion_tensor(shells)
+        result = run_scf(S, H_core, repulsion, 2, [1.0, 1.0], geometry_bohr, max_iterations=50)
+
+        assert result.converged is True
+        assert result.energy_history.shape == (50,)
+        assert np.all(np.isfinite(np.asarray(result.energy_history[:result.n_iterations])))
+        assert np.all(np.isnan(np.asarray(result.energy_history[result.n_iterations:])))
+
+    def test_diagnose_convergence_shape_on_a_real_converged_run(self):
+        # Real regression guard for the Dense-Evolution <-> Dense-Armor
+        # integration point (native_hf.scf.diagnose_convergence): on Si2's
+        # own near-degenerate case (this file's own
+        # test_scf_converges_on_near_degenerate), DIIS already fixes it by
+        # default -- so this checks the weaker, always-true claim that a
+        # DIIS already fixes it -- too short a trace (11 iterations) for a
+        # Hampel window to distinguish converged from still-settling the way
+        # it cleanly does on a real longer trace: the actual 5-6x gap
+        # (19-24% anomalous on a real 200-iteration non-converging CASMI26
+        # fragment vs. ~4% once fixed with level_shift=0.5) is documented in
+        # docs/api/native_hf.md, not reproduced here -- pyscf (needed for
+        # that real fragment's integrals) has no Windows wheel. This test
+        # only checks internal consistency on a real converged case, not a
+        # specific threshold.
+        pytest.importorskip("dense_armor")
+        from dense_evolution.native_hf.scf import diagnose_convergence
+
+        geometry_bohr = _linear_two_atom_geometry_bohr(2.184)
+        shells = build_molecule_shells([14, 14], geometry_bohr, "sto-3g")
+        S = build_overlap_matrix(shells)
+        H_core = build_core_hamiltonian(shells, [14.0, 14.0], geometry_bohr)
+        repulsion = build_repulsion_tensor(shells)
+        result = run_scf(S, H_core, repulsion, 28, [14.0, 14.0], geometry_bohr)
+
+        assert result.converged is True
+        diagnosis = diagnose_convergence(result)
+        assert diagnosis["n_iterations"] == result.n_iterations
+        assert diagnosis["n_anomalies_hampel"] <= diagnosis["n_iterations"]
+        assert 0.0 <= diagnosis["anomaly_fraction_hampel"] <= 1.0
+        assert 0.0 <= diagnosis["anomaly_fraction_tukey"] <= 1.0
+
+    def test_diagnose_convergence_needs_dense_armor(self, monkeypatch):
+        import builtins
+        from dense_evolution.native_hf.scf import _import_dense_armor_robust_filters
+        real_import = builtins.__import__
+
+        def blocked_import(name, *args, **kwargs):
+            if name == "dense_armor.utility.robust_filters":
+                raise ImportError("simulated missing dense-armor")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", blocked_import)
+        with pytest.raises(ImportError, match="needs Dense-Armor"):
+            _import_dense_armor_robust_filters()
+
+
 class TestRepulsionTensorSymmetry:
 
     def test_h2_sto3g_repulsion_tensor_eight_fold_symmetry(self):

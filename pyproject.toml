@@ -134,6 +134,15 @@ ase = [
     # have (basis_name was already a plain string parameter) -- this is
     # purely the ecosystem-interop layer.
 ]
+armor = [
+    "dense-armor>=1.1.18",
+    # native_hf.scf.HFResult.energy_history -- Chauvenet/Tukey/Hampel
+    # anomaly detection (dense_armor.utility.robust_filters) on the real
+    # per-iteration SCF energy trace, to flag a non-converged/oscillating
+    # run automatically instead of only reading the final converged flag.
+    # Validated on a real non-converging CASMI26 fragment: 19-24% of points
+    # flagged anomalous on the broken run vs. 3.6% on the fixed one.
+]
 full = [
     "cupy-cuda12x>=12.0.0",
     "streamlit>=1.30.0",
