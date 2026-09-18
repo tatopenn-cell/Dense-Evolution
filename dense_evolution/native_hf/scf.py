@@ -107,6 +107,7 @@ class HFResult:
     orbital_energies: jax.Array
     orbital_coefficients: jax.Array  # C, shape (n_basis, n_basis)
     density_matrix: jax.Array
+    energy_history: jax.Array  # shape (max_iterations,), NaN past n_iterations
 
 
 def nuclear_repulsion_energy(nuclear_charges: list[float], nuclear_positions: jax.Array) -> jax.Array:
@@ -231,11 +232,11 @@ def run_scf(
         return F, energy
 
     def cond_fun(state):
-        iteration, _P, _C, _orbital_energies, _energy_prev, converged, _fock_history, _error_history = state
+        iteration, _P, _C, _orbital_energies, _energy_prev, converged, _fock_history, _error_history, _energy_history = state
         return jnp.logical_and(jnp.logical_not(converged), iteration < max_iterations)
 
     def body_fun(state):
-        iteration, P, C_prev, _orbital_energies, energy_prev, _converged, fock_history, error_history = state
+        iteration, P, C_prev, _orbital_energies, energy_prev, _converged, fock_history, error_history, energy_history = state
 
         F, energy = _fock_and_energy(P)
         error = _diis_error(F, P, S, X)
@@ -262,7 +263,9 @@ def run_scf(
         P_damped = jnp.where(history_count < 2, damping * P_new + (1.0 - damping) * P, P_new)
         P_next = jnp.where(converged, P_new, P_damped)
 
-        return (iteration + 1, P_next, C, orbital_energies, energy, converged, fock_history, error_history)
+        energy_history = energy_history.at[iteration].set(energy)
+
+        return (iteration + 1, P_next, C, orbital_energies, energy, converged, fock_history, error_history, energy_history)
 
     init_state = (
         jnp.array(0),
@@ -273,8 +276,9 @@ def run_scf(
         jnp.array(False),
         jnp.zeros((diis_dim, n_basis, n_basis), dtype=H_core.dtype),
         jnp.zeros((diis_dim, n_basis, n_basis), dtype=H_core.dtype),
+        jnp.full((max_iterations,), jnp.nan, dtype=H_core.dtype),
     )
-    iteration, P, C, orbital_energies, _energy_prev, converged, _fh, _eh = jax.lax.while_loop(cond_fun, body_fun, init_state)
+    iteration, P, C, orbital_energies, _energy_prev, converged, _fh, _eh, energy_history = jax.lax.while_loop(cond_fun, body_fun, init_state)
 
     _F, electronic_energy = _fock_and_energy(P)
     e_nuc = nuclear_repulsion_energy(nuclear_charges, nuclear_positions)
@@ -288,6 +292,7 @@ def run_scf(
         orbital_energies=orbital_energies,
         orbital_coefficients=C,
         density_matrix=P,
+        energy_history=energy_history,
     )
 
 
