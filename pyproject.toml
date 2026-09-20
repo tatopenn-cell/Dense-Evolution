@@ -134,6 +134,14 @@ ase = [
     # have (basis_name was already a plain string parameter) -- this is
     # purely the ecosystem-interop layer.
 ]
+rag = [
+    "scikit-learn>=1.0.0",  # ia_utils.rag's TF-IDF stage (TfidfVectorizer, cosine_similarity)
+    "sentence-transformers>=2.2.0",  # ia_utils.rag's dense bi-encoder pool + cross-encoder rerank stage
+    # Promoted from quantumrag (Desktop/Fullwork/quantumrag) after
+    # validation there across ~30 topic collections. chunk_text (pure
+    # Python, no vectorizer/model involved) is the only part of that
+    # module usable with no extra at all.
+]
 armor = [
     "dense-armor>=1.1.18",
     # native_hf.scf.HFResult.energy_history -- Chauvenet/Tukey/Hampel
