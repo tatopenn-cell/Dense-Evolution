@@ -120,12 +120,14 @@ graph TD
         UTILS["utils/"]
         DRAW["drawing.py — draw_circuit"]
         MEAS["measurement.py — sample_counts, statevector_fidelity"]
+        MASSDECOMP["mass_decomposition.py — parse_formula, rdbe,<br/>build_reachable_masses (exact), build_reachable_density_fft<br/>(convolution-theorem/FFT), nearest_reachable_mass, density_at_mass"]
         CLI["cli.py — dense-evolution console script"]
         SHIMS["22 top-level shim .py files<br/>(fermions.py, observables.py, chunk.py, healing.py,<br/>mps.py, parser.py, qec.py, states.py, ...)<br/>-- re-export only, no logic"]
 
         INTEROP --> QISPEN
         UTILS --> DRAW
         UTILS --> MEAS
+        UTILS --> MASSDECOMP
     end
 
     ROOT --> CORE
