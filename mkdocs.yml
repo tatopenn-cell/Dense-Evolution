@@ -104,6 +104,7 @@ nav:
       - Healing (predictive primitives): api/healing.md
       - IA Utils — Vector Healing: api/ia_utils_vector_healing.md
       - IA Utils — Adversarial Vector Attack: api/ia_utils_adversarial_vector_attack.md
+      - IA Utils — Hybrid Retrieval (RAG): api/ia_utils_rag.md
       - Interop (Qiskit / PennyLane): api/interop.md
       - Autodiff: api/autodiff.md
       - Topology (entangling layers): api/topology.md
