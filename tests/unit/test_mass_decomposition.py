@@ -48,8 +48,21 @@ class TestRdbe:
     def test_unrecognized_element_ignored_not_erroring(self):
         assert rdbe({"Xx": 5}) == pytest.approx(1.0)
 
+    def test_recognized_element_zero_count_contributes_nothing(self):
+        assert rdbe({"C": 0}) == pytest.approx(1.0)
+
 
 class TestBuildReachableMasses:
+
+    def test_unrecognized_element_mixed_in_real_formula_is_skipped(self):
+        # A real formula string could carry an element outside this
+        # module's valence/mass tables (e.g. a rare isotope label or
+        # metal) -- must not raise, and must still find real combinations
+        # from the elements it DOES recognize.
+        formula = {"C": 2, "H": 4, "Xx": 3}
+        reach = build_reachable_masses(formula, max_mass=50.0)
+        full_ch_mass = 2 * 12.0 + 4 * 1.007825
+        assert nearest_reachable_mass(full_ch_mass, reach) == pytest.approx(full_ch_mass, abs=1e-3)
 
     def test_contains_zero(self):
         reach = build_reachable_masses({"C": 2, "H": 4}, max_mass=50.0)
@@ -153,6 +166,21 @@ class TestBuildReachableDensityFft:
     def test_empty_formula_returns_zero_density(self):
         mass_grid, density = build_reachable_density_fft({}, max_mass=50.0)
         assert np.all(density == 0.0)
+
+    def test_unrecognized_element_mixed_in_real_formula_is_skipped(self):
+        formula = {"C": 1, "H": 4, "Xx": 3}  # methane + an unrecognized element
+        target = ATOMIC_MASS["C"] + 4 * ATOMIC_MASS["H"]
+        mass_grid, density = build_reachable_density_fft(formula, max_mass=50.0, grid_resolution=0.001)
+        assert density_at_mass(mass_grid, density, target) > 0.05
+
+    def test_out_of_bounds_spike_index_is_guarded_not_raised(self):
+        # max_mass deliberately smaller than a single copy of the
+        # heaviest element (iodine, ~127 Da): the k=1 spike for I would
+        # land outside the grid -- must be silently skipped, not raise
+        # an IndexError.
+        formula = {"I": 2, "H": 1}
+        mass_grid, density = build_reachable_density_fft(formula, max_mass=50.0, grid_resolution=0.01)
+        assert density_at_mass(mass_grid, density, ATOMIC_MASS["H"]) > 0.0
 
     def test_wider_relative_tolerance_broadens_peak(self):
         formula = {"C": 1, "H": 4}  # methane

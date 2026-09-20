@@ -59,14 +59,15 @@ _FORMULA_TOKEN_RE = re.compile(r"([A-Z][a-z]?)(\d*)")
 
 def parse_formula(formula: str) -> Dict[str, int]:
     """Parse a molecular formula string (e.g. "C20H15N3O2") into
-    {element: count}. Unrecognized tokens (empty element match) are
-    skipped; repeated elements in the string are summed, matching how
-    real formula strings from different sources occasionally repeat a
-    symbol instead of merging it."""
+    {element: count}. Repeated elements in the string are summed,
+    matching how real formula strings from different sources
+    occasionally repeat a symbol instead of merging it. Elements not in
+    ATOMIC_MASS/VALENCE are kept in the returned dict (parsing doesn't
+    know or care which elements downstream functions recognize) --
+    rdbe()/build_reachable_masses()/build_reachable_density_fft() each
+    skip an unrecognized element explicitly, not this function."""
     counts: Dict[str, int] = {}
     for elem, num in _FORMULA_TOKEN_RE.findall(formula or ""):
-        if not elem:
-            continue
         counts[elem] = counts.get(elem, 0) + (int(num) if num else 1)
     return counts
 
@@ -129,17 +130,19 @@ def build_reachable_masses(
         reach = np.add.outer(reach, incr_mass).ravel()
         rdbe2 = np.add.outer(rdbe2, incr_rdbe2).ravel()
 
+        # No emptiness guard needed here: the "use zero atoms of this
+        # element" branch (incr_mass's k=0 term) always carries every
+        # prior surviving entry through unchanged, and RDBE contribution
+        # 0 always satisfies `>= -2` -- so `reach`/`rdbe2` can shrink but
+        # never become empty as long as they started non-empty (which
+        # the initial reach=[0.0] guarantees for any max_mass >= -1).
         keep = reach <= max_mass + 1.0
         reach, rdbe2 = reach[keep], rdbe2[keep]
-        if reach.size == 0:
-            return np.array([0.0])
 
         bins = np.round(reach / resolution).astype(np.int64)
         if require_rdbe_valid:
             valid = rdbe2 >= -2  # RDBE >= 0  <=>  1 + rdbe2/2 >= 0
             bins, reach, rdbe2 = bins[valid], reach[valid], rdbe2[valid]
-            if reach.size == 0:
-                return np.array([0.0])
         df = pd.DataFrame({"bin": bins, "mass": reach, "rdbe2": rdbe2})
         df = df.drop_duplicates(subset="bin")
         if len(df) > max_states:
