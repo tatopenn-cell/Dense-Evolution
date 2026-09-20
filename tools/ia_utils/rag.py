@@ -60,7 +60,7 @@ def _get_embedder(model_name: str):
     if model_name not in _embedder_cache:
         try:
             from sentence_transformers import SentenceTransformer
-        except ImportError as _import_error:
+        except ImportError as _import_error:  # pragma: no cover -- only reachable without sentence-transformers installed, which CI here always has
             raise ImportError(_MISSING_RAG_EXTRA.format(_import_error)) from _import_error
         _embedder_cache[model_name] = SentenceTransformer(model_name)
     return _embedder_cache[model_name]
@@ -70,7 +70,7 @@ def _get_reranker(model_name: str):
     if model_name not in _reranker_cache:
         try:
             from sentence_transformers import CrossEncoder
-        except ImportError as _import_error:
+        except ImportError as _import_error:  # pragma: no cover -- only reachable without sentence-transformers installed, which CI here always has
             raise ImportError(_MISSING_RAG_EXTRA.format(_import_error)) from _import_error
         _reranker_cache[model_name] = CrossEncoder(model_name)
     return _reranker_cache[model_name]
@@ -122,7 +122,7 @@ def build_index(
     """
     try:
         from sklearn.feature_extraction.text import TfidfVectorizer
-    except ImportError as _import_error:
+    except ImportError as _import_error:  # pragma: no cover -- only reachable without scikit-learn installed, which CI here always has
         raise ImportError(_MISSING_RAG_EXTRA.format(_import_error)) from _import_error
 
     all_chunks = []
@@ -194,7 +194,7 @@ def search(
     """
     try:
         from sklearn.metrics.pairwise import cosine_similarity
-    except ImportError as _import_error:
+    except ImportError as _import_error:  # pragma: no cover -- only reachable without scikit-learn installed, which CI here always has
         raise ImportError(_MISSING_RAG_EXTRA.format(_import_error)) from _import_error
 
     query_vec = index.vectorizer.transform([query])
