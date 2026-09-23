@@ -32,6 +32,7 @@ from .mitigation.zne import (richardson_extrapolate, richardson_amplification_fa
                           bounded_exponential_extrapolate,
                           project_to_physical, uhlmann_fidelity, zne_density_matrix,
                           jsd_predictive_zne_density_matrix,
+                          coherence_predictive_zne_density_matrix,
                           richardson_extrapolate_jit, zero_noise_extrapolation_jit,
                           polynomial_extrapolate_jit, uhlmann_fidelity_jit, zne_density_matrix_jit)
 from .circuits.diagram import plot_circuit
@@ -87,7 +88,8 @@ __all__ = [
     "zero_noise_extrapolation", "polynomial_extrapolate",
     "bounded_exponential_extrapolate",
     "project_to_physical", "uhlmann_fidelity", "zne_density_matrix",
-    "jsd_predictive_zne_density_matrix", "global_depolarizing_channel", "amplitude_damping_channel",
+    "jsd_predictive_zne_density_matrix", "coherence_predictive_zne_density_matrix",
+    "global_depolarizing_channel", "amplitude_damping_channel",
     "cosmic_ray_burst_profile", "oscillating_p_eff",
     "richardson_extrapolate_jit", "zero_noise_extrapolation_jit",
     "polynomial_extrapolate_jit", "uhlmann_fidelity_jit", "zne_density_matrix_jit",
