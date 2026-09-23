@@ -11,6 +11,7 @@ from dense_evolution.mitigation import (
     bounded_exponential_extrapolate,
     project_to_physical, uhlmann_fidelity, zne_density_matrix, zne_density_matrix_jit,
     jsd_predictive_zne_density_matrix,
+    coherence_predictive_zne_density_matrix,
     richardson_extrapolate_jit, zero_noise_extrapolation_jit, uhlmann_fidelity_jit,
     polynomial_extrapolate_jit,
 )
@@ -688,3 +689,83 @@ def test_jsd_predictive_zne_density_matrix_never_worse_in_the_inactive_regime():
 
     assert 0.0 <= fidelity_jsd <= 1.0 + 1e-9
     assert fidelity_jsd == pytest.approx(fidelity_plain, abs=1e-6)  # exact reduction to plain when inactive
+
+
+def test_coherence_predictive_zne_density_matrix_output_is_a_valid_density_matrix():
+    rng = np.random.default_rng(40)
+    d = 4
+    rho_at_scales = jnp.stack([
+        jnp.asarray(_random_density_matrix(rng, d), dtype=jnp.complex128) for _ in range(3)
+    ])
+    got = np.asarray(coherence_predictive_zne_density_matrix(rho_at_scales, [1.0, 2.0, 3.0]))
+    np.testing.assert_allclose(got, got.conj().T, atol=1e-9)
+    assert np.trace(got).real == pytest.approx(1.0, abs=1e-9)
+    assert np.linalg.eigvalsh(got).min() >= -1e-9
+
+
+def test_coherence_predictive_zne_density_matrix_rejects_non_3point():
+    rng = np.random.default_rng(41)
+    rho_at_scales = jnp.stack([
+        jnp.asarray(_random_density_matrix(rng, 2), dtype=jnp.complex128) for _ in range(4)
+    ])
+    with pytest.raises(NotImplementedError):
+        coherence_predictive_zne_density_matrix(rho_at_scales, [1.0, 2.0, 3.0, 4.0])
+
+
+def test_coherence_predictive_zne_density_matrix_reduces_to_plain_when_scales_identical():
+    # Identical density matrices at all 3 scales -> coherence(scale1) =
+    # coherence(scale2) = coherence(scale3) -> both consecutive gaps are
+    # 0 -> nonlinearity = 0/eps = 0, which is <= 0 -> must reduce EXACTLY
+    # to plain zne_density_matrix, the same safety property
+    # jsd_predictive_zne_density_matrix has.
+    rng = np.random.default_rng(42)
+    rho = jnp.asarray(_random_density_matrix(rng, 3), dtype=jnp.complex128)
+    rho_at_scales = jnp.stack([rho, rho, rho])
+    noise_factors = [1.0, 2.0, 3.0]
+
+    plain = zne_density_matrix(rho_at_scales, noise_factors)
+    coh_corrected = coherence_predictive_zne_density_matrix(rho_at_scales, noise_factors)
+    np.testing.assert_allclose(np.asarray(coh_corrected), np.asarray(plain), atol=1e-9)
+
+
+def test_coherence_predictive_zne_density_matrix_helps_on_phaseflip_noise():
+    # Real physics regression test: a GHZ(3) state under phaseflip noise
+    # (dephasing) at base_p=0.05, one of the specific, verified seeds
+    # where the mechanism activates (Dense-Evolution-Discovery's
+    # scripts/jsd_zne_noise_generalization.py -- validated on 200
+    # independent seeds, 63/200 active, 63/63 improve, p=1.07e-08; this
+    # test locks in one concrete, reproducible active seed rather than
+    # re-running the full statistical study here).
+    from dense_evolution.registry import NoiseModel, NoiseSpec
+    import jax
+
+    sim = de.DenseSVSimulator(3)
+    sim.run_circuit([("h", 0), ("cx", 0, 1), ("cx", 1, 2)])
+    ideal_sv = jnp.asarray(sim.get_statevector(), dtype=jnp.complex128)
+    rho_ideal = jnp.outer(ideal_sv, jnp.conj(ideal_sv))
+
+    def noisy_rho(factor, master_key, base_p=0.05, n_trials=150):
+        p_eff = float(min(base_p * factor, 1.0))
+        keys = jax.random.split(master_key, n_trials)
+
+        def one_trial(key):
+            spec = NoiseSpec(model="phaseflip", p=p_eff, jax_key=key)
+            return NoiseModel.apply_to_sv(ideal_sv, 3, model=spec.model, p=spec.p, jax_key=spec.jax_key)
+
+        sv_batch = jax.vmap(one_trial)(keys)
+        return jnp.einsum("ti,tj->ij", sv_batch, jnp.conj(sv_batch)) / n_trials
+
+    master_key = jax.random.PRNGKey(900000)  # verified active for this exact GHZ(3) setup
+    rho_at_scales = []
+    for factor in (1.0, 2.0, 3.0):
+        master_key, sub = jax.random.split(master_key)
+        rho_at_scales.append(noisy_rho(factor, sub))
+    rho_at_scales = jnp.stack(rho_at_scales)
+
+    plain = zne_density_matrix(rho_at_scales, (1.0, 2.0, 3.0))
+    coh_corrected = coherence_predictive_zne_density_matrix(rho_at_scales, (1.0, 2.0, 3.0))
+    fidelity_plain = float(uhlmann_fidelity(plain, rho_ideal))
+    fidelity_coh = float(uhlmann_fidelity(coh_corrected, rho_ideal))
+
+    assert 0.0 <= fidelity_coh <= 1.0 + 1e-9
+    assert fidelity_coh > fidelity_plain
