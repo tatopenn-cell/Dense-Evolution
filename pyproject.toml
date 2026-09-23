@@ -167,7 +167,8 @@ full = [
 ]
 dev = [
     "pytest>=7.0.0",
-    "pytest-cov>=4.0.0"
+    "pytest-cov>=4.0.0",
+    "pytest-env>=1.0.0"
 ]
 docs = [
     "mkdocs>=1.6.0",
@@ -241,6 +242,24 @@ local_site = "research/local_site"
 # unconditionally regardless of which subdirectory the running test file
 # lives in -- pytest's own sanctioned mechanism for exactly this case.
 pythonpath = ["tests", "tools"]
+
+# dense_evolution.config.ensure_x64() enables jax_enable_x64 lazily, only
+# once something that needs complex128 actually runs (DenseSVSimulator,
+# etc.) -- never at import time, by design (see config.py's own
+# docstring). Combined with pytest-randomly (installed in CI, see
+# ci.yml), this makes x64 activation ORDER-DEPENDENT within a test
+# session: a test that never constructs a simulator, run before the first
+# one that does, silently gets float32/complex64 instead of the
+# float64/complex128 its own assertions assume. Reproduced directly:
+# running tests/unit/test_mitigation.py alone, in random order, failed
+# 11/55 tests on precision-tolerance assertions (`np.float32(0.9999999)
+# == 1.0 +/- 1e-9`); forcing JAX_ENABLE_X64=1 as a process-wide env var
+# BEFORE Python starts (which this setting does, via pytest-env) sidesteps
+# the lazy-activation ordering question entirely -- 0/55 failures.
+# pytest-env sets this before test collection/import, unlike a fixture
+# (which would run too late for tests that fail during collection or
+# module-level code).
+env = ["JAX_ENABLE_X64=1"]
 
 # prog.txt test-suite audit (issue #269 point 8): several files accumulate
 # minutes of runtime (30k+-shot statistical tests, dense-matrix Majorana
