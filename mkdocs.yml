@@ -101,6 +101,7 @@ nav:
       - Noise: api/noise.md
       - Gates: api/gates.md
       - Mitigation (ZNE / density-matrix diagnostics): api/mitigation.md
+      - Cryptography Protocols (crypto-q): api/protocols.md
       - Healing (predictive primitives): api/healing.md
       - IA Utils — Vector Healing: api/ia_utils_vector_healing.md
       - IA Utils — Adversarial Vector Attack: api/ia_utils_adversarial_vector_attack.md
