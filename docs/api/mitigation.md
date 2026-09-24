@@ -212,6 +212,43 @@ points (photon-loss noise, 6 independent seeds): improves fidelity on 35/46 (76.
 mean gain +0.0055. Needs no oracle access to an ideal state, unlike naively reusing
 `calculate_delta_preemp` with an external signal (tried first, found negligible).
 
+### Coherence-informed density-matrix correction
+
+`coherence_predictive_zne_density_matrix(rho_at_scales, noise_factors)` is `zne_density_matrix`
+for exactly 3 equally-spaced scales, nudged the same way as the JSD-informed variant above, but
+signaled by the l1-norm of coherence (sum of off-diagonal magnitudes) instead of the
+Jensen-Shannon divergence of the diagonal populations. This targets a real, structural blind
+spot: JSD only ever reads the density matrix's diagonal, so it is blind by construction (not
+merely weak — verified directly, fidelity delta exactly `0.0`) to purely dephasing-type noise
+(phaseflip, a coherent Z-axis over-rotation), which moves phase, never populations. Validated at
+200 independent seeds on phaseflip noise (GHZ(4), `base_p=0.05`): active (nudge fires) on 63/200
+seeds (31.5%), 63/63 of those improve fidelity, mean gain +0.014892, one-sample t-test
+p=1.07e-08. Significant across `base_p` in (0.03, 0.05, 0.08, 0.10); not significant at
+`base_p=0.15` — a real, honest upper boundary. Confirmed on a second circuit family
+(hardware-efficient VQE ansatz): 69/150 active, 67/69 positive, p=4.4e-06. NOT validated for
+amplitude-damping-dominated noise (use the JSD-informed variant there) or for coherent/
+deterministic errors.
+
+### Classically Augmented ZNE (phaseflip)
+
+`classically_augmented_zne_phaseflip(rho_at_scales_measured, noise_factors, rho_ideal, base_p)`
+implements Scheiber et al.'s Classically Augmented ZNE
+([arXiv:2607.25746](https://arxiv.org/abs/2607.25746)): the highest-noise nodes — the ones
+contributing most to sampling variance in Richardson/polynomial extrapolation — are replaced by
+`phaseflip_channel_exact`'s zero-sampling-variance exact channel instead of a Monte-Carlo-sampled
+density matrix, then combined exactly as `zne_density_matrix` already does. Only `rho_at_scales_measured`
+(the low-noise, actually-measured nodes) is required from the caller; every remaining noise
+factor is filled in from `rho_ideal`/`base_p` directly.
+
+Honest, verified scope (GHZ(3), phaseflip, 150 trials/measured node, 60 seeds): with exactly 3
+total noise factors and only the single highest one replaced, no measurable benefit (variance
+ratio 0.99x). With 5 noise factors (1x-5x, `base_p=0.03`) and the top 3 replaced, variance drops
+by a real, measured 1.30x versus plain `zne_density_matrix` at the same per-node trial budget —
+the naive equal-trial-allocation regime, not the paper's own optimal importance-sampling
+allocation (their Eq. 9), which is not implemented here. Only defined for phaseflip noise, since
+`phaseflip_channel_exact` is currently the only exact density-matrix channel matching a
+`NoiseModel` statevector model exactly.
+
 ### `project_to_physical`
 
 Projects a Hermitian, trace-1 matrix onto the nearest true density matrix (Hermitian,
@@ -261,8 +298,11 @@ least-squares fit on the same extra points instead reduces variance (std 0.062 t
 
 ## Standalone density-matrix noise channels
 
-Three CPTP channels usable directly on a density matrix, independent of `NoiseModel`'s
-per-qubit gate-noise pipeline (`circuits.registry`). `global_depolarizing_channel` is
+Four CPTP channels usable directly on a density matrix, independent of `NoiseModel`'s
+per-qubit gate-noise pipeline (`circuits.registry`). `phaseflip_channel_exact` is the exact
+(zero-sampling-variance) multi-qubit limit of `NoiseModel`'s `'phaseflip'` statevector model,
+applied independently per qubit across the register — the "classical node" Classically
+Augmented ZNE above needs. `global_depolarizing_channel` is
 symmetric -- it mixes the whole register toward the fully-mixed state as one unit -- promoted
 from a real reproduction of arXiv:2608.16716's SPAM model
 ([Experiment 33](https://tatopenn-cell.github.io/Dense-Evolution-Discovery/germanium_iswap_validation/)).

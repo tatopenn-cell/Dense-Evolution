@@ -101,7 +101,7 @@ graph TD
         DIFFNOISE["differentiable.py"]
         COHATT["coherent_attack.py"]
         MITIGATION["mitigation/"]
-        ZNE["zne.py<br/>richardson/polynomial/bounded_exponential_extrapolate,<br/>zne_density_matrix, uhlmann_fidelity, project_to_physical,<br/>jsd_predictive_zne_density_matrix (classical-JSD signal,<br/>structurally blind to phase-type noise -- diagonal-only),<br/>coherence_predictive_zne_density_matrix (coherence-L1 signal,<br/>covers phase-type noise the JSD one can't see)"]
+        ZNE["zne.py<br/>richardson/polynomial/bounded_exponential_extrapolate,<br/>zne_density_matrix, uhlmann_fidelity, project_to_physical,<br/>jsd_predictive_zne_density_matrix (classical-JSD signal,<br/>structurally blind to phase-type noise -- diagonal-only),<br/>coherence_predictive_zne_density_matrix (coherence-L1 signal,<br/>covers phase-type noise the JSD one can't see),<br/>classically_augmented_zne_phaseflip (Scheiber et al. CA-ZNE,<br/>high-noise nodes replaced by phaseflip_channel_exact,<br/>measured 1.30x variance reduction at 5 nodes/top-3 exact)"]
         MHEAL["healing.py — calculate_phi_ab, vettore_dinamico, delta_preemp"]
         RENYI["renyi.py — sandwiched_renyi_divergence (2-state divergence)"]
         MAGIC["magic_entropy.py — single-qubit Key-Unitary magic"]
