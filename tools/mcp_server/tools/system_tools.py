@@ -26,10 +26,28 @@ async def dense_evolution_health() -> str:
 
     Returns:
         str: JSON with {status, dense_evolution_version, hostname,
-        total_ram_gb, available_ram_gb, ram_percent_free}, or an
-        "Error: ..." string if the kernel is not running.
+        total_ram_gb, available_ram_gb, ram_percent_free}, plus a
+        `version_mismatch` warning if the kernel's dense_evolution differs
+        from the one importable in this MCP adapter's own environment (a
+        stale kernel process left running across a `pip install --upgrade
+        dense-evolution` silently serves the old version's behavior --
+        this makes that visible instead of a confusing missing-feature
+        report), or an "Error: ..." string if the kernel is not running.
     """
-    return json.dumps(await _request("GET", "/api/health", timeout=5.0), indent=2)
+    result = await _request("GET", "/api/health", timeout=5.0)
+    kernel_version = result.get("dense_evolution_version")
+    if kernel_version is not None:
+        import dense_evolution
+        adapter_version = dense_evolution.__version__
+        if kernel_version != adapter_version:
+            result["version_mismatch"] = (
+                f"Kernel is running dense_evolution {kernel_version}, but this MCP "
+                f"adapter's own environment has {adapter_version} installed. The kernel "
+                "process was likely started before the last `pip install --upgrade "
+                "dense-evolution` -- restart it (stop the running `dense-evolution serve` "
+                "process, then start it again) to pick up the current version."
+            )
+    return json.dumps(result, indent=2)
 
 
 @mcp.tool(name="dense_evolution_system_limits", annotations={"title": "Get max safe qubit count", **READ_ONLY_IDEMPOTENT})
