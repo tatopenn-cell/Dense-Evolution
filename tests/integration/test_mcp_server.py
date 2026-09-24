@@ -924,6 +924,88 @@ def test_ensure_kernel_running_does_not_spawn_when_kernel_already_up(monkeypatch
     assert calls == []
 
 
+class _FakeHealthResponse:
+    def __init__(self, status_code, json_data=None):
+        self.status_code = status_code
+        self._json = json_data or {}
+
+    def json(self):
+        return self._json
+
+
+def test_ensure_kernel_running_spawns_and_succeeds_after_kernel_comes_up(monkeypatch):
+    monkeypatch.setattr(mcp_client, "_KERNEL_URL_IS_DEFAULT", True)
+    call_count = {"n": 0}
+
+    class _FakeClient:
+        async def get(self, path, timeout=None):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise httpx.ConnectError("not up yet")  # the initial pre-spawn check
+            return _FakeHealthResponse(200, {"dense_evolution_version": "0.0.1-fake"})
+
+    monkeypatch.setattr(mcp_client, "_get_client", lambda: _FakeClient())
+    spawn_calls = []
+    monkeypatch.setattr(mcp_client.subprocess, "Popen", lambda *a, **k: spawn_calls.append((a, k)))
+    # Real short values, not the 20s/0.5s production defaults -- this
+    # exercises the same code path, just fast.
+    run(mcp_client.ensure_kernel_running(startup_wait=0.2, poll_interval=0.05))
+    assert len(spawn_calls) == 1
+    assert call_count["n"] >= 2  # the failed initial check, then at least one successful poll
+
+
+def test_ensure_kernel_running_gives_up_when_spawn_raises(monkeypatch):
+    monkeypatch.setattr(mcp_client, "_KERNEL_URL_IS_DEFAULT", True)
+
+    class _AlwaysUnreachableClient:
+        async def get(self, path, timeout=None):
+            raise httpx.ConnectError("never up")
+
+    monkeypatch.setattr(mcp_client, "_get_client", lambda: _AlwaysUnreachableClient())
+
+    def _raising_popen(*a, **k):
+        raise FileNotFoundError("simulated: composer extra not installed")
+
+    monkeypatch.setattr(mcp_client.subprocess, "Popen", _raising_popen)
+    run(mcp_client.ensure_kernel_running(startup_wait=0.2, poll_interval=0.05))  # must not raise
+
+
+def test_ensure_kernel_running_times_out_if_kernel_never_comes_up(monkeypatch):
+    monkeypatch.setattr(mcp_client, "_KERNEL_URL_IS_DEFAULT", True)
+
+    class _AlwaysUnreachableClient:
+        async def get(self, path, timeout=None):
+            raise httpx.ConnectError("never up")
+
+    monkeypatch.setattr(mcp_client, "_get_client", lambda: _AlwaysUnreachableClient())
+    spawn_calls = []
+    monkeypatch.setattr(mcp_client.subprocess, "Popen", lambda *a, **k: spawn_calls.append((a, k)))
+    run(mcp_client.ensure_kernel_running(startup_wait=0.1, poll_interval=0.05))  # must not raise, must not hang
+    assert len(spawn_calls) == 1
+
+
+def test_main_calls_ensure_kernel_running_for_real_before_mcp_run(monkeypatch):
+    # Unlike the shutdown-focused main() tests above, this one deliberately
+    # does NOT stub ensure_kernel_running -- it exercises the real
+    # already-up fast path (the in-process kernel is reachable via
+    # _TEST_TRANSPORT) to cover main()'s own asyncio.run(ensure_kernel_running()) call.
+    from mcp_server.server import main
+
+    monkeypatch.setattr(mcp_adapter.mcp, "run", lambda: None)
+    main()  # must not raise
+
+
+def test_main_swallows_runtime_error_from_ensure_kernel_running(monkeypatch):
+    from mcp_server.server import main
+
+    async def _raising_ensure_kernel_running(*args, **kwargs):
+        raise RuntimeError("simulated event-loop hiccup")
+
+    monkeypatch.setattr(mcp_client, "ensure_kernel_running", _raising_ensure_kernel_running)
+    monkeypatch.setattr(mcp_adapter.mcp, "run", lambda: None)
+    main()  # must not raise -- the RuntimeError is swallowed, mcp.run() still called
+
+
 def test_mitigate_coherence_reports_fidelity_improvement():
     result = json.loads(run(mcp_adapter.dense_evolution_mitigate_coherence(
         mcp_models.MitigateDensityMatrixInput(qasm=BELL_QASM, noise_model="phaseflip", noise_p=0.1)
