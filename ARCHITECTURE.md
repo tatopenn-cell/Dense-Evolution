@@ -22,6 +22,16 @@ The public API (what `import dense_evolution as de; de.X` actually exposes) is a
 in `dense_evolution/__init__.py`'s `__all__` — that file is the single source of truth for
 "is X part of the public API", not any individual subpackage's own `__all__`.
 
+**Out of scope for the diagram below, real and growing**: `tools/` holds a second, separate
+tree — the Composer kernel (`tools/dashboard/core`, package name `dashboard_core`) and its
+MCP adapter (`tools/mcp_server`, console script `dense-evolution mcp`). The MCP surface
+grew from 25 to 32 tools in one pass: `mitigate_coherence`, the three `crypto_*` protocol
+tools, `native_hf_diagnostics`, `mass_decomposition`, and `rag_search` (with a real
+substring/regex `exact` mode ported from `ia_utils.rag`'s own `quantumrag` origin, which
+had been missing it). Every new MCP tool is a thin wrapper: kernel endpoint in
+`local_site/app/server.py` calling a `dashboard_core` function calling the real
+`dense_evolution`/`ia_utils` code above — no logic lives in the MCP layer itself.
+
 ```mermaid
 graph TD
     ROOT["dense_evolution/__init__.py<br/>(public API surface, __all__)"]
@@ -39,7 +49,7 @@ graph TD
         DIAGRAM["diagram.py — plot_circuit"]
         TOPOLOGY["topology.py — entangling_layer"]
         TROTTER["trotter.py — pauli_rotation_ops, trotter_evolve_ops"]
-        UCCSD["uccsd.py — find_excitations"]
+        UCCSD["uccsd.py — find_excitations,<br/>single_excitation_ops, double_excitation_ops"]
         QFT["qft.py"]
         RANDCIRC["random_circuit.py"]
         CONFIG["config.py — set_precision"]
@@ -91,7 +101,7 @@ graph TD
         DIFFNOISE["differentiable.py"]
         COHATT["coherent_attack.py"]
         MITIGATION["mitigation/"]
-        ZNE["zne.py<br/>richardson/polynomial/bounded_exponential_extrapolate,<br/>zne_density_matrix, uhlmann_fidelity, project_to_physical"]
+        ZNE["zne.py<br/>richardson/polynomial/bounded_exponential_extrapolate,<br/>zne_density_matrix, uhlmann_fidelity, project_to_physical,<br/>jsd_predictive_zne_density_matrix (classical-JSD signal,<br/>structurally blind to phase-type noise -- diagonal-only),<br/>coherence_predictive_zne_density_matrix (coherence-L1 signal,<br/>covers phase-type noise the JSD one can't see)"]
         MHEAL["healing.py — calculate_phi_ab, vettore_dinamico, delta_preemp"]
         RENYI["renyi.py — sandwiched_renyi_divergence (2-state divergence)"]
         MAGIC["magic_entropy.py — single-qubit Key-Unitary magic"]
@@ -114,6 +124,17 @@ graph TD
         MITIGATION --> KL
     end
 
+    subgraph CRYPTO["5. Cryptography Protocols (crypto-q)"]
+        PROTOCOLS["protocols/"]
+        BB84["bb84.py — bb84_run<br/>(prepare -> channel -> measure -> sift -> QBER)"]
+        DIQKD["di_qkd_ghz.py — parity_chsh_win_rate, key_qber<br/>(device-independent QKD via GHZ(3), Ribeiro/Murta/Wehner 2018,<br/>arXiv:1708.00798)"]
+        DICKA["dicka_protocol2.py — run_protocol<br/>(multi-round structure, round selection + abort decision,<br/>no secure-key-length claim: Theorem 4's optimization is open)"]
+
+        PROTOCOLS --> BB84
+        PROTOCOLS --> DIQKD
+        PROTOCOLS --> DICKA
+    end
+
     subgraph IFACE["4. Interfaces, API &amp; Export Tools"]
         INTEROP["interop/"]
         QISPEN["qiskit_pennylane.py<br/>from_qiskit, from_pennylane, to_stim,<br/>run_qiskit_circuit, run_pennylane_circuit"]
@@ -133,6 +154,7 @@ graph TD
     ROOT --> CORE
     ROOT --> SCI
     ROOT --> MIT
+    ROOT --> CRYPTO
     ROOT --> IFACE
     SHIMS -.->|"re-exports from"| PHYSICS
     SHIMS -.->|"re-exports from"| BACKENDS
@@ -159,6 +181,18 @@ graph TD
   functions were **promoted from Dense-Evolution-Discovery** (the research/experiments
   repo) after being validated there first — see each module's own docstring for the
   originating experiment/paper.
+- **`jsd_predictive_zne_density_matrix` is structurally blind to phase-type noise, proven
+  directly, not assumed**: its trigger signal reads `jnp.diagonal(rho)` only, so a channel
+  that corrupts off-diagonal coherences (phaseflip, coherent Rz rotation) and leaves the
+  diagonal untouched is invisible to it by construction.
+  `coherence_predictive_zne_density_matrix` (coherence-L1, `sum(|rho_ij|)` for `i!=j`,
+  Baumgratz/Cramer/Plenio 2014) fixes exactly that gap — validated at 200 seeds on
+  phaseflip (63/200 seeds active, 63/63 of those improve fidelity, p=1.07e-08) and across
+  a noise-level sweep + a second circuit family (VQE-style ansatz). Not every seed shows
+  an improvement; this is a targeted fix for a proven blind spot, not a universal upgrade.
+- **`protocols/` (crypto-q) was promoted from Dense-Evolution-Discovery's own crypto-q RFC
+  (issue #189)** after passing that project's own promotion checklist (full docstrings,
+  doctest per module) — same promotion discipline as the mitigation-module additions above.
 
 ## Real dependency contracts (not the same as the package grouping above)
 
