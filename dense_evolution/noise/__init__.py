@@ -27,6 +27,10 @@
 - **`oscillating_p_eff`** (`.oscillating`) -- a noise strength that
   oscillates instead of scaling smoothly, for stress-testing mitigation
   techniques that assume smoothness.
+- **`pink_noise_p_eff`** (`.pink`) -- a noise-strength trace with a real
+  1/f (pink/flicker) power spectrum, the dominant decoherence mechanism
+  in real superconducting qubits, via the Timmer & Koenig (1995)
+  spectral-synthesis algorithm.
 
 Real device noise from a Qiskit backend's own calibration data
 (`noise_model_from_qiskit_backend`) lives in `dense_evolution.interop`,
@@ -54,6 +58,7 @@ from .coherent_attack import (
 from .density_matrix_channels import global_depolarizing_channel, amplitude_damping_channel, phaseflip_channel_exact
 from .cosmic_ray import cosmic_ray_burst_profile
 from .oscillating import oscillating_p_eff
+from .pink import pink_noise_p_eff
 
 __all__ = [
     "NoiseModel",
@@ -70,4 +75,5 @@ __all__ = [
     "phaseflip_channel_exact",
     "cosmic_ray_burst_profile",
     "oscillating_p_eff",
+    "pink_noise_p_eff",
 ]
