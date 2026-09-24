@@ -11,7 +11,11 @@ happens inside dense_evolution/dashboard_core exactly as it does for the
 web UI; this file only exposes those same endpoints as MCP tools so an
 agent can drive them directly instead of a browser.
 
-Requires the kernel to be running separately:
+main() auto-starts the kernel if it isn't already running (see
+client.ensure_kernel_running) -- best-effort, and skipped if
+DENSE_EVOLUTION_KERNEL_URL points somewhere non-default. If that fails
+(e.g. the composer extra isn't installed) or you'd rather manage it
+yourself, start it separately:
     pip install dense-evolution[composer]
     dense-evolution serve
 (or `python -m local_site.app.server` from the repo root)
@@ -86,7 +90,11 @@ def main():
     client (Claude Code, Claude Desktop, ...) as a subprocess, not run
     standalone in a terminal."""
     import asyncio
-    from .client import close_shared_client
+    from .client import close_shared_client, ensure_kernel_running
+    try:
+        asyncio.run(ensure_kernel_running())
+    except RuntimeError:
+        pass  # best-effort only -- an event-loop hiccup here must never block startup
     try:
         mcp.run()  # pragma: no cover -- blocks on the real stdio transport loop
     finally:
