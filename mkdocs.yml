@@ -121,6 +121,7 @@ nav:
       - Fermions (Majorana Jordan-Wigner): api/fermions.md
       - Entropy (partial trace, mutual information): api/entropy.md
       - Trotter (Hamiltonian evolution as gates): api/trotter.md
+      - UCCSD (native excitation circuits): api/uccsd.md
       - Native Hartree-Fock (Obara-Saika, JAX): api/native_hf.md
       - Mass Decomposition (CASMI26 neutral-loss scoring): api/mass_decomposition.md
       - "QM/MM (region partitioning, embedding, forces)": api/qmmm.md
