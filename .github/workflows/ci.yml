@@ -60,7 +60,11 @@ jobs:
           # never had it, so ANY docs-only change hitting this fast path
           # (not just the incidental 0-diff push that first surfaced this)
           # would fail here with ModuleNotFoundError: no module named 'plotly'.
-          pip install pytest numpy jax jaxlib pennylane psutil matplotlib plotly
+          # rdkit: same fixture also imports dashboard_core.qmmm, which
+          # imports dense_evolution/qmmm/region.py (import rdkit at module
+          # level) -- same class of gap, surfaced by a docs-only PR touching
+          # this fast path (#303), fixed the same way.
+          pip install pytest numpy jax jaxlib pennylane psutil matplotlib plotly rdkit
           pip install -e . --no-deps
       - run: pytest tests/integration/test_docs_examples.py -v --tb=short
 
