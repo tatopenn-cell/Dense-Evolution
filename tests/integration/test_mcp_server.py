@@ -826,7 +826,7 @@ def test_main_closes_the_shared_client_after_mcp_run_returns(monkeypatch):
     # stubbed out rather than exercised for real (it would work fine
     # against the in-process kernel via _TEST_TRANSPORT, but coupling
     # these tests to that adds an unrelated real async call on a fresh
-    # event loop -- see ensure_kernel_running's own test below instead).
+    # event loop -- see ensure_kernel_running's own tests instead).
     monkeypatch.setattr(mcp_client, "ensure_kernel_running", _noop_ensure_kernel_running)
     monkeypatch.setattr(mcp_adapter.mcp, "run", lambda: None)
     closed = []
