@@ -293,3 +293,55 @@ class WormholeScanInput(BaseModel):
     backend: str = Field(default="exact", description="'exact' or 'trotter' -- see dense_evolution_wormhole_teleportation.")
     n_steps_evolution: int = Field(default=8, ge=1, description="Trotter steps for t0/t1 evolution (trotter backend only).")
     n_steps_coupling: int = Field(default=16, ge=1, description="Trotter steps for the mu coupling (trotter backend only).")
+
+
+class NativeHfDiagnosticsInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    symbols: list = Field(..., min_length=1, description="Atomic symbols, e.g. ['H', 'H', 'O'].")
+    geometry: list = Field(..., min_length=1, description="[[x, y, z], ...] coordinates in Angstrom, one row per symbol.")
+    charge: int = Field(default=0, description="Total molecular charge.")
+    active_electrons: Optional[int] = Field(default=None, description="Active-space electron count, if restricting the active space.")
+    active_orbitals: Optional[int] = Field(default=None, description="Active-space orbital count, if restricting the active space.")
+
+
+class RagSearchInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    documents: list = Field(..., min_length=1, description="[[text, source], ...] documents to index -- each a 2-element list of the document text and a source label (e.g. filename).")
+    query: str = Field(..., min_length=1, description="Search query -- natural-language for semantic search, or the literal/regex pattern when exact=True.")
+    top: int = Field(default=5, ge=1, description="Number of top results to return (semantic search only, ignored when exact=True).")
+    rerank: bool = Field(default=True, description="If true, pools TF-IDF and dense-embedding candidates then re-scores with a cross-encoder. If false, plain TF-IDF ranking only. Ignored when exact=True.")
+    exact: bool = Field(default=False, description="If true, substring/regex search over raw chunk text instead of semantic search -- for finding a specific known phrase or value semantic ranking buries.")
+    regex: bool = Field(default=False, description="Only with exact=True: treat query as a regex (case-sensitive) instead of a literal substring (case-insensitive).")
+    max_hits: int = Field(default=10, ge=1, description="Only with exact=True: stop after this many matches.")
+    context: int = Field(default=300, ge=0, description="Only with exact=True: characters of context to show around each match.")
+
+
+class MassDecompositionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    formula: str = Field(..., min_length=1, description="Molecular formula string, e.g. 'C6H12O6'.")
+    target_mass: float = Field(..., description="Mass difference to check for chemical reachability, e.g. a peak-pair difference from a real spectrum.")
+    max_mass: Optional[float] = Field(default=None, description="Upper bound for the search space; defaults to target_mass itself if omitted.")
+
+
+class Bb84Input(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    n_rounds: int = Field(..., ge=1, description="Number of BB84 rounds to run.")
+    p_channel: float = Field(default=0.0, ge=0.0, le=1.0, description="Isotropic depolarizing channel error probability.")
+    eve: bool = Field(default=False, description="If true, simulates an intercept-resend eavesdropping attack instead of a clean channel.")
+    seed: Optional[int] = Field(default=None, description="Random seed for reproducibility.")
+
+
+class DiQkdGhzInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    n_rounds: int = Field(..., ge=1, description="Number of test rounds to run.")
+    p_dep: float = Field(default=0.0, ge=0.0, le=1.0, description="Isotropic depolarizing error probability applied to the GHZ(3) state.")
+    seed: Optional[int] = Field(default=None, description="Random seed for reproducibility.")
+
+
+class DickaInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    n_rounds: int = Field(..., ge=1, description="Number of protocol rounds to run.")
+    gamma: float = Field(..., description="Test-round selection probability.")
+    beta: float = Field(..., gt=0.75, lt=0.8535533905932737, description="Abort threshold: must sit strictly between the classical bound (0.75) and the quantum max (~0.8536) to meaningfully distinguish a device-independent channel from a classically-bound one.")
+    p_dep: float = Field(default=0.0, ge=0.0, le=1.0, description="Isotropic depolarizing error probability.")
+    seed: Optional[int] = Field(default=None, description="Random seed for reproducibility.")

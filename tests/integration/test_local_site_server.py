@@ -517,3 +517,174 @@ def test_wormhole_teleportation_rejects_odd_n_majorana():
 def test_wormhole_teleportation_rejects_too_large_n_majorana():
     resp = client.post("/api/wormhole_teleportation", json={"n_majorana": 200})
     assert resp.status_code == 400
+
+
+def test_mitigate_coherence():
+    resp = client.post("/api/mitigate_coherence", json={
+        "qasm": BELL_QASM, "noise_model": "phaseflip", "noise_p": 0.1, "seed": 0,
+    })
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["n_qubits"] == 2
+    assert 0.0 <= body["fidelity_raw"] <= 1.0
+    assert 0.0 <= body["fidelity_corrected"] <= 1.0
+
+
+def test_mitigate_coherence_invalid_qasm_returns_400():
+    resp = client.post("/api/mitigate_coherence", json={
+        "qasm": "not qasm", "noise_model": "phaseflip", "noise_p": 0.05,
+    })
+    assert resp.status_code == 400
+
+
+def test_crypto_bb84_perfect_channel_has_zero_qber():
+    resp = client.post("/api/crypto/bb84", json={"n_rounds": 500, "p_channel": 0.0, "seed": 0})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["qber"] == pytest.approx(0.0, abs=1e-9)
+    assert body["sifted_key_length"] > 0
+
+
+def test_crypto_bb84_eve_attack_raises_qber():
+    resp = client.post("/api/crypto/bb84", json={"n_rounds": 500, "eve": True, "seed": 0})
+    assert resp.status_code == 200
+    assert resp.json()["qber"] > 0.0
+
+
+def test_crypto_bb84_rejects_negative_rounds():
+    resp = client.post("/api/crypto/bb84", json={"n_rounds": -5})
+    assert resp.status_code == 400
+
+
+def test_crypto_di_qkd_ghz_rejects_zero_rounds():
+    resp = client.post("/api/crypto/di_qkd_ghz", json={"n_rounds": 0})
+    assert resp.status_code == 400
+
+
+def test_mass_decomposition_rejects_negative_target_mass():
+    resp = client.post("/api/mass_decomposition", json={"formula": "C6H12O6", "target_mass": -5})
+    assert resp.status_code == 400
+
+
+def test_mitigate_coherence_rejects_unknown_noise_model():
+    resp = client.post("/api/mitigate_coherence", json={
+        "qasm": BELL_QASM, "noise_model": "not_a_real_model", "noise_p": 0.05,
+    })
+    assert resp.status_code == 400
+
+
+def test_crypto_di_qkd_ghz_perfect_channel_hits_quantum_max():
+    resp = client.post("/api/crypto/di_qkd_ghz", json={"n_rounds": 500, "p_dep": 0.0, "seed": 0})
+    assert resp.status_code == 200
+    body = resp.json()
+    # win_rate is a finite-sample (500-round) simulated estimate, not the
+    # exact closed form -- real value at seed=0 is 0.858, close to but not
+    # equal to the theoretical 0.85355..., hence the loose tolerance.
+    assert body["win_rate"] == pytest.approx(0.8535533905932737, abs=0.02)
+    assert body["expected_win_rate"] == pytest.approx(0.8535533905932737, abs=1e-9)
+    assert body["qber_b1"] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_crypto_dicka_returns_full_protocol_shape():
+    resp = client.post("/api/crypto/dicka", json={
+        "n_rounds": 200, "gamma": 0.1, "beta": 0.8, "p_dep": 0.0, "seed": 0,
+    })
+    assert resp.status_code == 200
+    body = resp.json()
+    assert set(body.keys()) == {"n_rounds", "n_test", "n_key", "p_hat", "beta", "aborted", "qber_b1", "qber_b2"}
+    assert isinstance(body["aborted"], bool)
+
+
+def test_crypto_dicka_rejects_beta_out_of_range():
+    resp = client.post("/api/crypto/dicka", json={
+        "n_rounds": 200, "gamma": 0.1, "beta": 0.5, "p_dep": 0.0,
+    })
+    assert resp.status_code == 400
+
+
+def test_mass_decomposition_glucose_water_loss():
+    resp = client.post("/api/mass_decomposition", json={"formula": "C6H12O6", "target_mass": 18.0106})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["formula_counts"] == {"C": 6, "H": 12, "O": 6}
+    assert body["rdbe"] == pytest.approx(1.0)
+    assert body["nearest_reachable_mass"] == pytest.approx(18.010565, abs=1e-4)
+    assert body["density_at_target"] > 0.0
+
+
+def test_native_hf_diagnostics_on_h2():
+    pytest.importorskip("dense_armor")
+    resp = client.post("/api/native_hf/diagnose", json={
+        "symbols": ["H", "H"], "geometry": [[0, 0, 0], [0, 0, 0.74]], "charge": 0,
+    })
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["n_qubits"] == 4
+    assert body["converged"] is True
+    assert body["total_energy_hartree"] == pytest.approx(-1.116759307489317, abs=1e-6)
+
+
+def test_native_hf_diagnostics_rejects_mismatched_symbols_and_geometry():
+    resp = client.post("/api/native_hf/diagnose", json={
+        "symbols": ["H", "H"], "geometry": [[0, 0, 0]],
+    })
+    assert resp.status_code == 400
+
+
+def test_native_hf_diagnostics_missing_armor_extra_returns_400(monkeypatch):
+    def _raise(*args, **kwargs):
+        raise ImportError("dense_armor is not installed")
+
+    monkeypatch.setattr(server.dc, "run_native_hf_diagnostics", _raise)
+    resp = client.post("/api/native_hf/diagnose", json={
+        "symbols": ["H", "H"], "geometry": [[0, 0, 0], [0, 0, 0.74]],
+    })
+    assert resp.status_code == 400
+    assert "missing optional dependency" in resp.json()["detail"]
+
+
+def test_rag_search_exact_finds_a_known_phrase():
+    pytest.importorskip("sklearn")
+    resp = client.post("/api/rag_search", json={
+        "documents": [["The traversable wormhole construction couples two boundaries.", "gao.pdf"]],
+        "query": "two boundaries",
+        "exact": True,
+    })
+    assert resp.status_code == 200
+    results = resp.json()["results"]
+    assert len(results) == 1
+    assert results[0]["source"] == "gao.pdf"
+    assert results[0]["match"] == "two boundaries"
+
+
+def test_rag_search_semantic_returns_ranked_results():
+    pytest.importorskip("sklearn")
+    resp = client.post("/api/rag_search", json={
+        "documents": [
+            ["The traversable wormhole construction couples two boundaries of an eternal BTZ black hole.", "gao.pdf"],
+            ["Error mitigation extrapolates the noisy expectation value to the zero-noise limit.", "temme.pdf"],
+        ],
+        "query": "does information leak through a wormhole",
+        "top": 1,
+    })
+    assert resp.status_code == 200
+    results = resp.json()["results"]
+    assert len(results) == 1
+    assert results[0]["source"] == "gao.pdf"
+
+
+def test_rag_search_rejects_malformed_documents():
+    resp = client.post("/api/rag_search", json={"documents": [["only one element"]], "query": "x"})
+    assert resp.status_code == 400
+
+
+def test_rag_search_missing_rag_extra_returns_400(monkeypatch):
+    def _raise(*args, **kwargs):
+        raise ImportError("scikit-learn is not installed")
+
+    monkeypatch.setattr(server.dc, "run_rag_search", _raise)
+    resp = client.post("/api/rag_search", json={
+        "documents": [["some text", "doc.pdf"]], "query": "x",
+    })
+    assert resp.status_code == 400
+    assert "missing optional dependency" in resp.json()["detail"]

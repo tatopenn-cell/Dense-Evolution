@@ -14,7 +14,10 @@ import numpy as np
 
 import dense_evolution as de
 
-__all__ = ['MitigationResult', 'run_zne_mitigation', 'DensityMatrixZNEResult', 'run_density_matrix_zne']
+__all__ = [
+    'MitigationResult', 'run_zne_mitigation', 'DensityMatrixZNEResult', 'run_density_matrix_zne',
+    'CoherenceZNEResult', 'run_coherence_zne_mitigation',
+]
 
 _DEFAULT_NOISE_FACTORS = (1.0, 2.0, 3.0)
 # polynomial_extrapolate's own docstring: with exactly degree+1 points the
@@ -261,6 +264,78 @@ def run_density_matrix_zne(
     fidelity_corrected = float(de.uhlmann_fidelity(rho_ideal, rho_corrected))
 
     return DensityMatrixZNEResult(
+        n_qubits=n_qubits,
+        noise_factors=list(noise_factors),
+        fidelity_raw=fidelity_raw,
+        fidelity_corrected=fidelity_corrected,
+    )
+
+
+@dataclass
+class CoherenceZNEResult:
+    n_qubits: int
+    noise_factors: list
+    fidelity_raw: float
+    fidelity_corrected: float
+
+
+def run_coherence_zne_mitigation(
+    qasm_text: str,
+    noise_model: str,
+    noise_p: float,
+    seed: Optional[int] = None,
+    noise_factors=_DEFAULT_NOISE_FACTORS,
+    n_trials: int = 200,
+) -> CoherenceZNEResult:
+    """Coherence-L1-predictive density-matrix ZNE
+    (dense_evolution.coherence_predictive_zne_density_matrix): identical
+    Monte-Carlo density-matrix construction to run_density_matrix_zne
+    above, but extrapolated via the coherence-L1 signal (sum of
+    off-diagonal density-matrix magnitudes, Baumgratz/Cramer/Plenio 2014)
+    instead of the classical-JSD one -- validated (dense_evolution's own
+    docstring, 200-seed phaseflip sweep) to catch phase-type noise
+    (phaseflip, dephasing) the JSD-predictive signal is structurally blind
+    to, since JSD only ever reads the density matrix's diagonal.
+
+    Same real anti-OOM guard, same Uhlmann-fidelity grading against the
+    true ideal density matrix as run_density_matrix_zne -- the two
+    functions differ in exactly one line (which dense_evolution
+    extrapolation function is called), by design, so a caller comparing
+    them is comparing the mitigation signal, not two different pipelines.
+    """
+    parsed = de.QASMParser().parse(qasm_text)
+    n_qubits = parsed.n_qubits
+    if noise_model not in de.NoiseModel.MODELS:
+        raise ValueError(f"unknown noise model {noise_model!r}, must be one of {de.NoiseModel.MODELS}")
+
+    dim = 2 ** n_qubits
+    required_mb = dim * dim * 16 / 1e6 * (len(noise_factors) + 2)
+    de.chunk.SafeMemoryGuard().check_allocation(required_mb, context=f"{n_qubits}-qubit coherence ZNE")
+
+    sim = de.DenseSVSimulator(n_qubits, use_float32=False)
+    sim.run_circuit(parsed.to_tuples())
+    sv_ideal = np.asarray(sim.sv)
+    rho_ideal = np.outer(sv_ideal, sv_ideal.conj())
+
+    rng = np.random.default_rng(seed)
+    rhos_at_scales = []
+    for factor in noise_factors:
+        scaled_p = min(noise_p * factor, 1.0)
+        rho_acc = np.zeros((dim, dim), dtype=complex)
+        for _ in range(n_trials):
+            sv_noisy = de.NoiseModel.apply_to_sv(
+                sv_ideal.copy(), n_qubits, noise_model, scaled_p, rng=rng,
+            )
+            rho_acc += np.outer(sv_noisy, sv_noisy.conj())
+        rho_acc /= n_trials
+        rhos_at_scales.append(rho_acc)
+
+    rho_corrected = np.asarray(de.coherence_predictive_zne_density_matrix(rhos_at_scales, list(noise_factors)))
+
+    fidelity_raw = float(de.uhlmann_fidelity(rho_ideal, rhos_at_scales[0]))
+    fidelity_corrected = float(de.uhlmann_fidelity(rho_ideal, rho_corrected))
+
+    return CoherenceZNEResult(
         n_qubits=n_qubits,
         noise_factors=list(noise_factors),
         fidelity_raw=fidelity_raw,

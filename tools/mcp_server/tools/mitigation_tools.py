@@ -41,6 +41,26 @@ async def dense_evolution_mitigate_density_matrix(params: MitigateDensityMatrixI
     return json.dumps(await _request("POST", "/api/mitigate_matrix", timeout=120.0, json=params.model_dump()), indent=2)
 
 
+@mcp.tool(name="dense_evolution_mitigate_coherence", annotations={"title": "Coherence-predictive density-matrix ZNE", **COMPUTE})
+@catch_errors
+async def dense_evolution_mitigate_coherence(params: MitigateDensityMatrixInput) -> str:
+    """Run real coherence-L1-predictive density-matrix ZNE: the same
+    Monte-Carlo density-matrix construction as
+    dense_evolution_mitigate_density_matrix, but extrapolated via a signal
+    that covers phase-type noise (phaseflip, dephasing) the classical-JSD
+    signal behind that other tool is structurally blind to -- it only ever
+    reads the density matrix's diagonal. Use this one for phase-type noise
+    models, the JSD one for amplitude/bitflip-type noise.
+
+    Args:
+        params (MitigateDensityMatrixInput): qasm, noise_model, noise_p, seed.
+
+    Returns:
+        str: JSON with n_qubits, noise_factors, fidelity_raw, fidelity_corrected.
+    """
+    return json.dumps(await _request("POST", "/api/mitigate_coherence", timeout=120.0, json=params.model_dump()), indent=2)
+
+
 @mcp.tool(name="dense_evolution_vector_healing", annotations={"title": "Heal a noisy vector sequence", **COMPUTE})
 @catch_errors
 async def dense_evolution_vector_healing(params: VectorHealingInput) -> str:

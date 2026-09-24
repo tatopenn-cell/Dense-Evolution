@@ -72,6 +72,28 @@ add — every document is already inside the candidate pool either way. The
 gap opens up on a real, larger collection: see Details below for a real,
 measured case where it mattered.
 
+## Step 3. Find a specific known phrase directly
+
+```python
+from ia_utils.rag import search_exact
+
+hits = search_exact("negative average null energy", index)
+[(h["source"], h["match"]) for h in hits]
+```
+
+```
+[('gao_wormhole.pdf', 'negative average null energy')]
+```
+
+Semantic search ranks by topical similarity, which can bury a short,
+specific, load-bearing phrase — an exact clause, a fixed parameter value,
+a named condition — under chunks that are merely more topically central.
+`search_exact` skips ranking entirely: no embedding, no reranker, no
+model download, just a literal (case-insensitive) substring match over
+every chunk's raw text, with `context` characters of surrounding text
+kept on each side. Pass `regex=True` to treat `pattern` as a real regular
+expression instead of a literal string.
+
 ## See Also
 
 - [Vector Healing](ia_utils_vector_healing.md) — a different `ia_utils`

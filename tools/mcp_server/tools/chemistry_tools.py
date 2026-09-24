@@ -6,8 +6,8 @@ import json
 from ..client import _request, catch_errors
 from ..config import COMPUTE
 from ..models import (
-    CustomMoleculeInput, EnergyScanInput, MdTrajectoryInput, MixMoleculesInput,
-    MoleculeEnergyInput, QmmmForcesInput, RunVqeInput,
+    CustomMoleculeInput, EnergyScanInput, MassDecompositionInput, MdTrajectoryInput, MixMoleculesInput,
+    MoleculeEnergyInput, NativeHfDiagnosticsInput, QmmmForcesInput, RunVqeInput,
 )
 from ..molecules import _resolve_molecule_name
 from ..server import mcp
@@ -72,6 +72,49 @@ async def dense_evolution_custom_molecule_energy(params: CustomMoleculeInput) ->
         if the molecule needs more than 12 qubits.
     """
     return json.dumps(await _request("POST", "/api/hamiltonian/custom", timeout=60.0, json=params.model_dump()), indent=2)
+
+
+@mcp.tool(name="dense_evolution_native_hf_diagnostics", annotations={"title": "Diagnose Hartree-Fock SCF convergence", **COMPUTE})
+@catch_errors
+async def dense_evolution_native_hf_diagnostics(params: NativeHfDiagnosticsInput) -> str:
+    """Run real Hartree-Fock SCF (dense_evolution.native_hf, the fallback
+    path for elements outside PennyLane's bundled STO-3G table, e.g.
+    Silicon) and run Dense-Armor's Hampel/Tukey anomaly filters over the
+    real per-iteration energy trace, instead of trusting the final
+    `converged` flag alone. Needs the `armor` extra (pip install
+    dense-evolution[armor]) -- returns an actionable "Error: ..." if it
+    isn't installed.
+
+    Args:
+        params (NativeHfDiagnosticsInput): symbols, geometry, charge,
+            active_electrons, active_orbitals. len(symbols) must equal len(geometry).
+
+    Returns:
+        str: JSON with n_qubits, converged, n_iterations,
+        electronic_energy_hartree, total_energy_hartree,
+        n_anomalies_hampel, n_anomalies_tukey, anomaly_fraction_hampel,
+        anomaly_fraction_tukey.
+    """
+    return json.dumps(await _request("POST", "/api/native_hf/diagnose", timeout=60.0, json=params.model_dump()), indent=2)
+
+
+@mcp.tool(name="dense_evolution_mass_decomposition", annotations={"title": "Check a mass-spectrometry neutral loss", **COMPUTE})
+@catch_errors
+async def dense_evolution_mass_decomposition(params: MassDecompositionInput) -> str:
+    """Check whether a mass-spectrometry peak-pair difference is a
+    chemically valid, reachable sub-formula mass of a precursor formula
+    (dense_evolution.utils.mass_decomposition, promoted from CASMI26
+    spectral-identification work). `nearest_reachable_mass` is the exact,
+    RDBE-filtered answer; `density_at_target` is a plausibility density
+    from the same landscape via FFT, not a probability.
+
+    Args:
+        params (MassDecompositionInput): formula, target_mass, max_mass.
+
+    Returns:
+        str: JSON with formula_counts, rdbe, nearest_reachable_mass, density_at_target.
+    """
+    return json.dumps(await _request("POST", "/api/mass_decomposition", timeout=30.0, json=params.model_dump()), indent=2)
 
 
 @mcp.tool(name="dense_evolution_energy_scan", annotations={"title": "Scan ground-state energy over several geometries", **COMPUTE})

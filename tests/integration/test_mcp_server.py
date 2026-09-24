@@ -729,7 +729,10 @@ def test_registered_tool_count_matches_documented_count():
     # system + 2 circuit + 7 chemistry + 3 mitigation + 3 wormhole + 3
     # noise) was 25 -- undetected drift, not a functional bug, but the
     # exact kind a trivial len()==N test catches for free going forward.
-    assert len(mcp_adapter.mcp._tool_manager._tools) == 25
+    # Now 32: +1 chemistry (native_hf_diagnostics), +1 chemistry
+    # (mass_decomposition), +1 mitigation (coherence), +3 crypto
+    # (bb84/di_qkd_ghz/dicka), +1 retrieval (rag_search).
+    assert len(mcp_adapter.mcp._tool_manager._tools) == 32
 
 
 def test_kernel_error_response_kind_is_classified_and_prefix_preserved():
@@ -1001,3 +1004,62 @@ def test_main_swallows_runtime_error_from_ensure_kernel_running(monkeypatch):
     monkeypatch.setattr(mcp_client, "ensure_kernel_running", _raising_ensure_kernel_running)
     monkeypatch.setattr(mcp_adapter.mcp, "run", lambda: None)
     main()  # must not raise -- the RuntimeError is swallowed, mcp.run() still called
+
+
+def test_mitigate_coherence_reports_fidelity_improvement():
+    result = json.loads(run(mcp_adapter.dense_evolution_mitigate_coherence(
+        mcp_models.MitigateDensityMatrixInput(qasm=BELL_QASM, noise_model="phaseflip", noise_p=0.1)
+    )))
+    assert 0.0 <= result["fidelity_raw"] <= 1.0
+    assert 0.0 <= result["fidelity_corrected"] <= 1.0
+
+
+def test_crypto_bb84_perfect_channel_has_zero_qber():
+    result = json.loads(run(mcp_adapter.dense_evolution_crypto_bb84(
+        mcp_models.Bb84Input(n_rounds=500, p_channel=0.0, seed=0)
+    )))
+    assert result["qber"] == pytest.approx(0.0, abs=1e-9)
+    assert result["sifted_key_length"] > 0
+
+
+def test_crypto_di_qkd_ghz_near_quantum_max_on_ideal_channel():
+    result = json.loads(run(mcp_adapter.dense_evolution_crypto_di_qkd_ghz(
+        mcp_models.DiQkdGhzInput(n_rounds=500, p_dep=0.0, seed=0)
+    )))
+    assert result["win_rate"] == pytest.approx(0.8535533905932737, abs=0.02)
+    assert result["win_rate"] > 0.75  # clears the classical bound
+
+
+def test_crypto_dicka_returns_full_shape():
+    result = json.loads(run(mcp_adapter.dense_evolution_crypto_dicka(
+        mcp_models.DickaInput(n_rounds=200, gamma=0.1, beta=0.8, p_dep=0.0, seed=0)
+    )))
+    assert set(result.keys()) == {"n_rounds", "n_test", "n_key", "p_hat", "beta", "aborted", "qber_b1", "qber_b2"}
+
+
+def test_mass_decomposition_glucose_water_loss():
+    result = json.loads(run(mcp_adapter.dense_evolution_mass_decomposition(
+        mcp_models.MassDecompositionInput(formula="C6H12O6", target_mass=18.0106)
+    )))
+    assert result["nearest_reachable_mass"] == pytest.approx(18.010565, abs=1e-4)
+
+
+def test_native_hf_diagnostics_on_h2():
+    pytest.importorskip("dense_armor")
+    result = json.loads(run(mcp_adapter.dense_evolution_native_hf_diagnostics(
+        mcp_models.NativeHfDiagnosticsInput(symbols=["H", "H"], geometry=[[0, 0, 0], [0, 0, 0.74]])
+    )))
+    assert result["converged"] is True
+    assert result["total_energy_hartree"] == pytest.approx(-1.116759307489317, abs=1e-6)
+
+
+def test_rag_search_exact_finds_a_known_phrase():
+    pytest.importorskip("sklearn")
+    result = json.loads(run(mcp_adapter.dense_evolution_rag_search(
+        mcp_models.RagSearchInput(
+            documents=[["The traversable wormhole construction couples two boundaries.", "gao.pdf"]],
+            query="two boundaries", exact=True,
+        )
+    )))
+    assert result["results"][0]["source"] == "gao.pdf"
+    assert result["results"][0]["match"] == "two boundaries"

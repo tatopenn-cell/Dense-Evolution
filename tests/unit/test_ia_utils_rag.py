@@ -13,7 +13,7 @@ actual TF-IDF/dense/rerank logic, not just the ImportError path.
 import numpy as np
 import pytest
 
-from ia_utils.rag import RagIndex, build_index, chunk_text, load_index, save_index, search
+from ia_utils.rag import RagIndex, build_index, chunk_text, load_index, save_index, search, search_exact
 
 
 class TestChunkText:
@@ -173,3 +173,61 @@ class TestHybridRerank:
         reloaded = load_index(tmp_path)
         assert reloaded.embeddings is not None
         np.testing.assert_allclose(reloaded.embeddings, index.embeddings)
+
+
+class TestSearchExact:
+    """No embedding, no reranker, no model download -- needs scikit-learn
+    only to build the index (build_index's TfidfVectorizer fit), not to
+    search it. Promoted from quantumrag's query.py --exact/--regex mode,
+    which the promoted ia_utils.rag had originally been missing."""
+
+    def setup_method(self):
+        pytest.importorskip("sklearn")
+
+    def _index(self):
+        return build_index(
+            [("The answer is 42 kelvin, measured at standard pressure.", "note.txt")],
+            compute_embeddings=False,
+        )
+
+    def test_literal_substring_case_insensitive(self):
+        hits = search_exact("42 KELVIN", self._index())
+        assert len(hits) == 1
+        assert hits[0]["source"] == "note.txt"
+        assert hits[0]["match"] == "42 kelvin"
+
+    def test_no_match_returns_empty_list(self):
+        assert search_exact("does not appear", self._index()) == []
+
+    def test_regex_mode_is_case_sensitive_and_matches_pattern(self):
+        hits = search_exact(r"\d+ kelvin", self._index(), regex=True)
+        assert len(hits) == 1
+        assert hits[0]["match"] == "42 kelvin"
+        assert search_exact(r"\d+ KELVIN", self._index(), regex=True) == []  # regex mode: case-sensitive
+
+    def test_literal_mode_does_not_treat_pattern_as_regex(self):
+        # '.' would match anything as a regex; as a literal it must not.
+        index = build_index([("value is 3x14 exactly for testing", "doc.txt")], compute_embeddings=False)
+        assert search_exact("3.14", index, regex=True) != []  # regex: '.' matches the 'x'
+        assert search_exact("3.14", index) == []              # literal: '.' must match only a literal dot
+
+    def test_max_hits_truncates_and_marks_the_last_result(self):
+        # search_exact finds at most one match per chunk (see its own
+        # docstring), so three separate documents/chunks are needed to
+        # exercise truncation across matches, not repeated text within one.
+        docs = [
+            ("the target word appears here in document one", "doc1.txt"),
+            ("the target word appears here in document two", "doc2.txt"),
+            ("the target word appears here in document three", "doc3.txt"),
+        ]
+        index = build_index(docs, compute_embeddings=False)
+        hits = search_exact("target", index, max_hits=2)
+        assert len(hits) == 2
+        assert hits[-1].get("truncated") is True
+        assert "truncated" not in hits[0]
+
+    def test_context_window_bounds_the_snippet(self):
+        text = "x" * 50 + "TARGET" + "y" * 50
+        index = build_index([(text, "doc.txt")], compute_embeddings=False)
+        hits = search_exact("TARGET", index, context=5)
+        assert hits[0]["snippet"] == "..." + "x" * 5 + "TARGET" + "y" * 5 + "..."

@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import pickle
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -234,3 +235,54 @@ def search(
         }
         for rank, i in enumerate(top_idx, 1)
     ]
+
+
+def search_exact(pattern: str, index: RagIndex, regex: bool = False, max_hits: int = 10, context: int = 300) -> list:
+    """Substring/regex search over an index's raw chunk text -- no
+    embedding, no reranker, no model download, so this needs neither the
+    'rag' extra nor a built index's embeddings (works even on an index
+    built with compute_embeddings=False).
+
+    Semantic search (search(), above) ranks by topical similarity, which
+    can bury a short, specific, load-bearing phrase (an exact clause, a
+    fixed parameter value, a named condition) under chunks that are
+    merely more topically central. Use this instead when you already know
+    roughly what wording you're looking for and semantic search isn't
+    surfacing it high enough.
+
+    regex=False (default) treats `pattern` as a literal, case-insensitive
+    substring (re.escape'd internally); regex=True treats it as a real
+    regular expression, case-sensitive, exactly as written. Stops after
+    `max_hits` matches (a `truncated` field on the last result marks this,
+    rather than silently returning a partial, unmarked list); `context`
+    characters of surrounding text are kept on each side of the match.
+
+    Returns a list of {source, chunk_index, match, snippet, start, end}
+    dicts, at most one per chunk -- the chunk's first match only, same as
+    the original quantumrag CLI this was ported from, not an exhaustive
+    enumeration of every occurrence within a chunk. Empty list (not an
+    error) if nothing matches.
+    """
+    flags = 0 if regex else re.IGNORECASE
+    compiled = re.compile(pattern if regex else re.escape(pattern), flags)
+    hits = []
+    for i, chunk in enumerate(index.chunks):
+        text = chunk["text"]
+        m = compiled.search(text)
+        if not m:
+            continue
+        lo = max(0, m.start() - context)
+        hi = min(len(text), m.end() + context)
+        snippet = text[lo:hi]
+        hits.append({
+            "source": chunk["source"],
+            "chunk_index": i,
+            "match": m.group(0),
+            "snippet": ("..." if lo > 0 else "") + snippet + ("..." if hi < len(text) else ""),
+            "start": m.start(),
+            "end": m.end(),
+        })
+        if len(hits) >= max_hits:
+            hits[-1]["truncated"] = True
+            break
+    return hits
