@@ -181,6 +181,9 @@ class TestSearchExact:
     search it. Promoted from quantumrag's query.py --exact/--regex mode,
     which the promoted ia_utils.rag had originally been missing."""
 
+    def setup_method(self):
+        pytest.importorskip("sklearn")
+
     def _index(self):
         return build_index(
             [("The answer is 42 kelvin, measured at standard pressure.", "note.txt")],
