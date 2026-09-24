@@ -551,6 +551,28 @@ def test_crypto_bb84_eve_attack_raises_qber():
     assert resp.json()["qber"] > 0.0
 
 
+def test_crypto_bb84_rejects_negative_rounds():
+    resp = client.post("/api/crypto/bb84", json={"n_rounds": -5})
+    assert resp.status_code == 400
+
+
+def test_crypto_di_qkd_ghz_rejects_zero_rounds():
+    resp = client.post("/api/crypto/di_qkd_ghz", json={"n_rounds": 0})
+    assert resp.status_code == 400
+
+
+def test_mass_decomposition_rejects_negative_target_mass():
+    resp = client.post("/api/mass_decomposition", json={"formula": "C6H12O6", "target_mass": -5})
+    assert resp.status_code == 400
+
+
+def test_mitigate_coherence_rejects_unknown_noise_model():
+    resp = client.post("/api/mitigate_coherence", json={
+        "qasm": BELL_QASM, "noise_model": "not_a_real_model", "noise_p": 0.05,
+    })
+    assert resp.status_code == 400
+
+
 def test_crypto_di_qkd_ghz_perfect_channel_hits_quantum_max():
     resp = client.post("/api/crypto/di_qkd_ghz", json={"n_rounds": 500, "p_dep": 0.0, "seed": 0})
     assert resp.status_code == 200
