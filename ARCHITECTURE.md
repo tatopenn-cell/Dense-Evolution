@@ -98,6 +98,7 @@ graph TD
         DMCHAN["density_matrix_channels.py"]
         COSMIC["cosmic_ray.py — cosmic_ray_burst_profile"]
         OSC["oscillating.py — oscillating_p_eff"]
+        PINK["pink.py — pink_noise_p_eff<br/>(Timmer &amp; Koenig 1995 spectral synthesis,<br/>real 1/f flux/charge-noise spectrum)"]
         DIFFNOISE["differentiable.py"]
         COHATT["coherent_attack.py"]
         MITIGATION["mitigation/"]
@@ -113,6 +114,7 @@ graph TD
         NOISE --> DMCHAN
         NOISE --> COSMIC
         NOISE --> OSC
+        NOISE --> PINK
         NOISE --> DIFFNOISE
         NOISE --> COHATT
         MITIGATION --> ZNE
