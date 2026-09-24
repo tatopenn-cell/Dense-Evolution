@@ -20,6 +20,8 @@ what happens here.
 """
 import functools
 import os
+import subprocess
+import sys
 import threading
 from typing import Optional
 
@@ -28,6 +30,12 @@ import httpx
 from .config import DEFAULT_TIMEOUT
 
 KERNEL_URL = os.environ.get("DENSE_EVOLUTION_KERNEL_URL", "http://127.0.0.1:8800").rstrip("/")
+
+# Only auto-start a kernel we'd actually be able to reach: skip entirely if
+# the caller pointed KERNEL_URL somewhere else (a remote kernel, a
+# different port) via the env var -- spawning a *local* subprocess would
+# never help in that case, and could confuse a deliberately-remote setup.
+_KERNEL_URL_IS_DEFAULT = "DENSE_EVOLUTION_KERNEL_URL" not in os.environ
 
 # Set by tests to route through httpx.ASGITransport straight into the real,
 # in-process local_site.app.server.app (see tests/integration/test_mcp_server.py) --
@@ -77,6 +85,103 @@ def _get_client() -> httpx.AsyncClient:
             _shared_client = httpx.AsyncClient(base_url=KERNEL_URL, transport=_TEST_TRANSPORT, timeout=DEFAULT_TIMEOUT)
             _shared_client_key = current_key
         return _shared_client
+
+
+async def ensure_kernel_running(startup_wait: float = 20.0, poll_interval: float = 0.5) -> None:
+    """Best-effort auto-start for the Composer kernel, called once from
+    server.py's main() before mcp.run() starts serving tool calls -- not
+    from _request()'s own error handling, so the existing
+    kernel-unreachable tests (which force a real ConnectError against a
+    kernel that's deliberately never started) keep exercising that path
+    unmodified and un-slowed.
+
+    Skips entirely if KERNEL_URL was overridden via the env var (a remote
+    or custom-port kernel -- spawning a local subprocess would never help
+    there), or if the kernel is already reachable. Otherwise spawns
+    `python -m local_site.app.server` detached, with its stdout/stderr
+    redirected away from this process's own stdio -- this process IS an
+    MCP stdio server, so anything the child wrote to inherited stdout
+    would corrupt the JSON-RPC stream -- and polls health for up to
+    `startup_wait` seconds (observed real cold-start: ~10s).
+
+    Never raises: if the composer extra isn't installed, the subprocess
+    fails to spawn, or it doesn't come up in time, this just returns and
+    the first real tool call gets the normal, actionable
+    KernelUnreachableError -- auto-start is a convenience on top of that
+    existing fallback, not a replacement for it."""
+    if not _KERNEL_URL_IS_DEFAULT:
+        return
+    try:
+        client = _get_client()
+        resp = await client.get("/api/health", timeout=2.0)
+        if resp.status_code == 200:
+            _warn_if_version_mismatch(resp.json())
+            return  # already up, nothing to do
+    except httpx.HTTPError:
+        pass  # genuinely unreachable -- fall through to the spawn attempt
+
+    try:
+        creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        subprocess.Popen(
+            [sys.executable, "-m", "local_site.app.server"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=(sys.platform != "win32"),
+            creationflags=creationflags,
+        )
+    except Exception:
+        return  # e.g. composer extra not installed -- let the normal error path handle it
+
+    import asyncio
+    elapsed = 0.0
+    while elapsed < startup_wait:
+        await asyncio.sleep(poll_interval)
+        elapsed += poll_interval
+        try:
+            resp = await client.get("/api/health", timeout=2.0)
+            if resp.status_code == 200:
+                _warn_if_version_mismatch(resp.json())
+                return
+        except httpx.HTTPError:
+            continue
+
+
+def version_mismatch_message(health: dict) -> Optional[str]:
+    """None if the kernel's dense_evolution_version matches the one
+    importable in this adapter's own environment (or the kernel didn't
+    report one), else an actionable message describing the drift -- shared
+    by _warn_if_version_mismatch (stderr, at startup) and
+    dense_evolution_health (a `version_mismatch` JSON field, on every call)
+    so the two surfaces can never say something different for a bug this
+    trivial to describe consistently."""
+    kernel_version = health.get("dense_evolution_version")
+    if kernel_version is None:
+        return None
+    import dense_evolution
+    adapter_version = dense_evolution.__version__
+    if kernel_version == adapter_version:
+        return None
+    return (
+        f"Kernel is running dense_evolution {kernel_version}, but this MCP adapter's "
+        f"own environment has {adapter_version} installed. The kernel process was "
+        "likely started before the last `pip install --upgrade dense-evolution` -- "
+        "restart it (stop the running `dense-evolution serve` process, then start it "
+        "again) to pick up the current version."
+    )
+
+
+def _warn_if_version_mismatch(health: dict) -> None:
+    """Print version_mismatch_message to stderr (never stdout -- this
+    process is an MCP stdio server) if there is one. Deliberately does NOT
+    kill/restart the kernel automatically: it may be a long-running process
+    someone is actively using through the public Composer web page, and
+    force-killing another user's live session to fix a version drift this
+    adapter merely noticed would be a worse failure mode than the drift
+    itself. Surfacing it loudly (here, and again on every
+    dense_evolution_health call -- see system_tools.py) is the safe middle
+    ground: visible, never destructive."""
+    message = version_mismatch_message(health)
+    if message is not None:
+        print(f"[dense_evolution_mcp] WARNING: {message}", file=sys.stderr)
 
 
 async def close_shared_client() -> None:
