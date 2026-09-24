@@ -258,8 +258,10 @@ def search_exact(pattern: str, index: RagIndex, regex: bool = False, max_hits: i
     characters of surrounding text are kept on each side of the match.
 
     Returns a list of {source, chunk_index, match, snippet, start, end}
-    dicts, one per match, not one per chunk -- a chunk with two hits
-    contributes two entries. Empty list (not an error) if nothing matches.
+    dicts, at most one per chunk -- the chunk's first match only, same as
+    the original quantumrag CLI this was ported from, not an exhaustive
+    enumeration of every occurrence within a chunk. Empty list (not an
+    error) if nothing matches.
     """
     flags = 0 if regex else re.IGNORECASE
     compiled = re.compile(pattern if regex else re.escape(pattern), flags)

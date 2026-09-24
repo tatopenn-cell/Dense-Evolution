@@ -814,9 +814,20 @@ def test_close_shared_client_closes_and_resets_the_cached_client():
     assert mcp_client._shared_client is not client
 
 
+async def _noop_ensure_kernel_running(*args, **kwargs):
+    pass
+
+
 def test_main_closes_the_shared_client_after_mcp_run_returns(monkeypatch):
     from mcp_server.server import main
 
+    # main() now calls ensure_kernel_running() before mcp.run() -- these
+    # three tests are about shutdown/close behavior, not startup, so it's
+    # stubbed out rather than exercised for real (it would work fine
+    # against the in-process kernel via _TEST_TRANSPORT, but coupling
+    # these tests to that adds an unrelated real async call on a fresh
+    # event loop -- see ensure_kernel_running's own test below instead).
+    monkeypatch.setattr(mcp_client, "ensure_kernel_running", _noop_ensure_kernel_running)
     monkeypatch.setattr(mcp_adapter.mcp, "run", lambda: None)
     closed = []
 
@@ -830,6 +841,8 @@ def test_main_closes_the_shared_client_after_mcp_run_returns(monkeypatch):
 
 def test_main_still_closes_the_shared_client_if_mcp_run_raises(monkeypatch):
     from mcp_server.server import main
+
+    monkeypatch.setattr(mcp_client, "ensure_kernel_running", _noop_ensure_kernel_running)
 
     def _raising_run():
         raise ValueError("simulated stdio transport crash")
@@ -849,6 +862,7 @@ def test_main_still_closes_the_shared_client_if_mcp_run_raises(monkeypatch):
 def test_main_swallows_runtime_error_from_close_shared_client(monkeypatch):
     from mcp_server.server import main
 
+    monkeypatch.setattr(mcp_client, "ensure_kernel_running", _noop_ensure_kernel_running)
     monkeypatch.setattr(mcp_adapter.mcp, "run", lambda: None)
 
     async def _raising_close():
@@ -856,3 +870,114 @@ def test_main_swallows_runtime_error_from_close_shared_client(monkeypatch):
 
     monkeypatch.setattr(mcp_client, "close_shared_client", _raising_close)
     main()  # must not raise -- the RuntimeError is swallowed
+
+
+def test_version_mismatch_message_none_when_versions_match():
+    import dense_evolution
+    assert mcp_client.version_mismatch_message({"dense_evolution_version": dense_evolution.__version__}) is None
+
+
+def test_version_mismatch_message_none_when_key_missing():
+    assert mcp_client.version_mismatch_message({}) is None
+
+
+def test_version_mismatch_message_describes_the_drift():
+    message = mcp_client.version_mismatch_message({"dense_evolution_version": "0.0.1-fake"})
+    assert message is not None
+    assert "0.0.1-fake" in message
+    assert "dense-evolution serve" in message
+
+
+def test_dense_evolution_health_surfaces_version_mismatch(monkeypatch):
+    from mcp_server.tools import system_tools
+
+    async def _fake_request(*args, **kwargs):
+        return {"status": "ok", "dense_evolution_version": "0.0.1-fake", "hostname": "test", "total_ram_gb": 1, "available_ram_gb": 1, "ram_percent_free": 50}
+
+    monkeypatch.setattr(system_tools, "_request", _fake_request)
+    result = json.loads(run(mcp_adapter.dense_evolution_health()))
+    assert "version_mismatch" in result
+    assert "0.0.1-fake" in result["version_mismatch"]
+
+
+def test_dense_evolution_health_has_no_mismatch_field_when_versions_match():
+    result = json.loads(run(mcp_adapter.dense_evolution_health()))
+    assert "version_mismatch" not in result
+
+
+def test_ensure_kernel_running_skips_when_kernel_url_overridden(monkeypatch):
+    monkeypatch.setattr(mcp_client, "_KERNEL_URL_IS_DEFAULT", False)
+    calls = []
+    monkeypatch.setattr(mcp_client.subprocess, "Popen", lambda *a, **k: calls.append((a, k)))
+    run(mcp_client.ensure_kernel_running())
+    assert calls == []
+
+
+def test_ensure_kernel_running_does_not_spawn_when_kernel_already_up(monkeypatch):
+    # Under the autouse fixture, the real in-process kernel is already
+    # reachable via _TEST_TRANSPORT -- ensure_kernel_running should see
+    # that and never attempt to spawn a subprocess.
+    monkeypatch.setattr(mcp_client, "_KERNEL_URL_IS_DEFAULT", True)
+    calls = []
+    monkeypatch.setattr(mcp_client.subprocess, "Popen", lambda *a, **k: calls.append((a, k)))
+    run(mcp_client.ensure_kernel_running())
+    assert calls == []
+
+
+def test_mitigate_coherence_reports_fidelity_improvement():
+    result = json.loads(run(mcp_adapter.dense_evolution_mitigate_coherence(
+        mcp_models.MitigateDensityMatrixInput(qasm=BELL_QASM, noise_model="phaseflip", noise_p=0.1)
+    )))
+    assert 0.0 <= result["fidelity_raw"] <= 1.0
+    assert 0.0 <= result["fidelity_corrected"] <= 1.0
+
+
+def test_crypto_bb84_perfect_channel_has_zero_qber():
+    result = json.loads(run(mcp_adapter.dense_evolution_crypto_bb84(
+        mcp_models.Bb84Input(n_rounds=500, p_channel=0.0, seed=0)
+    )))
+    assert result["qber"] == pytest.approx(0.0, abs=1e-9)
+    assert result["sifted_key_length"] > 0
+
+
+def test_crypto_di_qkd_ghz_near_quantum_max_on_ideal_channel():
+    result = json.loads(run(mcp_adapter.dense_evolution_crypto_di_qkd_ghz(
+        mcp_models.DiQkdGhzInput(n_rounds=500, p_dep=0.0, seed=0)
+    )))
+    assert result["win_rate"] == pytest.approx(0.8535533905932737, abs=0.02)
+    assert result["win_rate"] > 0.75  # clears the classical bound
+
+
+def test_crypto_dicka_returns_full_shape():
+    result = json.loads(run(mcp_adapter.dense_evolution_crypto_dicka(
+        mcp_models.DickaInput(n_rounds=200, gamma=0.1, beta=0.8, p_dep=0.0, seed=0)
+    )))
+    assert set(result.keys()) == {"n_rounds", "n_test", "n_key", "p_hat", "beta", "aborted", "qber_b1", "qber_b2"}
+
+
+def test_mass_decomposition_glucose_water_loss():
+    result = json.loads(run(mcp_adapter.dense_evolution_mass_decomposition(
+        mcp_models.MassDecompositionInput(formula="C6H12O6", target_mass=18.0106)
+    )))
+    assert result["nearest_reachable_mass"] == pytest.approx(18.010565, abs=1e-4)
+
+
+def test_native_hf_diagnostics_on_h2():
+    pytest.importorskip("dense_armor")
+    result = json.loads(run(mcp_adapter.dense_evolution_native_hf_diagnostics(
+        mcp_models.NativeHfDiagnosticsInput(symbols=["H", "H"], geometry=[[0, 0, 0], [0, 0, 0.74]])
+    )))
+    assert result["converged"] is True
+    assert result["total_energy_hartree"] == pytest.approx(-1.116759307489317, abs=1e-6)
+
+
+def test_rag_search_exact_finds_a_known_phrase():
+    pytest.importorskip("sklearn")
+    result = json.loads(run(mcp_adapter.dense_evolution_rag_search(
+        mcp_models.RagSearchInput(
+            documents=[["The traversable wormhole construction couples two boundaries.", "gao.pdf"]],
+            query="two boundaries", exact=True,
+        )
+    )))
+    assert result["results"][0]["source"] == "gao.pdf"
+    assert result["results"][0]["match"] == "two boundaries"

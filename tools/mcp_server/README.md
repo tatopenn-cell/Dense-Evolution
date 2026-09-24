@@ -66,11 +66,11 @@ server's environment.
 
 ## Tools
 
-22 tools -- one per Composer kernel endpoint, plus batch scans:
+32 tools -- one per Composer kernel endpoint, plus batch scans:
 
 | Tool | What it does |
 |---|---|
-| `dense_evolution_health` | Check the kernel is up; version, hostname, free RAM |
+| `dense_evolution_health` | Check the kernel is up; version, hostname, free RAM; warns if the kernel's own `dense_evolution` version differs from this adapter's |
 | `dense_evolution_kernel_status` | Inspect this adapter's own local state (kernel URL, image dir/count, molecule-cache size) -- distinct from `_health`, which only proxies the kernel |
 | `dense_evolution_system_limits` | Max safe qubit count right now (live RAM-based) |
 | `dense_evolution_list_presets` | Built-in example OpenQASM circuits |
@@ -82,15 +82,25 @@ server's environment.
 | `dense_evolution_molecule_energy` | Ground-state energy, catalog molecule (short id or full name) |
 | `dense_evolution_mix_molecules` | Weighted mix of two catalog Hamiltonians |
 | `dense_evolution_custom_molecule_energy` | Ground-state energy, arbitrary molecule (<=12 qubits) |
+| `dense_evolution_native_hf_diagnostics` | Hartree-Fock SCF convergence diagnostics via Dense-Armor (elements outside PennyLane's STO-3G table) |
+| `dense_evolution_mass_decomposition` | Check a mass-spectrometry peak-pair difference against a precursor formula (CASMI26) |
 | `dense_evolution_energy_scan` | Ground-state energy at several geometries in one call (e.g. a dissociation curve) |
 | `dense_evolution_run_vqe` | Real VQE optimization (hardware-efficient or UCCSD) |
 | `dense_evolution_qmmm_forces` | Hellmann-Feynman nuclear forces |
 | `dense_evolution_md_trajectory` | Velocity-Verlet MD trajectory |
 | `dense_evolution_mitigate_zne` | Zero-noise extrapolation, scalar observable |
-| `dense_evolution_mitigate_density_matrix` | Zero-noise extrapolation, full density matrix |
+| `dense_evolution_mitigate_density_matrix` | Zero-noise extrapolation, full density matrix, classical-JSD predictive signal |
+| `dense_evolution_mitigate_coherence` | Zero-noise extrapolation, full density matrix, coherence-L1 predictive signal (covers phase-type noise the JSD one is structurally blind to) |
 | `dense_evolution_wormhole_select_instance` | Screen SYK seeds for a good instance for the wormhole protocol (arXiv:2604.10090's own selection criterion) |
 | `dense_evolution_wormhole_teleportation` | Run one point of the real traversable-wormhole-inspired teleportation protocol on a binary sparse SYK model |
 | `dense_evolution_wormhole_scan` | Sweep `t1` (both +mu and -mu at each point) for the wormhole protocol in one batched call |
+| `dense_evolution_cosmic_ray_burst` | Real cosmic-ray/gamma-ray-induced quasiparticle burst profile (arXiv:2104.05219) |
+| `dense_evolution_oscillating_noise` | Noise strength that oscillates with the ZNE scale factor instead of scaling smoothly |
+| `dense_evolution_density_matrix_channel` | Apply a density-matrix-level noise channel (global depolarizing or amplitude damping) |
+| `dense_evolution_crypto_bb84` | Run BB84 quantum key distribution |
+| `dense_evolution_crypto_di_qkd_ghz` | Device-independent conference key agreement via GHZ(3) (arXiv:1708.00798) |
+| `dense_evolution_crypto_dicka` | Full multi-round DICKA structure (Appendix Protocol 2 of the same paper) |
+| `dense_evolution_rag_search` | Hybrid TF-IDF/dense/cross-encoder document search, or exact substring/regex search, over an ephemeral in-request index |
 | `dense_evolution_vector_healing` | Heal a noisy (n_steps, dim) vector sequence -- e.g. VQE convergence telemetry or an MD trajectory |
 
 **Vector healing** (`dense_evolution_vector_healing`) reintegrates the
@@ -119,6 +129,10 @@ calls to this specific endpoint were found to crash the kernel process
 outright (a real BLAS/eigh thread-safety issue under this protocol's
 heavier-than-usual linear algebra), so each point costs several seconds
 and a full 20-point sweep can take a few minutes.
+
+**`dense_evolution_native_hf_diagnostics` and `_mass_decomposition` need extra installs.** The first needs `dense-evolution[armor]` (Dense-Armor's Hampel/Tukey anomaly filters); the second needs nothing beyond the base install. Both return an actionable `"Error: ..."` naming the missing package rather than a raw import traceback if it's absent.
+
+**`dense_evolution_rag_search` is stateless.** Each call builds an ephemeral index from the `documents` you pass and searches it once -- nothing persists between calls, so pass the same `documents` again for a second query. `exact=True` switches from hybrid semantic search to a literal substring/regex search over the raw chunk text (no embedding, no reranker, no model download) -- use it when you already know roughly what wording you're looking for and semantic ranking buries it under topically-similar-but-wrong chunks. Needs `dense-evolution[rag]`.
 
 **Molecule names**: every tool that takes a catalog molecule accepts either
 its short `id` (e.g. `"H2"`, `"LiH"`, `"HeH+"`) or the kernel's full

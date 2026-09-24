@@ -680,7 +680,18 @@ class DickaRequest(BaseModel):
 @app.post("/api/crypto/dicka")
 def crypto_dicka(req: DickaRequest):
     """Full multi-round DICKA structure (Appendix Protocol 2 of Ribeiro,
-    Murta & Wehner 2018; dense_evolution.protocols.dicka_protocol2)."""
+    Murta & Wehner 2018; dense_evolution.protocols.dicka_protocol2). beta
+    must sit strictly between the classical bound (0.75) and the quantum
+    max (~0.8536) to meaningfully distinguish a device-independent
+    channel from a classically-bound one -- the underlying run_protocol
+    itself does not enforce this (any beta silently changes only the
+    abort decision), so it's checked here instead."""
+    from dense_evolution.protocols.dicka_protocol2 import CLASSICAL_BOUND, QUANTUM_MAX
+    if not (CLASSICAL_BOUND < req.beta < QUANTUM_MAX):
+        raise HTTPException(
+            status_code=400,
+            detail=f"beta must be strictly between {CLASSICAL_BOUND} and {QUANTUM_MAX}, got {req.beta}",
+        )
     try:
         return dc.run_dicka_protocol(req.n_rounds, req.gamma, req.beta, p_dep=req.p_dep, seed=req.seed)
     except Exception as exc:
