@@ -631,6 +631,18 @@ def test_native_hf_diagnostics_rejects_mismatched_symbols_and_geometry():
     assert resp.status_code == 400
 
 
+def test_native_hf_diagnostics_missing_armor_extra_returns_400(monkeypatch):
+    def _raise(*args, **kwargs):
+        raise ImportError("dense_armor is not installed")
+
+    monkeypatch.setattr(server.dc, "run_native_hf_diagnostics", _raise)
+    resp = client.post("/api/native_hf/diagnose", json={
+        "symbols": ["H", "H"], "geometry": [[0, 0, 0], [0, 0, 0.74]],
+    })
+    assert resp.status_code == 400
+    assert "missing optional dependency" in resp.json()["detail"]
+
+
 def test_rag_search_exact_finds_a_known_phrase():
     pytest.importorskip("sklearn")
     resp = client.post("/api/rag_search", json={
@@ -664,3 +676,15 @@ def test_rag_search_semantic_returns_ranked_results():
 def test_rag_search_rejects_malformed_documents():
     resp = client.post("/api/rag_search", json={"documents": [["only one element"]], "query": "x"})
     assert resp.status_code == 400
+
+
+def test_rag_search_missing_rag_extra_returns_400(monkeypatch):
+    def _raise(*args, **kwargs):
+        raise ImportError("scikit-learn is not installed")
+
+    monkeypatch.setattr(server.dc, "run_rag_search", _raise)
+    resp = client.post("/api/rag_search", json={
+        "documents": [["some text", "doc.pdf"]], "query": "x",
+    })
+    assert resp.status_code == 400
+    assert "missing optional dependency" in resp.json()["detail"]
