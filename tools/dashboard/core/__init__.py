@@ -54,7 +54,14 @@ from .hamiltonians import (
 )
 from .mitigation import (
     MitigationResult, run_zne_mitigation, DensityMatrixZNEResult, run_density_matrix_zne,
+    CoherenceZNEResult, run_coherence_zne_mitigation,
 )
+from .crypto_protocols import (
+    Bb84Result, run_bb84, DiQkdGhzResult, run_di_qkd_ghz, run_dicka_protocol,
+)
+from .native_hf_diagnostics import NativeHfDiagnosticsResult, run_native_hf_diagnostics
+from .mass_decomposition_tool import MassDecompositionResult, run_mass_decomposition
+from .rag_tool import RagSearchResult, run_rag_search
 from .system_limits import max_safe_dense_qubits
 from .vqe import run_vqe, scan_hardware_efficient_energy_landscape
 from .qmmm import (
@@ -89,6 +96,11 @@ __all__ = [
     'linear_chain_geometry', 'ring_geometry', 'mix_hamiltonians',
     'MitigationResult', 'run_zne_mitigation',
     'DensityMatrixZNEResult', 'run_density_matrix_zne',
+    'CoherenceZNEResult', 'run_coherence_zne_mitigation',
+    'Bb84Result', 'run_bb84', 'DiQkdGhzResult', 'run_di_qkd_ghz', 'run_dicka_protocol',
+    'NativeHfDiagnosticsResult', 'run_native_hf_diagnostics',
+    'MassDecompositionResult', 'run_mass_decomposition',
+    'RagSearchResult', 'run_rag_search',
     'max_safe_dense_qubits',
     'run_vqe', 'scan_hardware_efficient_energy_landscape',
     'ATOMIC_MASSES_AMU',

@@ -33,11 +33,11 @@ own response can be tens of thousands of floats for a 20+ qubit circuit.
 Structure (prog.txt Sezione 3, now complete): settings live in config.py,
 the HTTP client + error handling in client.py, the Pydantic input schemas
 in models.py (Phase 1); image saving/truncation/molecule-catalog caching
-in utils/ and molecules.py (Phase 2); the 25 tools themselves (7 system +
-2 circuit + 7 chemistry + 3 mitigation + 3 wormhole + 3 noise -- counted
-directly from the imports below, not assumed: this docstring previously
-said 22, a real drift a `len(...) == 25` regression test now guards
-against, see test_mcp_server.py), split by topic, in tools/ (Phase 3,
+in utils/ and molecules.py (Phase 2); the 32 tools themselves (7 system +
+2 circuit + 9 chemistry + 4 mitigation + 3 wormhole + 3 noise + 3 crypto +
+1 retrieval -- counted directly from the imports below, not assumed: a
+`len(...) == N` regression test guards against drift, see
+test_mcp_server.py), split by topic, in tools/ (Phase 3,
 this file). This file's only job is to create
 the MCPServer instance, import each tools/*.py module so its `@mcp.tool`
 decorators register against it, re-export every tool function (so
@@ -64,12 +64,13 @@ from .tools.system_tools import (  # noqa: E402
 )
 from .tools.circuit_tools import dense_evolution_build_circuit, dense_evolution_run_circuit  # noqa: E402
 from .tools.chemistry_tools import (  # noqa: E402
-    dense_evolution_custom_molecule_energy, dense_evolution_energy_scan, dense_evolution_md_trajectory,
-    dense_evolution_mix_molecules, dense_evolution_molecule_energy, dense_evolution_qmmm_forces,
-    dense_evolution_run_vqe,
+    dense_evolution_custom_molecule_energy, dense_evolution_energy_scan, dense_evolution_mass_decomposition,
+    dense_evolution_md_trajectory, dense_evolution_mix_molecules, dense_evolution_molecule_energy,
+    dense_evolution_native_hf_diagnostics, dense_evolution_qmmm_forces, dense_evolution_run_vqe,
 )
 from .tools.mitigation_tools import (  # noqa: E402
-    dense_evolution_mitigate_density_matrix, dense_evolution_mitigate_zne, dense_evolution_vector_healing,
+    dense_evolution_mitigate_coherence, dense_evolution_mitigate_density_matrix,
+    dense_evolution_mitigate_zne, dense_evolution_vector_healing,
 )
 from .tools.wormhole_tools import (  # noqa: E402
     dense_evolution_wormhole_scan, dense_evolution_wormhole_select_instance, dense_evolution_wormhole_teleportation,
@@ -77,6 +78,10 @@ from .tools.wormhole_tools import (  # noqa: E402
 from .tools.noise_tools import (  # noqa: E402
     dense_evolution_cosmic_ray_burst, dense_evolution_oscillating_noise, dense_evolution_density_matrix_channel,
 )
+from .tools.crypto_tools import (  # noqa: E402
+    dense_evolution_crypto_bb84, dense_evolution_crypto_di_qkd_ghz, dense_evolution_crypto_dicka,
+)
+from .tools.retrieval_tools import dense_evolution_rag_search  # noqa: E402
 
 
 def main():

@@ -729,7 +729,10 @@ def test_registered_tool_count_matches_documented_count():
     # system + 2 circuit + 7 chemistry + 3 mitigation + 3 wormhole + 3
     # noise) was 25 -- undetected drift, not a functional bug, but the
     # exact kind a trivial len()==N test catches for free going forward.
-    assert len(mcp_adapter.mcp._tool_manager._tools) == 25
+    # Now 32: +1 chemistry (native_hf_diagnostics), +1 chemistry
+    # (mass_decomposition), +1 mitigation (coherence), +3 crypto
+    # (bb84/di_qkd_ghz/dicka), +1 retrieval (rag_search).
+    assert len(mcp_adapter.mcp._tool_manager._tools) == 32
 
 
 def test_kernel_error_response_kind_is_classified_and_prefix_preserved():

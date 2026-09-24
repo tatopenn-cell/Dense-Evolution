@@ -606,6 +606,179 @@ def mitigate_matrix(req: MitigateMatrixRequest):
     }
 
 
+@app.post("/api/mitigate_coherence")
+def mitigate_coherence(req: MitigateMatrixRequest):
+    """Coherence-L1-predictive density-matrix ZNE
+    (dense_evolution.coherence_predictive_zne_density_matrix): same
+    Monte-Carlo construction as /api/mitigate_matrix, but extrapolated via
+    a signal that covers phase-type noise (phaseflip, dephasing) the
+    classical-JSD signal behind /api/mitigate_matrix is structurally blind
+    to (JSD only ever reads the density matrix's diagonal)."""
+    try:
+        result = dc.run_coherence_zne_mitigation(req.qasm, req.noise_model, req.noise_p, seed=req.seed)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "n_qubits": result.n_qubits,
+        "noise_factors": result.noise_factors,
+        "fidelity_raw": result.fidelity_raw,
+        "fidelity_corrected": result.fidelity_corrected,
+    }
+
+
+class Bb84Request(BaseModel):
+    n_rounds: int
+    p_channel: float = 0.0
+    eve: bool = False
+    seed: int | None = None
+
+
+@app.post("/api/crypto/bb84")
+def crypto_bb84(req: Bb84Request):
+    """BB84: prepare -> channel -> measure -> sift -> QBER
+    (dense_evolution.protocols.bb84)."""
+    try:
+        result = dc.run_bb84(req.n_rounds, req.p_channel, eve=req.eve, seed=req.seed)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "n_rounds": result.n_rounds, "p_channel": result.p_channel, "eve": result.eve,
+        "qber": result.qber, "sifted_key_length": result.sifted_key_length,
+    }
+
+
+class DiQkdGhzRequest(BaseModel):
+    n_rounds: int
+    p_dep: float = 0.0
+    seed: int | None = None
+
+
+@app.post("/api/crypto/di_qkd_ghz")
+def crypto_di_qkd_ghz(req: DiQkdGhzRequest):
+    """Three-party device-independent conference key agreement via GHZ(3)
+    (Ribeiro, Murta & Wehner 2018, arXiv:1708.00798;
+    dense_evolution.protocols.di_qkd_ghz)."""
+    try:
+        result = dc.run_di_qkd_ghz(req.n_rounds, req.p_dep, seed=req.seed)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "n_rounds": result.n_rounds, "p_dep": result.p_dep,
+        "win_rate": result.win_rate, "expected_win_rate": result.expected_win_rate,
+        "qber_b1": result.qber_b1, "qber_b2": result.qber_b2,
+    }
+
+
+class DickaRequest(BaseModel):
+    n_rounds: int
+    gamma: float
+    beta: float
+    p_dep: float = 0.0
+    seed: int | None = None
+
+
+@app.post("/api/crypto/dicka")
+def crypto_dicka(req: DickaRequest):
+    """Full multi-round DICKA structure (Appendix Protocol 2 of Ribeiro,
+    Murta & Wehner 2018; dense_evolution.protocols.dicka_protocol2)."""
+    try:
+        return dc.run_dicka_protocol(req.n_rounds, req.gamma, req.beta, p_dep=req.p_dep, seed=req.seed)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+class NativeHfDiagnosticsRequest(BaseModel):
+    symbols: list
+    geometry: list
+    charge: int = 0
+    active_electrons: int | None = None
+    active_orbitals: int | None = None
+
+
+@app.post("/api/native_hf/diagnose")
+def native_hf_diagnose(req: NativeHfDiagnosticsRequest):
+    """Real Hartree-Fock SCF (dense_evolution.native_hf) plus Dense-Armor
+    anomaly diagnostics on the real per-iteration energy trace, instead of
+    trusting the final `converged` flag alone. Needs the `armor` extra."""
+    if len(req.symbols) != len(req.geometry):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{len(req.symbols)} symbols but {len(req.geometry)} geometry rows",
+        )
+    try:
+        result = dc.run_native_hf_diagnostics(
+            req.symbols, req.geometry, charge=req.charge,
+            active_electrons=req.active_electrons, active_orbitals=req.active_orbitals,
+        )
+    except ImportError as exc:
+        raise HTTPException(status_code=400, detail=f"missing optional dependency: {exc}")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "n_qubits": result.n_qubits, "converged": result.converged, "n_iterations": result.n_iterations,
+        "electronic_energy_hartree": result.electronic_energy_hartree, "total_energy_hartree": result.total_energy_hartree,
+        "n_anomalies_hampel": result.n_anomalies_hampel, "n_anomalies_tukey": result.n_anomalies_tukey,
+        "anomaly_fraction_hampel": result.anomaly_fraction_hampel, "anomaly_fraction_tukey": result.anomaly_fraction_tukey,
+    }
+
+
+class MassDecompositionRequest(BaseModel):
+    formula: str
+    target_mass: float
+    max_mass: float | None = None
+
+
+@app.post("/api/mass_decomposition")
+def mass_decomposition(req: MassDecompositionRequest):
+    """Check whether target_mass is a chemically valid, reachable
+    sub-formula mass of `formula` (dense_evolution.utils.mass_decomposition,
+    promoted from CASMI26 spectral-identification work)."""
+    try:
+        result = dc.run_mass_decomposition(req.formula, req.target_mass, max_mass=req.max_mass)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "formula_counts": result.formula_counts, "rdbe": result.rdbe,
+        "nearest_reachable_mass": result.nearest_reachable_mass,
+        "density_at_target": result.density_at_target,
+    }
+
+
+class RagSearchRequest(BaseModel):
+    documents: list  # [[text, source], ...]
+    query: str
+    top: int = 5
+    rerank: bool = True
+    exact: bool = False
+    regex: bool = False
+    max_hits: int = 10
+    context: int = 300
+
+
+@app.post("/api/rag_search")
+def rag_search(req: RagSearchRequest):
+    """Build an ephemeral index over the caller's own documents and search
+    it in one call (ia_utils.rag) -- nothing persists server-side between
+    requests. exact=True switches to substring/regex search over raw
+    chunk text instead of semantic search (no embedding, no reranker).
+    Needs the `rag` extra for semantic search; exact mode still needs it
+    to build the index (TF-IDF), but not to search once built."""
+    try:
+        documents = [(d[0], d[1]) for d in req.documents]
+    except (IndexError, TypeError):
+        raise HTTPException(status_code=400, detail="documents must be a list of [text, source] pairs")
+    try:
+        result = dc.run_rag_search(
+            documents, req.query, top=req.top, rerank=req.rerank,
+            exact=req.exact, regex=req.regex, max_hits=req.max_hits, context=req.context,
+        )
+    except ImportError as exc:
+        raise HTTPException(status_code=400, detail=f"missing optional dependency: {exc}")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"results": result.results}
+
+
 class CosmicRayBurstRequest(BaseModel):
     baseline_gamma: float
     times_us: Optional[List[float]] = None
