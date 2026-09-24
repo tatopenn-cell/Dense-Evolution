@@ -12,8 +12,8 @@ authors:
 repository-code: "https://github.com/tatopenn-cell/Dense-Evolution"
 url: "https://github.com/tatopenn-cell/Dense-Evolution"
 license: "BUSL-1.1"
-version: "8.2.0"
-doi: "10.5281/zenodo.22818319"
+version: "8.2.1"
+doi: "10.5281/zenodo.22930788"
 identifiers:
   - type: doi
     value: "10.5281/zenodo.21855643"
@@ -21,3 +21,6 @@ identifiers:
   - type: doi
     value: "10.5281/zenodo.22818319"
     description: "The version-specific DOI for v8.2.0."
+  - type: doi
+    value: "10.5281/zenodo.22930788"
+    description: "The version-specific DOI for v8.2.1."
