@@ -28,7 +28,7 @@ print(result["vqe_energy_hartree"])  # -1.137270 (verified against exact_energy_
 `run_vqe` needs the optional `pennylane` extra (used internally to build
 the molecular Hamiltonian and Hartree-Fock reference state — the native
 UCCSD ansatz circuits themselves don't need PennyLane, see
-[`dense_evolution.circuits.uccsd`](../api/index.md), but Hamiltonian
+[`dense_evolution.circuits.uccsd`](uccsd.md), but Hamiltonian
 construction still does). `ansatz_type="uccsd"` uses that native
 implementation instead of `"hardware_efficient"`'s generic layered
 ansatz; `n_layers` is then ignored, since UCCSD's parameter count comes
