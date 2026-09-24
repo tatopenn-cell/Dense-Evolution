@@ -64,7 +64,10 @@ jobs:
           # imports dense_evolution/qmmm/region.py (import rdkit at module
           # level) -- same class of gap, surfaced by a docs-only PR touching
           # this fast path (#303), fixed the same way.
-          pip install pytest numpy jax jaxlib pennylane psutil matplotlib plotly rdkit
+          # basis_set_exchange: same fixture also imports dashboard_core's
+          # native_hf_diagnostics.py (import basis_set_exchange at module
+          # level) -- same class of gap again, surfaced by PR #307.
+          pip install pytest numpy jax jaxlib pennylane psutil matplotlib plotly rdkit basis_set_exchange
           pip install -e . --no-deps
       - run: pytest tests/integration/test_docs_examples.py -v --tb=short
 
