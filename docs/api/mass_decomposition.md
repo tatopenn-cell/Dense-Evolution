@@ -68,6 +68,8 @@ density_at_mass(mass_grid, density, water_loss)
 0.3362
 ```
 
+![Glucose's reachable-mass landscape: exact reachable masses (grey dots on the axis) and the FFT plausibility density (blue curve), against the water-loss target at 18.0106 Da](assets/mass_decomposition/glucose_reachable_density.png)
+
 `build_reachable_masses` truncates once the number of distinct reachable
 states passes `max_states` (150,000 by default) — fine for small formulas,
 a real limitation for large ones. `build_reachable_density_fft` builds the
