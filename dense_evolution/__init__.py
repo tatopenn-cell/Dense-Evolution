@@ -6,7 +6,7 @@ from .backends.statevector import DenseSVSimulator
 from .circuits.parser import QASMParser, QASMCircuit
 from .circuits.compiler import QuantumTranspiler
 from .noise import (NoiseModel, NoiseSpec, global_depolarizing_channel, amplitude_damping_channel,
-                     cosmic_ray_burst_profile, oscillating_p_eff)
+                     phaseflip_channel_exact, cosmic_ray_burst_profile, oscillating_p_eff)
 from .circuits.registry import QuantumHardwareRegistry
 from .circuits.gates import GATES, PARAMETRIC_GATES, GATE_IDS
 from .backends.chunk import Chunk
@@ -33,6 +33,7 @@ from .mitigation.zne import (richardson_extrapolate, richardson_amplification_fa
                           project_to_physical, uhlmann_fidelity, zne_density_matrix,
                           jsd_predictive_zne_density_matrix,
                           coherence_predictive_zne_density_matrix,
+                          classically_augmented_zne_phaseflip,
                           richardson_extrapolate_jit, zero_noise_extrapolation_jit,
                           polynomial_extrapolate_jit, uhlmann_fidelity_jit, zne_density_matrix_jit)
 from .circuits.diagram import plot_circuit
@@ -89,7 +90,8 @@ __all__ = [
     "bounded_exponential_extrapolate",
     "project_to_physical", "uhlmann_fidelity", "zne_density_matrix",
     "jsd_predictive_zne_density_matrix", "coherence_predictive_zne_density_matrix",
-    "global_depolarizing_channel", "amplitude_damping_channel",
+    "classically_augmented_zne_phaseflip",
+    "global_depolarizing_channel", "amplitude_damping_channel", "phaseflip_channel_exact",
     "cosmic_ray_burst_profile", "oscillating_p_eff",
     "richardson_extrapolate_jit", "zero_noise_extrapolation_jit",
     "polynomial_extrapolate_jit", "uhlmann_fidelity_jit", "zne_density_matrix_jit",

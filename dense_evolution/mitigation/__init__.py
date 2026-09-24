@@ -14,6 +14,7 @@ from .zne import (
     project_to_physical, uhlmann_fidelity, zne_density_matrix,
     jsd_predictive_zne_density_matrix,
     coherence_predictive_zne_density_matrix,
+    classically_augmented_zne_phaseflip,
     richardson_extrapolate_jit, zero_noise_extrapolation_jit,
     polynomial_extrapolate_jit, uhlmann_fidelity_jit, zne_density_matrix_jit,
 )
@@ -38,6 +39,7 @@ __all__ = [
     "project_to_physical", "uhlmann_fidelity", "zne_density_matrix",
     "jsd_predictive_zne_density_matrix",
     "coherence_predictive_zne_density_matrix",
+    "classically_augmented_zne_phaseflip",
     "richardson_extrapolate_jit", "zero_noise_extrapolation_jit",
     "polynomial_extrapolate_jit", "uhlmann_fidelity_jit", "zne_density_matrix_jit",
     "calculate_advanced_sigma", "calculate_phi_ab", "calculate_vettore_dinamico",

@@ -3,7 +3,7 @@ what density-matrix ZNE (`dense_evolution.mitigation.zne_density_matrix`)
 needs its noise ensemble built from."""
 import jax.numpy as jnp
 
-__all__ = ["global_depolarizing_channel", "amplitude_damping_channel"]
+__all__ = ["global_depolarizing_channel", "amplitude_damping_channel", "phaseflip_channel_exact"]
 
 
 def global_depolarizing_channel(rho: jnp.ndarray, p: float) -> jnp.ndarray:
@@ -47,3 +47,32 @@ def amplitude_damping_channel(rho: jnp.ndarray, gamma: float) -> jnp.ndarray:
     e0 = jnp.array([[1.0, 0.0], [0.0, jnp.sqrt(1.0 - gamma)]], dtype=jnp.complex128)
     e1 = jnp.array([[0.0, jnp.sqrt(gamma)], [0.0, 0.0]], dtype=jnp.complex128)
     return e0 @ rho @ e0.conj().T + e1 @ rho @ e1.conj().T
+
+
+def phaseflip_channel_exact(rho: jnp.ndarray, p: float) -> jnp.ndarray:
+    """Exact (zero-variance) multi-qubit phaseflip channel: K0=sqrt(1-p)*I,
+    K1=sqrt(p)*Z, applied independently per qubit across the whole
+    register, matching `NoiseModel`'s `'phaseflip'` statevector model
+    (`noise/kraus/phaseflip.py`) in the limit of infinitely many Monte
+    Carlo trials -- this function computes that limit directly instead of
+    averaging finite trials, for use as a zero-sampling-variance
+    "classical node" in Classically Augmented ZNE (Scheiber et al., "CA-ZNE:
+    high-noise Richardson nodes replaced by classically simulated
+    estimates", arXiv:2607.25746).
+
+    Since Z is diagonal in the computational basis, conjugating rho by Z_q
+    (Pauli-Z on qubit q, identity elsewhere) only flips the sign of
+    off-diagonal entries whose row and column disagree on bit q --
+    (Z_q rho Z_q)_ij = rho_ij * s_i * s_j, s_k = -1 if bit q of k else +1
+    -- so each qubit's channel (1-p)*rho + p*(Z_q rho Z_q) is one
+    elementwise multiply, no explicit operator ever built.
+    """
+    rho = jnp.asarray(rho, dtype=jnp.complex128)
+    dim = rho.shape[0]
+    n_qubits = dim.bit_length() - 1
+    idx = jnp.arange(dim)
+    for q in range(n_qubits):
+        sign = 1.0 - 2.0 * ((idx >> q) & 1)
+        flip_sign = jnp.outer(sign, sign)
+        rho = (1.0 - p) * rho + p * (flip_sign * rho)
+    return rho

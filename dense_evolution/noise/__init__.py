@@ -17,7 +17,11 @@
 - **Density-matrix channels** (`.density_matrix_channels`) --
   `global_depolarizing_channel`, `amplitude_damping_channel`: noise applied
   directly to a density matrix instead of a statevector, for density-matrix
-  ZNE's noise ensemble.
+  ZNE's noise ensemble. `phaseflip_channel_exact`: the same phaseflip model
+  as `NoiseModel`'s `'phaseflip'` statevector Kraus channel, but computed as
+  its exact zero-sampling-variance limit directly on a density matrix, for
+  use as a "classical node" in Classically Augmented ZNE (see
+  `dense_evolution.mitigation.classically_augmented_zne_phaseflip`).
 - **`cosmic_ray_burst_profile`** (`.cosmic_ray`) -- a real, time-dependent
   noise-strength profile for a cosmic-ray-induced quasiparticle burst.
 - **`oscillating_p_eff`** (`.oscillating`) -- a noise strength that
@@ -47,7 +51,7 @@ from .coherent_attack import (
     decoder_failure_rate,
     random_delta_failure_stats,
 )
-from .density_matrix_channels import global_depolarizing_channel, amplitude_damping_channel
+from .density_matrix_channels import global_depolarizing_channel, amplitude_damping_channel, phaseflip_channel_exact
 from .cosmic_ray import cosmic_ray_burst_profile
 from .oscillating import oscillating_p_eff
 
@@ -63,6 +67,7 @@ __all__ = [
     "random_delta_failure_stats",
     "global_depolarizing_channel",
     "amplitude_damping_channel",
+    "phaseflip_channel_exact",
     "cosmic_ray_burst_profile",
     "oscillating_p_eff",
 ]

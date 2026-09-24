@@ -12,6 +12,7 @@ from dense_evolution.mitigation import (
     project_to_physical, uhlmann_fidelity, zne_density_matrix, zne_density_matrix_jit,
     jsd_predictive_zne_density_matrix,
     coherence_predictive_zne_density_matrix,
+    classically_augmented_zne_phaseflip,
     richardson_extrapolate_jit, zero_noise_extrapolation_jit, uhlmann_fidelity_jit,
     polynomial_extrapolate_jit,
 )
@@ -769,3 +770,69 @@ def test_coherence_predictive_zne_density_matrix_helps_on_phaseflip_noise():
 
     assert 0.0 <= fidelity_coh <= 1.0 + 1e-9
     assert fidelity_coh > fidelity_plain
+
+
+def test_classically_augmented_zne_phaseflip_output_is_a_valid_density_matrix():
+    rng = np.random.default_rng(50)
+    d = 4
+    rho_ideal = jnp.asarray(_random_density_matrix(rng, d), dtype=jnp.complex128)
+    measured = jnp.stack([
+        jnp.asarray(_random_density_matrix(rng, d), dtype=jnp.complex128) for _ in range(2)
+    ])
+    got = np.asarray(classically_augmented_zne_phaseflip(measured, [1.0, 2.0, 3.0], rho_ideal, base_p=0.05))
+    np.testing.assert_allclose(got, got.conj().T, atol=1e-9)
+    assert np.trace(got).real == pytest.approx(1.0, abs=1e-9)
+    assert np.linalg.eigvalsh(got).min() >= -1e-9
+
+
+def test_classically_augmented_zne_phaseflip_rejects_no_room_for_a_classical_node():
+    rng = np.random.default_rng(51)
+    rho_ideal = jnp.asarray(_random_density_matrix(rng, 2), dtype=jnp.complex128)
+    measured = jnp.stack([
+        jnp.asarray(_random_density_matrix(rng, 2), dtype=jnp.complex128) for _ in range(3)
+    ])
+    with pytest.raises(ValueError):
+        classically_augmented_zne_phaseflip(measured, [1.0, 2.0, 3.0], rho_ideal, base_p=0.05)
+
+
+def test_classically_augmented_zne_phaseflip_matches_real_ghz3_regression_seed():
+    # Real physics regression test, exact numbers verified once during
+    # development and locked in here rather than re-derived every run:
+    # GHZ(3), phaseflip, base_p=0.03, 5 noise factors (1x-5x), the top 2
+    # replaced by the exact classical channel, seed=0, 150 trials per
+    # measured node. See this function's own docstring for the broader
+    # 60-seed variance-reduction study (1.30x vs plain zne_density_matrix
+    # at the same per-node trial budget) this single seed is drawn from.
+    import jax
+
+    sim = de.DenseSVSimulator(3)
+    sim.run_circuit([("h", 0), ("cx", 0, 1), ("cx", 1, 2)])
+    ideal_sv = jnp.asarray(sim.get_statevector(), dtype=jnp.complex128)
+    rho_ideal = jnp.outer(ideal_sv, jnp.conj(ideal_sv))
+
+    base_p = 0.03
+    noise_factors = (1.0, 2.0, 3.0, 4.0, 5.0)
+    cutoff = 3
+    n_trials = 150
+
+    def noisy_rho(factor, master_key):
+        p_eff = float(min(base_p * factor, 1.0))
+        keys = jax.random.split(master_key, n_trials)
+
+        def one_trial(key):
+            return de.NoiseModel.apply_to_sv(ideal_sv, 3, model="phaseflip", p=p_eff, jax_key=key)
+
+        sv_batch = jax.vmap(one_trial)(keys)
+        return jnp.einsum("ti,tj->ij", sv_batch, jnp.conj(sv_batch)) / n_trials
+
+    master_key = jax.random.PRNGKey(0)
+    measured = []
+    for factor in noise_factors[:cutoff]:
+        master_key, sub = jax.random.split(master_key)
+        measured.append(noisy_rho(factor, sub))
+    measured = jnp.stack(measured)
+
+    rho_ca = classically_augmented_zne_phaseflip(measured, noise_factors, rho_ideal, base_p)
+    fidelity_ca = float(uhlmann_fidelity(rho_ca, rho_ideal))
+
+    assert fidelity_ca == pytest.approx(0.9538738666666644, abs=1e-6)
