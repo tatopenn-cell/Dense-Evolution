@@ -115,6 +115,7 @@ async def ensure_kernel_running(startup_wait: float = 20.0, poll_interval: float
         client = _get_client()
         resp = await client.get("/api/health", timeout=2.0)
         if resp.status_code == 200:
+            _warn_if_version_mismatch(resp.json())
             return  # already up, nothing to do
     except httpx.HTTPError:
         pass  # genuinely unreachable -- fall through to the spawn attempt
@@ -138,9 +139,49 @@ async def ensure_kernel_running(startup_wait: float = 20.0, poll_interval: float
         try:
             resp = await client.get("/api/health", timeout=2.0)
             if resp.status_code == 200:
+                _warn_if_version_mismatch(resp.json())
                 return
         except httpx.HTTPError:
             continue
+
+
+def version_mismatch_message(health: dict) -> Optional[str]:
+    """None if the kernel's dense_evolution_version matches the one
+    importable in this adapter's own environment (or the kernel didn't
+    report one), else an actionable message describing the drift -- shared
+    by _warn_if_version_mismatch (stderr, at startup) and
+    dense_evolution_health (a `version_mismatch` JSON field, on every call)
+    so the two surfaces can never say something different for a bug this
+    trivial to describe consistently."""
+    kernel_version = health.get("dense_evolution_version")
+    if kernel_version is None:
+        return None
+    import dense_evolution
+    adapter_version = dense_evolution.__version__
+    if kernel_version == adapter_version:
+        return None
+    return (
+        f"Kernel is running dense_evolution {kernel_version}, but this MCP adapter's "
+        f"own environment has {adapter_version} installed. The kernel process was "
+        "likely started before the last `pip install --upgrade dense-evolution` -- "
+        "restart it (stop the running `dense-evolution serve` process, then start it "
+        "again) to pick up the current version."
+    )
+
+
+def _warn_if_version_mismatch(health: dict) -> None:
+    """Print version_mismatch_message to stderr (never stdout -- this
+    process is an MCP stdio server) if there is one. Deliberately does NOT
+    kill/restart the kernel automatically: it may be a long-running process
+    someone is actively using through the public Composer web page, and
+    force-killing another user's live session to fix a version drift this
+    adapter merely noticed would be a worse failure mode than the drift
+    itself. Surfacing it loudly (here, and again on every
+    dense_evolution_health call -- see system_tools.py) is the safe middle
+    ground: visible, never destructive."""
+    message = version_mismatch_message(health)
+    if message is not None:
+        print(f"[dense_evolution_mcp] WARNING: {message}", file=sys.stderr)
 
 
 async def close_shared_client() -> None:

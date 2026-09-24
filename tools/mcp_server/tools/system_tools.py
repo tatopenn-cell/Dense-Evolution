@@ -35,18 +35,9 @@ async def dense_evolution_health() -> str:
         report), or an "Error: ..." string if the kernel is not running.
     """
     result = await _request("GET", "/api/health", timeout=5.0)
-    kernel_version = result.get("dense_evolution_version")
-    if kernel_version is not None:
-        import dense_evolution
-        adapter_version = dense_evolution.__version__
-        if kernel_version != adapter_version:
-            result["version_mismatch"] = (
-                f"Kernel is running dense_evolution {kernel_version}, but this MCP "
-                f"adapter's own environment has {adapter_version} installed. The kernel "
-                "process was likely started before the last `pip install --upgrade "
-                "dense-evolution` -- restart it (stop the running `dense-evolution serve` "
-                "process, then start it again) to pick up the current version."
-            )
+    mismatch = client.version_mismatch_message(result)
+    if mismatch is not None:
+        result["version_mismatch"] = mismatch
     return json.dumps(result, indent=2)
 
 
