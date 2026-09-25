@@ -60,7 +60,7 @@ from .physics.qec import (pauli_commutes, compute_syndrome, erasure_aware_decode
                            blind_minimum_weight_decode, decode_with_erasure_fallback,
                            counts_in_intervals_dimension, nearest_coset_decode)
 
-__version__ = "8.3.0"
+__version__ = "8.2.2"
 
 __all__ = [
     "__version__",
