@@ -752,3 +752,107 @@ def nearest_coset_decode(measured_bits: str, coset_a: Sequence[str], coset_b: Se
     d_a = _min_hamming_distance(measured_bits, coset_a)
     d_b = _min_hamming_distance(measured_bits, coset_b)
     return 0 if d_a <= d_b else 1
+
+
+def erasure_ml_decode(
+    observed_syndrome: tuple,
+    heralded_qubits: Sequence[int],
+    n_qubits: int,
+    stabilizers: Sequence[str],
+) -> Optional[str]:
+    """Maximum-likelihood decoder for erasures at known locations, for any
+    stabilizer code.
+
+    With the erased qubits known, the error is supported on them, and the
+    syndrome becomes a linear system over GF(2) in the X and Z bits of those
+    qubits (Delfosse & Zemor, arXiv:1703.01517; Kuo & Ouyang,
+    arXiv:2411.13509). Solving it by Gaussian elimination costs O(n^3), where
+    `erasure_aware_decode` tries 4**m assignments for m erased qubits. Any
+    solution is a valid correction when every zero-syndrome operator on the
+    erased qubits is a stabilizer element, so degenerate errors (several
+    errors that differ by a stabilizer) are decoded too, not rejected.
+
+    Parameters
+    ----------
+    observed_syndrome : sequence of int
+        One bit per stabilizer, same convention as `compute_syndrome`.
+    heralded_qubits : sequence of int
+        Indices of the erased qubits.
+    n_qubits : int
+        Number of physical qubits.
+    stabilizers : sequence of str
+        Stabilizer generators as Pauli strings of length `n_qubits`.
+
+    Returns
+    -------
+    str or None
+        A Pauli string supported on the erased qubits that reproduces the
+        syndrome and is equivalent, up to a stabilizer, to every other
+        solution. `None` when no error on the erased qubits explains the
+        syndrome, or when the erased qubits contain a logical operator so the
+        correction is ambiguous. With no erased qubits it returns the identity
+        for a zero syndrome and `None` otherwise.
+
+    Raises
+    ------
+    ValueError
+        If the syndrome length does not match the stabilizers, a stabilizer
+        has the wrong length, or an erased index is out of range.
+
+    Examples
+    --------
+    >>> stabs = ['IIIXXXX', 'IXXIIXX', 'XIXIXIX', 'IIIZZZZ', 'IZZIIZZ', 'ZIZIZIZ']
+    >>> syndrome = compute_syndrome('XIIIIIX', stabs)
+    >>> erasure_ml_decode(syndrome, [0, 6], 7, stabs)
+    'XIIIIIX'
+    """
+    stabs = list(stabilizers)
+    if len(observed_syndrome) != len(stabs):
+        raise ValueError(
+            f"observed_syndrome has {len(observed_syndrome)} entries but there are "
+            f"{len(stabs)} stabilizers"
+        )
+    for i, s in enumerate(stabs):
+        if len(s) != n_qubits:
+            raise ValueError(f"stabilizers[{i}] has length {len(s)}, expected n_qubits={n_qubits}")
+    erased = sorted({int(q) for q in heralded_qubits})
+    if any(q < 0 or q >= n_qubits for q in erased):
+        raise ValueError(f"heralded_qubits must be in range(0, {n_qubits})")
+
+    syn = np.array(observed_syndrome, dtype=np.uint8) % 2
+    k = len(erased)
+    if k == 0:
+        return 'I' * n_qubits if not syn.any() else None
+
+    sym = np.array([_pauli_to_symplectic(s) for s in stabs], dtype=np.uint8)
+    sx, sz = sym[:, :n_qubits], sym[:, n_qubits:]
+    a = np.concatenate([sz[:, erased], sx[:, erased]], axis=1)
+    rref, pivots = _gf2_rref(np.concatenate([a, syn[:, None]], axis=1))
+    if 2 * k in pivots:
+        return None
+
+    sol = np.zeros(2 * k, dtype=np.uint8)
+    for row, col in enumerate(pivots):
+        sol[col] = rref[row, 2 * k]
+    free = [c for c in range(2 * k) if c not in pivots]
+    stab_rref, stab_pivots = _gf2_rref(sym)
+
+    def embed(v):
+        full = np.zeros(2 * n_qubits, dtype=np.uint8)
+        for j, q in enumerate(erased):
+            full[q] = v[j]
+            full[n_qubits + q] = v[k + j]
+        return full
+
+    for f in free:
+        vec = np.zeros(2 * k, dtype=np.uint8)
+        vec[f] = 1
+        for row, col in enumerate(pivots):
+            if rref[row, f]:
+                vec[col] = 1
+        if not _in_gf2_span(embed(vec), stab_rref, stab_pivots):
+            return None
+
+    full = embed(sol)
+    letters = {(0, 0): 'I', (1, 0): 'X', (0, 1): 'Z', (1, 1): 'Y'}
+    return ''.join(letters[(int(full[q]), int(full[n_qubits + q]))] for q in range(n_qubits))
