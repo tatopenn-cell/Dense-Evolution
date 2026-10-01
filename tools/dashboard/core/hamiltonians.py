@@ -410,6 +410,26 @@ def get_molecule_n_qubits(symbols, geometry, charge=0, mapping="jordan_wigner",
     return n_qubits
 
 
+_STO3G_ORBITALS = {"H": 1, "He": 1}
+_STO3G_ORBITALS.update({el: 5 for el in ("Li", "Be", "B", "C", "N", "O", "F", "Ne")})
+_STO3G_ORBITALS.update({el: 9 for el in ("Na", "Mg", "Al", "Si", "P", "S", "Cl", "Ar")})
+
+
+def _fast_n_qubits(spec, geometry, mapping):
+    """Qubit count from the STO-3G orbital count (two spin orbitals per
+    spatial orbital, or per active orbital when an active space is set),
+    without building the Hamiltonian. Falls back to the exact count for
+    elements outside the table."""
+    if spec.get("active_orbitals"):
+        return 2 * int(spec["active_orbitals"])
+    if all(s in _STO3G_ORBITALS for s in spec["symbols"]):
+        return 2 * sum(_STO3G_ORBITALS[s] for s in spec["symbols"])
+    return get_molecule_n_qubits(
+        spec["symbols"], geometry, spec["charge"], mapping=mapping,
+        active_electrons=spec.get("active_electrons"), active_orbitals=spec.get("active_orbitals"),
+    )
+
+
 def get_all_molecules(catalog=None, mapping="jordan_wigner"):
     """Every catalog molecule, each annotated with its real qubit count
     under the given mapping -- unfiltered, so the UI can always show the
@@ -427,10 +447,7 @@ def get_all_molecules(catalog=None, mapping="jordan_wigner"):
     out = {}
     for name, spec in catalog.items():
         geometry = spec["geometry"]() if callable(spec["geometry"]) else spec["geometry"]
-        n_qubits = get_molecule_n_qubits(
-            spec["symbols"], geometry, spec["charge"], mapping=mapping,
-            active_electrons=spec.get("active_electrons"), active_orbitals=spec.get("active_orbitals"),
-        )
+        n_qubits = _fast_n_qubits(spec, geometry, mapping)
         out[name] = {
             "symbols": spec["symbols"],
             "geometry": np.asarray(geometry).tolist(),
