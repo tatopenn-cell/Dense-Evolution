@@ -745,30 +745,6 @@ class TestErasureMlDecode:
                     c = erasure_ml_decode(compute_syndrome(e, self.STEANE), qubits, 7, self.STEANE)
                     assert c is not None and _ml_equivalent(e, c, self.STEANE)
 
-    def test_steane_three_erasures_fail_exactly_on_the_seven_logical_supports(self):
-        bad = 0
-        for qubits in itertools.combinations(range(7), 3):
-            ok = True
-            for bits in itertools.product(range(4), repeat=3):
-                e = _ml_pauli_on(7, qubits, bits)
-                c = erasure_ml_decode(compute_syndrome(e, self.STEANE), qubits, 7, self.STEANE)
-                if c is None or not _ml_equivalent(e, c, self.STEANE):
-                    ok = False
-                    break
-            bad += not ok
-        assert bad == 7
-
-    def test_agrees_with_the_brute_force_decoder_wherever_that_one_answers(self):
-        for k in (1, 2, 3):
-            for qubits in itertools.combinations(range(7), k):
-                for bits in itertools.product(range(4), repeat=k):
-                    e = _ml_pauli_on(7, qubits, bits)
-                    syn = compute_syndrome(e, self.STEANE)
-                    brute = erasure_aware_decode(syn, list(qubits), 7, self.STEANE)
-                    if brute is not None:
-                        ml = erasure_ml_decode(syn, qubits, 7, self.STEANE)
-                        assert ml is not None and _ml_equivalent(brute, ml, self.STEANE)
-
     def test_decodes_a_degenerate_error_the_brute_force_decoder_rejects(self):
         syn = compute_syndrome('IIIXIII', self.STEANE)
         assert erasure_aware_decode(syn, [3, 4, 5, 6], 7, self.STEANE) is None
@@ -783,23 +759,6 @@ class TestErasureMlDecode:
                     e = _ml_pauli_on(9, qubits, bits)
                     c = erasure_ml_decode(compute_syndrome(e, st), qubits, 9, st)
                     assert c is not None and _ml_equivalent(e, c, st)
-
-    def test_failure_falls_with_distance_below_one_half_and_rises_above_it(self):
-        rng = np.random.default_rng(0)
-
-        def rate(d, p, trials):
-            st = _rotated_surface_stabilizers(d)
-            n = d * d
-            fails = 0
-            for _ in range(trials):
-                er = [q for q in range(n) if rng.random() < p]
-                e = _ml_pauli_on(n, er, rng.integers(0, 4, size=len(er))) if er else 'I' * n
-                c = erasure_ml_decode(compute_syndrome(e, st), er, n, st)
-                fails += c is None or not _ml_equivalent(e, c, st)
-            return fails / trials
-
-        assert rate(3, 0.3, 300) > rate(5, 0.3, 300) > rate(7, 0.3, 300)
-        assert rate(3, 0.6, 300) < rate(7, 0.6, 300)
 
     def test_returns_none_when_the_syndrome_is_not_explained_by_the_erased_qubits(self):
         syn = compute_syndrome('XIIIIII', self.STEANE)
@@ -818,3 +777,22 @@ class TestErasureMlDecode:
     def test_wrong_inputs_raise_value_error(self, syn, erased, n, stabs):
         with pytest.raises(ValueError):
             erasure_ml_decode(syn, erased, n, stabs)
+
+
+class TestErasureFastDecoders:
+    """Quick checks; the full comparisons against the ML decoder live in
+    Dense-Evolution-Discovery (scripts/erasure_decoders.py, its tests)."""
+
+    def test_peeling_union_find_and_matching_correct_two_erasures_on_surface_d3(self):
+        st = _rotated_surface_stabilizers(3)
+        e = _ml_pauli_on(9, (0, 4), (3, 1))
+        syn = compute_syndrome(e, st)
+        assert _ml_equivalent(e, qec_module.peeling_decode(st, syn, [0, 4], 9), st)
+        assert _ml_equivalent(e, qec_module.union_find_decode(st, syn, [0, 4], 9), st)
+        pytest.importorskip("pymatching")
+        assert _ml_equivalent(e, qec_module.matching_erasure_decode(st, syn, [0, 4], 9), st)
+
+    def test_union_find_corrects_a_single_unheralded_error(self):
+        st = _rotated_surface_stabilizers(3)
+        e = 'IIIIZIIII'
+        assert _ml_equivalent(e, qec_module.union_find_decode(st, compute_syndrome(e, st), [], 9), st)
