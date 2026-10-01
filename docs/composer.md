@@ -38,6 +38,61 @@ throughout the [API Reference](api/index.md), not a separate demo.
     <span id="status" class="status"></span>
   </section>
 
+  <section class="row row-top">
+    <div class="panel panel-palette">
+      <h3>Operations</h3>
+      <div id="palette" class="palette"></div>
+    </div>
+
+    <div class="panel panel-canvas">
+      <div class="panel-head">
+        <h3>Circuit</h3>
+        <button id="clear-btn" class="btn btn-ghost">Clear grid</button>
+      </div>
+      <div id="grid" class="grid"></div>
+    </div>
+
+    <div class="panel panel-code">
+      <h3>OpenQASM 2.0</h3>
+      <textarea id="qasm" class="code" spellcheck="false"></textarea>
+    </div>
+  </section>
+
+  <section class="row row-bottom">
+    <div class="panel panel-probabilities">
+      <h3>Probabilities</h3>
+      <img id="histogram-img" class="figure" alt="Probabilities histogram" />
+      <div id="histogram-skip-msg" class="hint"></div>
+    </div>
+    <div class="panel panel-qsphere">
+      <h3>Q-sphere</h3>
+      <img id="qsphere-img" class="figure" alt="Q-sphere" />
+      <div id="qsphere-skip-msg" class="hint"></div>
+    </div>
+    <div class="panel panel-bloch">
+      <h3>Bloch spheres</h3>
+      <img id="bloch-img" class="figure" alt="Bloch spheres" />
+      <div id="bloch-skip-msg" class="hint"></div>
+    </div>
+  </section>
+
+  <section class="row row-extra">
+    <div class="panel panel-circuit-diagram">
+      <h3>Circuit diagram</h3>
+      <img id="circuit-img" class="figure" alt="Circuit diagram" />
+    </div>
+    <div class="panel panel-statevector">
+      <h3>Statevector</h3>
+      <div id="backend-info" class="hint"></div>
+      <div id="fidelity-info" class="hint"></div>
+      <table id="statevector-table" class="sv-table">
+        <thead><tr><th>state</th><th>re</th><th>im</th><th>|amp|</th><th>phase</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+
   <section class="row row-hamiltonian">
     <div class="panel panel-hamiltonian">
       <h3>Materiali (tavola periodica, elementi reali Z=1..54 + Au, Pb)</h3>
@@ -248,60 +303,6 @@ throughout the [API Reference](api/index.md), not a separate demo.
         <button id="md-trajectory-btn" class="btn btn-ghost">Esegui traiettoria MD</button>
       </div>
       <div id="qmmm-result" class="ham-result"></div>
-    </div>
-  </section>
-
-  <section class="row row-top">
-    <div class="panel panel-palette">
-      <h3>Operations</h3>
-      <div id="palette" class="palette"></div>
-    </div>
-
-    <div class="panel panel-canvas">
-      <div class="panel-head">
-        <h3>Circuit</h3>
-        <button id="clear-btn" class="btn btn-ghost">Clear grid</button>
-      </div>
-      <div id="grid" class="grid"></div>
-    </div>
-
-    <div class="panel panel-code">
-      <h3>OpenQASM 2.0</h3>
-      <textarea id="qasm" class="code" spellcheck="false"></textarea>
-    </div>
-  </section>
-
-  <section class="row row-bottom">
-    <div class="panel panel-probabilities">
-      <h3>Probabilities</h3>
-      <img id="histogram-img" class="figure" alt="Probabilities histogram" />
-      <div id="histogram-skip-msg" class="hint"></div>
-    </div>
-    <div class="panel panel-qsphere">
-      <h3>Q-sphere</h3>
-      <img id="qsphere-img" class="figure" alt="Q-sphere" />
-      <div id="qsphere-skip-msg" class="hint"></div>
-    </div>
-    <div class="panel panel-bloch">
-      <h3>Bloch spheres</h3>
-      <img id="bloch-img" class="figure" alt="Bloch spheres" />
-      <div id="bloch-skip-msg" class="hint"></div>
-    </div>
-  </section>
-
-  <section class="row row-extra">
-    <div class="panel panel-circuit-diagram">
-      <h3>Circuit diagram</h3>
-      <img id="circuit-img" class="figure" alt="Circuit diagram" />
-    </div>
-    <div class="panel panel-statevector">
-      <h3>Statevector</h3>
-      <div id="backend-info" class="hint"></div>
-      <div id="fidelity-info" class="hint"></div>
-      <table id="statevector-table" class="sv-table">
-        <thead><tr><th>state</th><th>re</th><th>im</th><th>|amp|</th><th>phase</th></tr></thead>
-        <tbody></tbody>
-      </table>
     </div>
   </section>
 
