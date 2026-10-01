@@ -7,13 +7,14 @@ unchanged. Import from dense_evolution.physics.qec directly in new code.
 from dense_evolution.physics.qec import (
     pauli_commutes, compute_syndrome, erasure_aware_decode, pymatching_decode,
     blind_minimum_weight_decode, decode_with_erasure_fallback,
-    counts_in_intervals_dimension, nearest_coset_decode,
+    counts_in_intervals_dimension, nearest_coset_decode, erasure_ml_decode,
+    peeling_decode, union_find_decode, matching_erasure_decode,
     estimate_edge_probabilities_from_detection_events,
 )
 
 __all__ = [
     'pauli_commutes', 'compute_syndrome', 'erasure_aware_decode', 'pymatching_decode',
     'blind_minimum_weight_decode', 'decode_with_erasure_fallback',
-    'counts_in_intervals_dimension', 'nearest_coset_decode',
+    'counts_in_intervals_dimension', 'nearest_coset_decode', 'erasure_ml_decode', 'peeling_decode', 'union_find_decode', 'matching_erasure_decode',
     'estimate_edge_probabilities_from_detection_events',
 ]

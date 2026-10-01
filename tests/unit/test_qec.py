@@ -21,7 +21,7 @@ from dense_evolution.qec import (
     compute_syndrome, erasure_aware_decode, pauli_commutes, pymatching_decode,
     blind_minimum_weight_decode, decode_with_erasure_fallback,
     counts_in_intervals_dimension, nearest_coset_decode,
-    estimate_edge_probabilities_from_detection_events,
+    estimate_edge_probabilities_from_detection_events, erasure_ml_decode,
 )
 from dense_evolution.physics import qec as qec_module
 
@@ -700,3 +700,99 @@ class TestEstimateEdgeProbabilities:
         w = np.log((1 - np.clip(r, 1e-3, 0.5)) / np.clip(r, 1e-3, 0.5))
         syn = compute_syndrome('IIXXXXXII', stabs)
         assert pymatching_decode(syn, stabs, n, weights=w) == 'IIXXXXXII'
+
+
+def _ml_equivalent(err, corr, stabs):
+    sym = np.array([qec_module._pauli_to_symplectic(s) for s in stabs])
+    rref, piv = qec_module._gf2_rref(sym)
+    diff = qec_module._pauli_to_symplectic(err) ^ qec_module._pauli_to_symplectic(corr)
+    return qec_module._in_gf2_span(diff, rref, piv)
+
+
+def _ml_pauli_on(n, qubits, bits):
+    chars = ['I'] * n
+    for q, b in zip(qubits, bits):
+        chars[q] = 'IXZY'[b]
+    return ''.join(chars)
+
+
+def _rotated_surface_stabilizers(d):
+    n = d * d
+    xs, zs = [], []
+    for i in range(d + 1):
+        for j in range(d + 1):
+            qs = [r * d + c for r, c in ((i - 1, j - 1), (i - 1, j), (i, j - 1), (i, j))
+                  if 0 <= r < d and 0 <= c < d]
+            typ = 'X' if (i + j) % 2 == 0 else 'Z'
+            if len(qs) == 4 or (len(qs) == 2 and ((typ == 'X') == (i in (0, d)))):
+                s = ['I'] * n
+                for q in qs:
+                    s[q] = typ
+                (xs if typ == 'X' else zs).append(''.join(s))
+    return xs + zs
+
+
+class TestErasureMlDecode:
+    """Delfosse & Zemor, arXiv:1703.01517; Kuo & Ouyang, arXiv:2411.13509."""
+
+    STEANE = STEANE_X_STABILIZERS + STEANE_Z_STABILIZERS
+
+    def test_steane_corrects_every_error_on_every_set_of_up_to_two_erasures(self):
+        for k in (1, 2):
+            for qubits in itertools.combinations(range(7), k):
+                for bits in itertools.product(range(4), repeat=k):
+                    e = _ml_pauli_on(7, qubits, bits)
+                    c = erasure_ml_decode(compute_syndrome(e, self.STEANE), qubits, 7, self.STEANE)
+                    assert c is not None and _ml_equivalent(e, c, self.STEANE)
+
+    def test_decodes_a_degenerate_error_the_brute_force_decoder_rejects(self):
+        syn = compute_syndrome('IIIXIII', self.STEANE)
+        assert erasure_aware_decode(syn, [3, 4, 5, 6], 7, self.STEANE) is None
+        c = erasure_ml_decode(syn, [3, 4, 5, 6], 7, self.STEANE)
+        assert c is not None and _ml_equivalent('IIIXIII', c, self.STEANE)
+
+    def test_rotated_surface_code_d3_corrects_every_error_on_up_to_two_erasures(self):
+        st = _rotated_surface_stabilizers(3)
+        for k in (1, 2):
+            for qubits in itertools.combinations(range(9), k):
+                for bits in itertools.product(range(4), repeat=k):
+                    e = _ml_pauli_on(9, qubits, bits)
+                    c = erasure_ml_decode(compute_syndrome(e, st), qubits, 9, st)
+                    assert c is not None and _ml_equivalent(e, c, st)
+
+    def test_returns_none_when_the_syndrome_is_not_explained_by_the_erased_qubits(self):
+        syn = compute_syndrome('XIIIIII', self.STEANE)
+        assert erasure_ml_decode(syn, [6], 7, self.STEANE) is None
+
+    def test_no_erasures_returns_identity_for_zero_syndrome_and_none_otherwise(self):
+        assert erasure_ml_decode((0,) * 6, [], 7, self.STEANE) == 'IIIIIII'
+        assert erasure_ml_decode(compute_syndrome('XIIIIII', self.STEANE), [], 7, self.STEANE) is None
+
+    @pytest.mark.parametrize("syn, erased, n, stabs", [
+        ((0, 0), [0], 7, STEANE_X_STABILIZERS),
+        ((0, 0, 0), [0], 5, STEANE_X_STABILIZERS),
+        ((0, 0, 0), [7], 7, STEANE_X_STABILIZERS),
+        ((0, 0, 0), [-1], 7, STEANE_X_STABILIZERS),
+    ])
+    def test_wrong_inputs_raise_value_error(self, syn, erased, n, stabs):
+        with pytest.raises(ValueError):
+            erasure_ml_decode(syn, erased, n, stabs)
+
+
+class TestErasureFastDecoders:
+    """Quick checks; the full comparisons against the ML decoder live in
+    Dense-Evolution-Discovery (scripts/erasure_decoders.py, its tests)."""
+
+    def test_peeling_union_find_and_matching_correct_two_erasures_on_surface_d3(self):
+        st = _rotated_surface_stabilizers(3)
+        e = _ml_pauli_on(9, (0, 4), (3, 1))
+        syn = compute_syndrome(e, st)
+        assert _ml_equivalent(e, qec_module.peeling_decode(st, syn, [0, 4], 9), st)
+        assert _ml_equivalent(e, qec_module.union_find_decode(st, syn, [0, 4], 9), st)
+        pytest.importorskip("pymatching")
+        assert _ml_equivalent(e, qec_module.matching_erasure_decode(st, syn, [0, 4], 9), st)
+
+    def test_union_find_corrects_a_single_unheralded_error(self):
+        st = _rotated_surface_stabilizers(3)
+        e = 'IIIIZIIII'
+        assert _ml_equivalent(e, qec_module.union_find_decode(st, compute_syndrome(e, st), [], 9), st)

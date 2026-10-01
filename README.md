@@ -8,6 +8,13 @@
 **A high-performance quantum simulation toolkit
 Statevector/MPS engines with compilation, noise, VQE, QEC, chemistry, and agent-native tooling.**
 
+<p align="center">
+  <img src="docs/assets/favicon.svg" width="32" alt=""><br>
+  <b>Download the Dense Evolution Dashboard (Streamlit)</b><br>
+  <a href="https://github.com/tatopenn-cell/Dense-Evolution/raw/main/tools/installer/install-dashboard.bat">Windows (.bat)</a> &middot;
+  <a href="https://github.com/tatopenn-cell/Dense-Evolution/raw/main/tools/installer/install-dashboard.sh">macOS / Linux (.sh)</a>
+</p>
+
 [![CI](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml/badge.svg)](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-tatopenn--cell.github.io-00e5ff?style=flat-square)](https://tatopenn-cell.github.io/Dense-Evolution/)
 [![codecov](https://codecov.io/gh/tatopenn-cell/Dense-Evolution/branch/main/graph/badge.svg)](https://codecov.io/gh/tatopenn-cell/Dense-Evolution)
