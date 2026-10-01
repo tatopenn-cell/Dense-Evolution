@@ -40,7 +40,7 @@ if [ -z "$PYTHON_BIN" ]; then
 fi
 
 echo "Installo/aggiorno dense-evolution[dashboard]..."
-"$PYTHON_BIN" -m pip install --upgrade "dense-evolution[dashboard]"
+"$PYTHON_BIN" -m pip install --upgrade "dense-evolution[dashboard,qmmm,pennylane]"
 
 mkdir -p "$INSTALL_DIR"
 echo "Scarico l'app Dashboard..."
