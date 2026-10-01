@@ -21,6 +21,7 @@ from dense_evolution.qec import (
     compute_syndrome, erasure_aware_decode, pauli_commutes, pymatching_decode,
     blind_minimum_weight_decode, decode_with_erasure_fallback,
     counts_in_intervals_dimension, nearest_coset_decode,
+    estimate_edge_probabilities_from_detection_events,
 )
 from dense_evolution.physics import qec as qec_module
 
@@ -610,3 +611,92 @@ class TestNearestCosetDecode:
 
     def test_ties_break_toward_coset_a(self):
         assert nearest_coset_decode('1000000', ['0000000'], ['1000001']) == 0
+
+
+def _repetition_checks(n):
+    return np.eye(n - 1, n, dtype=int) + np.eye(n - 1, n, 1, dtype=int)
+
+
+def _stim_events(p, shots, rounds, seed):
+    stim = pytest.importorskip("stim")
+    n = len(p)
+    lines = ["R " + " ".join(map(str, range(n)))]
+    for r in range(rounds):
+        lines += [f"X_ERROR({p[q]}) {q}" for q in range(n)]
+        lines.append("MPP " + " ".join(f"Z{i}*Z{i + 1}" for i in range(n - 1)))
+        for i in range(n - 1):
+            prev = f" rec[{-(n - 1 - i) - (n - 1)}]" if r > 0 else ""
+            lines.append(f"DETECTOR rec[{-(n - 1 - i)}]{prev}")
+    d = stim.Circuit("\n".join(lines)).compile_detector_sampler(seed=seed).sample(shots).astype(int)
+    return d.reshape(-1, n - 1)
+
+
+class TestEstimateEdgeProbabilities:
+    """Spitz et al., arXiv:1712.02360, Eqs. (13) and (16)."""
+
+    def test_recovers_a_noisy_zone_from_stim_detection_events(self):
+        n = 9
+        p = np.where((np.arange(n) >= 2) & (np.arange(n) <= 6), 0.25, 0.01)
+        r = estimate_edge_probabilities_from_detection_events(
+            _repetition_checks(n), _stim_events(p, 2000, 10, 5)
+        )
+        assert np.abs(r - p).max() < 0.02
+
+    def test_recovers_uniform_noise_from_stim_detection_events(self):
+        n = 9
+        p = np.full(n, 0.05)
+        r = estimate_edge_probabilities_from_detection_events(
+            _repetition_checks(n), _stim_events(p, 2000, 10, 6)
+        )
+        assert np.abs(r - p).max() < 0.02
+
+    def test_recovers_noise_sampled_with_numpy(self):
+        n = 7
+        h = _repetition_checks(n)
+        p = np.array([0.02, 0.1, 0.2, 0.05, 0.15, 0.03, 0.08])
+        e = (np.random.default_rng(1).random((40000, n)) < p).astype(int)
+        r = estimate_edge_probabilities_from_detection_events(h, (e @ h.T) % 2)
+        assert np.abs(r - p).max() < 0.02
+
+    def test_one_probability_per_qubit_in_zero_to_one_half(self):
+        h = _repetition_checks(9)
+        ev = (np.random.default_rng(2).random((500, 8)) < 0.3).astype(int)
+        r = estimate_edge_probabilities_from_detection_events(h, ev)
+        assert r.shape == (9,) and (r >= 0).all() and (r <= 0.5).all()
+
+    def test_no_detection_events_gives_zero_probabilities(self):
+        r = estimate_edge_probabilities_from_detection_events(
+            _repetition_checks(5), np.zeros((50, 4), dtype=int)
+        )
+        assert np.allclose(r, 0.0)
+
+    def test_checks_that_always_fire_stay_within_range(self):
+        r = estimate_edge_probabilities_from_detection_events(
+            _repetition_checks(5), np.ones((50, 4), dtype=int)
+        )
+        assert np.isfinite(r).all() and (r >= 0).all() and (r <= 0.5).all()
+
+    @pytest.mark.parametrize("h, ev", [
+        (np.ones(3), np.zeros((5, 3))),
+        (np.ones((2, 3)), np.zeros((5, 3))),
+        (np.eye(2, 3, dtype=int), np.zeros(5)),
+        (_repetition_checks(4), np.zeros((0, 3))),
+        (_repetition_checks(4), np.full((5, 3), 2)),
+        (np.array([[1, 0], [0, 0]]), np.zeros((5, 2))),
+        (np.array([[1, 1], [1, 1], [1, 1]]), np.zeros((5, 3))),
+        (np.array([[1, 1], [1, 1]]), np.zeros((5, 2))),
+    ])
+    def test_wrong_inputs_raise_value_error(self, h, ev):
+        with pytest.raises(ValueError):
+            estimate_edge_probabilities_from_detection_events(h, ev)
+
+    def test_estimates_feed_pymatching_decode_weights(self):
+        pytest.importorskip("pymatching")
+        n = 9
+        h = _repetition_checks(n)
+        p = np.where((np.arange(n) >= 2) & (np.arange(n) <= 6), 0.25, 0.01)
+        r = estimate_edge_probabilities_from_detection_events(h, _stim_events(p, 2000, 10, 5))
+        stabs = [''.join('Z' if j in (i, i + 1) else 'I' for j in range(n)) for i in range(n - 1)]
+        w = np.log((1 - np.clip(r, 1e-3, 0.5)) / np.clip(r, 1e-3, 0.5))
+        syn = compute_syndrome('IIXXXXXII', stabs)
+        assert pymatching_decode(syn, stabs, n, weights=w) == 'IIXXXXXII'

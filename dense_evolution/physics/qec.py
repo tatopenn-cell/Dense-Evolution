@@ -752,3 +752,113 @@ def nearest_coset_decode(measured_bits: str, coset_a: Sequence[str], coset_b: Se
     d_a = _min_hamming_distance(measured_bits, coset_a)
     d_b = _min_hamming_distance(measured_bits, coset_b)
     return 0 if d_a <= d_b else 1
+
+
+def estimate_edge_probabilities_from_detection_events(check_matrix, events) -> np.ndarray:
+    """Error probability of every qubit, from detection events (Spitz et al.).
+
+    Implements the exact inversion of S. T. Spitz, B. Tarasinski,
+    C. W. J. Beenakker and T. E. O'Brien, "Adaptive weight estimator for
+    quantum error correction in a time-dependent environment",
+    arXiv:1712.02360, Eqs. (13) and (16). For a code in which every qubit is
+    checked by at most two checks (repetition and surface codes), each qubit is
+    an edge between two checks, or between one check and the boundary. A qubit
+    shared by checks ``i`` and ``j`` has probability
+
+    ``p = 1/2 - sqrt(1/4 - (<v_i v_j> - <v_i><v_j>) / (1 - 2 <v_i xor v_j>))``
+
+    where ``v`` are the detection events and ``<.>`` the average over cycles. A
+    qubit on the boundary of check ``i`` has
+
+    ``p = 1/2 + (<v_i> - 1/2) / prod(1 - 2 p_ij)`` over the other qubits of ``i``.
+
+    The result can be passed as ``weights`` (``-log(p / (1 - p))``) to
+    `pymatching_decode`.
+
+    Parameters
+    ----------
+    check_matrix : array_like of shape (n_checks, n_qubits)
+        0/1 matrix, entry ``[c, q] = 1`` when check ``c`` detects an error on
+        qubit ``q``. Every column has one or two ones; no two qubits may join
+        the same pair of checks.
+    events : array_like of shape (n_cycles, n_checks)
+        0/1 detection events: ``1`` when a check changed value since the
+        previous cycle (the syndrome of one cycle's new errors).
+
+    Returns
+    -------
+    numpy.ndarray of shape (n_qubits,)
+        Estimated error probability of each qubit, clipped to [0, 0.5].
+
+    Raises
+    ------
+    ValueError
+        If the shapes do not match, ``events`` is not 0/1, a column of
+        ``check_matrix`` does not have one or two ones, or two qubits join the
+        same pair of checks.
+
+    Notes
+    -----
+    Valid for independent errors and one error type at a time. Needs about
+    ``1 / p`` cycles per qubit for a stable estimate (the paper's Eq. 18). A
+    pair of checks whose correlation is below the statistical noise gives a
+    probability near zero.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from dense_evolution.physics.qec import estimate_edge_probabilities_from_detection_events
+    >>> checks = np.array([[1, 0], [1, 1]])
+    >>> events = np.array([[1, 1]] * 20 + [[0, 0]] * 80)
+    >>> p = estimate_edge_probabilities_from_detection_events(checks, events)
+    >>> bool(p[0] < 0.5 and p[1] < 0.5)
+    True
+    """
+    h = np.asarray(check_matrix, dtype=int)
+    v = np.asarray(events, dtype=float)
+    if h.ndim != 2:
+        raise ValueError("check_matrix must be 2-D (n_checks, n_qubits)")
+    if v.ndim != 2 or v.shape[1] != h.shape[0]:
+        raise ValueError(
+            f"events must have shape (n_cycles, {h.shape[0]}), got {v.shape}"
+        )
+    if v.shape[0] == 0:
+        raise ValueError("events needs at least one cycle")
+    if not np.isin(v, (0.0, 1.0)).all():
+        raise ValueError("events must contain only 0 and 1")
+
+    n_q = h.shape[1]
+    ends = []
+    for q in range(n_q):
+        rows = np.flatnonzero(h[:, q])
+        if len(rows) not in (1, 2):
+            raise ValueError(
+                f"qubit {q} is checked by {len(rows)} checks; need one or two"
+            )
+        ends.append(tuple(int(r) for r in rows))
+    pairs = [e for e in ends if len(e) == 2]
+    if len(set(pairs)) != len(pairs):
+        raise ValueError("two qubits join the same pair of checks")
+
+    mean = v.mean(axis=0)
+    p = np.zeros(n_q)
+    for q, e in enumerate(ends):
+        if len(e) == 2:
+            i, j = e
+            cov = (v[:, i] * v[:, j]).mean() - mean[i] * mean[j]
+            xor = np.abs(v[:, i] - v[:, j]).mean()
+            denom = 1.0 - 2.0 * xor
+            inside = 0.25 - cov / denom if denom > 0 else 0.25
+            p[q] = 0.5 - np.sqrt(max(inside, 0.0))
+    for q, e in enumerate(ends):
+        if len(e) == 1:
+            i = e[0]
+            prod = 1.0
+            for r, other in enumerate(ends):
+                if len(other) == 2 and i in other:
+                    prod *= 1.0 - 2.0 * p[r]
+            if prod <= 0:
+                p[q] = 0.5
+            else:
+                p[q] = 0.5 + (mean[i] - 0.5) / prod
+    return np.clip(p, 0.0, 0.5)
