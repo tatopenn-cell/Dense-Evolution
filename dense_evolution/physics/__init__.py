@@ -7,7 +7,8 @@ from .entropy import partial_trace, von_neumann_entropy, mutual_information, cen
 from .fermions import majorana_pauli_terms, total_parity_operator, hubbard_hamiltonian_pauli_terms, square_lattice_edges
 from .qec import (pauli_commutes, compute_syndrome, erasure_aware_decode, pymatching_decode,
                    blind_minimum_weight_decode, decode_with_erasure_fallback,
-                   counts_in_intervals_dimension, nearest_coset_decode, erasure_ml_decode)
+                   counts_in_intervals_dimension, nearest_coset_decode, erasure_ml_decode,
+                   peeling_decode, union_find_decode, matching_erasure_decode)
 from .spectral import has_exact_degeneracy, matrix_function_eigh, spectral_evolve
 
 __all__ = [
@@ -19,6 +20,6 @@ __all__ = [
     "majorana_pauli_terms", "total_parity_operator", "hubbard_hamiltonian_pauli_terms", "square_lattice_edges",
     "pauli_commutes", "compute_syndrome", "erasure_aware_decode", "pymatching_decode", "blind_minimum_weight_decode",
     "decode_with_erasure_fallback", "counts_in_intervals_dimension", "nearest_coset_decode",
-    "erasure_ml_decode",
+    "erasure_ml_decode", "peeling_decode", "union_find_decode", "matching_erasure_decode",
     "has_exact_degeneracy", "matrix_function_eigh", "spectral_evolve",
 ]
