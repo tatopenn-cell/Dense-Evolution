@@ -8,14 +8,11 @@ rem See uninstall-composer.bat to undo everything this creates.
 set "COMPOSER_URL=https://tatopenn-cell.github.io/Dense-Evolution/composer/"
 set "ICON_URL=https://tatopenn-cell.github.io/Dense-Evolution/assets/dense-evolution.ico"
 set "LICENSE_URL=https://github.com/tatopenn-cell/Dense-Evolution/blob/main/LICENSE.md"
-set "STREAMLIT_APP_URL=https://raw.githubusercontent.com/tatopenn-cell/Dense-Evolution/main/tools/app_dashboard.py"
 set "INSTALL_DIR=%USERPROFILE%\DenseEvolutionComposer"
 set "OFFLINE_DIR=%INSTALL_DIR%\offline"
 set "ICON_FILE=%INSTALL_DIR%\dense-evolution.ico"
-set "STREAMLIT_APP_FILE=%INSTALL_DIR%\app_dashboard.py"
 set "LAUNCHER_ONLINE=%INSTALL_DIR%\launch-composer-online.bat"
 set "LAUNCHER_OFFLINE=%INSTALL_DIR%\launch-composer-offline.bat"
-set "LAUNCHER_STREAMLIT=%INSTALL_DIR%\launch-streamlit-dashboard.bat"
 set "STARTMENU=%APPDATA%\Microsoft\Windows\Start Menu\Programs"
 set "STARTUP=%STARTMENU%\Startup"
 
@@ -28,8 +25,7 @@ echo   1. Ti fa leggere e accettare la licenza del pacchetto.
 echo   2. Installa/aggiorna il pacchetto Python "dense-evolution[composer]"
 echo      da PyPI (dense_evolution stesso + JAX + fastapi/uvicorn/pydantic,
 echo      solo per l'esecuzione locale dei circuiti -- nessun altro dato
-echo      lascia questo PC), e a tua scelta anche l'estensione Dashboard
-echo      Streamlit (legacy, include Qiskit).
+echo      lascia questo PC).
 echo   3. Scarica (opzionale) una copia offline della pagina Composer.
 echo   4. Crea (a tua scelta) icone di avvio -- Desktop, menu Start,
 echo      avvio automatico all'accensione -- e puoi rimuovere tutto in
@@ -90,34 +86,6 @@ if not exist "%ICON_FILE%" (
 )
 echo.
 
-rem ---- Dashboard Streamlit (opzionale, extra separato) ----
-set "WANT_STREAMLIT=N"
-set /p "WANT_STREAMLIT=Vuoi installare anche la Dashboard Streamlit (legacy, include Qiskit)? [s/N] "
-set "HAVE_STREAMLIT=0"
-if /i "!WANT_STREAMLIT!"=="s" (
-    echo Installo/aggiorno dense-evolution[dashboard]...
-    python -m pip install --upgrade "dense-evolution[dashboard]"
-    if errorlevel 1 (
-        echo   installazione dell'estensione Streamlit fallita -- salto questa parte.
-    ) else (
-        echo Scarico app_dashboard.py...
-        powershell -NoProfile -Command "try { Invoke-WebRequest -Uri '%STREAMLIT_APP_URL%' -OutFile '%STREAMLIT_APP_FILE%' -UseBasicParsing } catch { exit 1 }" >nul 2>&1
-        if exist "%STREAMLIT_APP_FILE%" (
-            set "HAVE_STREAMLIT=1"
-            (
-                echo @echo off
-                echo cd /d "%INSTALL_DIR%"
-                echo python -m streamlit run "%STREAMLIT_APP_FILE%"
-                echo pause
-            ) > "%LAUNCHER_STREAMLIT%"
-            echo Dashboard Streamlit pronta.
-        ) else (
-            echo   download di app_dashboard.py non riuscito ^(serve internet^) -- salto questa parte.
-        )
-    )
-)
-echo.
-
 rem Launcher scripts: the one real place that opens a page and starts the
 rem kernel, so every shortcut (Desktop/Start Menu/Startup) just calls one
 rem of these and can never drift from what "running it by hand" does.
@@ -151,8 +119,8 @@ if /i not "!GET_OFFLINE!"=="n" (
 echo.
 
 echo Dove vuoi le icone di avvio? Puoi scegliere piu' di un posto. Verranno
-echo create fino a tre icone separate -- una per ogni modo di avviare
-echo Dense-Evolution che hai scelto sopra (Online, Offline, Streamlit) --
+echo create fino a due icone separate -- una per ogni modo di avviare
+echo Composer che hai scelto sopra (Online, Offline) --
 echo tutte con la stessa icona del progetto, nessuna sostituisce le altre.
 echo.
 
@@ -161,7 +129,6 @@ set /p "WANT_DESKTOP=Icone sul Desktop? [S/n] "
 if /i not "!WANT_DESKTOP!"=="n" (
     call :create_shortcut "%USERPROFILE%\Desktop\Dense-Evolution Composer (Online).lnk" "%LAUNCHER_ONLINE%" "Avvia Composer (pagina online, sempre aggiornata)"
     if "!HAVE_OFFLINE!"=="1" call :create_shortcut "%USERPROFILE%\Desktop\Dense-Evolution Composer (Offline).lnk" "%LAUNCHER_OFFLINE%" "Avvia Composer (copia offline, non serve internet)"
-    if "!HAVE_STREAMLIT!"=="1" call :create_shortcut "%USERPROFILE%\Desktop\Dense-Evolution Dashboard (Streamlit).lnk" "%LAUNCHER_STREAMLIT%" "Avvia la Dashboard Streamlit"
 )
 
 set "WANT_STARTMENU=S"
@@ -169,7 +136,6 @@ set /p "WANT_STARTMENU=Voci nel menu Start? [S/n] "
 if /i not "!WANT_STARTMENU!"=="n" (
     call :create_shortcut "%STARTMENU%\Dense-Evolution Composer (Online).lnk" "%LAUNCHER_ONLINE%" "Avvia Composer (pagina online, sempre aggiornata)"
     if "!HAVE_OFFLINE!"=="1" call :create_shortcut "%STARTMENU%\Dense-Evolution Composer (Offline).lnk" "%LAUNCHER_OFFLINE%" "Avvia Composer (copia offline, non serve internet)"
-    if "!HAVE_STREAMLIT!"=="1" call :create_shortcut "%STARTMENU%\Dense-Evolution Dashboard (Streamlit).lnk" "%LAUNCHER_STREAMLIT%" "Avvia la Dashboard Streamlit"
 )
 
 set "WANT_STARTUP=N"
