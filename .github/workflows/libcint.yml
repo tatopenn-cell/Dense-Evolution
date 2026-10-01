@@ -1,0 +1,62 @@
+name: libcint wheels
+
+on:
+  pull_request:
+    paths:
+      - "dense_evolution/native_hf/**"
+      - "tests/unit/test_libcint_bridge.py"
+      - ".github/scripts/build-libcint.sh"
+      - ".github/workflows/libcint.yml"
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  wheel:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86_64
+            os: ubuntu-latest
+            plat: manylinux_2_28_x86_64
+          - name: macOS universal2
+            os: macos-latest
+            plat: macosx_11_0_universal2
+          - name: Windows x86_64
+            os: windows-2022
+            plat: win_amd64
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build libcint (Linux, manylinux_2_28)
+        if: runner.os == 'Linux'
+        run: docker run --rm -v "$PWD":/w -w /w quay.io/pypa/manylinux_2_28_x86_64 bash .github/scripts/build-libcint.sh
+      - name: Build libcint (macOS, arm64 + x86_64)
+        if: runner.os == 'macOS'
+        run: bash .github/scripts/build-libcint.sh "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+      - name: Build libcint (Windows, MinGW)
+        if: runner.os == 'Windows'
+        run: bash .github/scripts/build-libcint.sh -G "MinGW Makefiles" -DCMAKE_SHARED_LINKER_FLAGS=-static
+      - name: Build wheel
+        run: |
+          python -m pip install --upgrade pip build wheel
+          python -m build --wheel
+          python -m wheel tags --remove --python-tag py3 --abi-tag none --platform-tag ${{ matrix.plat }} dist/*.whl
+          ls dist
+      - name: Install wheel and test the bridge
+        run: |
+          python -m pip install dist/*.whl basis_set_exchange pytest
+          cd "$RUNNER_TEMP" && python -c "from dense_evolution.native_hf.libcint_bridge import load_libcint; print(load_libcint())"
+          cd "$GITHUB_WORKSPACE" && python -m pytest tests/unit/test_libcint_bridge.py -q -rs -k "not bridge_matches_pyscf_anchor"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.plat }}
+          path: dist/*.whl

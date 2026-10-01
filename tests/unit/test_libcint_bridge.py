@@ -1,14 +1,10 @@
 """
-Correctness tests for native_hf.libcint_bridge, the optional PySCF/libcint
-ERI tensor bridge (see its own module docstring, and prog.txt, for why it
-exists: ~0.04s vs 158-532s for native_hf's own JAX path on Ne/6-31G*).
-
-The end-to-end energy tests were first verified on Google Colab (this
-sandbox can't install PySCF locally), then reproduced here so a real
-pyscf install in CI keeps covering the actual bridge logic, not just the
-ImportError path -- same reasoning as this repo's stim/pymatching tests.
-`pytest.importorskip` is per-test, not module-level, so the pure-Python
-shell-matching/permutation tests below still run without pyscf installed.
+Correctness tests for native_hf.libcint_bridge, which calls the libcint
+shared library bundled in the dense-evolution wheels directly through
+ctypes (~0.04s vs 158-532s for native_hf's own JAX path on Ne/6-31G*).
+The integral tests skip when no libcint library is present (source
+install); .github/workflows/libcint.yml builds the library for Windows,
+macOS and Linux and runs them against the installed wheel.
 """
 import jax
 import numpy as np
@@ -16,71 +12,24 @@ import pytest
 
 from dense_evolution.native_hf.cartesian import cartesian_powers
 from dense_evolution.native_hf.libcint_bridge import (
-    _match_pyscf_shell_ao_starts,
     _permutation_libcint_to_native_hf,
+    load_libcint,
 )
 
 _BOHR_PER_ANGSTROM = 1.8897259886
 NE_631GSTAR_PYSCF_RHF_ENERGY = -128.47440651990485
 
 
-class _FakeShell:
-    def __init__(self, atom_index, degree, exponents):
-        self.atom_index = atom_index
-        self.degree = degree
-        self.exponents = np.asarray(exponents)
-
-
-class _FakeMol:
-    """Duck-typed stand-in for a PySCF Mole -- only the four accessors
-    _match_pyscf_shell_ao_starts actually calls, so these error-path tests
-    don't need PySCF installed at all."""
-
-    def __init__(self, bas):
-        self._bas = bas  # list of (atom, degree, exponents)
-        sizes = [len(cartesian_powers(d)) for _, d, _ in bas]
-        self._ao_loc = np.concatenate([[0], np.cumsum(sizes)])
-
-    @property
-    def nbas(self):
-        return len(self._bas)
-
-    def bas_atom(self, ib):
-        return self._bas[ib][0]
-
-    def bas_angular(self, ib):
-        return self._bas[ib][1]
-
-    def bas_exp(self, ib):
-        return self._bas[ib][2]
-
-    def ao_loc_nr(self):
-        return self._ao_loc
+def _require_libcint():
+    try:
+        load_libcint()
+    except ImportError as exc:
+        pytest.skip(str(exc))
 
 
 def test_permutation_unimplemented_degree_raises():
     with pytest.raises(NotImplementedError):
         _permutation_libcint_to_native_hf(3)
-
-
-def test_shell_matching_raises_on_real_disagreement():
-    mol = _FakeMol([(0, 0, np.array([1.0, 0.5]))])
-    shells = [_FakeShell(atom_index=0, degree=1, exponents=[1.0, 0.5])]
-    with pytest.raises(ValueError):
-        _match_pyscf_shell_ao_starts(mol, shells)
-
-
-def test_shell_matching_finds_reordered_shells():
-    # Same pattern actually seen on Ne/6-31G*: native_hf keeps s,p,s
-    # order, the fake "libcint" mol groups them s,s,p.
-    mol = _FakeMol([(0, 0, np.array([6.0])), (0, 0, np.array([1.0])), (0, 1, np.array([1.0]))])
-    shells = [
-        _FakeShell(atom_index=0, degree=0, exponents=[6.0]),
-        _FakeShell(atom_index=0, degree=1, exponents=[1.0]),
-        _FakeShell(atom_index=0, degree=0, exponents=[1.0]),
-    ]
-    starts = _match_pyscf_shell_ao_starts(mol, shells)
-    assert starts == [0, 2, 1]
 
 
 @pytest.fixture
@@ -95,7 +44,7 @@ def _x64():
 
 
 def test_h2_sto3g_bridge_matches_native_hf_eri(_x64):
-    pytest.importorskip("pyscf")
+    _require_libcint()
     from dense_evolution.native_hf.basis import build_molecule_shells
     from dense_evolution.native_hf.assembly import build_repulsion_tensor
     from dense_evolution.native_hf.libcint_bridge import build_repulsion_tensor_libcint
@@ -110,7 +59,7 @@ def test_h2_sto3g_bridge_matches_native_hf_eri(_x64):
 
 
 def test_h2_sto3g_overlap_core_libcint_matches_native_hf(_x64):
-    pytest.importorskip("pyscf")
+    _require_libcint()
     from dense_evolution.native_hf.basis import build_molecule_shells
     from dense_evolution.native_hf.assembly import build_overlap_matrix, build_core_hamiltonian
     from dense_evolution.native_hf.libcint_bridge import build_overlap_and_core_hamiltonian_libcint
@@ -135,7 +84,7 @@ def test_ne_631gstar_fully_libcint_pipeline_matches_anchor(_x64):
     # ERI tensor already libcint-backed. This proves the one-electron bridge
     # reproduces the identical converged energy, not just plausible-looking
     # matrices.
-    pytest.importorskip("pyscf")
+    _require_libcint()
     from dense_evolution.native_hf.libcint_bridge import (
         build_overlap_and_core_hamiltonian_libcint, build_repulsion_tensor_libcint,
     )
@@ -160,7 +109,7 @@ def test_run_scf_converges_without_caller_enabling_x64_first():
     # Deliberately does NOT use the `_x64` fixture: starts from whatever
     # jax_enable_x64 already is (commonly False), to prove run_scf fixes
     # this on its own rather than relying on the caller.
-    pytest.importorskip("pyscf")
+    _require_libcint()
     from dense_evolution.native_hf.libcint_bridge import (
         build_overlap_and_core_hamiltonian_libcint, build_repulsion_tensor_libcint,
     )
@@ -176,12 +125,10 @@ def test_run_scf_converges_without_caller_enabling_x64_first():
 
 
 def test_ne_631gstar_bridge_matches_pyscf_anchor(_x64):
-    # The real point: a mixed s/p/d basis, where native_hf and libcint
-    # disagree on both shell order (native_hf keeps basis-file order,
-    # libcint groups by ascending degree) and per-component d normalization
-    # -- exercises the shell-identity matching and rescale in
-    # libcint_bridge.py, not just a trivial pass-through.
-    pytest.importorskip("pyscf")
+    # A mixed s/p/d basis, where native_hf and libcint disagree on
+    # Cartesian component order and per-component d normalization --
+    # exercises the permutation and rescale in libcint_bridge.py.
+    _require_libcint()
     from dense_evolution.native_hf.basis import build_molecule_shells
     from dense_evolution.native_hf.assembly import build_overlap_matrix, build_core_hamiltonian
     from dense_evolution.native_hf.libcint_bridge import build_repulsion_tensor_libcint
