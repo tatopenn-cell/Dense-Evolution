@@ -74,8 +74,7 @@ jobs:
   test:
     name: Python ${{ matrix.python-version }} (${{ matrix.os }})
     needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ needs.changes.outputs.code == 'true' && matrix.os || 'ubuntu-latest' }}
 
     strategy:
       fail-fast: false # Impedisce che il fallimento di una versione di Python blocchi le altre
@@ -85,14 +84,17 @@ jobs:
 
     steps:
       - name: Checkout repository
+        if: needs.changes.outputs.code == 'true'
         uses: actions/checkout@v4
 
       - name: Set up Python ${{ matrix.python-version }}
+        if: needs.changes.outputs.code == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
+        if: needs.changes.outputs.code == 'true'
         run: |
           python -m pip install --upgrade pip
           pip install pytest pytest-cov pytest-env pytest-xdist pytest-randomly numpy scipy pandas matplotlib psutil ipython seaborn plotly
@@ -129,6 +131,7 @@ jobs:
           # non era un bug di Codecov.
 
       - name: Run test suite
+        if: needs.changes.outputs.code == 'true'
         # -n auto (pytest-xdist): splits the suite across the runner's own
         # CPU cores, each in its own process -- measured locally (8-core
         # machine, tests/unit only): -n 4 cut an ~885s serial run to
@@ -150,6 +153,7 @@ jobs:
           pytest tests/ -n auto -p no:randomly -v --tb=short --junitxml=pytest-results.xml --cov=. --cov-report=term-missing
 
       - name: Run distributed-chunk tests (simulated multi-device)
+        if: needs.changes.outputs.code == 'true'
         # TestChunkDistributed (issue #1) needs >= 8 JAX devices to exercise
         # anything beyond a skip -- JAX's device count is fixed at process
         # start, so this needs its own pytest invocation with the env var
@@ -180,6 +184,7 @@ jobs:
         # dependencies.
 
       - name: Run slow tests (excluded by default -- see pyproject.toml addopts)
+        if: needs.changes.outputs.code == 'true'
         # Everything ELSE marked @pytest.mark.slow (30k+-shot statistical
         # tests, dense-matrix Majorana sweeps, real multi-Chunk construction,
         # subprocess-isolated interpreters) -- run as its own step so a
@@ -204,11 +209,12 @@ jobs:
         # default (no -p no:randomly) into the main step instead of keeping
         # this one separate.
         continue-on-error: true
-        if: matrix.python-version == '3.12' && matrix.os == 'ubuntu-latest'
+        if: needs.changes.outputs.code == 'true' && (matrix.python-version == '3.12' && matrix.os == 'ubuntu-latest')
         run: |
           pytest tests/ -v --tb=short
 
       - name: Generate combined coverage report
+        if: needs.changes.outputs.code == 'true'
         # Runs after both pytest invocations above so coverage.xml reflects
         # their merged .coverage data (via --cov-append), not just whichever
         # one happened to write the XML last.
@@ -226,14 +232,14 @@ jobs:
           coverage xml --ignore-errors
 
       - name: Upload coverage report
-        if: matrix.python-version == '3.12' && matrix.os == 'ubuntu-latest'
+        if: needs.changes.outputs.code == 'true' && (matrix.python-version == '3.12' && matrix.os == 'ubuntu-latest')
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: coverage.xml
 
       - name: Upload coverage to Codecov
-        if: matrix.python-version == '3.12' && matrix.os == 'ubuntu-latest'
+        if: needs.changes.outputs.code == 'true' && (matrix.python-version == '3.12' && matrix.os == 'ubuntu-latest')
         uses: codecov/codecov-action@v4
         with:
           files: coverage.xml
@@ -247,7 +253,7 @@ jobs:
         # in/out too, now that both are confirmed to match.
 
       - name: Upload test results on failure
-        if: failure()
+        if: needs.changes.outputs.code == 'true' && (failure())
         uses: actions/upload-artifact@v4
         with:
           name: pytest-results-${{ matrix.os }}-${{ matrix.python-version }}
