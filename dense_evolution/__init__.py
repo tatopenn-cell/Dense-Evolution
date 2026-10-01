@@ -59,7 +59,8 @@ from .circuits.uccsd import find_excitations, single_excitation_ops, double_exci
 from .physics.qec import (pauli_commutes, compute_syndrome, erasure_aware_decode, pymatching_decode,
                            blind_minimum_weight_decode, decode_with_erasure_fallback,
                            counts_in_intervals_dimension, nearest_coset_decode, erasure_ml_decode,
-                   peeling_decode, union_find_decode, matching_erasure_decode)
+                   peeling_decode, union_find_decode, matching_erasure_decode,
+                           estimate_edge_probabilities_from_detection_events)
 
 __version__ = "8.2.3"
 
@@ -107,6 +108,7 @@ __all__ = [
     "pauli_commutes", "compute_syndrome", "erasure_aware_decode", "pymatching_decode", "blind_minimum_weight_decode",
     "decode_with_erasure_fallback", "counts_in_intervals_dimension", "nearest_coset_decode",
     "erasure_ml_decode", "peeling_decode", "union_find_decode", "matching_erasure_decode",
+    "estimate_edge_probabilities_from_detection_events",
     # Utils -- drawing, measurement, random circuits
     "draw_circuit", "plot_circuit", "sample_counts", "statevector_fidelity", "random_circuit",
 ]
