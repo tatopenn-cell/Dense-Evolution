@@ -65,7 +65,9 @@ dashboard = [
     # dashboard_core.band_structure's Plotly band-structure plot is the
     # one interactive (hover/zoom) visualization in the dashboard --
     # everywhere else is static matplotlib (dashboard_core.visuals).
-    "plotly>=5.0.0"
+    "plotly>=5.0.0",
+    "rdkit>=2023.9.1",
+    "basis_set_exchange>=0.9"
 ]
 qiskit = [
     "qiskit>=1.0.0"
