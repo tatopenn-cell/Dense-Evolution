@@ -62,7 +62,7 @@ from .physics.qec import (pauli_commutes, compute_syndrome, erasure_aware_decode
                    peeling_decode, union_find_decode, matching_erasure_decode,
                            estimate_edge_probabilities_from_detection_events)
 
-__version__ = "8.2.3"
+__version__ = "8.3.0"
 
 __all__ = [
     "__version__",

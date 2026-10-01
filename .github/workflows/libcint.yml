@@ -8,7 +8,12 @@ on:
       - ".github/scripts/build-libcint.sh"
       - ".github/workflows/libcint.yml"
   push:
-    tags: ["v*"]
+    branches: [main]
+    paths:
+      - "dense_evolution/native_hf/**"
+      - "tests/unit/test_libcint_bridge.py"
+      - ".github/scripts/build-libcint.sh"
+      - ".github/workflows/libcint.yml"
   workflow_dispatch:
 
 jobs:
