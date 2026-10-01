@@ -9,12 +9,16 @@ molecule at 6-31G* on a Kaggle CPU kernel. libcint (Sun, J. Comput. Chem.
 36, 1664 (2015), BSD-2) computes the identical integrals with C kernels
 compiled once, ahead of time.
 
-The libcint shared library ships inside the platform wheels of
-dense-evolution (dense_evolution/native_hf/_libcint/, built by
-.github/workflows/libcint.yml) and is called directly through ctypes, with
-the atm/bas/env arrays built here from native_hf's own ContractedShell
-list. A source install has no bundled library: build libcint and point
-DENSE_EVOLUTION_LIBCINT at the shared library file.
+libcint is linked statically, together with csrc/cint_driver.c, into one
+shared library shipped inside the platform wheels of dense-evolution
+(dense_evolution/native_hf/_libcint/, built by
+.github/scripts/build-libcint.sh in .github/workflows/libcint.yml) and
+called through ctypes, with the atm/bas/env arrays built here from
+native_hf's own ContractedShell list. The driver loops over shell blocks
+in C (8-fold ERI symmetry, int2e_optimizer) and writes every integral
+already rescaled and in native_hf's AO order. A source install has no
+bundled library: run build-libcint.sh and point DENSE_EVOLUTION_LIBCINT at
+the resulting file.
 
 Shells are passed to libcint in native_hf's own order, so AO blocks line
 up shell by shell. Two convention differences remain inside each shell,
@@ -45,39 +49,35 @@ _LIBCINT_CARTESIAN_ORDER = {
     1: [(1, 0, 0), (0, 1, 0), (0, 0, 1)],
     2: [(2, 0, 0), (1, 1, 0), (1, 0, 1), (0, 2, 0), (0, 1, 1), (0, 0, 2)],
 }
-_LIB_NAMES = {"win32": "libcint.dll", "darwin": "libcint.dylib"}
+_LIB_NAMES = {"win32": "libdecint.dll", "darwin": "libdecint.dylib"}
 _PTR_ENV_START = 20
 _POINT_NUC = 1
-_INTEGRALS = ("int1e_ovlp_cart", "int1e_kin_cart", "int1e_nuc_cart", "int2e_cart")
+_KINDS = {"ovlp": 0, "kin": 1, "nuc": 2}
 _lib = None
 
 
 def load_libcint() -> ctypes.CDLL:
-    """The bundled libcint shared library (or DENSE_EVOLUTION_LIBCINT's),
+    """The bundled libcint + driver shared library (or DENSE_EVOLUTION_LIBCINT's),
     loaded once; ImportError if neither exists."""
     global _lib
     if _lib is not None:
         return _lib
     path = os.environ.get("DENSE_EVOLUTION_LIBCINT") or str(
-        Path(__file__).with_name("_libcint") / _LIB_NAMES.get(sys.platform, "libcint.so")
+        Path(__file__).with_name("_libcint") / _LIB_NAMES.get(sys.platform, "libdecint.so")
     )
     if not os.path.isfile(path):
         raise ImportError(
-            f"native_hf.libcint_bridge needs the libcint shared library, expected at {path}. "
+            f"native_hf.libcint_bridge needs the bundled libcint library, expected at {path}. "
             "It ships inside the dense-evolution wheels for Windows, macOS and Linux "
-            "(pip install dense-evolution); for a source install, build libcint "
-            "(https://github.com/sunqm/libcint) and set DENSE_EVOLUTION_LIBCINT to the library file."
+            "(pip install dense-evolution); for a source install, run "
+            ".github/scripts/build-libcint.sh and set DENSE_EVOLUTION_LIBCINT to the library file."
         )
     lib = ctypes.CDLL(path)
-    argtypes = [ctypes.c_void_p] * 4 + [ctypes.c_int, ctypes.c_void_p, ctypes.c_int] + [ctypes.c_void_p] * 3
-    for name in _INTEGRALS:
-        fn = getattr(lib, name)
-        fn.argtypes = argtypes
-        fn.restype = ctypes.c_size_t
-    lib.int2e_optimizer.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
-    lib.int2e_optimizer.restype = None
-    lib.CINTdel_optimizer.argtypes = [ctypes.POINTER(ctypes.c_void_p)]
-    lib.CINTdel_optimizer.restype = None
+    tail = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
+    lib.de_int1e.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_int] + [ctypes.c_void_p] * 3 + tail
+    lib.de_int1e.restype = None
+    lib.de_int2e.argtypes = [ctypes.c_void_p, ctypes.c_int] + [ctypes.c_void_p] * 3 + tail
+    lib.de_int2e.restype = None
     _lib = lib
     return lib
 
@@ -97,7 +97,7 @@ def _permutation_libcint_to_native_hf(degree: int) -> np.ndarray:
 
 class _Cint:
     """atm/bas/env arrays for one molecule plus per-shell AO offsets, the
-    native_hf AO permutation, and block-wise integral evaluation."""
+    native_hf AO permutation, evaluated by the C driver."""
 
     def __init__(self, atomic_numbers: list, geometry_bohr: np.ndarray, basis_name: str):
         self.lib = load_libcint()
@@ -122,63 +122,26 @@ class _Cint:
         self.perm = np.concatenate(
             [o + _permutation_libcint_to_native_hf(s.degree) for o, s in zip(self.offsets, shells)]
         )
-        self.shls = np.zeros(4, dtype=np.int32)
-        self.buf = np.empty(max(self.sizes) ** 4)
-        self._args = (
-            self.shls.ctypes.data,
-            self.atm.ctypes.data,
-            self.atm.shape[0],
-            self.bas.ctypes.data,
-            self.bas.shape[0],
-            self.env.ctypes.data,
-        )
+        self.ao_loc = np.ascontiguousarray(self.offsets, dtype=np.int32)
+        self.pos = np.ascontiguousarray(np.argsort(self.perm), dtype=np.int32)
 
-    def _call(self, fn, opt=None):
-        s, a, na, b, nb, e = self._args
-        fn(self.buf.ctypes.data, None, s, a, na, b, nb, e, opt, None)
+    def _tail(self):
+        return (self.atm.ctypes.data, self.atm.shape[0], self.bas.ctypes.data, self.bas.shape[0], self.env.ctypes.data)
 
-    def one(self, name: str) -> np.ndarray:
-        fn = getattr(self.lib, name)
+    def one(self, kind: str, r: np.ndarray, pos: np.ndarray) -> np.ndarray:
         out = np.empty((self.n, self.n))
-        o, d = self.offsets, self.sizes
-        for i in range(len(d)):
-            for j in range(len(d)):
-                self.shls[:2] = (i, j)
-                self._call(fn)
-                out[o[i] : o[i] + d[i], o[j] : o[j] + d[j]] = self.buf[: d[i] * d[j]].reshape(d[j], d[i]).T
-        return out
-
-    def two(self) -> np.ndarray:
-        fn = self.lib.int2e_cart
-        opt = ctypes.c_void_p()
-        s, a, na, b, nb, e = self._args
-        self.lib.int2e_optimizer(ctypes.byref(opt), a, na, b, nb, e)
-        out = np.empty((self.n,) * 4)
-        o, d = self.offsets, self.sizes
-        sl = [slice(o[i], o[i] + d[i]) for i in range(len(d))]
-        try:
-            for i in range(len(d)):
-                for j in range(i + 1):
-                    for k in range(i + 1):
-                        for l in range(k + 1 if k < i else j + 1):
-                            self.shls[:] = (i, j, k, l)
-                            self._call(fn, opt)
-                            blk = self.buf[: d[i] * d[j] * d[k] * d[l]].reshape(d[l], d[k], d[j], d[i]).T
-                            I, J, K, L = sl[i], sl[j], sl[k], sl[l]
-                            out[I, J, K, L] = blk
-                            out[J, I, K, L] = blk.transpose(1, 0, 2, 3)
-                            out[I, J, L, K] = blk.transpose(0, 1, 3, 2)
-                            out[J, I, L, K] = blk.transpose(1, 0, 3, 2)
-                            out[K, L, I, J] = blk.transpose(2, 3, 0, 1)
-                            out[L, K, I, J] = blk.transpose(3, 2, 0, 1)
-                            out[K, L, J, I] = blk.transpose(2, 3, 1, 0)
-                            out[L, K, J, I] = blk.transpose(3, 2, 1, 0)
-        finally:
-            self.lib.CINTdel_optimizer(ctypes.byref(opt))
+        r = np.ascontiguousarray(r, dtype=np.float64)
+        self.lib.de_int1e(_KINDS[kind], out.ctypes.data, self.n, self.ao_loc.ctypes.data, r.ctypes.data, pos.ctypes.data, *self._tail())
         return out
 
     def rescale(self) -> np.ndarray:
-        return 1.0 / np.sqrt(np.diag(self.one("int1e_ovlp_cart")))
+        S = self.one("ovlp", np.ones(self.n), np.arange(self.n, dtype=np.int32))
+        return 1.0 / np.sqrt(np.diag(S))
+
+    def two(self, r: np.ndarray) -> np.ndarray:
+        out = np.empty((self.n,) * 4)
+        self.lib.de_int2e(out.ctypes.data, self.n, self.ao_loc.ctypes.data, r.ctypes.data, self.pos.ctypes.data, *self._tail())
+        return out
 
 
 def build_overlap_and_core_hamiltonian_libcint(
@@ -189,12 +152,8 @@ def build_overlap_and_core_hamiltonian_libcint(
     ordering/normalization, ready for scf.run_scf alongside
     build_repulsion_tensor_libcint's output."""
     c = _Cint(atomic_numbers, geometry_bohr, basis_name)
-    S = c.one("int1e_ovlp_cart")
-    r = 1.0 / np.sqrt(np.diag(S))
-    scale = r[:, None] * r[None, :]
-    H_core = (c.one("int1e_kin_cart") + c.one("int1e_nuc_cart")) * scale
-    p = c.perm
-    return (S * scale)[p][:, p], H_core[p][:, p]
+    r = c.rescale()
+    return c.one("ovlp", r, c.pos), c.one("kin", r, c.pos) + c.one("nuc", r, c.pos)
 
 
 def build_repulsion_tensor_libcint(atomic_numbers: list, geometry_bohr: np.ndarray, basis_name: str) -> np.ndarray:
@@ -205,7 +164,4 @@ def build_repulsion_tensor_libcint(atomic_numbers: list, geometry_bohr: np.ndarr
     geometry_bohr: shape (n_atoms, 3), atomic units, same convention as
     build_molecule_shells."""
     c = _Cint(atomic_numbers, geometry_bohr, basis_name)
-    r = c.rescale()
-    V = c.two() * r[:, None, None, None] * r[None, :, None, None] * r[None, None, :, None] * r[None, None, None, :]
-    p = c.perm
-    return V[p][:, p][:, :, p][:, :, :, p]
+    return c.two(c.rescale())
