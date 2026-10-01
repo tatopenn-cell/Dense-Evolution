@@ -49,7 +49,7 @@ ipython==9.15.0
 seaborn==0.13.2
 plotly==7.1.0
 ipywidgets==8.1.9
-qiskit-ibm-runtime==0.49.0
+qiskit-ibm-runtime==0.50.0
 httpx2==2.13.1
 
 # dev extra
