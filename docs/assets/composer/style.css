@@ -357,3 +357,17 @@ body {
   filter: grayscale(0.3);
 }
 .ham-result.error { color: var(--de-red); }
+
+#de-composer-root details.de-collapsible {
+  margin: 12px 0;
+  border: 1px solid var(--md-default-fg-color--lightest, #ddd);
+  border-radius: 8px;
+}
+#de-composer-root details.de-collapsible > summary {
+  cursor: pointer;
+  padding: 10px 14px;
+  font-weight: 600;
+}
+#de-composer-root details.de-collapsible[open] > summary {
+  border-bottom: 1px solid var(--md-default-fg-color--lightest, #ddd);
+}
