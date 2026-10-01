@@ -17,7 +17,7 @@ echo ============================================================
 echo.
 echo Questo script:
 echo   1. Ti fa leggere e accettare la licenza del pacchetto.
-echo   2. Installa/aggiorna il pacchetto Python "dense-evolution[dashboard]"
+echo   2. Installa/aggiorna il pacchetto Python "dense-evolution[dashboard,qmmm,pennylane]"
 echo      da PyPI (dense_evolution + Streamlit + Qiskit).
 echo   3. Scarica l'app Dashboard da GitHub in "%INSTALL_DIR%".
 echo   4. Crea (a tua scelta) icone di avvio -- Desktop, menu Start --
@@ -53,7 +53,7 @@ echo Trovato Python %PYVER%.
 echo.
 
 echo Installo/aggiorno dense-evolution[dashboard]...
-python -m pip install --upgrade "dense-evolution[dashboard]"
+python -m pip install --upgrade "dense-evolution[dashboard,qmmm,pennylane]"
 if errorlevel 1 (
     echo.
     echo Installazione fallita -- controlla i messaggi sopra.
