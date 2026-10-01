@@ -89,12 +89,13 @@ default, pure-JAX path) was already fast. A basis mixing s, p, and d shells
 -- like `6-31g*` on neon here -- costs much more with the default path: the
 underlying JIT compiles one program per distinct shell-quartet shape it
 meets, and a mixed basis needs dozens of them. `build_repulsion_tensor_libcint`
-computes the identical tensor through [PySCF](https://pyscf.org/)'s own
-`libcint` instead -- a mature C library with no per-basis compile cost at
+computes the identical tensor through
+[libcint](https://github.com/sunqm/libcint) instead -- a mature C library with no per-basis compile cost at
 all -- and is a drop-in replacement everywhere `build_repulsion_tensor`'s
 output was used (`S` and `H_core` above still come from native_hf itself).
-Requires the `libcint` extra (`pip install dense-evolution[libcint]`); no
-Windows wheel exists for PySCF, so that extra needs a C toolchain there.
+libcint ships inside the dense-evolution wheels for Windows, macOS and Linux,
+so `pip install dense-evolution` is enough. On neon in `6-31g*` the tensor takes 0.013 s; on ethanol
+(57 basis functions) 0.32 s, against 0.50 s for PySCF on the same Linux machine.
 
 ---
 
@@ -155,18 +156,16 @@ as not yet re-verified against this independent reference. Algorithm background 
 drawn from PennyLane's own white paper (Delgado et al., "Differentiable quantum
 computational chemistry with PennyLane", [arXiv:2111.09967](https://arxiv.org/abs/2111.09967)).
 
-**The libcint bridge's AO-convention mismatch**: native_hf and PySCF/libcint agree on
-the physics but not on bookkeeping -- confirmed empirically (`mol.ao_labels()`,
-`mol.intor('int1e_ovlp')`), not assumed from either codebase's docs. Three separate
-mismatches, all handled by `libcint_bridge.py`: (1) shell order -- native_hf keeps the
-basis file's own order (s,p,s,p,d, interleaved on Ne/6-31G*), libcint groups all shells
-of an atom by ascending degree (s,s,s,p,p,d) -- matched by identity (atom, degree,
-exponents), not by assuming either list's order; (2) Cartesian component order --
-native_hf's own `cartesian_powers` uses px,pz,py and xx,xz,xy,zz,yz,yy, libcint uses the
-more common px,py,pz and xx,xy,xz,yy,yz,zz; (3) normalization -- libcint's raw d
-components are not unit-self-overlap the way native_hf's are (xx/yy/zz vs. xy/xz/yz
-differ by exactly a factor of 3 on Ne/6-31G*), corrected via a rescale computed from
-libcint's own overlap diagonal at call time, not a hardcoded constant.
+**The libcint bridge's AO conventions**: `libcint_bridge.py` builds libcint's
+`atm`/`bas`/`env` arrays from native_hf's own shells and calls the bundled library
+through `ctypes`, so shells keep native_hf's order. Two differences remain inside each
+shell, confirmed empirically on Ne/6-31G*: (1) Cartesian component order --
+native_hf's own `cartesian_powers` uses px,pz,py and xx,xz,xy,zz,yz,yy, libcint uses
+px,py,pz and xx,xy,xz,yy,yz,zz; (2) normalization -- libcint's raw d components are
+not unit-self-overlap the way native_hf's are (xx/yy/zz vs. xy/xz/yz differ by exactly
+a factor of 3), corrected via a rescale computed from libcint's own overlap diagonal
+at call time, not a hardcoded constant. A source install has no bundled library:
+build libcint and set `DENSE_EVOLUTION_LIBCINT` to the library file.
 
 **SCF convergence (`run_scf`)**: DIIS-accelerated (Pulay 1980/1982) by default, not
 plain linear damping -- see [the module's own docstring](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/dense_evolution/native_hf/scf.py)

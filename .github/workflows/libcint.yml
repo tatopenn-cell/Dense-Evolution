@@ -1,0 +1,109 @@
+name: libcint wheels
+
+on:
+  pull_request:
+    paths:
+      - "dense_evolution/native_hf/**"
+      - "tests/unit/test_libcint_bridge.py"
+      - ".github/scripts/build-libcint.sh"
+      - ".github/workflows/libcint.yml"
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  wheel:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86_64
+            os: ubuntu-latest
+            plat: manylinux_2_28_x86_64
+          - name: macOS universal2
+            os: macos-latest
+            plat: macosx_11_0_universal2
+          - name: Windows x86_64
+            os: windows-2022
+            plat: win_amd64
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build libcint (Linux, manylinux_2_28)
+        if: runner.os == 'Linux'
+        run: docker run --rm -v "$PWD":/w -w /w quay.io/pypa/manylinux_2_28_x86_64 bash .github/scripts/build-libcint.sh
+      - name: Build libcint (macOS, arm64 + x86_64)
+        if: runner.os == 'macOS'
+        run: bash .github/scripts/build-libcint.sh "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+      - name: Build libcint (Windows, MinGW)
+        if: runner.os == 'Windows'
+        run: bash .github/scripts/build-libcint.sh -G "MinGW Makefiles"
+      - name: Build wheel
+        run: |
+          python -m pip install --upgrade pip build wheel
+          python -m build --wheel
+          python -m wheel tags --remove --python-tag py3 --abi-tag none --platform-tag ${{ matrix.plat }} dist/*.whl
+          ls dist
+      - name: Install wheel and test the bridge
+        run: |
+          python -m pip install dist/*.whl basis_set_exchange pytest pytest-cov
+          cd "$RUNNER_TEMP" && python -c "from dense_evolution.native_hf.libcint_bridge import load_libcint; print(load_libcint())"
+          cd "$GITHUB_WORKSPACE" && python -m pytest tests/unit/test_libcint_bridge.py -q -rs -k "not bridge_matches_pyscf_anchor" --cov=dense_evolution --cov-report=xml
+      - name: Upload coverage to Codecov
+        if: runner.os == 'Linux'
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+      - name: Time the bridge
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then python -m pip install -q pyscf; fi
+          cd "$RUNNER_TEMP"
+          cat > time_libcint.py <<'PY'
+          import time
+          import numpy as np
+          from dense_evolution.native_hf.libcint_bridge import build_overlap_and_core_hamiltonian_libcint, build_repulsion_tensor_libcint
+
+          def med(f):
+              ts = []
+              for _ in range(3):
+                  t = time.perf_counter(); f(); ts.append(time.perf_counter() - t)
+              return float(np.median(ts))
+
+          ang = 1.8897259886
+          mols = {
+              "Ne": ([10], [[0.0, 0.0, 0.0]]),
+              "C2H5OH": ([6, 6, 8, 1, 1, 1, 1, 1, 1], [
+                  [1.1879, -0.3829, 0.0], [0.0, 0.5526, 0.0], [-1.1867, -0.2472, 0.0],
+                  [-1.9237, 0.3850, 0.0], [2.0985, 0.2306, 0.0], [1.1184, -1.0093, 0.8869],
+                  [1.1184, -1.0093, -0.8869], [-0.0227, 1.1812, 0.8852], [-0.0227, 1.1812, -0.8852]]),
+          }
+          for name, (z, g) in mols.items():
+              g = np.array(g) * ang
+              t1 = med(lambda: build_overlap_and_core_hamiltonian_libcint(z, g, "6-31g*"))
+              t2 = med(lambda: build_repulsion_tensor_libcint(z, g, "6-31g*"))
+              n = build_overlap_and_core_hamiltonian_libcint(z, g, "6-31g*")[0].shape[0]
+              line = f"{name} 6-31G* n_ao={n}: bridge S+H {t1:.4f}s, ERI {t2:.4f}s"
+              try:
+                  from pyscf import gto
+                  mol = gto.M(atom=[(int(a), tuple(r)) for a, r in zip(z, g)], basis="6-31g*", unit="Bohr", cart=True)
+                  p1 = med(lambda: [mol.intor(k) for k in ("int1e_ovlp", "int1e_kin", "int1e_nuc")])
+                  p2 = med(lambda: mol.intor("int2e", aosym="s1"))
+                  line += f" | pyscf S+H {p1:.4f}s, ERI {p2:.4f}s"
+              except ImportError:
+                  pass
+              print(line)
+          PY
+          python time_libcint.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.plat }}
+          path: dist/*.whl

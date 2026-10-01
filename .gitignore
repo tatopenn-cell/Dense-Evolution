@@ -20,3 +20,5 @@ build/
 
 # MkDocs build output (rebuilt by CI on every deploy, never committed)
 site/
+# libcint shared library, built by .github/workflows/libcint.yml into the platform wheels
+dense_evolution/native_hf/_libcint/

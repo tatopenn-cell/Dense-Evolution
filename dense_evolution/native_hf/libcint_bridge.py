@@ -1,57 +1,47 @@
-"""Optional PySCF/libcint bridge for native_hf's electron-repulsion tensor,
-and (build_overlap_and_core_hamiltonian_libcint) its one-electron overlap
-and core-Hamiltonian integrals too -- found necessary, not just faster in
-principle: a larger basis (6-31G*) ran native_hf's own one-electron JAX
-assembly out of memory during XLA JIT compilation on a real Kaggle CPU
-kernel, even with the ERI tensor already libcint-backed (see that
-function's own docstring for the concrete case).
+"""libcint bridge for native_hf's one- and two-electron integrals.
 
 native_hf's own build_repulsion_tensor (assembly.py) computes the ERI
 tensor via JAX-jitted Obara-Saika recursions -- correct, differentiable,
-but pays a real JIT-compilation tax on mixed-angular-momentum bases (see
-prog.txt: ~532s on Ne/6-31G* even after the primitive-count-padding fix).
-libcint (the C library PySCF itself uses) computes the identical tensor
-in ~0.006s -- no JIT, no per-basis compile cost, ever, since its kernels
-are C templates compiled once when PySCF itself was built.
+but pays a JIT-compilation tax on mixed-angular-momentum bases (~532s on
+Ne/6-31G* even after the primitive-count-padding fix), and its one-electron
+assembly ran out of memory during XLA compilation for a 4-heavy-atom
+molecule at 6-31G* on a Kaggle CPU kernel. libcint (Sun, J. Comput. Chem.
+36, 1664 (2015), BSD-2) computes the identical integrals with C kernels
+compiled once, ahead of time.
 
-This is NOT a replacement for native_hf's own engine: nothing in this
-codebase differentiates through native_hf's raw integrals today (checked
-directly, not assumed), so the autodiff PySCF/libcint can't offer here
-costs nothing in practice yet -- but PySCF is a heavy optional dependency
-with no Windows wheel (needs a C toolchain to build from source there),
-and depending on it contradicts this project's own "no C++ hand-written"
-positioning if made anything but opt-in. Install with the `libcint`
-extra; everything here raises ImportError with that instruction if PySCF
-isn't present, never silently falls back.
+libcint is linked statically, together with csrc/cint_driver.c, into one
+shared library shipped inside the platform wheels of dense-evolution
+(dense_evolution/native_hf/_libcint/, built by
+.github/scripts/build-libcint.sh in .github/workflows/libcint.yml) and
+called through ctypes, with the atm/bas/env arrays built here from
+native_hf's own ContractedShell list. The driver loops over shell blocks
+in C (8-fold ERI symmetry, int2e_optimizer) and writes every integral
+already rescaled and in native_hf's AO order. A source install has no
+bundled library: run build-libcint.sh and point DENSE_EVOLUTION_LIBCINT at
+the resulting file.
 
-Cartesian-component convention mismatch: libcint's own per-shell AO order
-and normalization are NOT the same as native_hf's own `cartesian_powers`
-convention (see cartesian.py's own docstring) -- confirmed empirically via
-`mol.ao_labels()` and `mol.intor('int1e_ovlp')` on Ne/6-31G*, not assumed
-from either codebase's documentation:
-  - p (degree 1): libcint orders px,py,pz; native_hf orders px,pz,py.
-    Every p component has the same self-overlap in both conventions (px,
-    py, pz are equivalent by symmetry), so this needs reordering only.
-  - d (degree 2): libcint orders xx,xy,xz,yy,yz,zz; native_hf orders
-    xx,xz,xy,zz,yz,yy. libcint's raw per-component overlap is NOT
-    normalized to 1 the way native_hf's is (xx/yy/zz self-overlap
-    2.51327412, xy/xz/yz self-overlap 0.83775804 on Ne/6-31G* -- ratio
-    exactly 3, consistent with the same sqrt(3) factor
-    cartesian_normalization_ratios already accounts for on native_hf's
-    own side), so this needs both reordering AND a per-AO rescale.
-
-Rather than hardcoding libcint's normalization as a formula, the rescale
-is computed from libcint's own overlap diagonal at call time (1/sqrt of
-it) -- exact for whatever exponent/element/degree is actually in play,
-not an assumption about libcint's internal convention that could break on
-a different libcint version or basis set. Degrees above 2 raise
-NotImplementedError naming the real limitation (native_hf itself caps at
-degree 2 today, so this never binds in practice, but the mapping below is
-only verified through d, not d and beyond).
+Shells are passed to libcint in native_hf's own order, so AO blocks line
+up shell by shell. Two convention differences remain inside each shell,
+confirmed empirically on Ne/6-31G*:
+  - Cartesian component order: libcint orders px,py,pz and
+    xx,xy,xz,yy,yz,zz; native_hf's cartesian_powers orders px,pz,py and
+    xx,xz,xy,zz,yz,yy.
+  - Normalization: libcint's raw Cartesian d components are not unit
+    self-overlap (xx/yy/zz vs. xy/xz/yz differ by exactly a factor of 3).
+    native_hf's primitive-normalized coefficients differ from libcint's
+    radial convention by a per-shell constant too. Both are removed by a
+    per-AO rescale computed from libcint's own overlap diagonal at call
+    time, exact for whatever exponent/element/degree is in play.
+Degrees above 2 raise NotImplementedError (native_hf itself caps at 2).
 """
+import ctypes
+import os
+import sys
+from pathlib import Path
+
 import numpy as np
 
-from dense_evolution.native_hf.basis import build_molecule_shells, n_cartesian_functions
+from dense_evolution.native_hf.basis import build_molecule_shells
 from dense_evolution.native_hf.cartesian import cartesian_powers
 
 _LIBCINT_CARTESIAN_ORDER = {
@@ -59,167 +49,119 @@ _LIBCINT_CARTESIAN_ORDER = {
     1: [(1, 0, 0), (0, 1, 0), (0, 0, 1)],
     2: [(2, 0, 0), (1, 1, 0), (1, 0, 1), (0, 2, 0), (0, 1, 1), (0, 0, 2)],
 }
+_LIB_NAMES = {"win32": "libdecint.dll", "darwin": "libdecint.dylib"}
+_PTR_ENV_START = 20
+_POINT_NUC = 1
+_KINDS = {"ovlp": 0, "kin": 1, "nuc": 2}
+_lib = None
+
+
+def load_libcint() -> ctypes.CDLL:
+    """The bundled libcint + driver shared library (or DENSE_EVOLUTION_LIBCINT's),
+    loaded once; ImportError if neither exists."""
+    global _lib
+    if _lib is not None:
+        return _lib
+    path = os.environ.get("DENSE_EVOLUTION_LIBCINT") or str(
+        Path(__file__).with_name("_libcint") / _LIB_NAMES.get(sys.platform, "libdecint.so")
+    )
+    if not os.path.isfile(path):
+        raise ImportError(
+            f"native_hf.libcint_bridge needs the bundled libcint library, expected at {path}. "
+            "It ships inside the dense-evolution wheels for Windows, macOS and Linux "
+            "(pip install dense-evolution); for a source install, run "
+            ".github/scripts/build-libcint.sh and set DENSE_EVOLUTION_LIBCINT to the library file."
+        )
+    lib = ctypes.CDLL(path)
+    tail = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
+    lib.de_int1e.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_int] + [ctypes.c_void_p] * 3 + tail
+    lib.de_int1e.restype = None
+    lib.de_int2e.argtypes = [ctypes.c_void_p, ctypes.c_int] + [ctypes.c_void_p] * 3 + tail
+    lib.de_int2e.restype = None
+    _lib = lib
+    return lib
 
 
 def _permutation_libcint_to_native_hf(degree: int) -> np.ndarray:
     """perm such that native_hf_ordered[i] == libcint_ordered[perm[i]]."""
     if degree not in _LIBCINT_CARTESIAN_ORDER:
         raise NotImplementedError(
-            f"libcint_bridge only has a verified AO-order mapping for degree <= 2 "
-            f"(checked against mol.ao_labels()); degree={degree} would need the same "
-            f"empirical check first, not an assumed extension of the pattern."
+            f"libcint_bridge only has a verified AO-order mapping for degree <= 2; "
+            f"degree={degree} would need the same empirical check first, not an "
+            f"assumed extension of the pattern."
         )
     native_order = [tuple(int(x) for x in p) for p in cartesian_powers(degree)]
     libcint_order = _LIBCINT_CARTESIAN_ORDER[degree]
     return np.array([libcint_order.index(p) for p in native_order])
 
 
-def _match_pyscf_shell_ao_starts(mol, shells: list) -> list:
-    """For each native_hf shell (in native_hf's own list order), find the
-    matching PySCF basis shell and return its AO start offset in PySCF's
-    own ordering.
+class _Cint:
+    """atm/bas/env arrays for one molecule plus per-shell AO offsets, the
+    native_hf AO permutation, evaluated by the C driver."""
 
-    Confirmed empirically on Ne/6-31G* that the two engines do NOT list
-    shells in the same order: native_hf keeps the basis-definition's own
-    file order (s,s,p,s,p,d -- interleaved), while libcint groups all
-    shells of a given atom by ascending angular-momentum degree
-    (s,s,s,p,p,d). Matching by identity (atom, degree, exponents) instead
-    of assuming the two lists line up positionally is correct regardless
-    of which grouping convention either engine happens to use, and isn't
-    an assumption about libcint's grouping rule generalizing to other
-    elements/bases."""
-    ao_loc = mol.ao_loc_nr()
-    candidates = [
-        {
-            "atom": mol.bas_atom(ib),
-            "degree": mol.bas_angular(ib),
-            "exponents": np.sort(np.asarray(mol.bas_exp(ib)))[::-1],
-            "ao_start": int(ao_loc[ib]),
-            "used": False,
-        }
-        for ib in range(mol.nbas)
-    ]
-
-    starts = []
-    for shell in shells:
-        shell_exponents = np.sort(np.asarray(shell.exponents))[::-1]
-        match = next(
-            (
-                c
-                for c in candidates
-                if not c["used"]
-                and c["atom"] == shell.atom_index
-                and c["degree"] == shell.degree
-                and c["exponents"].shape[0] == shell_exponents.shape[0]
-                and np.allclose(c["exponents"], shell_exponents, rtol=1e-6)
-            ),
-            None,
+    def __init__(self, atomic_numbers: list, geometry_bohr: np.ndarray, basis_name: str):
+        self.lib = load_libcint()
+        shells = build_molecule_shells(atomic_numbers, geometry_bohr, basis_name)
+        env = [0.0] * _PTR_ENV_START
+        atm, bas = [], []
+        for z, r in zip(atomic_numbers, np.asarray(geometry_bohr, dtype=float)):
+            atm.append([int(z), len(env), _POINT_NUC, len(env) + 3, 0, 0])
+            env.extend([r[0], r[1], r[2], 0.0])
+        for s in shells:
+            e = np.asarray(s.exponents, dtype=float)
+            c = np.asarray(s.coefficients, dtype=float)
+            bas.append([s.atom_index, s.degree, e.shape[0], 1, 0, len(env), len(env) + e.shape[0], 0])
+            env.extend(e)
+            env.extend(c)
+        self.atm = np.ascontiguousarray(atm, dtype=np.int32)
+        self.bas = np.ascontiguousarray(bas, dtype=np.int32)
+        self.env = np.ascontiguousarray(env, dtype=np.float64)
+        self.sizes = [len(cartesian_powers(s.degree)) for s in shells]
+        self.offsets = np.concatenate([[0], np.cumsum(self.sizes)]).astype(int)
+        self.n = int(self.offsets[-1])
+        self.perm = np.concatenate(
+            [o + _permutation_libcint_to_native_hf(s.degree) for o, s in zip(self.offsets, shells)]
         )
-        if match is None:
-            raise ValueError(
-                f"could not match native_hf shell (atom={shell.atom_index}, "
-                f"degree={shell.degree}, exponents={shell.exponents}) to any "
-                f"PySCF basis shell -- the two engines may disagree on this "
-                f"basis set's actual shell composition, not just its ordering."
-            )
-        match["used"] = True
-        starts.append(match["ao_start"])
-    return starts
+        self.ao_loc = np.ascontiguousarray(self.offsets, dtype=np.int32)
+        self.pos = np.ascontiguousarray(np.argsort(self.perm), dtype=np.int32)
 
+    def _tail(self):
+        return (self.atm.ctypes.data, self.atm.shape[0], self.bas.ctypes.data, self.bas.shape[0], self.env.ctypes.data)
 
-def _import_pyscf():
-    try:
-        from pyscf import gto
-    except ImportError as exc:  # pragma: no cover -- only reachable without pyscf installed, which CI here always has
-        raise ImportError(
-            "native_hf.libcint_bridge requires PySCF, an optional dependency "
-            "(pip install dense-evolution[libcint]); it is not installed. "
-            "PySCF has no Windows wheel -- installing it there requires a C "
-            "toolchain to build from source."
-        ) from exc
-    return gto
+    def one(self, kind: str, r: np.ndarray, pos: np.ndarray) -> np.ndarray:
+        out = np.empty((self.n, self.n))
+        r = np.ascontiguousarray(r, dtype=np.float64)
+        self.lib.de_int1e(_KINDS[kind], out.ctypes.data, self.n, self.ao_loc.ctypes.data, r.ctypes.data, pos.ctypes.data, *self._tail())
+        return out
 
+    def rescale(self) -> np.ndarray:
+        S = self.one("ovlp", np.ones(self.n), np.arange(self.n, dtype=np.int32))
+        return 1.0 / np.sqrt(np.diag(S))
 
-def _libcint_mol_and_perm_rescale(atomic_numbers: list, geometry_bohr: np.ndarray, basis_name: str):
-    """Shared Mole/permutation/rescale setup for every one- and two-electron
-    libcint integral below -- S, H_core, and the ERI tensor all live in the
-    same AO basis and need the identical native_hf<->libcint AO reordering
-    and per-AO normalization (see module docstring), so this factors out
-    what build_repulsion_tensor_libcint used to compute standalone."""
-    gto = _import_pyscf()
-    shells = build_molecule_shells(atomic_numbers, geometry_bohr, basis_name)
-    n = n_cartesian_functions(shells)
-    atom_spec = [
-        (int(z), (float(r[0]), float(r[1]), float(r[2])))
-        for z, r in zip(atomic_numbers, geometry_bohr)
-    ]
-    mol = gto.M(atom=atom_spec, basis=basis_name, unit="Bohr", cart=True)
-    if mol.nao != n:
-        raise ValueError(
-            f"AO count mismatch between native_hf ({n}) and PySCF ({mol.nao}) "
-            f"for basis {basis_name!r} -- the two engines disagree on this basis "
-            f"set's shell composition, not just component ordering."
-        )
-    overlap_diag = np.diag(mol.intor("int1e_ovlp"))
-    rescale = 1.0 / np.sqrt(overlap_diag)
-    ao_starts = _match_pyscf_shell_ao_starts(mol, shells)
-    perm = np.empty(n, dtype=np.int64)
-    offset = 0
-    for shell, pyscf_start in zip(shells, ao_starts):
-        block_size = len(cartesian_powers(shell.degree))
-        perm[offset : offset + block_size] = pyscf_start + _permutation_libcint_to_native_hf(shell.degree)
-        offset += block_size
-    return mol, perm, rescale
+    def two(self, r: np.ndarray) -> np.ndarray:
+        out = np.empty((self.n,) * 4)
+        self.lib.de_int2e(out.ctypes.data, self.n, self.ao_loc.ctypes.data, r.ctypes.data, self.pos.ctypes.data, *self._tail())
+        return out
 
 
 def build_overlap_and_core_hamiltonian_libcint(
     atomic_numbers: list, geometry_bohr: np.ndarray, basis_name: str
 ) -> tuple[np.ndarray, np.ndarray]:
     """Same contract as assembly.build_overlap_matrix + build_core_hamiltonian
-    combined, but computed via PySCF/libcint instead of native_hf's own
-    JAX-jitted one-electron integrals.
-
-    Found necessary, not just faster in principle: on a real Kaggle CPU
-    kernel, native_hf's own one-electron assembly ran out of memory during
-    XLA JIT compilation for a 4-heavy-atom molecule at 6-31G* -- even with
-    the (much more expensive) ERI tensor already routed through
-    build_repulsion_tensor_libcint above, the one-electron path alone was
-    enough to exhaust available memory on that larger basis. Extending the
-    same libcint bridge to S/H_core fixed it (verified: the same molecule/
-    basis that crashed before completed in this repo's own Discovery
-    isodesmic-scission-energy experiment once this function existed).
-
-    Returns (S, H_core) in native_hf's own AO ordering/normalization, ready
-    to pass directly into scf.run_scf alongside build_repulsion_tensor_libcint's
-    own output.
-    """
-    mol, perm, rescale = _libcint_mol_and_perm_rescale(atomic_numbers, geometry_bohr, basis_name)
-    S = mol.intor("int1e_ovlp") * rescale[:, None] * rescale[None, :]
-    T = mol.intor("int1e_kin") * rescale[:, None] * rescale[None, :]
-    V_nuc = mol.intor("int1e_nuc") * rescale[:, None] * rescale[None, :]
-    H_core = T + V_nuc
-    return S[perm][:, perm], H_core[perm][:, perm]
+    combined, computed via libcint. Returns (S, H_core) in native_hf's own AO
+    ordering/normalization, ready for scf.run_scf alongside
+    build_repulsion_tensor_libcint's output."""
+    c = _Cint(atomic_numbers, geometry_bohr, basis_name)
+    r = c.rescale()
+    return c.one("ovlp", r, c.pos), c.one("kin", r, c.pos) + c.one("nuc", r, c.pos)
 
 
 def build_repulsion_tensor_libcint(atomic_numbers: list, geometry_bohr: np.ndarray, basis_name: str) -> np.ndarray:
-    """Same contract as assembly.build_repulsion_tensor, but computed via
-    PySCF/libcint instead of native_hf's own JAX recursions -- takes
-    (atomic_numbers, geometry_bohr, basis_name) rather than a shells list
-    since PySCF needs to build its own `Mole` from the same spec, not
-    native_hf's ContractedShell objects.
+    """Same contract as assembly.build_repulsion_tensor, computed via libcint
+    with 8-fold permutational symmetry; takes (atomic_numbers, geometry_bohr,
+    basis_name) rather than a shells list.
 
     geometry_bohr: shape (n_atoms, 3), atomic units, same convention as
     build_molecule_shells."""
-    mol, perm, rescale = _libcint_mol_and_perm_rescale(atomic_numbers, geometry_bohr, basis_name)
-    n = perm.shape[0]
-
-    V = np.asarray(mol.intor("int2e", aosym="s1")).reshape(n, n, n, n)
-    V = (
-        V
-        * rescale[:, None, None, None]
-        * rescale[None, :, None, None]
-        * rescale[None, None, :, None]
-        * rescale[None, None, None, :]
-    )
-
-    return V[perm][:, perm][:, :, perm][:, :, :, perm]
+    c = _Cint(atomic_numbers, geometry_bohr, basis_name)
+    return c.two(c.rescale())

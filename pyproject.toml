@@ -109,15 +109,6 @@ mcp = [
     # deliberately doesn't pull in fastapi/uvicorn/pennylane the way the
     # composer extra does.
 ]
-libcint = [
-    "pyscf>=2.0.0",
-    # native_hf.libcint_bridge -- an OPTIONAL, faster alternative ERI
-    # tensor for mixed-angular-momentum bases (real speed measured:
-    # ~0.04s vs 158-532s for native_hf's own JAX path on Ne/6-31G*, see
-    # prog.txt), not a replacement for native_hf's own engine. No Windows
-    # wheel on PyPI for pyscf -- installing this extra there needs a C
-    # toolchain to build pyscf from source.
-]
 qmmm = [
     "rdkit>=2023.9.1",
     # dense_evolution.qmmm.region/propagation -- molecule graph
@@ -230,6 +221,7 @@ local_site = "research/local_site"
 
 [tool.setuptools.package-data]
 "dense_evolution" = ["*.py"]
+"dense_evolution.native_hf" = ["_libcint/*"]
 "ia_utils" = ["*.py"]
 "dashboard_core" = ["*.py"]
 
