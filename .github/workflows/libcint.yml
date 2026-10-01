@@ -53,9 +53,16 @@ jobs:
           ls dist
       - name: Install wheel and test the bridge
         run: |
-          python -m pip install dist/*.whl basis_set_exchange pytest
+          python -m pip install dist/*.whl basis_set_exchange pytest pytest-cov
           cd "$RUNNER_TEMP" && python -c "from dense_evolution.native_hf.libcint_bridge import load_libcint; print(load_libcint())"
-          cd "$GITHUB_WORKSPACE" && python -m pytest tests/unit/test_libcint_bridge.py -q -rs -k "not bridge_matches_pyscf_anchor"
+          cd "$GITHUB_WORKSPACE" && python -m pytest tests/unit/test_libcint_bridge.py -q -rs -k "not bridge_matches_pyscf_anchor" --cov=dense_evolution --cov-report=xml
+      - name: Upload coverage to Codecov
+        if: runner.os == 'Linux'
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
       - name: Time the bridge
         run: |
           if [ "$RUNNER_OS" = Linux ]; then python -m pip install -q pyscf; fi
