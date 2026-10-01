@@ -93,6 +93,8 @@ throughout the [API Reference](api/index.md), not a separate demo.
   </section>
 
 
+  <details class="de-collapsible">
+  <summary>Materiali (tavola periodica, elementi reali Z=1..54 + Au, Pb)</summary>
   <section class="row row-hamiltonian">
     <div class="panel panel-hamiltonian">
       <h3>Materiali (tavola periodica, elementi reali Z=1..54 + Au, Pb)</h3>
@@ -111,7 +113,10 @@ throughout the [API Reference](api/index.md), not a separate demo.
       </div>
     </div>
   </section>
+  </details>
 
+  <details class="de-collapsible">
+  <summary>Hamiltonian (real molecular, PennyLane Hartree-Fock)</summary>
   <section class="row row-hamiltonian">
     <div class="panel panel-hamiltonian">
       <h3>Hamiltonian (real molecular, PennyLane Hartree-Fock)</h3>
@@ -180,7 +185,10 @@ throughout the [API Reference](api/index.md), not a separate demo.
       <div id="ham-result" class="ham-result"></div>
     </div>
   </section>
+  </details>
 
+  <details class="de-collapsible">
+  <summary>Scan energia — curva vs lunghezza di legame (diagonalizzazione esatta)</summary>
   <section class="row row-hamiltonian">
     <div class="panel panel-hamiltonian">
       <h3>Scan energia — curva vs lunghezza di legame (diagonalizzazione esatta)</h3>
@@ -215,7 +223,10 @@ throughout the [API Reference](api/index.md), not a separate demo.
       <div id="scan-result" class="ham-result"></div>
     </div>
   </section>
+  </details>
 
+  <details class="de-collapsible">
+  <summary>VQE — ansatz variazionale reale (dense_evolution.vqe)</summary>
   <section class="row row-hamiltonian">
     <div class="panel panel-hamiltonian">
       <h3>VQE — ansatz variazionale reale (dense_evolution.vqe)</h3>
@@ -271,7 +282,10 @@ throughout the [API Reference](api/index.md), not a separate demo.
       <div id="vqe-result" class="ham-result"></div>
     </div>
   </section>
+  </details>
 
+  <details class="de-collapsible">
+  <summary>Forze &amp; MD — Hellmann-Feynman reale (dashboard_core.qmmm)</summary>
   <section class="row row-hamiltonian">
     <div class="panel panel-hamiltonian">
       <h3>Forze &amp; MD — Hellmann-Feynman reale (dashboard_core.qmmm)</h3>
@@ -305,7 +319,10 @@ throughout the [API Reference](api/index.md), not a separate demo.
       <div id="qmmm-result" class="ham-result"></div>
     </div>
   </section>
+  </details>
 
+  <details class="de-collapsible">
+  <summary>Mitigation — Zero-Noise Extrapolation (real, dense_evolution.zero_noise_extrapolation)</summary>
   <section class="row row-mitigation">
     <div class="panel panel-mitigation">
       <h3>Mitigation — Zero-Noise Extrapolation (real, dense_evolution.zero_noise_extrapolation)</h3>
@@ -335,7 +352,10 @@ throughout the [API Reference](api/index.md), not a separate demo.
       <div id="zne-result" class="ham-result"></div>
     </div>
   </section>
+  </details>
 
+  <details class="de-collapsible">
+  <summary>Mitigation — density-matrix ZNE (real, dense_evolution.zne_density_matrix)</summary>
   <section class="row row-mitigation">
     <div class="panel panel-mitigation">
       <h3>Mitigation — density-matrix ZNE (real, dense_evolution.zne_density_matrix)</h3>
@@ -353,6 +373,7 @@ throughout the [API Reference](api/index.md), not a separate demo.
       <div id="zne-matrix-result" class="ham-result"></div>
     </div>
   </section>
+  </details>
 </div>
 
 <script src="../assets/composer/app.js"></script>
