@@ -341,6 +341,7 @@ const MOLECULE_PRESET_PREFIX = "__molecule__:";
 
 async function loadPresetsAndPalette() {
   palette = await api("/api/palette");
+  renderPalette();
   presets = await api("/api/presets");
   const sel = $("preset-select");
   sel.innerHTML = "";
@@ -394,7 +395,6 @@ async function loadPresetsAndPalette() {
   });
   $("qasm").value = presets["Bell state (2 qubit)"] || "";
   syncQubitCountFromQasm($("qasm").value);
-  renderPalette();
 }
 
 // Each QASM_LIBRARY preset is a fixed circuit for a fixed qubit count
