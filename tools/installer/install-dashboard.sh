@@ -46,8 +46,14 @@ mkdir -p "$INSTALL_DIR"
 echo "Scarico l'app Dashboard..."
 if command -v curl >/dev/null 2>&1; then
     curl -fsSL "$APP_URL" -o "$INSTALL_DIR/app.py"
+    curl -fsSL "${APP_URL%app.py}sota_views.py" -o "$INSTALL_DIR/sota_views.py"
+    curl -fsSL "${APP_URL%app.py}engine_explorer.py" -o "$INSTALL_DIR/engine_explorer.py"
+    curl -fsSL "${APP_URL%app.py}circuit_editor.py" -o "$INSTALL_DIR/circuit_editor.py"
 else
     "$PYTHON_BIN" -c "import urllib.request,sys; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])" "$APP_URL" "$INSTALL_DIR/app.py"
+    "$PYTHON_BIN" -c "import urllib.request,sys; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])" "${APP_URL%app.py}sota_views.py" "$INSTALL_DIR/sota_views.py"
+    "$PYTHON_BIN" -c "import urllib.request,sys; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])" "${APP_URL%app.py}engine_explorer.py" "$INSTALL_DIR/engine_explorer.py"
+    "$PYTHON_BIN" -c "import urllib.request,sys; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])" "${APP_URL%app.py}circuit_editor.py" "$INSTALL_DIR/circuit_editor.py"
 fi
 
 cat > "$LAUNCHER" <<EOF

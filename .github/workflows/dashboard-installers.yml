@@ -1,0 +1,96 @@
+name: dashboard-installers
+
+on:
+  pull_request:
+    paths:
+      - "tools/dashboard/**"
+      - "tools/installer/*dashboard*"
+      - ".github/workflows/dashboard-installers.yml"
+  workflow_dispatch:
+
+jobs:
+  dashboard-windows:
+    runs-on: windows-latest
+    env:
+      STREAMLIT_SERVER_HEADLESS: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Point the installer at this commit
+        shell: bash
+        run: sed -i "s#/main/tools/dashboard/app.py#/${{ github.event.pull_request.head.sha || github.sha }}/tools/dashboard/app.py#" tools/installer/install-dashboard.bat
+      - name: Install
+        shell: cmd
+        run: |
+          (echo s& echo S& echo S& echo n) > answers.txt
+          call tools\installer\install-dashboard.bat < answers.txt
+      - name: Files and shortcuts exist
+        shell: pwsh
+        run: |
+          $d = "$env:USERPROFILE\DenseEvolutionDashboard"
+          foreach ($f in @("$d\app.py", "$d\launch-dashboard.bat",
+                           "$env:USERPROFILE\Desktop\Dense-Evolution Dashboard (Streamlit).lnk",
+                           "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Dense-Evolution Dashboard (Streamlit).lnk")) {
+            if (-not (Test-Path $f)) { Write-Error "missing: $f"; exit 1 }
+          }
+      - name: Launcher starts the app
+        shell: pwsh
+        run: |
+          Start-Process -FilePath cmd -ArgumentList "/c", "`"$env:USERPROFILE\DenseEvolutionDashboard\launch-dashboard.bat`""
+          for ($i = 0; $i -lt 60; $i++) {
+            try { if ((Invoke-WebRequest http://localhost:8501/_stcore/health -UseBasicParsing).Content -eq "ok") { "health ok"; exit 0 } } catch {}
+            Start-Sleep 5
+          }
+          exit 1
+      - name: App runs without exceptions
+        shell: pwsh
+        run: |
+          cd "$env:USERPROFILE\DenseEvolutionDashboard"
+          python -c "import sys; from streamlit.testing.v1 import AppTest; at = AppTest.from_file('app.py', default_timeout=300).run(); print('exceptions:', len(at.exception)); sys.exit(1 if at.exception else 0)"
+      - name: Uninstall
+        shell: cmd
+        run: |
+          echo n> no.txt
+          call tools\installer\uninstall-dashboard.bat < no.txt
+      - name: Everything removed
+        shell: pwsh
+        run: |
+          foreach ($f in @("$env:USERPROFILE\DenseEvolutionDashboard",
+                           "$env:USERPROFILE\Desktop\Dense-Evolution Dashboard (Streamlit).lnk")) {
+            if (Test-Path $f) { Write-Error "still there: $f"; exit 1 }
+          }
+
+  dashboard-unix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      STREAMLIT_SERVER_HEADLESS: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Point the installer at this commit
+        run: sed -i.bak "s#/main/tools/dashboard/app.py#/${{ github.event.pull_request.head.sha || github.sha }}/tools/dashboard/app.py#" tools/installer/install-dashboard.sh
+      - name: Install
+        run: printf 's\nS\nn\n' | bash tools/installer/install-dashboard.sh
+      - name: Files and shortcut exist
+        run: |
+          test -f ~/.dense-evolution-dashboard/app.py && test -f ~/.dense-evolution-dashboard/sota_views.py && test -f ~/.dense-evolution-dashboard/circuit_editor.py
+          test -x ~/.dense-evolution-dashboard/launch-dashboard.sh
+          ls ~/Desktop | grep -q "Dense-Evolution Dashboard (Streamlit)"
+      - name: Launcher starts the app
+        run: |
+          nohup ~/.dense-evolution-dashboard/launch-dashboard.sh > st.log 2>&1 &
+          for i in $(seq 1 60); do curl -fs http://localhost:8501/_stcore/health && exit 0; sleep 5; done
+          cat st.log
+          exit 1
+      - name: App runs without exceptions
+        run: |
+          cd ~/.dense-evolution-dashboard
+          python3 -c "import sys; from streamlit.testing.v1 import AppTest; at = AppTest.from_file('app.py', default_timeout=300).run(); print('exceptions:', len(at.exception)); sys.exit(1 if at.exception else 0)"
