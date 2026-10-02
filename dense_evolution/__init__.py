@@ -50,6 +50,7 @@ from .circuits.arithmetic import (
     compare_registers, compare_constant,
     add_registers_mod, add_constant_mod, multiply_add_mod, multiply_mod, power_mod,
 )
+from .circuits.postselect import postselect
 from .circuits.random_circuit import random_circuit
 from .utils.drawing import draw_circuit
 from .solvers.harrison_tb import (ELEMENTS as HARRISON_ELEMENTS, ETA as HARRISON_ETA,
@@ -83,6 +84,7 @@ __all__ = [
     "add_registers", "subtract_registers", "add_constant",
     "compare_registers", "compare_constant",
     "add_registers_mod", "add_constant_mod", "multiply_add_mod", "multiply_mod", "power_mod",
+    "postselect",
     "pauli_rotation_ops", "trotter_evolve_ops", "continuous_pulse_evolve",
     "continuous_dissipative_evolve",
     "find_excitations", "single_excitation_ops", "double_excitation_ops",

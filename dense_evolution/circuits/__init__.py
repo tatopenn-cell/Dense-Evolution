@@ -10,6 +10,7 @@ from .arithmetic import (
     compare_registers, compare_constant,
     add_registers_mod, add_constant_mod, multiply_add_mod, multiply_mod, power_mod,
 )
+from .postselect import postselect
 from .random_circuit import random_circuit
 from .trotter import pauli_rotation_ops, trotter_evolve_ops
 
@@ -23,6 +24,7 @@ __all__ = [
     "add_registers", "subtract_registers", "add_constant",
     "compare_registers", "compare_constant",
     "add_registers_mod", "add_constant_mod", "multiply_add_mod", "multiply_mod", "power_mod",
+    "postselect",
     "random_circuit",
     "pauli_rotation_ops", "trotter_evolve_ops",
 ]
