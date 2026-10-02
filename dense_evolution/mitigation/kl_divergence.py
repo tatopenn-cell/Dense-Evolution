@@ -41,6 +41,7 @@ Additive, not a replacement for the already-validated healing pipeline.
 """
 import jax
 import jax.numpy as jnp
+from ..config import with_x64
 
 __all__ = ["kl_divergence", "kl_divergence_jit"]
 
@@ -69,6 +70,7 @@ def _kl_divergence_core(p: jnp.ndarray, q: jnp.ndarray) -> jnp.ndarray:
     return jnp.where(is_support_violation, jnp.inf, finite_result)
 
 
+@with_x64
 def kl_divergence(p: jnp.ndarray, q: jnp.ndarray) -> float:
     """Classical Kullback-Leibler divergence D_KL(p||q), in bits.
 
@@ -88,6 +90,6 @@ def kl_divergence(p: jnp.ndarray, q: jnp.ndarray) -> float:
     return float(_kl_divergence_core(p, q))
 
 
-kl_divergence_jit = jax.jit(_kl_divergence_core)
+kl_divergence_jit = with_x64(jax.jit(_kl_divergence_core))
 """`jax.jit`-compiled entry point for `kl_divergence`. `p`/`q` must already
 be `float64` arrays. Returns a jnp scalar, not a Python `float`."""

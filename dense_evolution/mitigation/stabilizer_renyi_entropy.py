@@ -45,6 +45,7 @@ sizes this package's exact-statevector backends already target.
 """
 import jax
 import jax.numpy as jnp
+from ..config import with_x64
 
 __all__ = ["stabilizer_renyi_entropy", "stabilizer_renyi_entropy_jit"]
 
@@ -67,6 +68,7 @@ def _stabilizer_renyi_entropy_core(psi):
     return -jnp.log2(total / d)
 
 
+@with_x64
 def stabilizer_renyi_entropy(psi):
     """Stabilizer Renyi Entropy of a pure state `psi` (length 2**n_qubits),
     in bits (log2) -- the paper's own convention.
@@ -97,7 +99,7 @@ def stabilizer_renyi_entropy(psi):
     return float(_stabilizer_renyi_entropy_core(psi))
 
 
-stabilizer_renyi_entropy_jit = jax.jit(_stabilizer_renyi_entropy_core)
+stabilizer_renyi_entropy_jit = with_x64(jax.jit(_stabilizer_renyi_entropy_core))
 """`jax.jit`-compiled entry point for `stabilizer_renyi_entropy`. `psi`
 must already be `complex128`. Returns a jnp scalar, not a Python `float`
 -- call `float(...)` yourself if you need one outside a jitted context."""

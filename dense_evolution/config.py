@@ -19,6 +19,8 @@ QuantumHardwareRegistry.__init__, circuit_to_energy_fn); set_precision()
 is the public opt-out for a caller who wants to choose precision
 explicitly, before constructing anything, and have that choice stick.
 """
+import functools
+
 import jax
 
 _explicit = False
@@ -47,3 +49,14 @@ def ensure_x64() -> None:
     precision -- never at import time."""
     if not _explicit:
         jax.config.update("jax_enable_x64", True)
+
+
+def with_x64(fn):
+    """Wrap `fn` so ensure_x64() runs before every call -- for public entry
+    points that build JAX arrays from user input, which JAX would otherwise
+    silently truncate to complex64/float32 if nothing else enabled x64 first."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        ensure_x64()
+        return fn(*args, **kwargs)
+    return wrapper
