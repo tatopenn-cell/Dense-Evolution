@@ -153,21 +153,21 @@ else:
             nonzero = np.where(probs > 1e-9)[0]
             assert list(nonzero) == [1]
 
-        def test_custom_gate_definition_does_not_corrupt_following_statement(self):
+        def test_custom_gate_definition_expands_and_runs(self):
             # qiskit.qasm2.dumps emits composite gates (e.g. mcx) as a `gate
-            # NAME params { ... }` block on a single line — same brace-block
-            # corruption class as QASM3 for/if/while/def, fixed by widening
-            # _RE_BLOCK_HEAD to also strip `gate` blocks. mcx itself has no
-            # physical implementation in this simulator (unknown gate name,
-            # silent no-op elsewhere in run_circuit too) — that part is a real,
-            # separate, documented limitation, not something this test hides.
+            # NAME params { ... }` block. The parser now expands each call into
+            # the definition's body, so mcx runs as Qiskit's own decomposition
+            # instead of being dropped as an unknown gate.
             from qiskit import QuantumCircuit
             qc = QuantumCircuit(4)
-            qc.h(0)
+            qc.x([0, 1, 2])
             qc.mcx([0, 1, 2], 3)
             circ = from_qiskit(qc)
             assert circ.n_qubits == 4
-            assert [op['name'] for op in circ.ops] == ['h', 'mcx']
+            assert 'mcx' not in {op['name'] for op in circ.ops}
+            sim = de.DenseSVSimulator(4)
+            sim.run_circuit_jit(circ)
+            assert abs(np.asarray(sim.get_statevector())[15]) ** 2 == pytest.approx(1.0, abs=1e-10)
 
         def test_to_qiskit_bit_order_is_involution(self):
             # bit-reversal applied twice must return the original array
