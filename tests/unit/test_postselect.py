@@ -66,3 +66,8 @@ def test_zero_probability_outcome_raises():
 def test_unknown_state_raises():
     with pytest.raises(ValueError, match="state must be"):
         de.postselect(_run(2, []), 2, 0, 'x')
+
+
+def test_out_of_range_qubit_raises():
+    with pytest.raises(ValueError, match="out of range"):
+        de.postselect(_run(2, []), 2, 2, '0')
