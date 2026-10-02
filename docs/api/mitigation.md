@@ -185,9 +185,43 @@ recovers the ideal `1.0` exactly. Reach for this instead of Step 3/4's polynomia
 fits when the underlying decay is closer to exponential than polynomial — the usual
 shape for a single depolarizing-type channel.
 
+## Step 8. Spend the shot budget where it counts — `zne_shot_allocation`
+
+```python
+from dense_evolution.mitigation import zne_shot_allocation
+
+zne_shot_allocation([1.0, 2.0, 3.0], 9000).tolist()
+```
+
+```
+[3857, 3857, 1286]
+```
+
+Richardson's zero-noise value is `3·E(1) − 3·E(2) + 1·E(3)`, so shot noise in the
+first two points is amplified three times more than in the last. Splitting 9000 shots
+evenly (3000 each) wastes measurements on the point that matters least;
+`zne_shot_allocation` gives each noise factor shots in proportion to the size of its
+coefficient. That lowers the variance of the extrapolated value from 57 to 49 (in
+units of single-shot variance over the budget), about 14% less noise for the same
+number of shots. If a short pilot run shows that the single-shot spread differs
+between factors (for a Pauli expectation `E`, it is `sqrt(1 − E²)`), pass it as
+`sigmas` and the split follows `|coefficient| × sigma`.
+
 ---
 
 ## Details
+
+### Shot allocation: where the rule comes from
+
+The Richardson estimate is a fixed linear combination of the measured values (Temme,
+Bravyi & Gambetta, PRL 119, 180509 (2017), Eq. 3; Giurgica-Tiron et al.,
+[arXiv:2005.10921](https://arxiv.org/abs/2005.10921), Eq. 30), so its variance is
+`sum_j eta_j² sigma_j² / N_j`. Minimising it under a fixed total gives
+`N_j ∝ |eta_j| sigma_j`, the same derivation Temme et al. use for the sample allocation
+of probabilistic error cancellation in their Supplemental Material. Checked by
+simulation (`tests/unit/test_zne_shot_allocation.py`): with `E = (0.7, 0.5, 0.36)` at
+factors 1, 2, 3 and 9000 shots, the measured variance ratio uniform/optimal is within
+3% of the predicted 1.138.
 
 ### Healing-adapted zero-noise extrapolation
 
