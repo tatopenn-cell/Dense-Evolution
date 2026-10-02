@@ -1,3 +1,4 @@
+import os
 import subprocess
 import sys
 import textwrap
@@ -19,5 +20,6 @@ def test_mitigation_entry_points_enable_x64_in_a_fresh_process():
         stack = np.stack([rho, rho, rho])
         assert np.asarray(zne_density_matrix_jit(stack, np.array([1.0, 2.0, 3.0]))).dtype == np.complex128
     """)
-    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    env = {k: v for k, v in os.environ.items() if k != "JAX_ENABLE_X64"}
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env)
     assert result.returncode == 0, result.stderr[-2000:]
