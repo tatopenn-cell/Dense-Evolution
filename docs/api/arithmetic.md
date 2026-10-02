@@ -1,4 +1,4 @@
-# Arithmetic (adders, comparators)
+# Arithmetic (adders, comparators, modular)
 
 A register is a group of qubits read as one binary number. Quantum arithmetic adds,
 subtracts and compares these numbers while keeping every superposition intact: an
@@ -123,6 +123,42 @@ entangled with the register (amplitudes at `0101` and `0110`). The registers are
 changed, only the output qubit. `op` can be `'<'`, `'>'`, `'<='`, `'>='`, `'=='` or
 `'!='`; `compare_registers` does the same between two registers.
 
+## Step 6. Modular exponentiation, the core of Shor's algorithm
+
+```python
+qasm = """OPENQASM 2.0;
+include "qelib1.inc";
+qreg q[6];
+h q[0];
+h q[1];
+x q[5];
+"""
+circ = de.QASMParser().parse(qasm)
+sim = de.DenseSVSimulator(6)
+sim.run_circuit_jit(circ)
+sv0 = sim.get_statevector()
+sv1 = de.power_mod(sv0, 6, [1, 0], [5, 4, 3, 2], 7, 15)
+p = np.abs(np.asarray(sv1)) ** 2
+print([format(int(k), '06b') for k in np.flatnonzero(p > 1e-9)])
+```
+
+```
+['000001', '010111', '100100', '111101']
+```
+
+Register `x` is qubits `[1, 0]`, put in an equal superposition of `0, 1, 2, 3` by the two
+`h` gates. Register `y` is qubits `[5, 4, 3, 2]`, set to `1` by `x q[5]`.
+`power_mod` maps `|x, y>` to `|x, y * 7^x mod 15>`, so each branch now pairs `x` with
+`7^x mod 15`: `1, 7, 4, 13`. Reading the four bitstrings, `x` is the first two digits
+and `y` the last four, least significant last. This is the state Shor's algorithm
+measures to find the period of `7^x mod 15`.
+
+The same module has the steps that build it: `add_registers_mod` and
+`add_constant_mod` (`(a + b) mod N`), `multiply_add_mod` (`b + a*x mod N`) and
+`multiply_mod` (`x -> a*x mod N` in place, for `a` coprime with `N`; with
+`N = 2^n` and odd `a` it is plain multiplication). The modular functions accept
+`controls`, a list of qubits that must all be `1` for the operation to act.
+
 ---
 
 ## Details
@@ -144,6 +180,18 @@ state:
   the high bit of the sum, undo (Cuccaro et al., Sect. 4.3);
 - `compare_constant(..., '<')` against the most significant qubit after the reverse
   φADD(c) (Beauregard, Sect. 2.1, Fig. 4), for `c < 2^n` as in the paper.
+- `add_constant_mod` against the modular adder built from adders, a subtraction of
+  `N`, the overflow qubit and its reset (Beauregard, Sect. 2.2, Fig. 5);
+- `multiply_add_mod` against `n` controlled modular additions of `2^i*a mod N`
+  (Vedral et al., Sect. III.C; Beauregard, Sect. 2.3, Eq. 2);
+- `multiply_mod` against the controlled-`U_a` circuit: multiply-add, controlled swap,
+  inverse multiply-add by `a^-1 mod N` (Beauregard, Sect. 2.3, Fig. 7);
+- `power_mod` against the chain of controlled multiplications by `a^(2^i) mod N`
+  (Vedral et al., Sect. III.D).
+
+**Modular domain.** The modular functions act on values below `N`, as in the papers.
+Basis states holding a value `>= N` are left unchanged, so every function stays a
+permutation and therefore unitary.
 
 **Register sizes.** With `len(b) == len(a) + 1` the sum is exact (Vedral et al.,
 Sect. III.A); with `len(b) == len(a)` it is addition modulo `2^n` (Cuccaro et al.,

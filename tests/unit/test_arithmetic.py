@@ -157,6 +157,107 @@ def test_unknown_comparison_raises():
         de.compare_registers(_basis(3, 0), 3, [0], [1], 2, '=<')
 
 
+def _cswap(c, p, q):
+    return [('cx', q, p), ('ccx', c, p, q), ('cx', q, p)]
+
+
+@pytest.mark.parametrize("a", [0, 1, 2])
+def test_add_constant_mod_matches_beauregard_modular_adder(a):
+    n, b, t, msb, N = 4, [3, 2, 1], 0, 1, 3
+    for i in range(16):
+        if (i >> 3) & 1 or (i >> 2) & 1 or _bits(n, i, [3, 2]) >= N:
+            continue
+        v = _basis(n, i)
+        v = de.add_constant(v, n, b, a)
+        v = de.add_constant(v, n, b, -N)
+        v = _run(n, v, [('cx', msb, t)])
+        v = de.add_constant_mod(v, n, b, N, 2 ** len(b), controls=[t])
+        v = de.add_constant(v, n, b, -a)
+        v = _run(n, v, [('x', msb), ('cx', msb, t), ('x', msb)])
+        v = de.add_constant(v, n, b, a)
+        np.testing.assert_allclose(
+            np.asarray(v), np.asarray(de.add_constant_mod(_basis(n, i), n, [3, 2], a, N)), atol=1e-12)
+
+
+@pytest.mark.parametrize("a", [1, 2, 4])
+def test_multiply_add_mod_is_sum_of_controlled_modular_additions(a):
+    n, c, x, b, N = 6, 0, [2, 1], [5, 4, 3], 5
+    for i in range(2 ** n):
+        if _bits(n, i, b) >= N:
+            continue
+        v = _basis(n, i)
+        for k, q in enumerate(x):
+            v = de.add_constant_mod(v, n, b, (2 ** k * a) % N, N, controls=[c, q])
+        np.testing.assert_allclose(
+            np.asarray(v), np.asarray(de.multiply_add_mod(_basis(n, i), n, x, b, a, N, controls=[c])),
+            atol=1e-12)
+
+
+@pytest.mark.parametrize("a", [1, 2])
+def test_multiply_mod_matches_beauregard_controlled_ua(a):
+    n, c, x, t, N = 5, 0, [2, 1], [4, 3], 3
+    for i in range(2 ** n):
+        if _bits(n, i, t) or _bits(n, i, x) >= N:
+            continue
+        v = de.multiply_add_mod(_basis(n, i), n, x, t, a, N, controls=[c])
+        v = _run(n, v, sum((_cswap(c, x[k], t[k]) for k in range(2)), []))
+        v = de.multiply_add_mod(v, n, x, t, -pow(a, -1, N), N, controls=[c])
+        np.testing.assert_allclose(
+            np.asarray(v), np.asarray(de.multiply_mod(_basis(n, i), n, x, a, N, controls=[c])), atol=1e-12)
+
+
+@pytest.mark.parametrize("a", [2, 7, 11])
+def test_power_mod_is_chain_of_controlled_multiplications(a):
+    n, x, y, N = 7, [2, 1, 0], [6, 5, 4, 3], 15
+    for i in range(2 ** n):
+        if _bits(n, i, y) >= N:
+            continue
+        v = _basis(n, i)
+        for k, q in enumerate(x):
+            v = de.multiply_mod(v, n, y, pow(a, 2 ** k, N), N, controls=[q])
+        np.testing.assert_allclose(
+            np.asarray(v), np.asarray(de.power_mod(_basis(n, i), n, x, y, a, N)), atol=1e-12)
+
+
+def test_power_mod_from_one_gives_modular_exponentiation():
+    n, x, y, a, N = 7, [2, 1, 0], [6, 5, 4, 3], 7, 15
+    for e in range(8):
+        i = sum(((e >> k) & 1) << (n - 1 - q) for k, q in enumerate(x)) | (1 << (n - 1 - y[0]))
+        out = int(np.argmax(np.abs(np.asarray(de.power_mod(_basis(n, i), n, x, y, a, N)))))
+        assert _bits(n, out, y) == pow(a, e, N)
+        assert _bits(n, out, x) == e
+
+
+def test_plain_multiplication_by_odd_number_modulo_2n():
+    out = np.asarray(de.multiply_mod(_basis(3, 0b011), 3, [2, 1, 0], 3, 8))
+    assert np.argmax(np.abs(out)) == (3 * 3) % 8
+
+
+def test_modular_maps_are_unitary_on_random_states():
+    rng = np.random.default_rng(1)
+    sv = rng.normal(size=64) + 1j * rng.normal(size=64)
+    sv /= np.linalg.norm(sv)
+    for out in (de.add_registers_mod(sv, 6, [1, 0], [3, 2], 3),
+                de.multiply_add_mod(sv, 6, [1, 0], [4, 3, 2], 3, 5, controls=[5]),
+                de.multiply_mod(sv, 6, [2, 1, 0], 3, 7),
+                de.power_mod(sv, 6, [1, 0], [5, 4, 3, 2], 2, 9)):
+        np.testing.assert_allclose(np.linalg.norm(np.asarray(out)), 1.0, atol=1e-12)
+
+
+def test_non_coprime_multiplication_raises():
+    with pytest.raises(ValueError, match="coprime"):
+        de.multiply_mod(_basis(3, 0), 3, [2, 1, 0], 2, 8)
+
+
+def test_add_registers_mod_on_every_basis_state():
+    n, a, b, N = 4, [1, 0], [3, 2], 3
+    for i in range(2 ** n):
+        va, vb = _bits(n, i, a), _bits(n, i, b)
+        out = int(np.argmax(np.abs(np.asarray(de.add_registers_mod(_basis(n, i), n, a, b, N)))))
+        assert _bits(n, out, a) == va
+        assert _bits(n, out, b) == ((va + vb) % N if va < N and vb < N else vb)
+
+
 def test_out_of_range_and_empty_registers_raise():
     with pytest.raises(ValueError, match="out of range"):
         de.add_registers(_basis(3, 0), 3, [0], [3])
@@ -172,3 +273,13 @@ def test_numpy_path_matches_jax_path(monkeypatch):
     got = arithmetic.add_registers(sv, 5, [1, 0], [4, 3, 2])
     assert isinstance(got, np.ndarray)
     np.testing.assert_allclose(got, want, atol=1e-12)
+
+
+def test_modulus_that_does_not_fit_raises():
+    with pytest.raises(ValueError, match="modulus"):
+        de.add_constant_mod(_basis(3, 0), 3, [1, 0], 1, 5)
+
+
+def test_power_mod_non_coprime_raises():
+    with pytest.raises(ValueError, match="coprime"):
+        de.power_mod(_basis(4, 0), 4, [1, 0], [3, 2], 2, 4)
