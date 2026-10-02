@@ -18,7 +18,7 @@ def test_mitigation_entry_points_enable_x64_in_a_fresh_process():
         assert out.dtype == np.complex128
         assert np.abs(out - ref).max() < 1e-14, np.abs(out - ref).max()
         stack = np.stack([rho, rho, rho])
-        assert np.asarray(zne_density_matrix_jit(stack, np.array([1.0, 2.0, 3.0]))).dtype == np.complex128
+        assert np.asarray(zne_density_matrix_jit(stack, np.array([1.0, 2.0, 3.0]), degree=2)).dtype == np.complex128
     """)
     env = {k: v for k, v in os.environ.items() if k != "JAX_ENABLE_X64"}
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env)
