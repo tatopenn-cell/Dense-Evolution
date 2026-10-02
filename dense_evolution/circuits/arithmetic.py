@@ -116,8 +116,6 @@ def add_constant(sv, n_qubits, b, c):
 
 
 def _flip_if(n_qubits, idx, out, condition):
-    if not 0 <= out < n_qubits:
-        raise ValueError(f"qubit index out of range for {n_qubits} qubits")
     return idx ^ (condition.astype(idx.dtype) << (n_qubits - 1 - out))
 
 

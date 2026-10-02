@@ -256,3 +256,30 @@ def test_add_registers_mod_on_every_basis_state():
         out = int(np.argmax(np.abs(np.asarray(de.add_registers_mod(_basis(n, i), n, a, b, N)))))
         assert _bits(n, out, a) == va
         assert _bits(n, out, b) == ((va + vb) % N if va < N and vb < N else vb)
+
+
+def test_out_of_range_and_empty_registers_raise():
+    with pytest.raises(ValueError, match="out of range"):
+        de.add_registers(_basis(3, 0), 3, [0], [3])
+    with pytest.raises(ValueError, match="empty"):
+        de.add_constant(_basis(3, 0), 3, [], 1)
+
+
+def test_numpy_path_matches_jax_path(monkeypatch):
+    from dense_evolution.circuits import arithmetic
+    sv = _basis(5, 0b11010)
+    want = np.asarray(de.add_registers(sv, 5, [1, 0], [4, 3, 2]))
+    monkeypatch.setattr(arithmetic, "xp", np)
+    got = arithmetic.add_registers(sv, 5, [1, 0], [4, 3, 2])
+    assert isinstance(got, np.ndarray)
+    np.testing.assert_allclose(got, want, atol=1e-12)
+
+
+def test_modulus_that_does_not_fit_raises():
+    with pytest.raises(ValueError, match="modulus"):
+        de.add_constant_mod(_basis(3, 0), 3, [1, 0], 1, 5)
+
+
+def test_power_mod_non_coprime_raises():
+    with pytest.raises(ValueError, match="coprime"):
+        de.power_mod(_basis(4, 0), 4, [1, 0], [3, 2], 2, 4)
