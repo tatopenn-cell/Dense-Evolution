@@ -45,7 +45,10 @@ from .physics.observables import (pauli_expectation, pauli_sum_expectation, paul
 from .physics.states import ghz_state
 from .utils.measurement import sample_counts, statevector_fidelity
 from .circuits.qft import qft
-from .circuits.arithmetic import add_registers, subtract_registers, add_constant
+from .circuits.arithmetic import (
+    add_registers, subtract_registers, add_constant,
+    compare_registers, compare_constant,
+)
 from .circuits.random_circuit import random_circuit
 from .utils.drawing import draw_circuit
 from .solvers.harrison_tb import (ELEMENTS as HARRISON_ELEMENTS, ETA as HARRISON_ETA,
@@ -77,6 +80,7 @@ __all__ = [
     "GATES", "PARAMETRIC_GATES", "GATE_IDS",
     "entangling_layer", "qft",
     "add_registers", "subtract_registers", "add_constant",
+    "compare_registers", "compare_constant",
     "pauli_rotation_ops", "trotter_evolve_ops", "continuous_pulse_evolve",
     "continuous_dissipative_evolve",
     "find_excitations", "single_excitation_ops", "double_excitation_ops",

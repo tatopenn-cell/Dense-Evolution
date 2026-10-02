@@ -97,3 +97,78 @@ def test_superposition_is_shifted_not_collapsed():
 def test_shared_qubits_raise():
     with pytest.raises(ValueError, match="share"):
         de.add_registers(_basis(3, 0), 3, [0, 1], [1, 2])
+
+
+def _bits(n, i, register):
+    return sum(((i >> (n - 1 - q)) & 1) << k for k, q in enumerate(register))
+
+
+@pytest.mark.parametrize("n_bits", [1, 2, 3])
+def test_compare_registers_matches_cuccaro_comparator(n_bits):
+    n = 2 * n_bits + 2
+    x, z = 0, n - 1
+    a = list(range(1, 2 * n_bits, 2))
+    b = list(range(2, 2 * n_bits + 1, 2))
+    ripple = _maj(x, b[0], a[0])
+    for i in range(1, n_bits):
+        ripple += _maj(a[i - 1], b[i], a[i])
+    flips = [('x', q) for q in a]
+    ops = flips + ripple + [('cx', a[-1], z)] + ripple[::-1] + flips
+    for i in range(2 ** n):
+        if (i >> (n - 1 - x)) & 1:
+            continue
+        sv = _basis(n, i)
+        np.testing.assert_allclose(
+            np.asarray(de.compare_registers(sv, n, a, b, z, '<')), _run(n, sv, ops), atol=1e-12)
+
+
+@pytest.mark.parametrize("c", [1, 2, 3])
+def test_compare_constant_matches_beauregard_reverse_phiadd(c):
+    m, out = 3, 3
+    phases = lambda k: [('p', m - 1 - j, 2 * np.pi * k * 2 ** j / 2 ** m) for j in range(m)]
+    ops = (list(qft(m)) + phases(-c) + list(qft(m, inverse=True)) + [('cx', 0, out)]
+           + list(qft(m)) + phases(c) + list(qft(m, inverse=True)))
+    for i in range(8):
+        sv = _basis(4, i)
+        np.testing.assert_allclose(
+            np.asarray(de.compare_constant(sv, 4, [2, 1], c, out, '<')), _run(4, sv, ops), atol=1e-10)
+
+
+@pytest.mark.parametrize("op, fn", [('<', np.less), ('>', np.greater), ('<=', np.less_equal),
+                                    ('>=', np.greater_equal), ('==', np.equal), ('!=', np.not_equal)])
+def test_every_comparison_on_every_basis_state(op, fn):
+    n, a, b, out = 5, [1, 0], [3, 2], 4
+    for i in range(2 ** n):
+        got = int(np.argmax(np.abs(np.asarray(de.compare_registers(_basis(n, i), n, a, b, out, op)))))
+        assert got == i ^ int(fn(_bits(n, i, a), _bits(n, i, b)))
+        got = int(np.argmax(np.abs(np.asarray(de.compare_constant(_basis(n, i), n, b, 2, out, op)))))
+        assert got == i ^ int(fn(_bits(n, i, b), 2))
+
+
+def test_comparison_entangles_a_superposition():
+    sv = np.zeros(8, dtype=complex)
+    sv[0] = sv[2] = 1 / np.sqrt(2)
+    out = np.asarray(de.compare_constant(sv, 3, [1, 0], 1, 2, '<'))
+    np.testing.assert_allclose(np.abs(out[[1, 2]]), [1 / np.sqrt(2)] * 2, atol=1e-12)
+
+
+def test_unknown_comparison_raises():
+    with pytest.raises(ValueError, match="op must be"):
+        de.compare_registers(_basis(3, 0), 3, [0], [1], 2, '=<')
+
+
+def test_out_of_range_and_empty_registers_raise():
+    with pytest.raises(ValueError, match="out of range"):
+        de.add_registers(_basis(3, 0), 3, [0], [3])
+    with pytest.raises(ValueError, match="empty"):
+        de.add_constant(_basis(3, 0), 3, [], 1)
+
+
+def test_numpy_path_matches_jax_path(monkeypatch):
+    from dense_evolution.circuits import arithmetic
+    sv = _basis(5, 0b11010)
+    want = np.asarray(de.add_registers(sv, 5, [1, 0], [4, 3, 2]))
+    monkeypatch.setattr(arithmetic, "xp", np)
+    got = arithmetic.add_registers(sv, 5, [1, 0], [4, 3, 2])
+    assert isinstance(got, np.ndarray)
+    np.testing.assert_allclose(got, want, atol=1e-12)
