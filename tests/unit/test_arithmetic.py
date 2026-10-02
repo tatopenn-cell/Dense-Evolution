@@ -97,3 +97,20 @@ def test_superposition_is_shifted_not_collapsed():
 def test_shared_qubits_raise():
     with pytest.raises(ValueError, match="share"):
         de.add_registers(_basis(3, 0), 3, [0, 1], [1, 2])
+
+
+def test_out_of_range_and_empty_registers_raise():
+    with pytest.raises(ValueError, match="out of range"):
+        de.add_registers(_basis(3, 0), 3, [0], [3])
+    with pytest.raises(ValueError, match="empty"):
+        de.add_constant(_basis(3, 0), 3, [], 1)
+
+
+def test_numpy_path_matches_jax_path(monkeypatch):
+    from dense_evolution.circuits import arithmetic
+    sv = _basis(5, 0b11010)
+    want = np.asarray(de.add_registers(sv, 5, [1, 0], [4, 3, 2]))
+    monkeypatch.setattr(arithmetic, "xp", np)
+    got = arithmetic.add_registers(sv, 5, [1, 0], [4, 3, 2])
+    assert isinstance(got, np.ndarray)
+    np.testing.assert_allclose(got, want, atol=1e-12)
