@@ -1,4 +1,4 @@
-# Arithmetic (adders)
+# Arithmetic (adders, comparators)
 
 A register is a group of qubits read as one binary number. Quantum arithmetic adds,
 subtracts and compares these numbers while keeping every superposition intact: an
@@ -94,6 +94,35 @@ print(np.round(np.asarray(sv1), 4))
 number `3` gives `(|3> + |4>)/√2`: both values are shifted, and nothing is measured.
 `c = 1` is an increment and `c = -1` a decrement.
 
+## Step 5. Compare a register with a number
+
+```python
+qasm = """OPENQASM 2.0;
+include "qelib1.inc";
+qreg q[4];
+h q[2];
+x q[1];
+"""
+circ = de.QASMParser().parse(qasm)
+sim = de.DenseSVSimulator(4)
+sim.run_circuit_jit(circ)
+sv0 = sim.get_statevector()
+sv1 = de.compare_constant(sv0, 4, [2, 1], 3, 3, '<')
+print(np.round(np.asarray(sv1), 4))
+```
+
+```
+[0.    +0.j 0.    +0.j 0.    +0.j 0.    +0.j 0.    +0.j 0.7071+0.j
+ 0.7071+0.j 0.    +0.j 0.    +0.j 0.    +0.j 0.    +0.j 0.    +0.j
+ 0.    +0.j 0.    +0.j 0.    +0.j 0.    +0.j]
+```
+
+Register `b` is qubits `[2, 1]` and holds `(|2> + |3>)/√2`. `compare_constant` flips the
+output qubit 3 where `b < 3` is true: only the `|2>` branch, so the answer is now
+entangled with the register (amplitudes at `0101` and `0110`). The registers are never
+changed, only the output qubit. `op` can be `'<'`, `'>'`, `'<='`, `'>='`, `'=='` or
+`'!='`; `compare_registers` does the same between two registers.
+
 ---
 
 ## Details
@@ -110,7 +139,11 @@ state:
 - `add_registers` against the ripple-carry adder with one ancilla (Cuccaro, Draper,
   Kutin, Moulton, quant-ph/0410184, MAJ/UMA construction), for 1, 2 and 3-bit numbers;
 - `add_constant` against the transform adder in Fourier space with a classical
-  addend (Draper, quant-ph/0008033, Sect. 5; Beauregard, quant-ph/0205095, Sect. 2.1).
+  addend (Draper, quant-ph/0008033, Sect. 5; Beauregard, quant-ph/0205095, Sect. 2.1);
+- `compare_registers(..., '<')` against the comparator: complement `a`, compute only
+  the high bit of the sum, undo (Cuccaro et al., Sect. 4.3);
+- `compare_constant(..., '<')` against the most significant qubit after the reverse
+  φADD(c) (Beauregard, Sect. 2.1, Fig. 4), for `c < 2^n` as in the paper.
 
 **Register sizes.** With `len(b) == len(a) + 1` the sum is exact (Vedral et al.,
 Sect. III.A); with `len(b) == len(a)` it is addition modulo `2^n` (Cuccaro et al.,

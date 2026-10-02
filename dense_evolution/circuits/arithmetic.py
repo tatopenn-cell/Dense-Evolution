@@ -23,7 +23,13 @@ if HAS_JAX:
 else:
     xp = np
 
-__all__ = ['add_registers', 'subtract_registers', 'add_constant']
+__all__ = ['add_registers', 'subtract_registers', 'add_constant',
+           'compare_registers', 'compare_constant']
+
+_COMPARISONS = {
+    '<': np.less, '>': np.greater, '<=': np.less_equal,
+    '>=': np.greater_equal, '==': np.equal, '!=': np.not_equal,
+}
 
 
 def _register_values(n_qubits, register):
@@ -102,3 +108,41 @@ def add_constant(sv, n_qubits, b, c):
     idx, vb = _register_values(n_qubits, b)
     target = _with_register(n_qubits, idx, b, (vb + int(c)) % (1 << len(b)))
     return _permute(sv, target)
+
+
+def _flip_if(n_qubits, idx, out, condition):
+    if not 0 <= out < n_qubits:
+        raise ValueError(f"qubit index out of range for {n_qubits} qubits")
+    return idx ^ (condition.astype(idx.dtype) << (n_qubits - 1 - out))
+
+
+def _comparison(op):
+    if op not in _COMPARISONS:
+        raise ValueError(f"op must be one of {sorted(_COMPARISONS)}, got {op!r}")
+    return _COMPARISONS[op]
+
+
+def compare_registers(sv, n_qubits, a, b, out, op='<'):
+    """
+    |a, b, z> -> |a, b, z XOR [a op b]>, inputs unchanged.
+
+    op = '<' is the comparator of Cuccaro et al. (Sect. 4.3): the high bit of
+    a - b, which is 1 if and only if a < b. The other comparisons follow by
+    swapping the operands and negating the output qubit.
+    """
+    _check(n_qubits, a, b, [out])
+    idx, va = _register_values(n_qubits, a)
+    _, vb = _register_values(n_qubits, b)
+    return _permute(sv, _flip_if(n_qubits, idx, out, _comparison(op)(va, vb)))
+
+
+def compare_constant(sv, n_qubits, b, c, out, op='<'):
+    """
+    |b, z> -> |b, z XOR [b op c]> for a classical integer c.
+
+    op = '<' is the most significant qubit after the reverse phiADD(c) of
+    Beauregard (quant-ph/0205095, Sect. 2.1, Fig. 4).
+    """
+    _check(n_qubits, b, [out])
+    idx, vb = _register_values(n_qubits, b)
+    return _permute(sv, _flip_if(n_qubits, idx, out, _comparison(op)(vb, int(c))))
