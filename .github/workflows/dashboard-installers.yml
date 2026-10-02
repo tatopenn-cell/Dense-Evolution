@@ -25,7 +25,7 @@ jobs:
         shell: cmd
         run: |
           (echo s& echo S& echo S& echo n) > answers.txt
-          call dashboard\install-dashboard.bat < answers.txt
+          call tools\installer\install-dashboard.bat < answers.txt
       - name: Files and shortcuts exist
         shell: pwsh
         run: |
@@ -53,7 +53,7 @@ jobs:
         shell: cmd
         run: |
           echo n> no.txt
-          call dashboard\uninstall-dashboard.bat < no.txt
+          call tools\installer\uninstall-dashboard.bat < no.txt
       - name: Everything removed
         shell: pwsh
         run: |
