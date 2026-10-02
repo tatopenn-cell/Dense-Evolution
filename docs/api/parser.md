@@ -142,6 +142,30 @@ implements `__iter__` over that same tuple list — passing `circuit` itself any
 plain tuple list is expected (`DenseSVSimulator.run_circuit`, `QuantumTranspiler.transpile`,
 `Chunk.run_chunk`) works without the extra call.
 
+## Step 9. Define your own gates
+
+```python
+qasm = """OPENQASM 2.0;
+include "qelib1.inc";
+gate bell a,b { h a; cx a,b; }
+qreg q[4];
+bell q[0],q[1];
+bell q[2],q[3];
+"""
+circuit = de.QASMParser().parse(qasm)
+list(circuit)
+```
+
+```
+[('h', 0), ('cx', 0, 1), ('h', 2), ('cx', 2, 3)]
+```
+
+`gate bell a,b { ... }` defines a new gate from existing ones, acting on the formal
+qubits `a` and `b`. Each call is replaced by the body with the real qubits put in.
+Definitions can use parameters (`gate rot(t) a { rz(t/2) a; }`) and call other
+definitions. This is how Qiskit's `qasm2.dumps` writes composite circuits such as its
+adders, so those files run here directly.
+
 ---
 
 ## Details

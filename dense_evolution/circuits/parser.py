@@ -260,12 +260,9 @@ class QASMParser:
         - `for` loops with unresolvable bounds, and all `if`/`while`/`def`
           blocks (no static execution — would need runtime classical bit
           state), are simply removed, leaving the rest of the source intact.
-        - `gate` definitions are removed too — their body uses the gate's
-          own formal parameter names, not real qubit indices, so it can't
-          be executed directly; a later call site referencing that gate
-          name still falls through as an unrecognized gate (silent no-op,
-          same as any other unknown gate name elsewhere in this codebase),
-          but no longer corrupts the qubit/statement that follows it.
+        - `gate` definitions never reach this loop: parse() lifts them out
+          first with _extract_gate_definitions and expands every call site
+          into the definition's body (_expand_gate_call).
 
         Runs as a search/replace loop rather than recursion: after an outer
         block is unrolled, any inner (nested) blocks are duplicated as raw
@@ -303,6 +300,70 @@ class QASMParser:
             s = s[:m.start()] + replacement + s[close_brace + 1:]
         return s
 
+    _RE_GATE_DEF = re.compile(r'\bgate\s+([a-zA-Z_]\w*)\s*(?:\(([^)]*)\))?\s*([^{]*)\{')
+
+    def _extract_gate_definitions(self, s: str) -> Tuple[str, Dict]:
+        """
+        Remove every `gate NAME(params) args { body }` definition from the
+        source and return it with a table NAME -> (params, args, body).
+
+        OpenQASM 2.0 defines new gates as a body of earlier gates acting on
+        formal arguments; exporters such as qiskit.qasm2.dumps write
+        composite and arithmetic circuits this way (e.g. gate_MAJ inside
+        CDKMRippleCarryAdder), so call sites must be expanded, not dropped.
+        """
+        defs: Dict[str, Tuple[List[str], List[str], str]] = {}
+        while True:
+            m = self._RE_GATE_DEF.search(s)
+            if not m:
+                return s, defs
+            close = self._find_matching_brace(s, m.end() - 1)
+            if close is None:
+                return s, defs
+            params = [p.strip() for p in (m.group(2) or '').split(',') if p.strip()]
+            args = [a.strip() for a in m.group(3).split(',') if a.strip()]
+            defs[m.group(1).lower()] = (params, args, s[m.end():close])
+            s = s[:m.start()] + s[close + 1:]
+
+    def _expand_gate_call(self, instr: str, defs: Dict, depth: int = 0) -> List[str]:
+        """
+        Replace a call to a user-defined gate by its body, with formal
+        arguments and parameters substituted, recursively for nested
+        definitions. Anything else is returned unchanged.
+        """
+        instr = re.sub(r'\s+', ' ', instr).strip()
+        head = re.split(r'[\s(]', instr, 1)[0].lower()
+        if head not in defs:
+            return [instr]
+        if depth > 64:
+            raise ValueError(f"gate definitions nested too deeply at '{head}'")
+        params, args, body = defs[head]
+        rest = instr[len(head):].strip()
+        actual_params: List[str] = []
+        if rest.startswith('('):
+            depth_p, close = 0, -1
+            for i, ch in enumerate(rest):
+                depth_p += (ch == '(') - (ch == ')')
+                if depth_p == 0:
+                    close = i
+                    break
+            actual_params = [t.strip() for t in self._split_params(rest[1:close])]
+            rest = rest[close + 1:]
+        actual_args = [a.strip() for a in rest.split(',') if a.strip()]
+        if len(actual_args) != len(args) or len(actual_params) != len(params):
+            raise ValueError(f"gate '{head}' expects {len(params)} parameters and "
+                             f"{len(args)} qubits, got '{instr}'")
+        table = dict(zip(args, actual_args))
+        table.update({p: f'({v})' for p, v in zip(params, actual_params)})
+        if table:
+            names = re.compile(r'\b(' + '|'.join(re.escape(k) for k in table) + r')\b')
+            body = names.sub(lambda mm: table[mm.group(1)], body)
+        out: List[str] = []
+        for st in body.split(';'):
+            if st.strip():
+                out.extend(self._expand_gate_call(st, defs, depth + 1))
+        return out
+
     def parse(self, qasm_str: str) -> QASMCircuit:
         """
         Parse an OpenQASM 2.0 or 3.0 string into a QASMCircuit.
@@ -337,10 +398,12 @@ class QASMParser:
         # Must run before the ';'-split below: brace-delimited blocks are
         # not single ';'-terminated statements, and left alone they corrupt
         # whatever real statement follows them on the same line.
+        cleaned, gate_defs = self._extract_gate_definitions(cleaned)
         cleaned = self._process_block_constructs(cleaned)
 
         # ── split into statements ─────────────────────────────────────
         statements = [s.strip() for s in cleaned.split(';') if s.strip()]
+        statements = [e for st in statements for e in self._expand_gate_call(st, gate_defs)]
 
         for instr in statements:
             # collapse internal whitespace runs to a single space
