@@ -9,7 +9,7 @@ def test_equal_sigmas_follow_richardson_coefficients():
 
 
 def test_counts_sum_to_budget_and_are_at_least_one():
-    for total in (3, 10, 1001, 9999):
+    for total in (4, 10, 1001, 9999):
         counts = zne_shot_allocation([1.0, 1.5, 2.0, 3.0], total)
         assert counts.sum() == total
         assert counts.min() >= 1
