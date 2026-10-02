@@ -8,6 +8,7 @@ from .qft import qft
 from .arithmetic import (
     add_registers, subtract_registers, add_constant,
     compare_registers, compare_constant,
+    add_registers_mod, add_constant_mod, multiply_add_mod, multiply_mod, power_mod,
 )
 from .random_circuit import random_circuit
 from .trotter import pauli_rotation_ops, trotter_evolve_ops
@@ -21,6 +22,7 @@ __all__ = [
     "qft",
     "add_registers", "subtract_registers", "add_constant",
     "compare_registers", "compare_constant",
+    "add_registers_mod", "add_constant_mod", "multiply_add_mod", "multiply_mod", "power_mod",
     "random_circuit",
     "pauli_rotation_ops", "trotter_evolve_ops",
 ]

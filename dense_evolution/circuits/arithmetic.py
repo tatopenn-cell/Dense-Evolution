@@ -24,7 +24,9 @@ else:
     xp = np
 
 __all__ = ['add_registers', 'subtract_registers', 'add_constant',
-           'compare_registers', 'compare_constant']
+           'compare_registers', 'compare_constant',
+           'add_registers_mod', 'add_constant_mod', 'multiply_add_mod',
+           'multiply_mod', 'power_mod']
 
 _COMPARISONS = {
     '<': np.less, '>': np.greater, '<=': np.less_equal,
@@ -146,3 +148,93 @@ def compare_constant(sv, n_qubits, b, c, out, op='<'):
     _check(n_qubits, b, [out])
     idx, vb = _register_values(n_qubits, b)
     return _permute(sv, _flip_if(n_qubits, idx, out, _comparison(op)(vb, int(c))))
+
+
+def _active(n_qubits, idx, controls):
+    on = np.ones(idx.shape, dtype=bool)
+    for q in controls:
+        on &= ((idx >> (n_qubits - 1 - q)) & 1).astype(bool)
+    return on
+
+
+def _check_modulus(N, *registers):
+    if N < 1 or any(N > (1 << len(r)) for r in registers):
+        raise ValueError(f"modulus N={N} must be >= 1 and fit in the register")
+
+
+def add_registers_mod(sv, n_qubits, a, b, N):
+    """
+    |a, b> -> |a, (a + b) mod N> for 0 <= a, b < N (Vedral et al., Sect. III.B,
+    Eq. 10). Basis states with a >= N or b >= N are left unchanged, which
+    keeps the map a permutation.
+    """
+    _check(n_qubits, a, b)
+    _check_modulus(N, a, b)
+    idx, va = _register_values(n_qubits, a)
+    _, vb = _register_values(n_qubits, b)
+    ok = (va < N) & (vb < N)
+    return _permute(sv, _with_register(n_qubits, idx, b, np.where(ok, (va + vb) % N, vb)))
+
+
+def add_constant_mod(sv, n_qubits, b, c, N, controls=()):
+    """
+    |b> -> |(b + c) mod N> for 0 <= b < N, applied only where every control
+    qubit is 1: the doubly controlled phiADD(c)MOD(N) of Beauregard
+    (quant-ph/0205095, Sect. 2.2, Fig. 5). Basis states with b >= N are left
+    unchanged.
+    """
+    _check(n_qubits, b, *([list(controls)] if controls else []))
+    _check_modulus(N, b)
+    idx, vb = _register_values(n_qubits, b)
+    ok = _active(n_qubits, idx, controls) & (vb < N)
+    return _permute(sv, _with_register(n_qubits, idx, b, np.where(ok, (vb + int(c)) % N, vb)))
+
+
+def multiply_add_mod(sv, n_qubits, x, b, a, N, controls=()):
+    """
+    |x, b> -> |x, (b + a*x) mod N> for 0 <= b < N, applied only where every
+    control qubit is 1: CMULT(a)MOD(N) of Beauregard (Sect. 2.3, Fig. 6),
+    built in the paper from n controlled modular additions of 2^i*a mod N
+    (Vedral et al., Sect. III.C). Basis states with b >= N are left unchanged.
+    """
+    _check(n_qubits, x, b, *([list(controls)] if controls else []))
+    _check_modulus(N, b)
+    idx, vx = _register_values(n_qubits, x)
+    _, vb = _register_values(n_qubits, b)
+    ok = _active(n_qubits, idx, controls) & (vb < N)
+    new = (vb + (int(a) % N) * (vx % N)) % N
+    return _permute(sv, _with_register(n_qubits, idx, b, np.where(ok, new, vb)))
+
+
+def multiply_mod(sv, n_qubits, x, a, N, controls=()):
+    """
+    |x> -> |a*x mod N> in place for 0 <= x < N and gcd(a, N) = 1, applied only
+    where every control qubit is 1 (Vedral et al., Sect. II, Eqs. 4-6;
+    Beauregard, Sect. 2.3, Fig. 7). With N = 2^len(x) and odd a this is plain
+    multiplication modulo 2^n. Basis states with x >= N are left unchanged.
+    """
+    _check(n_qubits, x, *([list(controls)] if controls else []))
+    _check_modulus(N, x)
+    if np.gcd(int(a), N) != 1:
+        raise ValueError(f"a={a} and N={N} must be coprime for an in-place multiplication")
+    idx, vx = _register_values(n_qubits, x)
+    ok = _active(n_qubits, idx, controls) & (vx < N)
+    return _permute(sv, _with_register(n_qubits, idx, x, np.where(ok, (int(a) * vx) % N, vx)))
+
+
+def power_mod(sv, n_qubits, x, y, a, N):
+    """
+    |x, y> -> |x, y * a^x mod N> for 0 <= y < N and gcd(a, N) = 1. With y = 1
+    this is the modular exponentiation |x, 1> -> |x, a^x mod N> of Shor's
+    algorithm (Vedral et al., Eq. 1 and Sect. III.D). Basis states with
+    y >= N are left unchanged.
+    """
+    _check(n_qubits, x, y)
+    _check_modulus(N, y)
+    if np.gcd(int(a), N) != 1:
+        raise ValueError(f"a={a} and N={N} must be coprime")
+    idx, vx = _register_values(n_qubits, x)
+    _, vy = _register_values(n_qubits, y)
+    powers = np.array([pow(int(a), int(e), N) for e in range(1 << len(x))])
+    ok = vy < N
+    return _permute(sv, _with_register(n_qubits, idx, y, np.where(ok, (vy * powers[vx]) % N, vy)))
