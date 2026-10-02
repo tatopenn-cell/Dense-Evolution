@@ -15,6 +15,7 @@ engine.
 """
 import numpy as np
 
+from ..config import ensure_x64
 from .registry import HAS_JAX
 
 if HAS_JAX:
@@ -53,11 +54,13 @@ def _check(n_qubits, *registers):
 
 
 def _permute(sv, target):
-    sv = xp.asarray(sv)
     if xp is np:
+        sv = np.asarray(sv)
         out = np.zeros_like(sv)
         out[target] = sv
         return out
+    ensure_x64()
+    sv = xp.asarray(sv)
     return xp.zeros_like(sv).at[target].set(sv)
 
 
