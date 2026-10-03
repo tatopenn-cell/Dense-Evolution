@@ -20,6 +20,7 @@ exact same kernel, not a separate reimplementation.
 | [QASM Parser](parser.md) | OpenQASM 2.0 / 3.0 parsing, including user-defined `gate` definitions |
 | [Compiler](compiler.md) | Circuit transpilation (`QuantumTranspiler`) |
 | [Registry](registry.md) | Hardware detection: how many qubits this machine can safely simulate |
+| [Precision](config.md) | 64-bit JAX precision: automatic `ensure_x64`, `set_precision`, `with_x64` |
 | [Gates](gates.md) | Gate matrix tables (`GATES`, `PARAMETRIC_GATES`, `GATE_IDS`) |
 | [Topology](topology.md) | Entangling-layer patterns for variational circuits |
 | [States](states.md) | Common state-preparation circuits (GHZ, ...) |
