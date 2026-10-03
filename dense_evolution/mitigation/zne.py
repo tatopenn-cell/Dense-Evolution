@@ -21,7 +21,7 @@ from scipy.optimize import minimize
 from .healing import calculate_delta_preemp
 from ..config import with_x64
 
-__all__ = ["richardson_extrapolate", "richardson_amplification_factor", "zero_noise_extrapolation",
+__all__ = ["richardson_extrapolate", "richardson_amplification_factor", "zne_shot_allocation", "zero_noise_extrapolation",
            "polynomial_extrapolate", "bounded_exponential_extrapolate",
            "project_to_physical", "uhlmann_fidelity", "zne_density_matrix",
            "jsd_predictive_zne_density_matrix", "coherence_predictive_zne_density_matrix",
@@ -136,6 +136,57 @@ def richardson_amplification_factor(noise_factors) -> float:
     lambdas = jnp.asarray(noise_factors, dtype=jnp.float64)
     coeffs = _lagrange_coeffs_at_zero(lambdas)
     return float(jnp.sum(jnp.abs(coeffs)))
+
+
+@with_x64
+def zne_shot_allocation(noise_factors, total_shots: int, sigmas=None) -> np.ndarray:
+    """Split a budget of `total_shots` across the noise factors of a
+    Richardson extrapolation so the variance of the zero-noise estimate is
+    as small as possible.
+
+    The Richardson estimate is a fixed linear combination
+    sum_j eta_j * E(lambda_j) of the measured values (Temme, Bravyi,
+    Gambetta, PRL 119, 180509 (2017), Eq. 3; Giurgica-Tiron et al.,
+    arXiv:2005.10921, Eq. 30), each value carrying a sampling error that
+    shrinks as N_j**-0.5. With single-shot standard deviation sigma_j its
+    variance is sum_j eta_j**2 * sigma_j**2 / N_j. Minimising it under
+    sum_j N_j = total_shots gives N_j proportional to |eta_j| * sigma_j --
+    the same derivation Temme et al. give for the sample allocation of
+    probabilistic error cancellation (Supplemental Material,
+    M_j ~ M sigma_j / sum_i sigma_i), and, for the two-point exponential
+    model, Giurgica-Tiron et al., Eqs. 38-41. With equal sigma_j it is the
+    rule N_j proportional to |eta_j| requested in Mitiq issue #1709. The minimum
+    variance is (sum_j |eta_j| sigma_j)**2 / total_shots, against
+    m * sum_j eta_j**2 sigma_j**2 / total_shots for an even split over m
+    factors: at factors (1, 2, 3) with equal sigma_j that is 49 against 57,
+    about 14% lower.
+
+    `sigmas` are the per-factor single-shot standard deviations (e.g.
+    sqrt(1 - E**2) for a Pauli expectation from a pilot run); equal by
+    default. Counts are rounded with the largest-remainder rule, sum
+    exactly to `total_shots`, and are at least 1 per factor.
+
+    Examples
+    --------
+    >>> from dense_evolution.mitigation import zne_shot_allocation
+    >>> zne_shot_allocation([1.0, 2.0, 3.0], 7000).tolist()
+    [3000, 3000, 1000]
+    """
+    lambdas = jnp.asarray(noise_factors, dtype=jnp.float64)
+    weights = np.abs(np.asarray(_lagrange_coeffs_at_zero(lambdas)))
+    if sigmas is not None:
+        weights = weights * np.asarray(sigmas, dtype=np.float64)
+    n = weights.shape[0]
+    total_shots = int(total_shots)
+    if total_shots < n:
+        raise ValueError(f"total_shots={total_shots} must be at least the number of noise factors ({n})")
+    if np.any(weights < 0) or not np.any(weights > 0):
+        raise ValueError("sigmas must be non-negative and not all zero")
+    ideal = 1 + (total_shots - n) * weights / weights.sum()
+    counts = np.floor(ideal).astype(np.int64)
+    for j in np.argsort(counts - ideal)[: total_shots - counts.sum()]:
+        counts[j] += 1
+    return counts
 
 
 def _richardson_extrapolate_core(values: jnp.ndarray, lambdas: jnp.ndarray) -> jnp.ndarray:
