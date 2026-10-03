@@ -79,6 +79,9 @@ pennylane = [
     # basis_set_exchange supplies that basis-set data.
     "basis_set_exchange>=0.9"
 ]
+hf = [
+    "basis_set_exchange>=0.9"
+]
 stim = [
     "stim>=1.13.0"
 ]

@@ -7,6 +7,14 @@ basis. `dense_evolution.native_hf` is a from-scratch, JAX-vectorized engine for 
 step -- covers any element `basis_set_exchange` has STO-3G data for, not just the small
 H-Ne table PennyLane's own bundled solver ships.
 
+```bash
+pip install dense-evolution[hf]
+```
+
+The `hf` extra installs `basis_set_exchange`, which supplies the basis-set data. Step 1
+also builds a PennyLane Hamiltonian, so it needs `pip install dense-evolution[pennylane]`,
+which includes the same package.
+
 ## Step 1. A real molecule's qubit Hamiltonian
 
 ```python

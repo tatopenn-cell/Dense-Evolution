@@ -40,7 +40,7 @@ if failed:
     sys.exit(1)
 print("OK")
 """
-    result = _run_blocked(["pennylane", "qiskit", "stim", "pymatching"], body)
+    result = _run_blocked(["pennylane", "qiskit", "stim", "pymatching", "basis_set_exchange"], body)
     assert result.returncode == 0, result.stdout + result.stderr
 
 
@@ -71,4 +71,20 @@ print("did not raise")
 sys.exit(1)
 """
     result = _run_blocked(["pennylane"], body)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_native_hf_without_basis_set_exchange_names_the_extra():
+    body = """
+import jax.numpy as jnp
+import dense_evolution.native_hf.basis as basis
+try:
+    basis.load_element_shells("sto-3g", 1, jnp.zeros(3), 0)
+except ModuleNotFoundError as e:
+    assert "dense-evolution[hf]" in str(e), str(e)
+    print("OK")
+else:
+    raise SystemExit("no error raised")
+"""
+    result = _run_blocked(["basis_set_exchange"], body)
     assert result.returncode == 0, result.stdout + result.stderr
