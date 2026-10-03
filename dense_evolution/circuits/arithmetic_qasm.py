@@ -19,10 +19,12 @@ Draper, quant-ph/0008033 (addition on a quantum computer, QFT adder).
 Beauregard, quant-ph/0205095 (circuit for Shor's algorithm using 2n+3 qubits).
 """
 import math
+import re
 
 __all__ = [
     "cuccaro_adder_qasm", "draper_adder_qasm",
     "constant_adder_qasm", "modular_constant_adder_qasm",
+    "cmult_mod_qasm", "controlled_ua_qasm",
 ]
 
 _HEADER = 'OPENQASM 2.0;\ninclude "qelib1.inc";\n'
@@ -54,17 +56,55 @@ def _iqft(reg, m):
     return lines
 
 
-def _phi_add(reg, m, c, control=None):
+def _ccp(theta, c1, c2, target):
+    return [f"cp({theta / 2!r}) {c2}, {target};", f"cx {c1}, {c2};",
+            f"cp({-theta / 2!r}) {c2}, {target};", f"cx {c1}, {c2};",
+            f"cp({theta / 2!r}) {c1}, {target};"]
+
+
+def _phi_add(reg, m, c, controls=()):
     lines = []
     for k in range(m):
         theta = 2 * math.pi * (c % 2 ** (k + 1)) / 2 ** (k + 1)
         if theta == 0.0:
             continue
-        if control is None:
-            lines.append(f"p({theta!r}) {reg}[{k}];")
+        target = f"{reg}[{k}]"
+        if not controls:
+            lines.append(f"p({theta!r}) {target};")
+        elif len(controls) == 1:
+            lines.append(f"cp({theta!r}) {controls[0]}, {target};")
         else:
-            lines.append(f"cp({theta!r}) {control}, {reg}[{k}];")
+            lines += _ccp(theta, controls[0], controls[1], target)
     return lines
+
+
+def _phi_add_mod(reg, m, c, N, t, controls=()):
+    msb = f"{reg}[{m - 1}]"
+    lines = _phi_add(reg, m, c, controls) + _phi_add(reg, m, -N)
+    lines += _iqft(reg, m) + [f"cx {msb}, {t};"] + _qft(reg, m)
+    lines += _phi_add(reg, m, N, (t,)) + _phi_add(reg, m, -c, controls)
+    lines += _iqft(reg, m) + [f"x {msb};", f"cx {msb}, {t};", f"x {msb};"] + _qft(reg, m)
+    return lines + _phi_add(reg, m, c, controls)
+
+
+def _cmult(a, N, n, control):
+    lines = _qft("b", n + 1)
+    for i in range(n):
+        lines += _phi_add_mod("b", n + 1, (2 ** i * a) % N, N, "t[0]", (control, f"x[{i}]"))
+    return lines + _iqft("b", n + 1)
+
+
+_ANGLE = re.compile(r"^(c?p)\((.+?)\) ")
+
+
+def _inverse(lines):
+    return [_ANGLE.sub(lambda mt: f"{mt.group(1)}({-float(mt.group(2))!r}) ", line) for line in reversed(lines)]
+
+
+def _check_modular(n, N):
+    _check_n(n)
+    if not 0 < N < 2 ** n:
+        raise ValueError(f"need 0 < N < 2^n = {2 ** n}, got N={N}.")
 
 
 def cuccaro_adder_qasm(n):
@@ -102,7 +142,7 @@ def draper_adder_qasm(n):
     m = n + 1
     lines = [f"qreg a[{n}];", f"qreg b[{m}];"] + _qft("b", m)
     for i in range(n):
-        lines += _phi_add("b", m, 2 ** i, control=f"a[{i}]")
+        lines += _phi_add("b", m, 2 ** i, (f"a[{i}]",))
     lines += _iqft("b", m)
     return _HEADER + "\n".join(lines) + "\n"
 
@@ -133,18 +173,55 @@ def modular_constant_adder_qasm(c, N, n):
     `arithmetic.add_constant_mod(sv, n + 2, b[:n], c, N)`; inputs with
     b >= N are outside the circuit's contract.
     """
-    _check_n(n)
     c, N = int(c), int(N)
-    if not 0 < N < 2 ** n:
-        raise ValueError(f"need 0 < N < 2^n = {2 ** n}, got N={N}.")
+    _check_modular(n, N)
     if not 0 <= c < N:
         raise ValueError(f"need 0 <= c < N, got c={c}, N={N}.")
     m = n + 1
-    msb = f"b[{n}]"
     lines = [f"qreg b[{m}];", "qreg t[1];"] + _qft("b", m)
-    lines += _phi_add("b", m, c) + _phi_add("b", m, -N)
-    lines += _iqft("b", m) + [f"cx {msb}, t[0];"] + _qft("b", m)
-    lines += _phi_add("b", m, N, control="t[0]") + _phi_add("b", m, -c)
-    lines += _iqft("b", m) + [f"x {msb};", f"cx {msb}, t[0];", f"x {msb};"] + _qft("b", m)
-    lines += _phi_add("b", m, c) + _iqft("b", m)
+    lines += _phi_add_mod("b", m, c, N, "t[0]") + _iqft("b", m)
+    return _HEADER + "\n".join(lines) + "\n"
+
+
+def cmult_mod_qasm(a, N, n):
+    """
+    Controlled modular multiply-add, |c, x, b, 0> -> |c, x, (b + a*x) mod N, 0>
+    when c = 1 and unchanged when c = 0, for 0 <= b < N: Beauregard's
+    CMULT(a)MOD(N) (quant-ph/0205095, Fig. 6), n doubly controlled
+    phiADD(2^i a mod N)MOD(N) gates (Fig. 5) controlled by c and x[i],
+    between a QFT and an inverse QFT on b.
+
+    Registers: `c[1]`, `x[n]`, `b[n+1]` (b[n] is the sign bit, 0 on input
+    and output) and one ancilla `t[1]`, initially 0 and returned to 0.
+    Requires N < 2^n. On inputs with b < N it matches
+    `arithmetic.multiply_add_mod(sv, 2n + 3, x, b[:n], a, N, controls=(c,))`.
+    """
+    a, N = int(a), int(N)
+    _check_modular(n, N)
+    lines = ["qreg c[1];", f"qreg x[{n}];", f"qreg b[{n + 1}];", "qreg t[1];"]
+    return _HEADER + "\n".join(lines + _cmult(a % N, N, n, "c[0]")) + "\n"
+
+
+def controlled_ua_qasm(a, N, n):
+    """
+    Controlled modular multiplication in place, |c, x, 0, 0> ->
+    |c, (a*x) mod N, 0, 0> when c = 1, unchanged when c = 0, for 0 <= x < N
+    and gcd(a, N) = 1: Beauregard's controlled-U_a (quant-ph/0205095, Fig. 7).
+    CMULT(a)MOD(N) writes a*x into b, a controlled swap exchanges x and b,
+    and the inverse of CMULT(a^-1 mod N)MOD(N) clears b back to 0.
+
+    Registers as in `cmult_mod_qasm`: `c[1]`, `x[n]`, `b[n+1]`, `t[1]`, with
+    b and t starting and ending at 0: 2n + 3 qubits, the count of the paper.
+    Matches `arithmetic.multiply_mod(sv, 2n + 3, x, a, N, controls=(c,))` on
+    inputs with x < N and b = t = 0.
+    """
+    a, N = int(a), int(N)
+    _check_modular(n, N)
+    if math.gcd(a, N) != 1:
+        raise ValueError(f"a={a} has no inverse modulo N={N}.")
+    swap = []
+    for i in range(n):
+        swap += [f"cx b[{i}], x[{i}];", f"ccx c[0], x[{i}], b[{i}];", f"cx b[{i}], x[{i}];"]
+    lines = ["qreg c[1];", f"qreg x[{n}];", f"qreg b[{n + 1}];", "qreg t[1];"]
+    lines += _cmult(a % N, N, n, "c[0]") + swap + _inverse(_cmult(pow(a, -1, N), N, n, "c[0]"))
     return _HEADER + "\n".join(lines) + "\n"
