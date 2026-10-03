@@ -10,7 +10,8 @@ whenever a module is added, moved, or promoted from Dense-Evolution-Discovery.
 `dense_evolution/` has **two layers**:
 
 1. **Real subpackages** (`backends/`, `circuits/`, `physics/`, `mitigation/`, `solvers/`,
-   `interop/`, `utils/`, `noise/`, `native_hf/`) — where the actual code lives.
+   `interop/`, `utils/`, `noise/`, `native_hf/`, `qmmm/`, `protocols/`) — where the actual
+   code lives.
 2. **22 flat backward-compatibility shims** at the top level (`fermions.py`,
    `observables.py`, `chunk.py`, `healing.py`, ...) — each one re-exports from its real
    subpackage home (e.g. `dense_evolution/fermions.py` → `dense_evolution.physics.fermions`)
@@ -31,6 +32,10 @@ substring/regex `exact` mode ported from `ia_utils.rag`'s own `quantumrag` origi
 had been missing it). Every new MCP tool is a thin wrapper: kernel endpoint in
 `local_site/app/server.py` calling a `dashboard_core` function calling the real
 `dense_evolution`/`ia_utils` code above — no logic lives in the MCP layer itself.
+The same `tools/dashboard/` folder also holds the offline Streamlit Dashboard (`app.py`,
+`circuit_editor.py`, `engine_explorer.py`, `sota_views.py`), promoted from
+Dense-Evolution-Discovery, with its installers in `tools/installer/` and the
+`dashboard-installers` workflow; `tools/ia_utils/` holds the RAG/vector-healing utilities.
 
 ```mermaid
 graph TD
@@ -51,8 +56,10 @@ graph TD
         TROTTER["trotter.py — pauli_rotation_ops, trotter_evolve_ops"]
         UCCSD["uccsd.py — find_excitations,<br/>single_excitation_ops, double_excitation_ops"]
         QFT["qft.py"]
+        ARITH["arithmetic.py — add/subtract/compare registers,<br/>modular add, multiply, power_mod<br/>(basis permutations, Vedral/Cuccaro/Draper/Beauregard)"]
+        POSTSEL["postselect.py — postselect<br/>(project one qubit, renormalise)"]
         RANDCIRC["random_circuit.py"]
-        CONFIG["config.py — set_precision"]
+        CONFIG["config.py — set_precision, ensure_x64, with_x64"]
 
         BACKENDS --> SV
         BACKENDS --> MPSB
@@ -66,6 +73,8 @@ graph TD
         CIRCUITS --> TROTTER
         CIRCUITS --> UCCSD
         CIRCUITS --> QFT
+        CIRCUITS --> ARITH
+        CIRCUITS --> POSTSEL
         CIRCUITS --> RANDCIRC
     end
 
@@ -76,17 +85,20 @@ graph TD
         PFERM["fermions.py<br/>majorana_pauli_terms, total_parity_operator (Klein factor)"]
         PQEC["qec.py<br/>Steane/stabilizer decoding, erasure correction"]
         PSTATES["states.py — ghz_state"]
+        PSPEC["spectral.py — matrix_function_eigh, spectral_evolve<br/>(gauge-safe gradients at exact degeneracy)"]
         SOLVERS["solvers/"]
         AUTODIFF["autodiff.py — circuit_to_energy_fn (VQE)"]
         HTB["harrison_tb.py — tight-binding Hamiltonians"]
         VHDTB["vhd_tb.py — VHD tight-binding, band structure"]
-        NATIVEHF["native_hf/ (subpackage)<br/>gaussians, boys, overlap, kinetic, coulomb,<br/>assembly, scf, bridge, cartesian, basis<br/>(from-scratch Hartree-Fock)"]
+        NATIVEHF["native_hf/ (subpackage)<br/>gaussians, boys, overlap, kinetic, coulomb,<br/>assembly, scf, bridge, cartesian, basis,<br/>differentiable (dE/dR), libcint_bridge + csrc/cint_driver.c<br/>(from-scratch Hartree-Fock, libcint integrals via ctypes)"]
+        QMMM["qmmm/ (subpackage)<br/>region, propagation, forces (Hellmann-Feynman, MD),<br/>ase_bridge (ASE calculator)"]
 
         PHYSICS --> POBS
         PHYSICS --> PENT
         PHYSICS --> PFERM
         PHYSICS --> PQEC
         PHYSICS --> PSTATES
+        PHYSICS --> PSPEC
         SOLVERS --> AUTODIFF
         SOLVERS --> HTB
         SOLVERS --> VHDTB
@@ -94,6 +106,7 @@ graph TD
 
     subgraph MIT["3. Error Mitigation &amp; Noise Models"]
         NOISE["noise/"]
+        KCH["kraus_channels.py — NoiseModel (apply_to_sv)"]
         KRAUS["kraus/ (subpackage)<br/>depolarizing, bitflip, phaseflip,<br/>amplitude_damping, combined, ideal"]
         DMCHAN["density_matrix_channels.py"]
         COSMIC["cosmic_ray.py — cosmic_ray_burst_profile"]
@@ -102,7 +115,7 @@ graph TD
         DIFFNOISE["differentiable.py"]
         COHATT["coherent_attack.py"]
         MITIGATION["mitigation/"]
-        ZNE["zne.py<br/>richardson/polynomial/bounded_exponential_extrapolate,<br/>zne_density_matrix, uhlmann_fidelity, project_to_physical,<br/>jsd_predictive_zne_density_matrix (classical-JSD signal,<br/>structurally blind to phase-type noise -- diagonal-only),<br/>coherence_predictive_zne_density_matrix (coherence-L1 signal,<br/>covers phase-type noise the JSD one can't see),<br/>classically_augmented_zne_phaseflip (Scheiber et al. CA-ZNE,<br/>high-noise nodes replaced by phaseflip_channel_exact,<br/>measured 1.30x variance reduction at 5 nodes/top-3 exact)"]
+        ZNE["zne.py<br/>richardson/polynomial/bounded_exponential_extrapolate,<br/>zne_shot_allocation (variance-optimal shot split),<br/>bloch_zne (single-qubit, Bloch-ball projection),<br/>zne_density_matrix, uhlmann_fidelity, project_to_physical,<br/>jsd_predictive_zne_density_matrix (classical-JSD signal,<br/>structurally blind to phase-type noise -- diagonal-only),<br/>coherence_predictive_zne_density_matrix (coherence-L1 signal,<br/>covers phase-type noise the JSD one can't see),<br/>classically_augmented_zne_phaseflip (Scheiber et al. CA-ZNE,<br/>high-noise nodes replaced by phaseflip_channel_exact,<br/>measured 1.30x variance reduction at 5 nodes/top-3 exact)"]
         MHEAL["healing.py — calculate_phi_ab, vettore_dinamico, delta_preemp"]
         RENYI["renyi.py — sandwiched_renyi_divergence (2-state divergence)"]
         MAGIC["magic_entropy.py — single-qubit Key-Unitary magic"]
@@ -110,6 +123,7 @@ graph TD
         SRE["stabilizer_renyi_entropy.py — multi-qubit SRE magic monotone"]
         KL["kl_divergence.py — classical KL over probability vectors"]
 
+        NOISE --> KCH
         NOISE --> KRAUS
         NOISE --> DMCHAN
         NOISE --> COSMIC
@@ -205,6 +219,12 @@ across every module, not guessed):
 ```text
 backends/statevector.py  -> circuits/{registry,gates,compiler}, config
 circuits/registry.py     -> config, noise/ (NoiseModel, NoiseSpec)
+circuits/arithmetic.py   -> config, circuits/registry
+circuits/postselect.py   -> config, circuits/registry
+physics/spectral.py      -> config
+mitigation/ (all but healing.py) -> config (with_x64); zne.py also -> noise/
+qmmm/forces.py           -> dashboard_core.hamiltonians (lazy import inside a function,
+                           optional 'dashboard' extra; region/propagation need nothing)
 physics/states.py        -> circuits/topology
 mitigation/zne.py        -> noise/ (global_depolarizing_channel, amplitude_damping_channel, cosmic_ray_burst_profile)
 solvers/autodiff.py      -> circuits/{parser,gates,compiler,registry}, config
@@ -212,7 +232,9 @@ interop/qiskit_pennylane -> circuits/parser, backends/statevector
 noise/coherent_attack.py -> physics/qec (compute_syndrome)
 native_hf/*               fully self-contained internal DAG (basis -> gaussians/overlap;
                            assembly -> basis/cartesian/gaussians/overlap/kinetic/coulomb;
-                           bridge -> basis/assembly/scf), touches the rest of the package
+                           bridge -> basis/assembly/scf; differentiable -> basis/assembly/scf;
+                           libcint_bridge -> basis/cartesian + the compiled C driver),
+                           touches the rest of the package
                            only via PennyLane's own qml.Hamiltonian return type
 ```
 
@@ -316,10 +338,14 @@ at 14 qubits — independent of which statevector backend is in use.
   exception in the codebase (`dashboard_core/state_visuals.py`'s private, single-qubit-
   only `_reduced_density_matrix`, little-endian) is exactly why `physics/entropy.py`
   documents this explicitly rather than assuming a caller already knows.
+  `circuits/arithmetic.py` takes each register as a list of qubits, least significant
+  first, and maps it onto this convention internally.
 - **`complex128` is the default scientific precision, enabled lazily.** `jax_enable_x64`
   is a process-wide JAX flag — `dense_evolution/config.py`'s `ensure_x64()` turns it on
   the first time `DenseSVSimulator`, `QuantumHardwareRegistry`, or `circuit_to_energy_fn`
-  is constructed/called, never at import time (so `import dense_evolution` alone never
+  is constructed/called, and every public mitigation entry point does the same through the
+  `with_x64` decorator (so do `circuits/arithmetic.py` and `circuits/postselect.py` before
+  building JAX arrays) — never at import time (so `import dense_evolution` alone never
   silently overrides a precision a caller configured for unrelated JAX code already
   running). `physics/observables.py`'s `_jax`-suffixed functions
   (`pauli_sum_matvec_jax`, `pauli_sum_expectation_jax`, `PauliSumOperator`) are pure math
