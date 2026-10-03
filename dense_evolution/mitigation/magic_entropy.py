@@ -45,6 +45,7 @@ import functools
 import jax
 import jax.numpy as jnp
 import numpy as np
+from ..config import with_x64
 
 __all__ = ["magic_entropy", "magic_entropy_jit"]
 
@@ -130,6 +131,7 @@ def _magic_entropy_core(rho: jnp.ndarray, eps: float = 1e-12) -> jnp.ndarray:
     return -jnp.sum(safe_ev * jnp.log2(safe_ev))
 
 
+@with_x64
 def magic_entropy(rho: jnp.ndarray) -> float:
     """Magic entropy of a single-qubit density matrix `rho` (2x2), in bits
     (log2) -- NOTE this differs from
@@ -157,7 +159,7 @@ def magic_entropy(rho: jnp.ndarray) -> float:
     return float(_magic_entropy_core(rho))
 
 
-magic_entropy_jit = jax.jit(_magic_entropy_core)
+magic_entropy_jit = with_x64(jax.jit(_magic_entropy_core))
 """`jax.jit`-compiled entry point for `magic_entropy`. `rho` must already
 be `complex128`. Returns a jnp scalar, not a Python `float` -- call
 `float(...)` yourself if you need one outside a jitted context."""

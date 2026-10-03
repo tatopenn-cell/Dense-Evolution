@@ -19,6 +19,7 @@ import jax.numpy as jnp
 from scipy.optimize import minimize
 
 from .healing import calculate_delta_preemp
+from ..config import with_x64
 
 __all__ = ["richardson_extrapolate", "richardson_amplification_factor", "zero_noise_extrapolation",
            "polynomial_extrapolate", "bounded_exponential_extrapolate",
@@ -34,6 +35,7 @@ _MULTI_START_SEED = 0
 _N_MULTI_STARTS = 8
 
 
+@with_x64
 def richardson_extrapolate(expectation_values, noise_factors) -> jnp.ndarray:
     """Polynomial (Lagrange) Richardson extrapolation to zero noise.
 
@@ -110,6 +112,7 @@ def _lagrange_coeffs_at_zero(lambdas: jnp.ndarray) -> jnp.ndarray:
     return jnp.stack([lagrange_coeff(i) for i in range(n)])
 
 
+@with_x64
 def richardson_amplification_factor(noise_factors) -> float:
     """Noise-amplification factor kappa = sum(|Lagrange coefficients|) for
     Richardson extrapolation at the given `noise_factors`: how much a
@@ -156,7 +159,7 @@ def _richardson_extrapolate_core(values: jnp.ndarray, lambdas: jnp.ndarray) -> j
     return jnp.sum(coeffs * values, axis=0)
 
 
-richardson_extrapolate_jit = jax.jit(_richardson_extrapolate_core)
+richardson_extrapolate_jit = with_x64(jax.jit(_richardson_extrapolate_core))
 """`jax.jit`-compiled entry point for `richardson_extrapolate`. Unlike
 `polynomial_extrapolate`/`zne_density_matrix`'s jitted variants, no
 argument needs to be marked static here -- `n` (the point count) is read
@@ -171,6 +174,7 @@ input; JAX recompiles per distinct input shape/dtype, as usual.
 """
 
 
+@with_x64
 def zero_noise_extrapolation(expectation_values, noise_factors,
                               sigma_at_base_noise=None,
                               target_sigma_ideal: float = 10.0) -> jnp.ndarray:
@@ -227,7 +231,7 @@ def _zero_noise_extrapolation_healing_core(values: jnp.ndarray, sigma_at_base_no
     return (c1 * e_l1 + c2 * e_l2 + c3 * e_l3) / (c1 + c2 + c3)
 
 
-zero_noise_extrapolation_jit = jax.jit(_zero_noise_extrapolation_healing_core)
+zero_noise_extrapolation_jit = with_x64(jax.jit(_zero_noise_extrapolation_healing_core))
 """`jax.jit`-compiled entry point for `zero_noise_extrapolation`'s
 healing-adapted branch (the `sigma_at_base_noise is not None` case --
 the plain-Richardson case already has `richardson_extrapolate_jit`, use
@@ -241,6 +245,7 @@ since it only ever multiplies/subtracts, no Python branching on its value.
 """
 
 
+@with_x64
 def polynomial_extrapolate(expectation_values, noise_factors, degree: int = 2) -> jnp.ndarray:
     """Least-squares polynomial extrapolation to zero noise.
 
@@ -305,7 +310,7 @@ def _polynomial_extrapolate_core(values: jnp.ndarray, lambdas: jnp.ndarray, degr
     return intercept.reshape(orig_shape)
 
 
-polynomial_extrapolate_jit = functools.partial(jax.jit, static_argnames=("degree",))(_polynomial_extrapolate_core)
+polynomial_extrapolate_jit = with_x64(functools.partial(jax.jit, static_argnames=("degree",))(_polynomial_extrapolate_core))
 """`jax.jit`-compiled entry point for `polynomial_extrapolate`, added for
 consistency with every other function in this module (`richardson_extrapolate_jit`,
 `zero_noise_extrapolation_jit`, `uhlmann_fidelity_jit`, `zne_density_matrix_jit`)
@@ -320,6 +325,7 @@ constraint as `zne_density_matrix_jit`). Verified to match
 `polynomial_extrapolate` exactly."""
 
 
+@with_x64
 def bounded_exponential_extrapolate(expectation_values, noise_factors, bound: float = 1.0) -> jnp.ndarray:
     """Physically bounded exponential Zero-Noise Extrapolation (Miranskyy,
     Sorrenti, Thind & Gravel, arXiv:2604.24475, "Improving Zero-Noise
@@ -401,6 +407,7 @@ def bounded_exponential_extrapolate(expectation_values, noise_factors, bound: fl
     return jnp.float64(best_result.x[1])
 
 
+@with_x64
 def project_to_physical(rho_raw: jnp.ndarray) -> jnp.ndarray:
     """Project a Hermitian, trace-1 candidate matrix onto the nearest
     physical density matrix (Hermitian, trace 1, positive-semidefinite) in
@@ -523,6 +530,7 @@ def _eigh_degenerate_safe_jvp(primals, tangents):
     return (w, v), (dw, dv)
 
 
+@with_x64
 def uhlmann_fidelity(rho_A: jnp.ndarray, rho_B: jnp.ndarray) -> float:
     """Uhlmann fidelity F(rho_A, rho_B) = (Tr sqrt(sqrt(rho_A) rho_B sqrt(rho_A)))^2.
 
@@ -596,7 +604,7 @@ def _uhlmann_fidelity_core(rho_A: jnp.ndarray, rho_B: jnp.ndarray) -> jnp.ndarra
     return jnp.real(jnp.sum(jnp.sqrt(inner_evals)) ** 2)
 
 
-uhlmann_fidelity_jit = jax.jit(_uhlmann_fidelity_core)
+uhlmann_fidelity_jit = with_x64(jax.jit(_uhlmann_fidelity_core))
 """`jax.jit`-compiled entry point for `uhlmann_fidelity`. Both `rho_A`/
 `rho_B` must already be `complex128` (this skips `uhlmann_fidelity`'s
 own `jnp.asarray(..., dtype=jnp.complex128)` cast, itself trace-safe, but
@@ -606,6 +614,7 @@ if you need one outside a jitted context. Verified to match `uhlmann_fidelity`
 exactly (same underlying math, just not cast to a Python float)."""
 
 
+@with_x64
 def zne_density_matrix(rho_at_scales, noise_factors, degree: int = 2) -> jnp.ndarray:
     """Zero-Noise Extrapolation for density matrices.
 
@@ -704,7 +713,7 @@ def _zne_density_matrix_core(rho_at_scales: jnp.ndarray, noise_factors: jnp.ndar
     return project_to_physical(extrapolated)
 
 
-zne_density_matrix_jit = functools.partial(jax.jit, static_argnames=("degree",))(_zne_density_matrix_core)
+zne_density_matrix_jit = with_x64(functools.partial(jax.jit, static_argnames=("degree",))(_zne_density_matrix_core))
 """`jax.jit`-compiled entry point for `zne_density_matrix`, for callers
 inside a jitted pipeline (e.g. `jax.lax.scan` in `MPSSimulator.run_circuit_jit`)
 who don't want a host round-trip every call -- `zne_density_matrix` itself
@@ -745,6 +754,7 @@ def _js_divergence(p: jnp.ndarray, q: jnp.ndarray, eps: float = 1e-12) -> jnp.nd
     return 0.5 * kl(p, m) + 0.5 * kl(q, m)
 
 
+@with_x64
 def jsd_predictive_zne_density_matrix(rho_at_scales, noise_factors) -> jnp.ndarray:
     """Density-matrix ZNE with a Jensen-Shannon-divergence-informed
     coefficient nudge, for noise whose scale-to-output-distribution
@@ -850,6 +860,7 @@ def _coherence_l1(rho: jnp.ndarray) -> jnp.ndarray:
     return jnp.sum(jnp.abs(rho) * (1.0 - jnp.eye(n, dtype=rho.dtype)))
 
 
+@with_x64
 def coherence_predictive_zne_density_matrix(rho_at_scales, noise_factors) -> jnp.ndarray:
     """Density-matrix ZNE with a coherence-informed coefficient nudge --
     the same adaptive-nonlinearity mechanism as
@@ -934,6 +945,7 @@ def _coherence_predictive_zne_density_matrix_core(rho_at_scales: jnp.ndarray, nu
     return project_to_physical(extrapolated)
 
 
+@with_x64
 def classically_augmented_zne_phaseflip(rho_at_scales_measured, noise_factors, rho_ideal, base_p, degree: int = 2) -> jnp.ndarray:
     """Classically Augmented ZNE (Scheiber et al., arXiv:2607.25746) for
     phaseflip noise: the highest-noise Richardson/polynomial-extrapolation

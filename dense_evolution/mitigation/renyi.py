@@ -44,6 +44,7 @@ visibly diverge from each other.
 """
 import jax
 import jax.numpy as jnp
+from ..config import with_x64
 
 __all__ = ["sandwiched_renyi_divergence", "sandwiched_renyi_divergence_jit"]
 
@@ -114,6 +115,7 @@ def _sandwiched_renyi_divergence_core(rho: jnp.ndarray, sigma: jnp.ndarray, alph
     )
 
 
+@with_x64
 def sandwiched_renyi_divergence(rho: jnp.ndarray, sigma: jnp.ndarray, alpha: float = 1.5) -> float:
     """Sandwiched quantum Renyi divergence D_alpha(rho||sigma), in bits
     (log2). `rho`, `sigma` are density matrices of the same dimension;
@@ -162,7 +164,7 @@ def sandwiched_renyi_divergence(rho: jnp.ndarray, sigma: jnp.ndarray, alpha: flo
     return float(_sandwiched_renyi_divergence_core(rho, sigma, alpha))
 
 
-sandwiched_renyi_divergence_jit = jax.jit(_sandwiched_renyi_divergence_core)
+sandwiched_renyi_divergence_jit = with_x64(jax.jit(_sandwiched_renyi_divergence_core))
 """`jax.jit`-compiled entry point for `sandwiched_renyi_divergence`. `rho`/
 `sigma` must already be `complex128`. Returns a jnp scalar, not a Python
 `float`."""

@@ -36,6 +36,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from .magic_entropy import _key_unitary_k3
+from ..config import with_x64
 
 __all__ = [
     "sample_classical_shadow", "magic_entropy_from_shadows",
@@ -56,6 +57,7 @@ def _basis_u() -> jnp.ndarray:
     return jnp.stack([h, h @ sdag, jnp.eye(2, dtype=jnp.complex128)])
 
 
+@with_x64
 def sample_classical_shadow(rho: jnp.ndarray, n_snapshots: int, seed: int = 0) -> jnp.ndarray:
     """Simulates the real single-qubit random-Pauli classical-shadow
     measurement protocol against a known `rho` (2x2, pure or mixed): for
@@ -149,6 +151,7 @@ def _median_of_means(values: np.ndarray, n_groups: int) -> float:
     return float(np.median(group_means))
 
 
+@with_x64
 def magic_entropy_from_shadows(shadow_snapshots: jnp.ndarray, n_groups: int = 20) -> float:
     """Estimates `magic_entropy(rho)` from classical shadow snapshots of
     `rho` (from `sample_classical_shadow`, or real hardware measurement
@@ -208,6 +211,7 @@ _FIT_C = 11.751
 _FIT_P = 0.546
 
 
+@with_x64
 def approx_shadow_std(n_snapshots: int) -> float:
     """Rough approximate standard deviation (bits) of
     `magic_entropy_from_shadows`'s estimate at a given snapshot count,
@@ -225,6 +229,7 @@ def approx_shadow_std(n_snapshots: int) -> float:
     return _FIT_C / float(n_snapshots) ** _FIT_P
 
 
+@with_x64
 def fit_shadow_sample_complexity(rho: jnp.ndarray, exact_value: float, n_snapshots_list, n_trials: int, seed_base: int = 0):
     """Empirically measures `magic_entropy_from_shadows`'s standard
     deviation across `n_trials` independent shadow samplings at each
