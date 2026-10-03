@@ -65,6 +65,9 @@ pip install dense-evolution[full]
 pip install dense-evolution[qiskit]
 pip install dense-evolution[pennylane]
 
+# native Hartree-Fock (basis-set data)
+pip install dense-evolution[hf]
+
 # Composer's local kernel (see "Composer" below)
 pip install dense-evolution[composer]
 

@@ -17,7 +17,6 @@ itself: N = 1/sqrt(<primitive|primitive>).
 
 import dataclasses
 
-import basis_set_exchange as bse
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -77,7 +76,19 @@ def _contracted_shell_from_bse(shell: dict, center: jax.Array, atom_index: int) 
     return shells
 
 
+def _bse():
+    try:
+        import basis_set_exchange
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "dense_evolution.native_hf needs basis_set_exchange for basis-set data: "
+            "pip install dense-evolution[hf]"
+        ) from exc
+    return basis_set_exchange
+
+
 def load_element_shells(basis_name: str, atomic_number: int, center: jax.Array, atom_index: int) -> list[ContractedShell]:
+    bse = _bse()
     data = bse.get_basis(basis_name, elements=[atomic_number])
     electron_shells = data["elements"][str(atomic_number)]["electron_shells"]
 
