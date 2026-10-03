@@ -11,8 +11,8 @@ Statevector/MPS engines with compilation, noise, VQE, QEC, chemistry, and agent-
 <p align="center">
   <img src="docs/assets/favicon.svg" width="32" alt=""><br>
   <b>Download the Dense Evolution Dashboard (Streamlit)</b><br>
-  <a href="https://github.com/tatopenn-cell/Dense-Evolution/raw/main/tools/installer/install-dashboard.bat">Windows (.bat)</a> &middot;
-  <a href="https://github.com/tatopenn-cell/Dense-Evolution/raw/main/tools/installer/install-dashboard.sh">macOS / Linux (.sh)</a>
+  <a href="https://tatopenn-cell.github.io/Dense-Evolution/assets/installer/install-dashboard.bat">Windows (.bat)</a> &middot;
+  <a href="https://tatopenn-cell.github.io/Dense-Evolution/assets/installer/install-dashboard.sh">macOS / Linux (.sh)</a>
 </p>
 
 [![CI](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml/badge.svg)](https://github.com/tatopenn-cell/Dense-Evolution/actions/workflows/ci.yml)
