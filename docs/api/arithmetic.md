@@ -188,7 +188,33 @@ The same module has `draper_adder_qasm(n)` (addition in Fourier space, no ancill
 `constant_adder_qasm(c, n)` (adds a fixed number) and
 `modular_constant_adder_qasm(c, N, n)` (adds a fixed number modulo `N`). Each one gives
 the same state as the matching function above: `add_registers`, `add_constant`,
-`add_constant_mod`.
+`add_constant_mod`. `cmult_mod_qasm(a, N, n)` and `controlled_ua_qasm(a, N, n)` go one
+level up, to the controlled modular multiplication of Shor's algorithm, and match
+`multiply_add_mod` and `multiply_mod`.
+
+## Step 8. Shor's algorithm on 11 qubits
+
+```python
+from fractions import Fraction
+from math import gcd
+from dense_evolution.circuits.shor import shor_order_finding
+
+y, m = shor_order_finding(7, 15, rng=2)
+r = Fraction(y, 2 ** m).limit_denominator(15).denominator
+y, r, gcd(7 ** (r // 2) - 1, 15), gcd(7 ** (r // 2) + 1, 15)
+```
+
+```
+(192, 4, 3, 5)
+```
+
+Shor's algorithm factors `N` by finding the order `r` of a number `a`: the smallest `r`
+with `a^r mod N = 1`. `shor_order_finding` runs the quantum part with the gate circuits
+of Step 7 and returns one measured integer `y` out of `2^m` (`m = 8` for `N = 15`).
+`y / 2^m = 192 / 256 = 3/4`, so the order of `7` modulo `15` is `4`, and
+`gcd(7^2 - 1, 15)` and `gcd(7^2 + 1, 15)` give the factors `3` and `5`. Each run is one
+measurement, so another seed can return `0` or `1/2`, which only gives a divisor of `r`;
+in practice the run is repeated.
 
 ---
 
@@ -232,6 +258,12 @@ Sect. 4.1).
 figures of the papers: MAJ and UMA as user-defined `gate`s (Cuccaro et al., Fig. 1-2,
 the two-CNOT UMA), the adder of Fig. 3-4; the QFT adder without swaps (Draper);
 φADD(c) and φADD(c)MOD(N) (Beauregard, Fig. 3 and 5), here without the two controls.
+CMULT(a)MOD(N) is `n` doubly controlled φADD(2^i a mod N)MOD(N) (Fig. 6), the
+controlled-`U_a` is CMULT(a), a controlled swap and the inverse of CMULT(a^-1) (Fig. 7):
+`2n + 3` qubits in total. `shor_order_finding` uses one control qubit, measured and reset
+after each controlled-`U_{a^(2^k)}`, with the inverse QFT done semiclassically (Fig. 8);
+the measurement is sampled in Python between circuit runs, since a single QASM program
+here cannot feed a measurement back into later gates.
 `tests/unit/test_arithmetic_qasm.py` compares each one with the permutation functions on
 random states over every basis state of its domain. The modular adder needs
 `0 <= b < N` and `0 <= c < N`, as in the paper; on `b >= N` it is outside its contract.
@@ -239,3 +271,5 @@ random states over every basis state of its domain. The modular adder needs
 ::: dense_evolution.circuits.arithmetic
 
 ::: dense_evolution.circuits.arithmetic_qasm
+
+::: dense_evolution.circuits.shor

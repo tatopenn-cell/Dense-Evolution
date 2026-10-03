@@ -76,3 +76,33 @@ def test_cuccaro_gate_counts():
 def test_invalid_arguments_raise(call):
     with pytest.raises(ValueError):
         call()
+
+
+@pytest.mark.parametrize("n,N,a", [(2, 3, 2), (3, 5, 3), (3, 7, 4)])
+def test_cmult_and_controlled_ua_match_permutations(n, N, a):
+    from dense_evolution.circuits.arithmetic_qasm import cmult_mod_qasm, controlled_ua_qasm
+    nq = 2 * n + 3
+    x, b = list(range(1, n + 1)), list(range(n + 1, 2 * n + 2))
+    xv = sum(bit(nq, q) << i for i, q in enumerate(x))
+    bv = sum(bit(nq, q) << i for i, q in enumerate(b[:n]))
+    clean = (bit(nq, 2 * n + 1) == 0) & (bit(nq, 2 * n + 2) == 0)
+    sv = random_state(nq, clean & (bv < N))
+    ref = ar.multiply_add_mod(sv, nq, x, b[:n], a, N, controls=(0,))
+    np.testing.assert_allclose(run(cmult_mod_qasm(a, N, n), sv), ref, atol=1e-12)
+    sv = random_state(nq, clean & (bv == 0) & (xv < N))
+    ref = ar.multiply_mod(sv, nq, x, a, N, controls=(0,))
+    np.testing.assert_allclose(run(controlled_ua_qasm(a, N, n), sv), ref, atol=1e-12)
+
+
+def test_controlled_ua_rejects_non_invertible_a():
+    from dense_evolution.circuits.arithmetic_qasm import controlled_ua_qasm
+    with pytest.raises(ValueError):
+        controlled_ua_qasm(3, 15, 4)
+
+
+@pytest.mark.parametrize("a,allowed", [(7, {0, 64, 128, 192}), (11, {0, 128})])
+def test_shor_order_finding_n15_lands_on_multiples_of_2m_over_r(a, allowed):
+    from dense_evolution.circuits.shor import shor_order_finding
+    for seed in range(4):
+        y, m = shor_order_finding(a, 15, rng=seed)
+        assert m == 8 and y in allowed
