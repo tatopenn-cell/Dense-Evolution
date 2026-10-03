@@ -262,8 +262,8 @@ CMULT(a)MOD(N) is `n` doubly controlled φADD(2^i a mod N)MOD(N) (Fig. 6), the
 controlled-`U_a` is CMULT(a), a controlled swap and the inverse of CMULT(a^-1) (Fig. 7):
 `2n + 3` qubits in total. `shor_order_finding` uses one control qubit, measured and reset
 after each controlled-`U_{a^(2^k)}`, with the inverse QFT done semiclassically (Fig. 8);
-the measurement is sampled in Python between circuit runs, since a single QASM program
-here cannot feed a measurement back into later gates.
+the measurement is sampled in Python between circuit runs, since `QASMParser` skips
+`measure`, `reset` and `if`, so one QASM program cannot feed a measurement back into later gates.
 `tests/unit/test_arithmetic_qasm.py` compares each one with the permutation functions on
 random states over every basis state of its domain. The modular adder needs
 `0 <= b < N` and `0 <= c < N`, as in the paper; on `b >= N` it is outside its contract.
