@@ -20,7 +20,7 @@ def _hadamard_on_first(sv):
     return np.stack([sv[0] + sv[1], sv[0] - sv[1]]) / np.sqrt(2.0)
 
 
-def shor_order_finding(a, N, rng=None):
+def shor_order_finding(a, N, rng=None, noise_model=None, p=0.0):
     """
     One run of quantum order finding for a modulo N, returns
     (y, m): a measured integer 0 <= y < 2^m with m = 2n, n = N.bit_length().
@@ -32,8 +32,14 @@ def shor_order_finding(a, N, rng=None):
     controlled-U_{a^(2^k) mod N} to the work register (initially |1>),
     applies the phase -2 pi sum_l r_l / 2^(l-k+1) over the bits r_l already
     measured, a Hadamard, then measures and resets the control.
+
+    With `noise_model` (any model of `NoiseModel.apply_to_sv`, e.g.
+    "depolarizing") and probability `p`, one stochastic trajectory of that
+    channel acts on every qubit after each controlled multiplication, before
+    the control is measured.
     """
     from ..backends.statevector import DenseSVSimulator
+    from ..noise import NoiseModel
 
     a, N = int(a), int(N)
     n = N.bit_length()
@@ -51,6 +57,8 @@ def shor_order_finding(a, N, rng=None):
             sim.set_initial_state(sv.reshape(-1))
             sim.run_circuit_jit(circ.to_tuples())
             sv = np.asarray(sim.get_statevector()).reshape(2, -1)
+        if noise_model is not None and p > 0:
+            sv = np.asarray(NoiseModel.apply_to_sv(sv.reshape(-1).copy(), nq, noise_model, p, rng=rng)).reshape(2, -1)
         phase = -2 * np.pi * sum(bits[l] / 2 ** (l - k + 1) for l in bits)
         sv[1] *= np.exp(1j * phase)
         sv = _hadamard_on_first(sv)

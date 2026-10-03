@@ -106,3 +106,9 @@ def test_shor_order_finding_n15_lands_on_multiples_of_2m_over_r(a, allowed):
     for seed in range(4):
         y, m = shor_order_finding(a, 15, rng=seed)
         assert m == 8 and y in allowed
+
+
+def test_shor_order_finding_noise_moves_outcomes_off_the_peaks():
+    from dense_evolution.circuits.shor import shor_order_finding
+    ys = [shor_order_finding(7, 15, rng=s, noise_model="depolarizing", p=0.2)[0] for s in range(8)]
+    assert any(y not in {0, 64, 128, 192} for y in ys)

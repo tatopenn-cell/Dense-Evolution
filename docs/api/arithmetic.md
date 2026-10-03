@@ -214,7 +214,9 @@ of Step 7 and returns one measured integer `y` out of `2^m` (`m = 8` for `N = 15
 `y / 2^m = 192 / 256 = 3/4`, so the order of `7` modulo `15` is `4`, and
 `gcd(7^2 - 1, 15)` and `gcd(7^2 + 1, 15)` give the factors `3` and `5`. Each run is one
 measurement, so another seed can return `0` or `1/2`, which only gives a divisor of `r`;
-in practice the run is repeated.
+in practice the run is repeated. `shor_order_finding(7, 15, noise_model="depolarizing",
+p=0.01)` runs the same algorithm with noise after each controlled multiplication
+(Details).
 
 ---
 
@@ -264,6 +266,18 @@ controlled-`U_a` is CMULT(a), a controlled swap and the inverse of CMULT(a^-1) (
 after each controlled-`U_{a^(2^k)}`, with the inverse QFT done semiclassically (Fig. 8);
 the measurement is sampled in Python between circuit runs, since `QASMParser` skips
 `measure`, `reset` and `if`, so one QASM program cannot feed a measurement back into later gates.
+**Shor under noise.** With `noise_model` and `p`, one stochastic trajectory of
+`NoiseModel.apply_to_sv` acts on all 11 qubits after each of the 8 controlled
+multiplications. For `a = 7`, `N = 15`, 40 runs per row (seeds 0-39), fraction of
+outcomes on the four ideal peaks `{0, 64, 128, 192}` (a uniform guess would give 4/256):
+
+| Depolarizing `p` | On a peak |
+|---|---|
+| 0 | 40/40 |
+| 0.01 | 37/40 |
+| 0.05 | 32/40 |
+| 0.2 | 8/40 |
+
 `tests/unit/test_arithmetic_qasm.py` compares each one with the permutation functions on
 random states over every basis state of its domain. The modular adder needs
 `0 <= b < N` and `0 <= c < N`, as in the paper; on `b >= N` it is outside its contract.
