@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/banner.svg" alt="Dense Evolution — NISQ quantum simulation toolkit, JAX-native" width="900">
+  <img src="docs/assets/banner.png" alt="Dense Evolution — NISQ quantum simulation toolkit, JAX-native" width="900">
 </p>
 
 
