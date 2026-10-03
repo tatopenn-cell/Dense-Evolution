@@ -23,7 +23,7 @@ from ..config import with_x64
 
 __all__ = ["richardson_extrapolate", "richardson_amplification_factor", "zne_shot_allocation", "zero_noise_extrapolation",
            "polynomial_extrapolate", "bounded_exponential_extrapolate",
-           "project_to_physical", "uhlmann_fidelity", "zne_density_matrix",
+           "project_to_physical", "bloch_zne", "bloch_zne_jit", "uhlmann_fidelity", "zne_density_matrix",
            "jsd_predictive_zne_density_matrix", "coherence_predictive_zne_density_matrix",
            "classically_augmented_zne_phaseflip", "global_depolarizing_channel",
            "amplitude_damping_channel", "cosmic_ray_burst_profile",
@@ -419,6 +419,13 @@ def bounded_exponential_extrapolate(expectation_values, noise_factors, bound: fl
     start fails to converge (`result.success`), rather than silently
     returning an unconverged `result.x[1]`.
 
+    Limitation: three parameters fitted to three noise factors follow shot
+    noise. On 4-qubit brickwork circuits (Majumdar et al., arXiv:2307.05203,
+    Sect. IV) at 8000 shots per factor its RMSE was 0.29-0.57, against
+    0.015-0.12 for linear and 0.04-0.09 for Richardson; it lands on the
+    bound in 11 of 40 circuits. Use more noise factors when shot noise is
+    present.
+
     Examples
     --------
     >>> from dense_evolution.mitigation import bounded_exponential_extrapolate
@@ -514,6 +521,52 @@ def project_to_physical(rho_raw: jnp.ndarray) -> jnp.ndarray:
     projected_evals = jnp.maximum(evals - chosen_mu, 0.0)
     rho_physical = (vecs * projected_evals) @ jnp.conj(vecs).T
     return jnp.asarray(rho_physical, dtype=jnp.complex128)
+
+
+@with_x64
+def bloch_zne(bloch_at_scales, noise_factors) -> jnp.ndarray:
+    """Single-qubit zero-noise extrapolation of a Bloch vector, projected
+    back onto the Bloch ball.
+
+    `bloch_at_scales[i]` is the measured `(<X>, <Y>, <Z>)` at noise scale
+    `noise_factors[i]` (three tomography settings per scale). Each component
+    is extrapolated with `richardson_extrapolate`; the result can have
+    length above 1, which is not a state. For one qubit the density-matrix
+    eigenvalues are `(1 +- |r|)/2`, so `project_to_physical` (Smolin,
+    Gambetta & Smith, arXiv:1106.5458) reduces to rescaling `r` to length 1
+    when `|r| > 1`. The Bloch ball is convex and contains the ideal state,
+    so the projection never increases the distance to it.
+
+    Validated in Dense-Evolution-Discovery
+    (`scripts/single_qubit_bloch_ball_zne.py`): 200 Haar-random states,
+    depolarizing / amplitude damping / phase flip at base p = 0.05, factors
+    1, 2, 3. The projection acts on 112-143 of 200 states and lowers the
+    mean trace distance by 0.05-0.06 at 100 shots per basis and under 0.01
+    at 1600; it also beats per-component clipping to [-1, 1] (Miranskyy,
+    Sorrenti, Thind & Gravel, arXiv:2604.24475), which keeps `r` inside
+    the cube but not inside the ball.
+
+    Examples
+    --------
+    >>> from dense_evolution.mitigation import bloch_zne
+    >>> [round(float(x), 4) for x in bloch_zne([[0.0, 0.0, 0.96], [0.0, 0.0, 0.9], [0.0, 0.0, 0.87]], [1.0, 2.0, 3.0])]
+    [0.0, 0.0, 1.0]
+    """
+    lambdas = jnp.asarray(noise_factors, dtype=jnp.float64)
+    values = jnp.asarray(bloch_at_scales, dtype=jnp.float64)
+    if values.ndim != 2 or values.shape[1] != 3 or values.shape[0] != lambdas.shape[0]:
+        raise ValueError(
+            f"bloch_at_scales must have shape ({lambdas.shape[0]}, 3), got {values.shape}."
+        )
+    return _bloch_zne_core(values, lambdas)
+
+
+def _bloch_zne_core(values: jnp.ndarray, lambdas: jnp.ndarray) -> jnp.ndarray:
+    r = _richardson_extrapolate_core(values, lambdas)
+    return r / jnp.maximum(jnp.linalg.norm(r), 1.0)
+
+
+bloch_zne_jit = with_x64(jax.jit(_bloch_zne_core))
 
 
 @jax.custom_jvp
