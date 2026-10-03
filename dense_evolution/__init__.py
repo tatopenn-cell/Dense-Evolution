@@ -50,6 +50,9 @@ from .circuits.arithmetic import (
     compare_registers, compare_constant,
     add_registers_mod, add_constant_mod, multiply_add_mod, multiply_mod, power_mod,
 )
+from .circuits.arithmetic_qasm import (
+    cuccaro_adder_qasm, draper_adder_qasm, constant_adder_qasm, modular_constant_adder_qasm,
+)
 from .circuits.postselect import postselect
 from .circuits.random_circuit import random_circuit
 from .utils.drawing import draw_circuit
@@ -84,6 +87,7 @@ __all__ = [
     "add_registers", "subtract_registers", "add_constant",
     "compare_registers", "compare_constant",
     "add_registers_mod", "add_constant_mod", "multiply_add_mod", "multiply_mod", "power_mod",
+    "cuccaro_adder_qasm", "draper_adder_qasm", "constant_adder_qasm", "modular_constant_adder_qasm",
     "postselect",
     "pauli_rotation_ops", "trotter_evolve_ops", "continuous_pulse_evolve",
     "continuous_dissipative_evolve",

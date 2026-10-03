@@ -159,6 +159,37 @@ The same module has the steps that build it: `add_registers_mod` and
 `N = 2^n` and odd `a` it is plain multiplication). The modular functions accept
 `controls`, a list of qubits that must all be `1` for the operation to act.
 
+## Step 7. The same additions as gate circuits
+
+```python
+import numpy as np
+import dense_evolution as de
+from dense_evolution.circuits.arithmetic_qasm import cuccaro_adder_qasm
+
+circ = de.QASMParser().parse(cuccaro_adder_qasm(2))
+sim = de.DenseSVSimulator(circ.n_qubits)
+sim.set_initial_state(np.eye(2 ** circ.n_qubits)[0b110100])
+sim.run_circuit_jit(circ.to_tuples())
+print(format(int(np.argmax(np.abs(sim.get_statevector()))), '06b'))
+```
+
+```
+111010
+```
+
+The functions above move amplitudes directly, which is exact but is not a circuit you
+could run on a device or put through a noise model. `cuccaro_adder_qasm(n)` returns
+the ripple-carry adder of Cuccaro et al. as OPENQASM 2.0: registers `a[2]`, `b[3]`
+and one ancilla `x[1]`, each least significant bit first. The input `110100` is
+`a = 3`, `b = 2`; the output `111010` is `a = 3`, `b = 5`, ancilla back to `0`. The
+circuit uses 4 Toffoli and 9 CNOT gates (`2n` and `4n + 1`).
+
+The same module has `draper_adder_qasm(n)` (addition in Fourier space, no ancilla),
+`constant_adder_qasm(c, n)` (adds a fixed number) and
+`modular_constant_adder_qasm(c, N, n)` (adds a fixed number modulo `N`). Each one gives
+the same state as the matching function above: `add_registers`, `add_constant`,
+`add_constant_mod`.
+
 ---
 
 ## Details
@@ -197,4 +228,14 @@ permutation and therefore unitary.
 Sect. III.A); with `len(b) == len(a)` it is addition modulo `2^n` (Cuccaro et al.,
 Sect. 4.1).
 
+**Gate circuits in `arithmetic_qasm`.** The OPENQASM 2.0 generators follow the
+figures of the papers: MAJ and UMA as user-defined `gate`s (Cuccaro et al., Fig. 1-2,
+the two-CNOT UMA), the adder of Fig. 3-4; the QFT adder without swaps (Draper);
+φADD(c) and φADD(c)MOD(N) (Beauregard, Fig. 3 and 5), here without the two controls.
+`tests/unit/test_arithmetic_qasm.py` compares each one with the permutation functions on
+random states over every basis state of its domain. The modular adder needs
+`0 <= b < N` and `0 <= c < N`, as in the paper; on `b >= N` it is outside its contract.
+
 ::: dense_evolution.circuits.arithmetic
+
+::: dense_evolution.circuits.arithmetic_qasm
