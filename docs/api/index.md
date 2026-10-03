@@ -37,6 +37,7 @@ exact same kernel, not a separate reimplementation.
 |---|---|
 | [Observables](observables.md) | Pauli-string expectation values and Pauli-sum Hamiltonians |
 | [Measurement](measurement.md) | Shot sampling and pure-state fidelity |
+| [Spectral](spectral.md) | `exp(-iHt)` and other matrix functions with correct gradients at exact degeneracy |
 | [Entropy](entropy.md) | Multi-qubit partial trace, von Neumann entropy, mutual information |
 | [Noise](noise.md) | `NoiseModel` Kraus channels, density-matrix channels, time-varying noise |
 | [Mitigation](mitigation.md) | Zero-Noise Extrapolation (scalar, density-matrix, single-qubit Bloch vector), shot allocation, density-matrix diagnostics |

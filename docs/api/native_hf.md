@@ -127,6 +127,53 @@ background noise, not a false-alarm storm. Needs the `armor` extra
 (`pip install dense-evolution[armor]`); `dense_armor` is not a hard
 dependency of this module.
 
+## Step 5. Energy as a function of the atoms' positions
+
+Step 1 gives the energy of one molecule at one fixed geometry. But the
+interesting questions are about *change*: how much does the energy rise
+if the two atoms are pulled apart? What force does each nucleus feel?
+Where is the equilibrium bond length? All of these need the energy as a
+function of the atomic positions, plus its gradient.
+
+```python
+import numpy as np
+from dense_evolution.native_hf.differentiable import build_energy_fn
+
+geom = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 1.4011]])
+
+energy_fn = build_energy_fn(
+    atomic_numbers=[1, 1],
+    nuclear_charges=[1.0, 1.0],
+    n_electrons=2,
+    basis_name="sto-3g",
+    reference_geometry_bohr=geom,
+)
+
+energy_fn(geom)
+```
+
+```
+-1.1166827344469228
+```
+
+`geom` is the two hydrogen atoms at the experimental bond length, in Bohr
+(`1.4011` Bohr is `0.7414` Å, the geometry of Step 1; the energy matches
+Step 1's up to that rounding). `build_energy_fn` returns a plain function
+`geometry_bohr -> total energy in Hartree`, differentiable end-to-end with
+`jax.grad`, so `jax.grad(energy_fn)` gives the force on each nucleus
+directly. Here it is `±0.029` Hartree/Bohr along the bond, not zero: with
+the STO-3G basis the energy minimum is slightly shorter than the
+experimental bond length.
+
+![H2 energy versus bond length](../assets/native_hf/h2_dissociation.png)
+
+*The curve this engine produces when the two hydrogen atoms are moved apart
+and the energy is computed at each distance. Pull them away and the energy
+rises toward two separate atoms; push them together and it rises because
+the nuclei repel each other. With RHF/STO-3G the minimum sits at `0.712` Å,
+`-1.117506` Hartree; the experimental bond length is `0.741` Å. The gap is
+the basis set and the mean-field approximation, not the integrals.*
+
 ---
 
 ## Details
@@ -201,6 +248,42 @@ one-index-at-a-time transform (a different algorithm computing the same quantity
 a copy of the code under test) to `1e-10`, and a real physical invariant on H2 (a
 basis change alone cannot alter the total electronic energy) to `1e-10`.
 
+**How `build_energy_fn`'s gradient stays differentiable.** Two pieces are
+deliberately frozen:
+
+1. **Schwarz screening** — which shell quartets contribute to the ERI sum
+   at all — is decided once, from the reference geometry, via
+   `assembly.quartet_screening_indices`. It is a discrete decision: Python
+   control flow, not a smooth function of position, and cannot be part of
+   a `jax.grad` trace. Every call of the returned function reuses the same
+   frozen index list.
+
+2. **The SCF loop's gradient is analytic**, from the Pople-Krishnan-
+   Schlegel-Binkley Hartree-Fock gradient (Int. J. Quantum Chem. Symp. 13,
+   225 (1979), Eq. 21-22), rather than reverse-mode differentiation
+   through `jax.lax.while_loop`, which JAX does not support in reverse mode.
+
+**Where the reference geometry stops being valid.** If the nuclei move far
+enough that a previously negligible shell-pair interaction becomes
+non-negligible (or vice versa), the frozen screening list is stale and
+`build_energy_fn` should be called again at the new geometry.
+
+**The `W` matrix and the factor of 2.** `scf_electronic_energy`'s backward
+pass builds the energy-weighted density matrix as
+`W = C_occ @ diag(2 * orbital_energies_occ) @ C_occ.T`. The factor of 2 is
+this module's own `P` convention, not part of Pople et al.'s original
+spin-orbital formula — there is no explicit 2 in `P` itself, it is carried
+instead by `F = H_core + 2J - K`. Omitting the factor gave a gradient that
+disagreed with central finite differences by exactly `Tr[W dS/dx]`.
+
+**Verified against finite differences.** The custom VJP is checked against
+central finite differences on H2/STO-3G in
+`tests/unit/test_native_hf_differentiable.py`.
+
+**Where this is used in practice.** [`dense_evolution.qmmm`](qmmm.md)'s
+ASE bridge (`DenseEvolutionCalculator`) calls this function, exposing it to
+ASE's optimizers and MD drivers.
+
 **ERI cost on mixed s/p/d bases**: `assembly.py`'s electron-repulsion tensor
 compiles one `jax.jit` program per distinct shell-quartet shape it
 encounters. A minimal s/p basis needs only a handful; a basis mixing s, p,
@@ -230,3 +313,19 @@ optimized against Hamiltonians built this way.
 ::: dense_evolution.native_hf.basis
 
 ::: dense_evolution.native_hf.libcint_bridge
+
+::: dense_evolution.native_hf.differentiable
+
+::: dense_evolution.native_hf.gaussians
+
+::: dense_evolution.native_hf.boys
+
+::: dense_evolution.native_hf.overlap
+
+::: dense_evolution.native_hf.cartesian
+
+::: dense_evolution.native_hf.kinetic
+
+::: dense_evolution.native_hf.coulomb
+
+::: dense_evolution.native_hf.assembly

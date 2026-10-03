@@ -125,6 +125,7 @@ nav:
       - Trotter (Hamiltonian evolution as gates): api/trotter.md
       - UCCSD (native excitation circuits): api/uccsd.md
       - Native Hartree-Fock (Obara-Saika, JAX): api/native_hf.md
+      - Spectral (gradients at degeneracy): api/spectral.md
       - Mass Decomposition (CASMI26 neutral-loss scoring): api/mass_decomposition.md
       - "QM/MM (region partitioning, embedding, forces)": api/qmmm.md
       - "QEC (erasure-aware, MWPM, blind decoding)": api/qec.md
