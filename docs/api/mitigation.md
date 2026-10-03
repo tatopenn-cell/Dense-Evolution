@@ -184,6 +184,8 @@ model so the zero-noise value is an explicit, constrained parameter
 recovers the ideal `1.0` exactly. Reach for this instead of Step 3/4's polynomial
 fits when the underlying decay is closer to exponential than polynomial — the usual
 shape for a single depolarizing-type channel.
+With only three noise factors and finite shots the fit is unstable; see
+[Details](#bounded-exponential-fit-with-three-noise-factors) before using it on measured data.
 
 ## Step 8. Spend the shot budget where it counts — `zne_shot_allocation`
 
@@ -207,6 +209,42 @@ number of shots. If a short pilot run shows that the single-shot spread differs
 between factors (for a Pauli expectation `E`, it is `sqrt(1 − E²)`), pass it as
 `sigmas` and the split follows `|coefficient| × sigma`.
 
+## Step 9. One qubit, three measurements — `bloch_zne`
+
+```python
+import numpy as np
+import dense_evolution as de
+from dense_evolution.noise import NoiseModel
+from dense_evolution.observables import pauli_expectation
+from dense_evolution.mitigation import bloch_zne, richardson_extrapolate
+
+qasm = 'OPENQASM 2.0; include "qelib1.inc"; qreg q[1]; h q[0]; t q[0];'
+sim = de.DenseSVSimulator(1)
+sim.run_circuit_jit(de.QASMParser().parse(qasm).to_tuples())
+sv1 = np.asarray(sim.get_statevector())
+rng = np.random.default_rng(4)
+r_at = [[np.mean([pauli_expectation(NoiseModel.apply_to_sv(sv1.copy(), 1, "depolarizing", 0.05 * s, rng=rng), P)
+                  for _ in range(100)]) for P in "XYZ"] for s in (1.0, 2.0, 3.0)]
+raw = richardson_extrapolate(np.array(r_at), np.array([1.0, 2.0, 3.0]))
+r = bloch_zne(r_at, [1.0, 2.0, 3.0])
+round(float(np.linalg.norm(raw)), 4), [round(float(x), 4) for x in r]
+```
+
+```
+(1.08, [0.7071, 0.7071, -0.0])
+```
+
+A single qubit is fully described by its Bloch vector `(<X>, <Y>, <Z>)`: three
+measurement settings instead of the full tomography Step 5 needs. `h` then `t` puts the
+qubit at `(0.7071, 0.7071, 0)`. Here each component is averaged over only 100 noisy runs
+per scale, and plain Richardson on those noisy values returns a vector of length 1.08,
+which is not a quantum state (a Bloch vector has length at most 1). `bloch_zne` runs the
+same Richardson extrapolation on each component and then pulls the vector back to the
+sphere when it overshoots, which for one qubit is exactly what `project_to_physical`
+does to the 2×2 density matrix. Here that lands on the ideal state. The projection can
+never move the result further from the ideal state, because the Bloch ball is convex and
+contains it.
+
 ---
 
 ## Details
@@ -222,6 +260,33 @@ of probabilistic error cancellation in their Supplemental Material. Checked by
 simulation (`tests/unit/test_zne_shot_allocation.py`): with `E = (0.7, 0.5, 0.36)` at
 factors 1, 2, 3 and 9000 shots, the measured variance ratio uniform/optimal is within
 3% of the predicted 1.138.
+
+### Bounded exponential fit with three noise factors
+
+`bounded_exponential_extrapolate` fits three parameters, so with three noise factors it
+passes exactly through the data and follows shot noise. Benchmark after Majumdar et al.
+([arXiv:2307.05203](https://arxiv.org/abs/2307.05203), Sect. IV): 4-qubit brickwork
+circuits, local depolarizing or amplitude-damping noise after every gate, factors 1, 2,
+3, 8000 shots per factor, 100 random circuits per row. On exact expectation values it
+recovers the zero-noise value to RMSE 0.0001; with 8000 shots its RMSE is 0.29-0.57,
+against 0.015-0.12 for linear and 0.04-0.09 for Richardson, and in 11 of 40 circuits it
+lands on the bound ±1. The bound keeps the result in range but does not make it
+accurate. Majumdar et al. describe the same instability for nearly noise-independent
+data (Appendix A), and Miranskyy et al. note that the benefit of bounding depends on
+the model. Use more noise factors, or a linear or Richardson fit, when shot noise is
+present.
+
+### Single-qubit Bloch-ball projection
+
+Validated in Dense-Evolution-Discovery (`scripts/single_qubit_bloch_ball_zne.py`):
+200 Haar-random states, depolarizing, amplitude damping and phase flip at base
+`p = 0.05`, factors 1, 2, 3, binomial shots per basis. The projection acts on 112-143 of
+200 states and lowers the mean trace distance to the ideal state by 0.05-0.06 at 100
+shots per basis and under 0.01 at 1600. Clipping each component to `[-1, 1]`
+(Miranskyy, Sorrenti, Thind & Gravel,
+[arXiv:2604.24475](https://arxiv.org/abs/2604.24475)) keeps the vector inside the cube
+but not the ball; the ball projection beats it in 108-137 of 200 states and loses in at
+most 7.
 
 ### Healing-adapted zero-noise extrapolation
 
@@ -307,7 +372,8 @@ matrices.
 
 Every function above except Step 7's `bounded_exponential_extrapolate` has a `_jit`
 counterpart (`richardson_extrapolate_jit`, `zero_noise_extrapolation_jit`,
-`polynomial_extrapolate_jit`, `uhlmann_fidelity_jit`, `zne_density_matrix_jit`) for
+`polynomial_extrapolate_jit`, `uhlmann_fidelity_jit`, `zne_density_matrix_jit`,
+`bloch_zne_jit`) for
 callers inside an already-jitted pipeline (e.g.
 `jax.lax.scan`) who don't want a host round-trip per call. Each skips the eager
 version's own dtype auto-detection and argument validation — callers pass already-cast

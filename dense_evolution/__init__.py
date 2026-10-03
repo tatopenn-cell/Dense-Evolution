@@ -31,7 +31,7 @@ from .backends.mps import MPSSimulator
 from .mitigation.zne import (richardson_extrapolate, richardson_amplification_factor,
                           zero_noise_extrapolation, polynomial_extrapolate,
                           bounded_exponential_extrapolate,
-                          project_to_physical, uhlmann_fidelity, zne_density_matrix,
+                          project_to_physical, bloch_zne, bloch_zne_jit, uhlmann_fidelity, zne_density_matrix,
                           jsd_predictive_zne_density_matrix,
                           coherence_predictive_zne_density_matrix,
                           classically_augmented_zne_phaseflip,
@@ -68,7 +68,7 @@ from .physics.qec import (pauli_commutes, compute_syndrome, erasure_aware_decode
                    peeling_decode, union_find_decode, matching_erasure_decode,
                            estimate_edge_probabilities_from_detection_events)
 
-__version__ = "8.3.0"
+__version__ = "8.3.1"
 
 __all__ = [
     "__version__",
@@ -101,7 +101,7 @@ __all__ = [
     "richardson_extrapolate", "richardson_amplification_factor",
     "zero_noise_extrapolation", "polynomial_extrapolate",
     "bounded_exponential_extrapolate",
-    "project_to_physical", "uhlmann_fidelity", "zne_density_matrix",
+    "project_to_physical", "bloch_zne", "bloch_zne_jit", "uhlmann_fidelity", "zne_density_matrix",
     "jsd_predictive_zne_density_matrix", "coherence_predictive_zne_density_matrix",
     "classically_augmented_zne_phaseflip",
     "global_depolarizing_channel", "amplitude_damping_channel", "phaseflip_channel_exact",
