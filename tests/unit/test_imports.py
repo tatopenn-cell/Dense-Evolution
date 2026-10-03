@@ -88,3 +88,13 @@ else:
 """
     result = _run_blocked(["basis_set_exchange"], body)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_native_hf_missing_basis_set_exchange_in_process(monkeypatch):
+    import pytest
+    import jax.numpy as jnp
+    import dense_evolution.native_hf.basis as basis
+
+    monkeypatch.setitem(sys.modules, "basis_set_exchange", None)
+    with pytest.raises(ModuleNotFoundError, match=r"dense-evolution\[hf\]"):
+        basis.load_element_shells("sto-3g", 1, jnp.zeros(3), 0)
