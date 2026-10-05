@@ -723,7 +723,10 @@ class CUHFResult:
 
 def _cuhf_modified_focks(H_core, repulsion, P_a, P_b,
                          C_a, C_b, mask_a, mask_b, S):
-    """Eq. 21: sostituisci cv/vc con F^cs. Include il fattore S (S-ortonormalita')."""
+    """Tsuchimochi-Scuseria (arXiv:1008.1607): the core-virtual blocks of
+    F_alpha and F_beta are replaced by F_cs in the natural-orbital basis of
+    P = (P_a + P_b) / 2, the same basis for both spins. `mask_a` marks the
+    core-virtual blocks there; C_a, C_b and mask_b are unused."""
     P_tot = P_a + P_b
     J = jnp.einsum("pqrs,rs->pq", repulsion, P_tot)
     K_a = jnp.einsum("prqs,rs->pq", repulsion, P_a)
@@ -732,16 +735,15 @@ def _cuhf_modified_focks(H_core, repulsion, P_a, P_b,
     F_b = H_core + J - K_b
     F_cs = 0.5 * (F_a + F_b)
 
-    # MO -> AO via S C F_mo C^T S
-    F_a_mo = C_a.T @ F_a @ C_a
-    F_cs_a = C_a.T @ F_cs @ C_a
-    F_a_mod = jnp.where(mask_a, F_cs_a, F_a_mo)
-    F_tilde_a = S @ C_a @ F_a_mod @ C_a.T @ S
-
-    F_b_mo = C_b.T @ F_b @ C_b
-    F_cs_b = C_b.T @ F_cs @ C_b
-    F_b_mod = jnp.where(mask_b, F_cs_b, F_b_mo)
-    F_tilde_b = S @ C_b @ F_b_mod @ C_b.T @ S
+    w, U = jnp.linalg.eigh(S)
+    S_half = U @ jnp.diag(jnp.sqrt(w)) @ U.T
+    S_inv_half = U @ jnp.diag(1.0 / jnp.sqrt(w)) @ U.T
+    _occ, W = jnp.linalg.eigh(S_half @ (0.5 * P_tot) @ S_half)
+    C_no = S_inv_half @ W[:, ::-1]
+    delta = C_no.T @ (0.5 * (F_b - F_a)) @ C_no
+    delta = S @ C_no @ jnp.where(mask_a, 0.0, delta) @ C_no.T @ S
+    F_tilde_a = F_cs - delta
+    F_tilde_b = F_cs + delta
 
     energy = 0.5 * (jnp.sum(P_a * (H_core + F_a))
                     + jnp.sum(P_b * (H_core + F_b)))
