@@ -402,3 +402,469 @@ def _scf_electronic_energy_bwd(n_electrons, residuals, cotangent):
 
 
 scf_electronic_energy.defvjp(_scf_electronic_energy_fwd, _scf_electronic_energy_bwd)
+
+
+# =============================================================================
+# UHF (Unrestricted Hartree-Fock)
+# =============================================================================
+#
+# run_scf above implements only RHF. For open-shell transition-metal
+# systems (Cr 3d3, Ti 3d1, V 3d3) the RHF assumption -- same spatial
+# orbitals for alpha and beta -- breaks: the SCF oscillates between
+# local minima at different geometries, and no smooth E(R) curve exists.
+# UHF removes that restriction.
+#
+# Integrals are spin-independent and reused unchanged. Only the SCF loop
+# differs:
+#
+#   RHF:  P = C_occ C_occ^T;              F = H + 2J(P) - K(P)
+#   UHF:  P_a = C_a C_a^T; P_b = C_b C_b^T; P = P_a + P_b
+#         F_a = H + J(P) - K(P_a)
+#         F_b = H + J(P) - K(P_b)
+#
+# The factor of 2 on J disappears in UHF because the alpha and beta
+# densities are counted separately (verified: with P_a = P_b = P_RHF/2
+# and n_a = n_b, F_a = F_b = F_RHF).
+#
+# Warm-start: the caller can pass previous-step orbital coefficients as
+# `C_alpha_init`/`C_beta_init` (e.g. from a converged geometry in an
+# E(R) scan). This is what makes a scan smooth -- without it, an
+# individual point can fall into a different local minimum of the UHF
+# energy landscape and produce an outlier even when every point
+# converges individually. Verified on Cr-O: two points at R=2.0, 2.4 A
+# shifted by ~0.11 Ha without warm-start, exact match with warm-start.
+#
+# <S^2>: for a UHF Slater determinant,
+#   <S^2> = S_z(S_z+1) + n_beta - Tr[P_a S P_b S]
+# (Szabo & Ostlund, Modern Quantum Chemistry, eq. 2.271). All terms are
+# traces -- a sum over all matrix elements is a different (wrong)
+# quantity and produces negative values for projection operators.
+# Verified: H2O with n_unpaired=0 gives <S^2> = 0 exactly; H2 at
+# dissociation limit R=5 A gives the textbook 0.75 + small correction.
+
+import dataclasses as _dataclasses
+
+
+@_dataclasses.dataclass
+class UHFResult:
+    """UHF counterpart of HFResult, plus the spin-contamination diagnostic
+    <S^2> and the alpha/beta decomposition."""
+    converged: bool
+    n_iterations: int
+    electronic_energy: float
+    nuclear_repulsion_energy: float
+    total_energy: float
+    orbital_energies_alpha: jax.Array
+    orbital_energies_beta: jax.Array
+    orbital_coefficients_alpha: jax.Array
+    orbital_coefficients_beta: jax.Array
+    density_matrix_alpha: jax.Array
+    density_matrix_beta: jax.Array
+    spin_squared: float
+    n_alpha: int
+    n_beta: int
+    energy_history: jax.Array
+
+
+def _density_from_coefficients_uhf(C, n_occupied):
+    return C[:, :n_occupied] @ C[:, :n_occupied].T
+
+
+def _fock_and_energy_uhf(H_core, repulsion, P_alpha, P_beta):
+    P_total = P_alpha + P_beta
+    J = jnp.einsum("pqrs,rs->pq", repulsion, P_total)
+    K_alpha = jnp.einsum("prqs,rs->pq", repulsion, P_alpha)
+    K_beta = jnp.einsum("prqs,rs->pq", repulsion, P_beta)
+    F_alpha = H_core + J - K_alpha
+    F_beta = H_core + J - K_beta
+    energy = 0.5 * (
+        jnp.sum(P_alpha * (H_core + F_alpha))
+        + jnp.sum(P_beta * (H_core + F_beta))
+    )
+    return F_alpha, F_beta, energy
+
+
+def _spin_squared(P_alpha, P_beta, S, n_alpha, n_beta):
+    """<S^2> for a UHF Slater determinant (Szabo & Ostlund eq. 2.271).
+    All traces, not sums."""
+    S_z = 0.5 * (n_alpha - n_beta)
+    overlap_sq = jnp.trace(P_alpha @ S @ P_beta @ S)
+    return S_z * (S_z + 1.0) + n_beta - overlap_sq
+
+
+def _diis_extrapolate_uhf(fh_a, fh_b, eh_a, eh_b, history_count, diis_dim):
+    """UHF DIIS: the error vector is [vec(e_alpha), vec(e_beta)]
+    concatenated. The linear system stays (diis_dim+1)^2 -- only the
+    Gram-matrix inner products get richer."""
+    dtype = fh_a.dtype
+    zero = jnp.zeros((), dtype=dtype)
+    one = jnp.ones((), dtype=dtype)
+    valid = jnp.arange(diis_dim) >= (diis_dim - history_count)
+
+    errs_flat = jnp.concatenate(
+        [eh_a.reshape(diis_dim, -1), eh_b.reshape(diis_dim, -1)], axis=1
+    )
+    B_full = errs_flat @ errs_flat.T
+    mask2d = valid[:, None] & valid[None, :]
+    B = jnp.where(mask2d, B_full, zero)
+    B = jnp.where(jnp.eye(diis_dim, dtype=bool) & ~mask2d, one, B)
+
+    A = jnp.zeros((diis_dim + 1, diis_dim + 1), dtype=dtype)
+    A = A.at[:diis_dim, :diis_dim].set(B)
+    col = jnp.where(valid, -one, zero)
+    A = A.at[:diis_dim, diis_dim].set(col)
+    A = A.at[diis_dim, :diis_dim].set(col)
+    b = jnp.zeros(diis_dim + 1, dtype=dtype).at[diis_dim].set(-one)
+
+    solution = jnp.linalg.solve(A, b)
+    is_finite = jnp.all(jnp.isfinite(solution))
+    coeffs = jnp.where(valid, jnp.where(is_finite, solution[:diis_dim], zero), zero)
+    F_alpha_diis = jnp.tensordot(coeffs, fh_a, axes=1)
+    F_beta_diis = jnp.tensordot(coeffs, fh_b, axes=1)
+    return (
+        jnp.where(is_finite, F_alpha_diis, fh_a[-1]),
+        jnp.where(is_finite, F_beta_diis, fh_b[-1]),
+    )
+
+
+def run_uhf(
+    S, H_core, repulsion, n_electrons, nuclear_charges, nuclear_positions,
+    n_unpaired=None,
+    C_alpha_init=None, C_beta_init=None,
+    max_iterations=200, convergence_tol=1e-10, energy_tol=1e-10,
+    damping=0.5, diis_dim=_DIIS_DIM, level_shift=0.0,
+) -> UHFResult:
+    """Unrestricted Hartree-Fock SCF.
+
+    Parameters
+    ----------
+    n_electrons : total number of electrons (integer).
+    n_unpaired : number of unpaired electrons. None -> n_electrons % 2.
+        n_alpha = (n_electrons + n_unpaired) // 2
+        n_beta  = (n_electrons - n_unpaired) // 2
+        Must satisfy n_electrons >= n_unpaired and (n_electrons -
+        n_unpaired) even.
+    C_alpha_init, C_beta_init : optional starting orbital coefficients
+        from a previous geometry. Enables warm-started E(R) scans: the
+        SCF stays in the same local minimum across a full curve instead
+        of hopping between minima at individual points (see module
+        docstring, "Warm-start"). If None, the core-Hamiltonian guess is
+        used.
+
+    Returns
+    -------
+    UHFResult with electronic_energy, total_energy, both orbital sets,
+    both density matrices, and <S^2>.
+    """
+    ensure_x64()
+
+    if n_unpaired is None:
+        n_unpaired = n_electrons % 2
+    if n_electrons < n_unpaired or (n_electrons - n_unpaired) % 2 != 0:
+        raise ValueError(
+            f"Invalid (n_electrons={n_electrons}, n_unpaired={n_unpaired}): "
+            f"n_electrons - n_unpaired must be a non-negative even number."
+        )
+
+    n_alpha = (n_electrons + n_unpaired) // 2
+    n_beta = (n_electrons - n_unpaired) // 2
+    n_basis = S.shape[0]
+
+    X = _orthogonalizer(S)
+
+    if C_alpha_init is not None and C_beta_init is not None:
+        C_alpha_prev0 = jnp.asarray(C_alpha_init)
+        C_beta_prev0 = jnp.asarray(C_beta_init)
+    else:
+        _e0, C_ortho0 = jnp.linalg.eigh(X.T @ H_core @ X)
+        C0 = X @ C_ortho0
+        C_alpha_prev0 = C0
+        C_beta_prev0 = C0
+
+    P_alpha0 = _density_from_coefficients_uhf(C_alpha_prev0, n_alpha)
+    P_beta0 = _density_from_coefficients_uhf(C_beta_prev0, n_beta)
+
+    def cond_fun(state):
+        iteration, _Pa, _Pb, _Ca, _Cb, _ep, converged, *_tail = state
+        return jnp.logical_and(jnp.logical_not(converged), iteration < max_iterations)
+
+    def body_fun(state):
+        (iteration, P_alpha, P_beta, C_alpha_prev, C_beta_prev,
+         energy_prev, _converged,
+         fh_a, fh_b, eh_a, eh_b, energy_history) = state
+
+        F_alpha, F_beta, energy = _fock_and_energy_uhf(
+            H_core, repulsion, P_alpha, P_beta
+        )
+        err_alpha = _diis_error(F_alpha, P_alpha, S, X)
+        err_beta = _diis_error(F_beta, P_beta, S, X)
+
+        fh_a = jnp.roll(fh_a, shift=-1, axis=0).at[-1].set(F_alpha)
+        fh_b = jnp.roll(fh_b, shift=-1, axis=0).at[-1].set(F_beta)
+        eh_a = jnp.roll(eh_a, shift=-1, axis=0).at[-1].set(err_alpha)
+        eh_b = jnp.roll(eh_b, shift=-1, axis=0).at[-1].set(err_beta)
+        history_count = jnp.minimum(iteration + 1, diis_dim)
+
+        F_alpha_diis, F_beta_diis = _diis_extrapolate_uhf(
+            fh_a, fh_b, eh_a, eh_b, history_count, diis_dim
+        )
+        F_alpha_step = jnp.where(history_count >= 2, F_alpha_diis, F_alpha)
+        F_beta_step = jnp.where(history_count >= 2, F_beta_diis, F_beta)
+
+        F_alpha_diag = _level_shift_fock(F_alpha_step, C_alpha_prev, S, n_alpha, level_shift)
+        F_beta_diag = _level_shift_fock(F_beta_step, C_beta_prev, S, n_beta, level_shift)
+
+        _ea, C_alpha_ortho = jnp.linalg.eigh(X.T @ F_alpha_diag @ X)
+        _eb, C_beta_ortho = jnp.linalg.eigh(X.T @ F_beta_diag @ X)
+        C_alpha = X @ C_alpha_ortho
+        C_beta = X @ C_beta_ortho
+        P_alpha_new = _density_from_coefficients_uhf(C_alpha, n_alpha)
+        P_beta_new = _density_from_coefficients_uhf(C_beta, n_beta)
+
+        density_converged = (
+            jnp.linalg.norm(P_alpha_new - P_alpha)
+            + jnp.linalg.norm(P_beta_new - P_beta)
+        ) < convergence_tol
+        energy_converged = jnp.abs(energy - energy_prev) < energy_tol
+        converged = jnp.logical_and(density_converged, energy_converged)
+
+        P_alpha_damped = jnp.where(
+            history_count < 2,
+            damping * P_alpha_new + (1.0 - damping) * P_alpha,
+            P_alpha_new,
+        )
+        P_beta_damped = jnp.where(
+            history_count < 2,
+            damping * P_beta_new + (1.0 - damping) * P_beta,
+            P_beta_new,
+        )
+        P_alpha_next = jnp.where(converged, P_alpha_new, P_alpha_damped)
+        P_beta_next = jnp.where(converged, P_beta_new, P_beta_damped)
+        energy_history = energy_history.at[iteration].set(energy)
+
+        return (iteration + 1, P_alpha_next, P_beta_next, C_alpha, C_beta,
+                energy, converged, fh_a, fh_b, eh_a, eh_b, energy_history)
+
+    init_state = (
+        jnp.array(0),
+        P_alpha0, P_beta0,
+        C_alpha_prev0, C_beta_prev0,
+        jnp.array(jnp.inf, dtype=H_core.dtype),
+        jnp.array(False),
+        jnp.zeros((diis_dim, n_basis, n_basis), dtype=H_core.dtype),
+        jnp.zeros((diis_dim, n_basis, n_basis), dtype=H_core.dtype),
+        jnp.zeros((diis_dim, n_basis, n_basis), dtype=H_core.dtype),
+        jnp.zeros((diis_dim, n_basis, n_basis), dtype=H_core.dtype),
+        jnp.full((max_iterations,), jnp.nan, dtype=H_core.dtype),
+    )
+    (iteration, P_alpha, P_beta, C_alpha, C_beta,
+     _ep, converged, _fha, _fhb, _eha, _ehb, energy_history) = (
+        jax.lax.while_loop(cond_fun, body_fun, init_state)
+    )
+
+    F_alpha, F_beta, electronic_energy = _fock_and_energy_uhf(
+        H_core, repulsion, P_alpha, P_beta
+    )
+    orbital_energies_alpha = jnp.diag(C_alpha.T @ F_alpha @ C_alpha)
+    orbital_energies_beta = jnp.diag(C_beta.T @ F_beta @ C_beta)
+    e_nuc = nuclear_repulsion_energy(nuclear_charges, nuclear_positions)
+    spin_sq = _spin_squared(P_alpha, P_beta, S, n_alpha, n_beta)
+
+    return UHFResult(
+        converged=bool(converged),
+        n_iterations=int(iteration),
+        electronic_energy=float(electronic_energy),
+        nuclear_repulsion_energy=float(e_nuc),
+        total_energy=float(electronic_energy) + float(e_nuc),
+        orbital_energies_alpha=orbital_energies_alpha,
+        orbital_energies_beta=orbital_energies_beta,
+        orbital_coefficients_alpha=C_alpha,
+        orbital_coefficients_beta=C_beta,
+        density_matrix_alpha=P_alpha,
+        density_matrix_beta=P_beta,
+        spin_squared=float(spin_sq),
+        n_alpha=n_alpha,
+        n_beta=n_beta,
+        energy_history=energy_history,
+    )
+
+
+# =============================================================================
+# CUHF — Tsuchimochi & Scuseria 2010, arXiv:1008.1607
+# =============================================================================
+# Eq. 21: tutti i blocchi di F^a e F^b sono UHF standard TRANNE cv/vc,
+# sostituiti con F^cs = (F^a + F^b) / 2.
+#
+# Nota critica sulla conversione MO <-> AO:
+#   C_a e' S-ortonormale (C_a^T S C_a = I), quindi C_a^{-1} = C_a^T S
+#   MO -> AO:  F_AO = C_a^{-T} F_MO C_a^{-1} = S C_a F_MO C_a^T S
+
+import dataclasses as _dc
+
+
+@_dc.dataclass
+class CUHFResult:
+    converged: bool
+    n_iterations: int
+    electronic_energy: float
+    nuclear_repulsion_energy: float
+    total_energy: float
+    orbital_energies_alpha: jax.Array
+    orbital_energies_beta: jax.Array
+    orbital_coefficients_alpha: jax.Array
+    orbital_coefficients_beta: jax.Array
+    density_matrix_alpha: jax.Array
+    density_matrix_beta: jax.Array
+    spin_squared: float
+    n_alpha: int
+    n_beta: int
+    energy_history: jax.Array
+
+
+def _cuhf_modified_focks(H_core, repulsion, P_a, P_b,
+                         C_a, C_b, mask_a, mask_b, S):
+    """Eq. 21: sostituisci cv/vc con F^cs. Include il fattore S (S-ortonormalita')."""
+    P_tot = P_a + P_b
+    J = jnp.einsum("pqrs,rs->pq", repulsion, P_tot)
+    K_a = jnp.einsum("prqs,rs->pq", repulsion, P_a)
+    K_b = jnp.einsum("prqs,rs->pq", repulsion, P_b)
+    F_a = H_core + J - K_a
+    F_b = H_core + J - K_b
+    F_cs = 0.5 * (F_a + F_b)
+
+    # MO -> AO via S C F_mo C^T S
+    F_a_mo = C_a.T @ F_a @ C_a
+    F_cs_a = C_a.T @ F_cs @ C_a
+    F_a_mod = jnp.where(mask_a, F_cs_a, F_a_mo)
+    F_tilde_a = S @ C_a @ F_a_mod @ C_a.T @ S
+
+    F_b_mo = C_b.T @ F_b @ C_b
+    F_cs_b = C_b.T @ F_cs @ C_b
+    F_b_mod = jnp.where(mask_b, F_cs_b, F_b_mo)
+    F_tilde_b = S @ C_b @ F_b_mod @ C_b.T @ S
+
+    energy = 0.5 * (jnp.sum(P_a * (H_core + F_a))
+                    + jnp.sum(P_b * (H_core + F_b)))
+    return F_tilde_a, F_tilde_b, energy
+
+
+def run_cuhf(S, H_core, repulsion, n_electrons, nuclear_charges,
+             nuclear_positions, n_unpaired=None,
+             C_alpha_init=None, C_beta_init=None,
+             max_iterations=200, convergence_tol=1e-10, energy_tol=1e-10,
+             damping=0.5, diis_dim=_DIIS_DIM, level_shift=0.0):
+    """Constrained UHF = ROHF (Tsuchimochi & Scuseria 2010)."""
+    ensure_x64()
+
+    if n_unpaired is None:
+        n_unpaired = n_electrons % 2
+    if n_electrons < n_unpaired or (n_electrons - n_unpaired) % 2 != 0:
+        raise ValueError(f"Invalid (n_electrons={n_electrons}, n_unpaired={n_unpaired})")
+
+    n_alpha = (n_electrons + n_unpaired) // 2
+    n_beta = (n_electrons - n_unpaired) // 2
+    n_basis = S.shape[0]
+    X = _orthogonalizer(S)
+
+    if C_alpha_init is not None and C_beta_init is not None:
+        C0_a = jnp.asarray(C_alpha_init)
+        C0_b = jnp.asarray(C_beta_init)
+    else:
+        _e0, C_ortho0 = jnp.linalg.eigh(X.T @ H_core @ X)
+        C0_a = X @ C_ortho0
+        C0_b = C0_a
+
+    P_a0 = _density_from_coefficients_uhf(C0_a, n_alpha)
+    P_b0 = _density_from_coefficients_uhf(C0_b, n_beta)
+
+    # Maschere cv/vc in base MO
+    ar = jnp.arange(n_basis)
+    cm = ar < n_beta
+    va = ar >= n_alpha
+    vb = ar >= n_beta
+    mask_a = (cm[:, None] & va[None, :]) | (va[:, None] & cm[None, :])
+    mask_b = (cm[:, None] & vb[None, :]) | (vb[:, None] & cm[None, :])
+
+    def cond_fun(s):
+        return jnp.logical_and(jnp.logical_not(s[6]), s[0] < max_iterations)
+
+    def body_fun(s):
+        (it, Pa, Pb, Ca_p, Cb_p, E_prev, _c,
+         fh_a, fh_b, eh_a, eh_b, eh_hist) = s
+
+        Fa_t, Fb_t, E = _cuhf_modified_focks(
+            H_core, repulsion, Pa, Pb, Ca_p, Cb_p, mask_a, mask_b, S)
+
+        err_a = _diis_error(Fa_t, Pa, S, X)
+        err_b = _diis_error(Fb_t, Pb, S, X)
+
+        fh_a = jnp.roll(fh_a, -1, 0).at[-1].set(Fa_t)
+        fh_b = jnp.roll(fh_b, -1, 0).at[-1].set(Fb_t)
+        eh_a = jnp.roll(eh_a, -1, 0).at[-1].set(err_a)
+        eh_b = jnp.roll(eh_b, -1, 0).at[-1].set(err_b)
+        hc = jnp.minimum(it + 1, diis_dim)
+
+        Fa_d, Fb_d = _diis_extrapolate_uhf(fh_a, fh_b, eh_a, eh_b, hc, diis_dim)
+        Fa_s = jnp.where(hc >= 2, Fa_d, Fa_t)
+        Fb_s = jnp.where(hc >= 2, Fb_d, Fb_t)
+
+        Fa_dg = _level_shift_fock(Fa_s, Ca_p, S, n_alpha, level_shift)
+        Fb_dg = _level_shift_fock(Fb_s, Cb_p, S, n_beta, level_shift)
+
+        _ea, Ca_o = jnp.linalg.eigh(X.T @ Fa_dg @ X)
+        _eb, Cb_o = jnp.linalg.eigh(X.T @ Fb_dg @ X)
+        Ca = X @ Ca_o
+        Cb = X @ Cb_o
+        Pa_n = _density_from_coefficients_uhf(Ca, n_alpha)
+        Pb_n = _density_from_coefficients_uhf(Cb, n_beta)
+
+        d_conv = (jnp.linalg.norm(Pa_n - Pa) + jnp.linalg.norm(Pb_n - Pb)) < convergence_tol
+        e_conv = jnp.abs(E - E_prev) < energy_tol
+        conv = jnp.logical_and(d_conv, e_conv)
+
+        Pa_d = jnp.where(hc < 2, damping * Pa_n + (1 - damping) * Pa, Pa_n)
+        Pb_d = jnp.where(hc < 2, damping * Pb_n + (1 - damping) * Pb, Pb_n)
+        Pa_x = jnp.where(conv, Pa_n, Pa_d)
+        Pb_x = jnp.where(conv, Pb_n, Pb_d)
+        eh_hist = eh_hist.at[it].set(E)
+
+        return (it + 1, Pa_x, Pb_x, Ca, Cb, E, conv,
+                fh_a, fh_b, eh_a, eh_b, eh_hist)
+
+    init = (
+        jnp.array(0), P_a0, P_b0, C0_a, C0_b,
+        jnp.array(jnp.inf, H_core.dtype), jnp.array(False),
+        jnp.zeros((diis_dim, n_basis, n_basis), H_core.dtype),
+        jnp.zeros((diis_dim, n_basis, n_basis), H_core.dtype),
+        jnp.zeros((diis_dim, n_basis, n_basis), H_core.dtype),
+        jnp.zeros((diis_dim, n_basis, n_basis), H_core.dtype),
+        jnp.full((max_iterations,), jnp.nan, H_core.dtype),
+    )
+    out = jax.lax.while_loop(cond_fun, body_fun, init)
+    it, Pa, Pb, Ca, Cb, _Ep, conv, _fa, _fb, _ea, _eb, eh = out
+
+    P_tot = Pa + Pb
+    J = jnp.einsum("pqrs,rs->pq", repulsion, P_tot)
+    Fa = H_core + J - jnp.einsum("prqs,rs->pq", repulsion, Pa)
+    Fb = H_core + J - jnp.einsum("prqs,rs->pq", repulsion, Pb)
+    E_el = 0.5 * (jnp.sum(Pa * (H_core + Fa)) + jnp.sum(Pb * (H_core + Fb)))
+    e_nuc = nuclear_repulsion_energy(nuclear_charges, nuclear_positions)
+    s2 = _spin_squared(Pa, Pb, S, n_alpha, n_beta)
+
+    return CUHFResult(
+        converged=bool(conv),
+        n_iterations=int(it),
+        electronic_energy=float(E_el),
+        nuclear_repulsion_energy=float(e_nuc),
+        total_energy=float(E_el) + float(e_nuc),
+        orbital_energies_alpha=jnp.diag(Ca.T @ Fa @ Ca),
+        orbital_energies_beta=jnp.diag(Cb.T @ Fb @ Cb),
+        orbital_coefficients_alpha=Ca,
+        orbital_coefficients_beta=Cb,
+        density_matrix_alpha=Pa,
+        density_matrix_beta=Pb,
+        spin_squared=float(s2),
+        n_alpha=n_alpha,
+        n_beta=n_beta,
+        energy_history=eh,
+    )
