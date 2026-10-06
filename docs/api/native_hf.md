@@ -319,6 +319,44 @@ with a spectroscopic reference for CrO. Closing that gap is a
 larger change to the codebase, as the issue itself notes.
 To reproduce: `python scripts/simulator_infrastructure/cr_o_open_shell_curve.py` in [Dense-Evolution-Discovery](https://github.com/tatopenn-cell/Dense-Evolution-Discovery) (about 2 minutes on a laptop CPU with libcint).
 
+
+## Step 8. Forces on an open-shell molecule
+
+Step 5 gave the force on each nucleus of H2. The same `build_energy_fn` takes
+`method="uhf"` or `method="cuhf"`, so forces work for molecules with unpaired electrons too.
+
+```python
+import numpy as np
+import jax
+from dense_evolution.native_hf.differentiable import build_energy_fn
+
+geom = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 1.83]])
+
+energy_fn = build_energy_fn(
+    atomic_numbers=[8, 1], nuclear_charges=[8.0, 1.0], n_electrons=9,
+    basis_name="sto-3g", reference_geometry_bohr=geom,
+    method="uhf", n_unpaired=1,
+)
+
+print(float(energy_fn(geom)))
+print(float(jax.grad(energy_fn)(geom)[1, 2]))
+```
+
+```
+-74.36249684587374
+-0.057959761235710845
+```
+
+The energy is the UHF energy of OH from Step 6. The second number is dE/dz of the hydrogen
+in Hartree/Bohr; a central finite difference of the same energy (step `1e-4` Bohr) gives
+`-0.0579597653`, a difference of `4e-9`. The gradient is analytic: at the converged SCF the
+energy is stationary, so only the explicit dependence of the integrals counts, with the
+spin-resolved energy-weighted density `W_s = C_s,occ diag(eps_s,occ) C_s,occ^T` for each spin
+(Lehtola, Blockhuys & Van Alsenoy, arXiv:1912.12029). For `method="cuhf"` the constrained
+Fock matrices differ from the UHF ones only in the core-virtual block of the natural-orbital
+basis, which does not touch the occupied orbitals, so the same `W_s` applies; the tests check
+it against finite differences on OH and O2.
+
 ---
 
 ## Details
