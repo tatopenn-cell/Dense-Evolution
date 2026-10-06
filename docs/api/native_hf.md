@@ -182,6 +182,47 @@ the nuclei repel each other. With RHF/STO-3G the minimum sits at `0.712` Å,
 `-1.117506` Hartree; the experimental bond length is `0.741` Å. The gap is
 the basis set and the mean-field approximation, not the integrals.*
 
+## Step 6. Unpaired electrons: UHF and ROHF
+
+Every molecule so far has its electrons in pairs. A radical such as OH has
+9 electrons, so one is left alone; transition-metal atoms (Cr, Ti, V) can
+have several. RHF puts both electrons of a pair in the same orbital, which
+cannot describe an unpaired one. UHF lets the two spins have different
+orbitals; ROHF keeps the pairs together and only the unpaired electrons
+apart.
+
+```python
+import numpy as np
+from dense_evolution.native_hf.assembly import build_core_hamiltonian, build_overlap_matrix, build_repulsion_tensor
+from dense_evolution.native_hf.basis import build_molecule_shells
+from dense_evolution.native_hf.scf import run_cuhf, run_uhf
+
+geom = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 1.83]])
+shells = build_molecule_shells([8, 1], geom, "sto-3g")
+S, H, V = build_overlap_matrix(shells), build_core_hamiltonian(shells, [8.0, 1.0], geom), build_repulsion_tensor(shells)
+
+uhf = run_uhf(S, H, V, 9, [8.0, 1.0], geom)
+rohf = run_cuhf(S, H, V, 9, [8.0, 1.0], geom)
+print(uhf.total_energy, uhf.spin_squared)
+print(rohf.total_energy, rohf.spin_squared)
+```
+
+```
+-74.36249684587374 0.7532295358699592
+-74.3613919721626 0.7499999999999991
+```
+
+`OH` is an oxygen and a hydrogen 1.83 Bohr apart. `n_unpaired` defaults to
+`9 % 2 = 1`, so there are 5 alpha and 4 beta electrons. `spin_squared` is
+⟨S²⟩: a single unpaired electron should give exactly `0.75`. UHF finds a
+slightly lower energy but ⟨S²⟩ = `0.7532`, a small *spin contamination*
+from mixing in higher spin states. `run_cuhf` is ROHF written as a
+constrained UHF (Tsuchimochi & Scuseria, arXiv:1008.1607): ⟨S²⟩ = `0.75`
+exactly, at an energy `1.1` mHartree higher. With no unpaired electrons
+both give the RHF energy. For an energy-versus-distance scan, pass the
+previous point's `orbital_coefficients_alpha` / `_beta` as `C_alpha_init`
+/ `C_beta_init`, so every point stays in the same SCF solution.
+
 ---
 
 ## Details
