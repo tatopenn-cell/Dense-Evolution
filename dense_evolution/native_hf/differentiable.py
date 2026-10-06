@@ -31,13 +31,32 @@ from dense_evolution.native_hf.basis import build_molecule_shells
 from dense_evolution.native_hf.assembly import (
     build_overlap_matrix, build_core_hamiltonian, build_repulsion_tensor, quartet_screening_indices,
 )
-from dense_evolution.native_hf.scf import scf_electronic_energy, nuclear_repulsion_energy
+from dense_evolution.native_hf.scf import (
+    cuhf_electronic_energy, nuclear_repulsion_energy, scf_electronic_energy, uhf_electronic_energy,
+)
 
 
 def build_energy_fn(
     atomic_numbers: list[int], nuclear_charges: list[float], n_electrons: int,
     basis_name: str, reference_geometry_bohr: np.ndarray, screening_tol: float = 1e-12,
+    method: str = "rhf", n_unpaired: int | None = None,
 ):
+    """`method` is "rhf" (default), "uhf" or "cuhf"; for the open-shell methods
+    `n_unpaired` defaults to `n_electrons % 2`. The UHF/CUHF gradients use the
+    spin-resolved energy-weighted density (see scf.py)."""
+    if method == "rhf":
+        electronic = lambda S, H, V: scf_electronic_energy(S, H, V, n_electrons)
+    elif method in ("uhf", "cuhf"):
+        if n_unpaired is None:
+            n_unpaired = n_electrons % 2
+        if n_electrons < n_unpaired or (n_electrons - n_unpaired) % 2 != 0:
+            raise ValueError(f"Invalid (n_electrons={n_electrons}, n_unpaired={n_unpaired})")
+        n_alpha, n_beta = (n_electrons + n_unpaired) // 2, (n_electrons - n_unpaired) // 2
+        fn = uhf_electronic_energy if method == "uhf" else cuhf_electronic_energy
+        electronic = lambda S, H, V: fn(S, H, V, n_alpha, n_beta)
+    else:
+        raise ValueError(f"method must be 'rhf', 'uhf' or 'cuhf', got {method!r}")
+
     reference_shells = build_molecule_shells(atomic_numbers, np.asarray(reference_geometry_bohr), basis_name)
     quartet_indices = quartet_screening_indices(reference_shells, screening_tol)
 
@@ -46,7 +65,7 @@ def build_energy_fn(
         S = build_overlap_matrix(shells)
         H_core = build_core_hamiltonian(shells, nuclear_charges, geometry_bohr)
         repulsion = build_repulsion_tensor(shells, quartet_indices=quartet_indices)
-        electronic_energy = scf_electronic_energy(S, H_core, repulsion, n_electrons)
+        electronic_energy = electronic(S, H_core, repulsion)
         e_nuc = nuclear_repulsion_energy(nuclear_charges, geometry_bohr)
         return electronic_energy + e_nuc
 

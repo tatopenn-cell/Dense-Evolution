@@ -868,3 +868,215 @@ def run_cuhf(S, H_core, repulsion, n_electrons, nuclear_charges,
         n_beta=n_beta,
         energy_history=eh,
     )
+
+
+# =============================================================================
+# Differentiable open-shell energies (jitted, for use in differentiable.py)
+# =============================================================================
+# The eager run_scf / run_uhf / run_cuhf above use jax.lax.while_loop with a
+# Python bool(converged) at the end. That is correct for direct use, but it
+# cannot be jit-compiled (bool() on a traced value fails) and cannot be
+# reverse-mode differentiated efficiently (JAX has no reverse rule for
+# while_loop, and re-executing the eager forward on every grad call costs
+# ~1 s per geometry).
+#
+# The energies below are pure-jnp: a fixed fori_loop count, no dataclass,
+# no Python scalars. The SCF iteration compiles once; a warm call on OH
+# /STO-3G is ~6 ms on CPU.
+#
+# The custom_vjp uses the analytic derivative at the converged fixed point
+# (envelope theorem; Hellmann-Feynman + Pulay terms):
+#
+#   RHF   E = 1/2 Tr[P(H+F)]       F = H + 2J - K         (Lehtola eq. 40)
+#   UHF   E = 1/2 Tr[P_a(H+F_a)]
+#           + 1/2 Tr[P_b(H+F_b)]   F_s = H + J - K_s      (Lehtola eq. 40)
+#
+# Holding P and the Lagrange multipliers at convergence:
+#
+#   dE/dH = P_a + P_b                                     (RHF: P)
+#   dE/dV from the Lagrangian below; dE/dS = -(W_a + W_b)
+#
+# with W_s = C_{s,occ} diag(eps_{s,occ}) C_{s,occ}^T. The RHF factor of 2
+# in W is the module's own P convention (F = H + 2J - K carries it), and
+# does not appear in W_s here -- each spin is counted once. See
+# scf_electronic_energy's docstring above for the RHF case.
+#
+# CUHF uses the same W_s as UHF. The CUHF Fock F~_s differs from F_s only
+# on the core-virtual block in the natural-orbital basis of P
+# (Tsuchimochi & Scuseria, arXiv:1008.1607, eq. 17-18), which is invisible
+# to C_{s,occ} (no virtual component), so C_{s,occ}^T F~_s C_{s,occ} =
+# C_{s,occ}^T F_s C_{s,occ}. The orbital energies stored by the forward are
+# therefore the correct CUHF Lagrange multipliers, and W_s is exact.
+
+_DIIS_DIM_JNP = 8
+_N_SCF_ITER = 80
+
+
+def _diis_uhf_jnp(fha, fhb, eha, ehb, hc, d):
+    z = jnp.zeros((), fha.dtype)
+    o = jnp.ones((), fha.dtype)
+    v = jnp.arange(d) >= (d - hc)
+    ef = jnp.concatenate([eha.reshape(d, -1), ehb.reshape(d, -1)], axis=1)
+    Bf = ef @ ef.T
+    m = v[:, None] & v[None, :]
+    B = jnp.where(m, Bf, z)
+    B = jnp.where(jnp.eye(d, dtype=bool) & ~m, o, B)
+    A = jnp.zeros((d + 1, d + 1), fha.dtype)
+    A = A.at[:d, :d].set(B)
+    c = jnp.where(v, -o, z)
+    A = A.at[:d, d].set(c)
+    A = A.at[d, :d].set(c)
+    b = jnp.zeros(d + 1, fha.dtype).at[d].set(-o)
+    s = jnp.linalg.solve(A, b)
+    f = jnp.all(jnp.isfinite(s))
+    co = jnp.where(v, jnp.where(f, s[:d], z), z)
+    return (jnp.where(f, jnp.tensordot(co, fha, axes=1), fha[-1]),
+            jnp.where(f, jnp.tensordot(co, fhb, axes=1), fhb[-1]))
+
+
+def _uhf_scf_jnp(S, H_core, V, n_alpha, n_beta, n_iter):
+    n = S.shape[0]
+    d = _DIIS_DIM_JNP
+    X = _orthogonalizer(S)
+    _, Co = jnp.linalg.eigh(X.T @ H_core @ X)
+    C0 = X @ Co
+    P_a0 = C0[:, :n_alpha] @ C0[:, :n_alpha].T
+    P_b0 = C0[:, :n_beta] @ C0[:, :n_beta].T
+    z = jnp.zeros((d, n, n), H_core.dtype)
+
+    def body(_, carry):
+        P_a, P_b, C_a, C_b, fh_a, fh_b, eh_a, eh_b, it = carry
+        J = jnp.einsum("pqrs,rs->pq", V, P_a + P_b)
+        F_a = H_core + J - jnp.einsum("prqs,rs->pq", V, P_a)
+        F_b = H_core + J - jnp.einsum("prqs,rs->pq", V, P_b)
+        e_a = _diis_error(F_a, P_a, S, X)
+        e_b = _diis_error(F_b, P_b, S, X)
+        fh_a = jnp.roll(fh_a, -1, 0).at[-1].set(F_a)
+        fh_b = jnp.roll(fh_b, -1, 0).at[-1].set(F_b)
+        eh_a = jnp.roll(eh_a, -1, 0).at[-1].set(e_a)
+        eh_b = jnp.roll(eh_b, -1, 0).at[-1].set(e_b)
+        hc = jnp.minimum(it + 1, d)
+        Fa_d, Fb_d = _diis_uhf_jnp(fh_a, fh_b, eh_a, eh_b, hc, d)
+        F_a_s = jnp.where(hc >= 2, Fa_d, F_a)
+        F_b_s = jnp.where(hc >= 2, Fb_d, F_b)
+        F_a_d = _level_shift_fock(F_a_s, C_a, S, n_alpha, 0.0)
+        F_b_d = _level_shift_fock(F_b_s, C_b, S, n_beta, 0.0)
+        _, Ca_o = jnp.linalg.eigh(X.T @ F_a_d @ X)
+        _, Cb_o = jnp.linalg.eigh(X.T @ F_b_d @ X)
+        C_a_n = X @ Ca_o
+        C_b_n = X @ Cb_o
+        P_a_n = C_a_n[:, :n_alpha] @ C_a_n[:, :n_alpha].T
+        P_b_n = C_b_n[:, :n_beta] @ C_b_n[:, :n_beta].T
+        return (P_a_n, P_b_n, C_a_n, C_b_n, fh_a, fh_b, eh_a, eh_b, it + 1)
+
+    init = (P_a0, P_b0, C0, C0, z, z, z, z, jnp.array(0))
+    P_a, P_b, C_a, C_b, *_ = jax.lax.fori_loop(0, n_iter, body, init)
+    J = jnp.einsum("pqrs,rs->pq", V, P_a + P_b)
+    F_a = H_core + J - jnp.einsum("prqs,rs->pq", V, P_a)
+    F_b = H_core + J - jnp.einsum("prqs,rs->pq", V, P_b)
+    E = 0.5 * (jnp.sum(P_a * (H_core + F_a)) + jnp.sum(P_b * (H_core + F_b)))
+    eps_a = jnp.diag(C_a.T @ F_a @ C_a)
+    eps_b = jnp.diag(C_b.T @ F_b @ C_b)
+    return E, P_a, P_b, C_a, C_b, eps_a, eps_b
+
+
+def _cuhf_scf_jnp(S, H_core, V, n_alpha, n_beta, n_iter):
+    n = S.shape[0]
+    d = _DIIS_DIM_JNP
+    X = _orthogonalizer(S)
+    _, Co = jnp.linalg.eigh(X.T @ H_core @ X)
+    C0 = X @ Co
+    P_a0 = C0[:, :n_alpha] @ C0[:, :n_alpha].T
+    P_b0 = C0[:, :n_beta] @ C0[:, :n_beta].T
+    ar = jnp.arange(n)
+    cv_mask = ((ar < n_beta)[:, None] & (ar >= n_alpha)[None, :]) | \
+              ((ar >= n_alpha)[:, None] & (ar < n_beta)[None, :])
+    z = jnp.zeros((d, n, n), H_core.dtype)
+
+    def body(_, carry):
+        P_a, P_b, C_a, C_b, fh_a, fh_b, eh_a, eh_b, it = carry
+        F_a, F_b, _ = _cuhf_modified_focks(H_core, V, P_a, P_b, cv_mask, S)
+        e_a = _diis_error(F_a, P_a, S, X)
+        e_b = _diis_error(F_b, P_b, S, X)
+        fh_a = jnp.roll(fh_a, -1, 0).at[-1].set(F_a)
+        fh_b = jnp.roll(fh_b, -1, 0).at[-1].set(F_b)
+        eh_a = jnp.roll(eh_a, -1, 0).at[-1].set(e_a)
+        eh_b = jnp.roll(eh_b, -1, 0).at[-1].set(e_b)
+        hc = jnp.minimum(it + 1, d)
+        Fa_d, Fb_d = _diis_uhf_jnp(fh_a, fh_b, eh_a, eh_b, hc, d)
+        F_a_s = jnp.where(hc >= 2, Fa_d, F_a)
+        F_b_s = jnp.where(hc >= 2, Fb_d, F_b)
+        F_a_d = _level_shift_fock(F_a_s, C_a, S, n_alpha, 0.0)
+        F_b_d = _level_shift_fock(F_b_s, C_b, S, n_beta, 0.0)
+        _, Ca_o = jnp.linalg.eigh(X.T @ F_a_d @ X)
+        _, Cb_o = jnp.linalg.eigh(X.T @ F_b_d @ X)
+        C_a_n = X @ Ca_o
+        C_b_n = X @ Cb_o
+        P_a_n = C_a_n[:, :n_alpha] @ C_a_n[:, :n_alpha].T
+        P_b_n = C_b_n[:, :n_beta] @ C_b_n[:, :n_beta].T
+        return (P_a_n, P_b_n, C_a_n, C_b_n, fh_a, fh_b, eh_a, eh_b, it + 1)
+
+    init = (P_a0, P_b0, C0, C0, z, z, z, z, jnp.array(0))
+    P_a, P_b, C_a, C_b, *_ = jax.lax.fori_loop(0, n_iter, body, init)
+    J = jnp.einsum("pqrs,rs->pq", V, P_a + P_b)
+    F_a = H_core + J - jnp.einsum("prqs,rs->pq", V, P_a)
+    F_b = H_core + J - jnp.einsum("prqs,rs->pq", V, P_b)
+    E = 0.5 * (jnp.sum(P_a * (H_core + F_a)) + jnp.sum(P_b * (H_core + F_b)))
+    eps_a = jnp.diag(C_a.T @ F_a @ C_a)
+    eps_b = jnp.diag(C_b.T @ F_b @ C_b)
+    return E, P_a, P_b, C_a, C_b, eps_a, eps_b
+
+
+@functools.partial(jax.custom_vjp, nondiff_argnums=(3, 4))
+def uhf_electronic_energy(S, H_core, repulsion, n_alpha, n_beta):
+    """UHF electronic energy, differentiable w.r.t. (S, H_core, repulsion).
+    n_alpha, n_beta are static; n_unpaired = n_alpha - n_beta."""
+    E, *_ = _uhf_scf_jnp(S, H_core, repulsion, n_alpha, n_beta, _N_SCF_ITER)
+    return E
+
+
+def _uhf_electronic_energy_fwd(S, H_core, repulsion, n_alpha, n_beta):
+    E, P_a, P_b, C_a, C_b, eps_a, eps_b = _uhf_scf_jnp(
+        S, H_core, repulsion, n_alpha, n_beta, _N_SCF_ITER)
+    residuals = (S, H_core, repulsion, P_a, P_b, C_a, C_b, eps_a, eps_b)
+    return E, residuals
+
+
+def _uhf_electronic_energy_bwd(n_alpha, n_beta, residuals, cotangent):
+    S, H_core, repulsion, P_a, P_b, C_a, C_b, eps_a, eps_b = residuals
+    C_a_occ = C_a[:, :n_alpha]
+    C_b_occ = C_b[:, :n_beta]
+    W_a = C_a_occ @ jnp.diag(eps_a[:n_alpha]) @ C_a_occ.T
+    W_b = C_b_occ @ jnp.diag(eps_b[:n_beta]) @ C_b_occ.T
+
+    def lagrangian(S_, H_, V_):
+        J = jnp.einsum("pqrs,rs->pq", V_, P_a + P_b)
+        F_a = H_ + J - jnp.einsum("prqs,rs->pq", V_, P_a)
+        F_b = H_ + J - jnp.einsum("prqs,rs->pq", V_, P_b)
+        E = 0.5 * (jnp.sum(P_a * (H_ + F_a)) + jnp.sum(P_b * (H_ + F_b)))
+        return E - jnp.sum(W_a * S_) - jnp.sum(W_b * S_)
+
+    dS, dH, dV = jax.grad(lagrangian, argnums=(0, 1, 2))(S, H_core, repulsion)
+    return (cotangent * dS, cotangent * dH, cotangent * dV)
+
+
+uhf_electronic_energy.defvjp(_uhf_electronic_energy_fwd, _uhf_electronic_energy_bwd)
+
+
+@functools.partial(jax.custom_vjp, nondiff_argnums=(3, 4))
+def cuhf_electronic_energy(S, H_core, repulsion, n_alpha, n_beta):
+    """CUHF (ROHF as constrained UHF, Tsuchimochi & Scuseria) electronic
+    energy, differentiable w.r.t. (S, H_core, repulsion). Same backward W
+    as UHF (see the module note above: F~_s and F_s agree on occ-occ)."""
+    E, *_ = _cuhf_scf_jnp(S, H_core, repulsion, n_alpha, n_beta, _N_SCF_ITER)
+    return E
+
+
+def _cuhf_electronic_energy_fwd(S, H_core, repulsion, n_alpha, n_beta):
+    E, P_a, P_b, C_a, C_b, eps_a, eps_b = _cuhf_scf_jnp(
+        S, H_core, repulsion, n_alpha, n_beta, _N_SCF_ITER)
+    residuals = (S, H_core, repulsion, P_a, P_b, C_a, C_b, eps_a, eps_b)
+    return E, residuals
+
+
+cuhf_electronic_energy.defvjp(_cuhf_electronic_energy_fwd, _uhf_electronic_energy_bwd)
