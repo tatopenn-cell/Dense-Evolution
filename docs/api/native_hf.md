@@ -223,6 +223,102 @@ both give the RHF energy. For an energy-versus-distance scan, pass the
 previous point's `orbital_coefficients_alpha` / `_beta` as `C_alpha_init`
 / `C_beta_init`, so every point stays in the same SCF solution.
 
+
+## Step 7. A real open-shell transition metal: the Cr-O curve
+
+Step 6 introduced UHF and ROHF (as constrained UHF) on OH and O2.
+The test case that motivated that work is the Cr-O dimer: neutral,
+an open-shell 3d metal bound to oxygen, 32 electrons, where a single closed-shell
+Slater determinant is the wrong ansatz and the RHF SCF oscillates
+between local minima at adjacent geometries. This is
+[Dense-Evolution issue #358](https://github.com/tatopenn-cell/Dense-Evolution/issues/358).
+
+The setup is the issue's own. Cr-O dimer, 3-21g basis,
+32 electrons, R from 1.6 to 2.4 Å along the x axis, ERI tensor from
+`build_repulsion_tensor_libcint`, SCF from `run_uhf` / `run_cuhf`.
+Warm start: the previous point's converged
+`orbital_coefficients_alpha` / `orbital_coefficients_beta` seed the
+next point's `C_alpha_init` / `C_beta_init`, so the SCF stays in the
+same local minimum across the whole curve. First point uses the
+core-Hamiltonian guess.
+
+RHF reference (issue #358, `level_shift=0.0`):
+
+    k = -22 Ha/A^2      (impossible sign for a bound diatomic)
+    energy jumps ~0.2 Ha between adjacent geometries
+
+Best spin state found: **`n_unpaired = 6`**, CUHF, at
+`R_e = 1.9112 Å`, `E(R_e) = -1112.709156 Ha`, `k = 0.8454 Ha/Å²`.
+
+    R (A)         E (Ha)        dE to prev   conv  iter       <S^2>
+  1.600  -1112.64892582            ---       True    36   12.0000000000
+  1.657  -1112.67345374   -2.452791e-02     True    27   12.0000000000
+  1.714  -1112.69015513   -1.670140e-02     True    24   12.0000000000
+  1.771  -1112.70074104   -1.058591e-02     True    28   12.0000000000
+  1.829  -1112.70660382   -5.862775e-03     True    27   12.0000000000
+  1.886  -1112.70886625   -2.262434e-03     True    27   12.0000000000
+  1.943  -1112.70842308   +4.431677e-04     True    24   12.0000000000
+  2.000  -1112.70597669   +2.446389e-03     True    24   12.0000000000
+  2.057  -1112.70206892   +3.907772e-03     True    24   12.0000000000
+  2.114  -1112.69711018   +4.958745e-03     True    24   12.0000000000
+  2.171  -1112.69140609   +5.704084e-03     True    25   12.0000000000
+  2.229  -1112.68518136   +6.224732e-03     True    25   12.0000000000
+  2.286  -1112.67860023   +6.581131e-03     True    25   12.0000000000
+  2.343  -1112.67178336   +6.816871e-03     True    25   12.0000000000
+  2.400  -1112.66482098   +6.962378e-03     True    25   12.0000000000
+
+Max neighbour jump along the curve:
+
+    max |E(R_i) - E(R_(i+1))| = 0.024528 Ha
+
+against the issue's RHF table, where adjacent-geometry jumps reached
+`~0.2 Ha`. Parabola fit on the five points around the minimum:
+
+    R_e      = 1.911155 A
+    E(R_e)   = -1112.70915634 Ha
+    k = 2*a2 = 0.845422 Ha/A^2
+
+`k > 0` and of the expected order of magnitude for a metal–oxygen
+bond; the RHF fit gave `k = -22 Ha/Å²`, the wrong sign and no bound
+state.
+
+All three spin states tested, at their respective minima:
+
+| method | n_unpaired | S(S+1) | E_min (Ha) | R(E_min) (Å) |
+|---|---|---|---|---|
+| UHF  | 2 | 2  | -1112.515060 | 1.6571 |
+| UHF  | 4 | 6  | -1112.694485 | 1.7714 |
+| UHF  | 6 | 12 | -1112.680050 | 1.8286 |
+| CUHF | 2 | 2  | -1112.432516 | 1.6571 |
+| CUHF | 4 | 6  | -1112.608024 | 1.6000 |
+| CUHF | 6 | 12 | -1112.708866 | 1.8857 |
+
+CUHF keeps `<S^2> = S(S+1)` to `3.55e-14` across the whole
+`n_unpaired = 6` curve; UHF contaminates by up to `3.82e-03` on the
+same state (range `[12.001745, 12.003817]`). For `n_unpaired = 6` the
+UHF minimum (`-1112.680050` Ha) lies *above* the CUHF one
+(`-1112.708866` Ha): UHF is the less constrained method, so its true
+minimum cannot be higher, and the warm-started UHF scan has settled in
+a higher local minimum. For `n_unpaired = 2` and `4` the CUHF minima
+sit at the edge of the grid (1.60–1.66 Å), so they are not interior
+minima of the scan.
+
+All five assertions passed: every point converged, `k > 0`, CUHF
+`<S^2> = S(S+1)` to `1e-8`, max neighbour jump below `0.05 Ha`.
+
+**What is still open.** DFT+U and CASSCF are the standard methods for
+3d/4f transition-metal oxides and remain unimplemented. UHF and CUHF
+unblock the E(R) curve — a smooth curve now exists, and the parabola
+fit gives a physically meaningful `k > 0` — but neither captures
+dynamic correlation, and neither accounts for localization on the
+metal centre. The values of `R_e` and `k` above should be read as
+method-consistent, not as benchmark numbers: Hartree-Fock with a small
+basis is known to favour high-spin states in transition-metal oxides,
+and the spin state and bond length found here have not been compared
+with a spectroscopic reference for CrO. Closing that gap is a
+larger change to the codebase, as the issue itself notes.
+To reproduce: `python scripts/simulator_infrastructure/cr_o_open_shell_curve.py` in [Dense-Evolution-Discovery](https://github.com/tatopenn-cell/Dense-Evolution-Discovery) (about 2 minutes on a laptop CPU with libcint).
+
 ---
 
 ## Details
