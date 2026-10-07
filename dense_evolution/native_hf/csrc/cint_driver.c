@@ -81,3 +81,46 @@ DE_EXPORT void de_int2e(double *out, int n, int *ao_loc, double *r, int *pos,
     }
     CINTdel_optimizer(&opt);
 }
+DE_EXPORT void de_int1e_ip1_ovlp(double *ox, double *oy, double *oz,
+                                 int n, int *ao_loc, double *r, int *pos,
+                                 int *atm, int natm, int *bas, int nbas, double *env) {
+    double buf[108]; int shls[2];
+    for (int i = 0; i < nbas; i++) for (int j = 0; j < nbas; j++) {
+        int di = ncart(bas,i), dj = ncart(bas,j);
+        shls[0]=i; shls[1]=j;
+        int1e_ipovlp_cart(buf, NULL, shls, atm, natm, bas, nbas, env, NULL, NULL);
+        int stride = di * dj;
+        for (int b = 0; b < dj; b++) for (int a = 0; a < di; a++) {
+            int A = ao_loc[i]+a, B = ao_loc[j]+b;
+            double scale = r[A]*r[B];
+            size_t idx = (size_t)pos[A]*n + pos[B];
+            ox[idx] = buf[0*stride + a + di*b] * scale;
+            oy[idx] = buf[1*stride + a + di*b] * scale;
+            oz[idx] = buf[2*stride + a + di*b] * scale;
+        }
+    }
+}
+DE_EXPORT void de_int2e_ip1(double *ox, double *oy, double *oz,
+                            int n, int *ao_loc, double *r, int *pos,
+                            int *atm, int natm, int *bas, int nbas, double *env) {
+    CINTOpt *opt = NULL; double buf[3888]; int shls[4]; size_t N = n;
+    int2e_ip1_optimizer(&opt, atm, natm, bas, nbas, env);
+    for (int i = 0; i < nbas; i++) for (int j = 0; j < nbas; j++)
+    for (int k = 0; k < nbas; k++) for (int l = 0; l < nbas; l++) {
+        int di = ncart(bas,i), dj = ncart(bas,j), dk = ncart(bas,k), dl = ncart(bas,l);
+        shls[0]=i; shls[1]=j; shls[2]=k; shls[3]=l;
+        int2e_ip1_cart(buf, NULL, shls, atm, natm, bas, nbas, env, opt, NULL);
+        int stride = di*dj*dk*dl;
+        for (int d=0; d<dl; d++) for (int c=0; c<dk; c++)
+        for (int b=0; b<dj; b++) for (int a=0; a<di; a++) {
+            int A=ao_loc[i]+a, B=ao_loc[j]+b, C=ao_loc[k]+c, D=ao_loc[l]+d;
+            double scale = r[A]*r[B]*r[C]*r[D];
+            size_t p=pos[A], q=pos[B], s=pos[C], t=pos[D];
+            size_t idx = ((p*N+q)*N+s)*N+t;
+            ox[idx] = buf[0*stride + a + di*(b + dj*(c + dk*d))] * scale;
+            oy[idx] = buf[1*stride + a + di*(b + dj*(c + dk*d))] * scale;
+            oz[idx] = buf[2*stride + a + di*(b + dj*(c + dk*d))] * scale;
+        }
+    }
+    CINTdel_optimizer(&opt);
+}
