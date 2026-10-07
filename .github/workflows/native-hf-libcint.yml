@@ -34,7 +34,7 @@ jobs:
           pip install numpy scipy jax jaxlib basis_set_exchange psutil pytest pytest-cov pytest-env
           pip install -e . --no-deps
       - name: Run libcint tests
-        run: pytest tests/unit/test_native_hf_libcint_gradient.py -p no:randomly -o addopts="" -v --cov=dense_evolution --cov-report=xml
+        run: pytest tests/unit/test_native_hf_libcint_gradient.py --noconftest -p no:randomly -o addopts="" -v --cov=dense_evolution --cov-report=xml
       - uses: codecov/codecov-action@v4
         with:
           files: coverage.xml
