@@ -37,7 +37,7 @@ pymatching==2.4.0
 # composer extra
 fastapi==0.143.0
 uvicorn==0.54.0
-pydantic==2.13.5
+pydantic==2.14.0
 
 # mcp extra
 mcp==2.3.0
