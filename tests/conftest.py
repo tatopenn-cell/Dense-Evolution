@@ -4,16 +4,7 @@ file in this directory -- extracted from the original monolithic
 test_dense_evolution.py when it was split by module (test_simulator.py,
 test_registry.py, test_compiler.py, test_parser.py, test_chunk.py,
 test_healing.py, test_integration.py).
-
-torch is imported first, when it is installed: on the Linux runners its libgomp
-raises "cannot allocate memory in static TLS block" if it is loaded after other
-native libraries (jax, numpy), which turned the optional-dependency tests red.
 """
-try:
-    import torch  # noqa: F401
-except Exception:
-    pass
-
 import os
 import pathlib
 import sys
