@@ -42,6 +42,28 @@ jobs:
               - '!mkdocs.yml'
               - '!README.md'
 
+  rag-dense:
+    name: RAG dense retrieval (sentence-transformers, own job)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          python -m pip install --upgrade pip
+          pip install setuptools pytest pytest-env numpy scipy pandas matplotlib psutil ipython jax jaxlib seaborn plotly
+          pip install scikit-learn sentence-transformers
+          pip install -e . --no-deps
+      - name: Run the retrieval tests
+        env:
+          GLIBC_TUNABLES: glibc.rtld.optional_static_tls=2000000
+        run: |
+          pytest tests/unit/test_ia_utils_rag.py -v --tb=short -p no:randomly
+
   docs-examples:
     name: Docs examples (docs-only change)
     needs: changes
@@ -106,7 +128,10 @@ jobs:
           pip install pymatching # tests/unit/test_qec.py::TestPymatchingDecode -- pymatching_decode's real MWPM logic, not just the "missing package" ImportError path, needs the actual package installed here (same reasoning as stim above)
           pip install rdkit # tests/unit/test_qmmm.py -- real region-partitioning correctness, not just the ImportError path (same reasoning as stim/pymatching above)
           pip install ase # tests/unit/test_qmmm.py::TestAseBridge -- real ASE Calculator correctness, not just the ImportError path (same reasoning as rdkit/pyscf above)
-          if [ "${{ matrix.os }}" != "macos-latest" ]; then pip install scikit-learn sentence-transformers; fi
+          if [ "${{ matrix.os }}" != "macos-latest" ]; then pip install scikit-learn; fi
+          # sentence-transformers (torch) is installed in the job rag-dense, in its own process: the bundled
+          # libgomp copies of torch and scikit-learn exhaust glibc's static TLS when loaded together
+          # ("cannot allocate memory in static TLS block"), which turned the whole matrix red from 2026-10-18.
           # tests/unit/test_ia_utils_rag.py -- real TF-IDF/dense-embedding/cross-encoder retrieval, not just the
           # ImportError path (same reasoning as stim/pymatching/pyscf/rdkit above), ubuntu only: sentence-transformers
           # pulls in torch, and installing it alongside JAX on the macos-latest runners here triggered a real, full

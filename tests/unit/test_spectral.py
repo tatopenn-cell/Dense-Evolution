@@ -105,7 +105,7 @@ def test_std_eigh_fails_at_degeneracy():
     fd = _finite_difference_grad(L_std, H, P)
     grad_H = np.asarray(jax.grad(L_std)(H))
     grad_dir = float(np.real(np.sum(grad_H * np.asarray(P))))
-    assert abs(grad_dir - fd) > 1e-3, (
+    assert not abs(grad_dir - fd) <= 1e-3, (
         f"std eigh is now correct at degeneracy (diff={abs(grad_dir - fd):.2e}); "
         "the spectral_evolve workaround can be retired."
     )
