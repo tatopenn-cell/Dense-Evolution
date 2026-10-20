@@ -106,7 +106,7 @@ jobs:
           pip install pymatching # tests/unit/test_qec.py::TestPymatchingDecode -- pymatching_decode's real MWPM logic, not just the "missing package" ImportError path, needs the actual package installed here (same reasoning as stim above)
           pip install rdkit # tests/unit/test_qmmm.py -- real region-partitioning correctness, not just the ImportError path (same reasoning as stim/pymatching above)
           pip install ase # tests/unit/test_qmmm.py::TestAseBridge -- real ASE Calculator correctness, not just the ImportError path (same reasoning as rdkit/pyscf above)
-          if [ "${{ matrix.os }}" != "macos-latest" ]; then pip install scikit-learn sentence-transformers; fi
+          if [ "${{ matrix.os }}" != "macos-latest" ]; then pip install scikit-learn sentence-transformers "transformers<5.20"; fi
           # tests/unit/test_ia_utils_rag.py -- real TF-IDF/dense-embedding/cross-encoder retrieval, not just the
           # ImportError path (same reasoning as stim/pymatching/pyscf/rdkit above), ubuntu only: sentence-transformers
           # pulls in torch, and installing it alongside JAX on the macos-latest runners here triggered a real, full
