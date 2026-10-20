@@ -39,7 +39,7 @@ def run_rag_search(documents, query: str, top: int = 5, rerank: bool = True,
     regex=True, in which case it's a real, case-sensitive regex. Result
     dicts carry `source`, `chunk_index`, `match`, `snippet`, `start`, `end`.
     """
-    index = build_index(documents, compute_embeddings=not exact)
+    index = build_index(documents, compute_embeddings=rerank and not exact)
     if exact:
         return RagSearchResult(results=search_exact(query, index, regex=regex, max_hits=max_hits, context=context))
     return RagSearchResult(results=search(query, index, top=top, rerank=rerank))

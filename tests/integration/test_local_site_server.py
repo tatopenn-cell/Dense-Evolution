@@ -657,8 +657,26 @@ def test_rag_search_exact_finds_a_known_phrase():
     assert results[0]["match"] == "two boundaries"
 
 
+def test_rag_search_tfidf_without_rerank_returns_ranked_results():
+    pytest.importorskip("sklearn")
+    resp = client.post("/api/rag_search", json={
+        "documents": [
+            ["The traversable wormhole construction couples two boundaries of an eternal BTZ black hole.", "gao.pdf"],
+            ["Error mitigation extrapolates the noisy expectation value to the zero-noise limit.", "temme.pdf"],
+        ],
+        "query": "does information leak through a wormhole",
+        "top": 1,
+        "rerank": False,
+    })
+    assert resp.status_code == 200
+    results = resp.json()["results"]
+    assert len(results) == 1
+    assert results[0]["source"] == "gao.pdf"
+
+
 def test_rag_search_semantic_returns_ranked_results():
     pytest.importorskip("sklearn")
+    pytest.importorskip("sentence_transformers")
     resp = client.post("/api/rag_search", json={
         "documents": [
             ["The traversable wormhole construction couples two boundaries of an eternal BTZ black hole.", "gao.pdf"],
