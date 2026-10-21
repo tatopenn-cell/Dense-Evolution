@@ -33,7 +33,7 @@ echo "     avvio automatico al login -- e puoi rimuovere tutto in qualsiasi"
 echo "     momento con uninstall-composer.sh."
 echo
 echo "Licenza del pacchetto: Business Source License 1.1"
-echo "  https://github.com/tatopenn-cell/Dense-Evolution/blob/main/LICENSE.md"
+echo "  https://github.com/tatopenn-cell/Dense-Evolution/blob/main/LICENSE"
 echo
 echo "Nessun passo qui sotto parte da solo: hai scaricato ed eseguito questo"
 echo "script di persona -- un sito web non puo' farlo al posto tuo."

@@ -4,7 +4,7 @@ Thanks for considering a contribution. This is a single-maintainer project — r
 
 ## Before you start
 
-Dense-Evolution is released under the [Business Source License 1.1](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/license.md) — free for non-commercial use, with commercial-production terms defined in the license itself (converting to Apache 2.0 on the Change Date stated there). By submitting a contribution, you agree it's licensed under the same terms as the rest of the project.
+Dense-Evolution is released under the [GNU Affero General Public License v3.0 or later](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/LICENSE). By submitting a contribution, you agree it's licensed under the same terms as the rest of the project.
 
 ## Reporting bugs
 

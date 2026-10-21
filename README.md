@@ -21,7 +21,7 @@ Statevector/MPS engines with compilation, noise, VQE, QEC, chemistry, and agent-
 [![PyPI](https://img.shields.io/pypi/v/dense-evolution?style=flat-square&color=00e5ff)](https://pypi.org/project/dense-evolution/)
 [![PyPI Downloads](https://img.shields.io/pypi/dm/dense-evolution?style=flat-square&color=00e5ff)](https://pypi.org/project/dense-evolution/)
 [![Python](https://img.shields.io/badge/Python-3.9+-blue?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![License](https://img.shields.io/badge/License-BSL_1.1-orange?style=flat-square)](LICENSE.md)
+[![License](https://img.shields.io/badge/License-AGPL_3.0-blue?style=flat-square)](LICENSE)
 [![Build](https://img.shields.io/badge/Build-Passing-00ff9d?style=flat-square)](https://github.com/tatopenn-cell/Dense-Evolution/actions)
 [![Cross-Validation CI](https://github.com/tatopenn-cell/Dense-Evolution-Discovery/actions/workflows/ci.yml/badge.svg)](https://github.com/tatopenn-cell/Dense-Evolution-Discovery/actions/workflows/ci.yml)
 [![Latest Release](https://img.shields.io/github/v/release/tatopenn-cell/Dense-Evolution?style=flat-square&color=blueviolet)](https://github.com/tatopenn-cell/Dense-Evolution/releases)
@@ -245,13 +245,11 @@ A real circuit editor (graphical or OpenQASM) running on your own machine, plus 
 
 ## ▍ License
 
-**Business Source License 1.1** — converts automatically to **Apache 2.0** on **1 June 2029**.
+**GNU Affero General Public License v3.0 or later.** A commercial licence is available on request.
 
-- Non-commercial use: unrestricted
-- Commercial use: ≤ 24 allocated qubits · ≤ 1,000 circuits/day · ≤ 10,000 shots/circuit
-- Attribution required: `© 2026 Salvatore Pennacchio <jtatopenn@libero.it> — Dense Evolution`
+Releases up to 8.3.2 were published under the Business Source License 1.1: [LICENSE-BUSL-1.1-until-8.3.2.md](LICENSE-BUSL-1.1-until-8.3.2.md)
 
-Full text: [LICENSE.md](LICENSE.md)
+Full text: [LICENSE](LICENSE)
 
 ---
 

@@ -3,7 +3,7 @@ setlocal enabledelayedexpansion
 rem Dense-Evolution Dashboard (Streamlit) -- installer (Windows).
 rem See uninstall-dashboard.bat to undo everything this creates.
 
-set "LICENSE_URL=https://github.com/tatopenn-cell/Dense-Evolution/blob/main/LICENSE.md"
+set "LICENSE_URL=https://github.com/tatopenn-cell/Dense-Evolution/blob/main/LICENSE"
 set "ICON_URL=https://tatopenn-cell.github.io/Dense-Evolution/assets/dense-evolution.ico"
 set "APP_URL=https://raw.githubusercontent.com/tatopenn-cell/Dense-Evolution/main/tools/dashboard/app.py"
 set "INSTALL_DIR=%USERPROFILE%\DenseEvolutionDashboard"

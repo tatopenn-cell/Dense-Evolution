@@ -11,7 +11,7 @@ authors:
     email: "jtatopenn@libero.it"
 repository-code: "https://github.com/tatopenn-cell/Dense-Evolution"
 url: "https://github.com/tatopenn-cell/Dense-Evolution"
-license: "BUSL-1.1"
+license: "AGPL-3.0-or-later"
 version: "8.3.0"
 doi: "10.5281/zenodo.23088994"
 identifiers:
