@@ -20,7 +20,7 @@ echo " Dense-Evolution Dashboard (Streamlit) -- installazione"
 echo "============================================================"
 echo
 echo "Licenza del pacchetto: Business Source License 1.1"
-echo "  https://github.com/tatopenn-cell/Dense-Evolution/blob/main/LICENSE.md"
+echo "  https://github.com/tatopenn-cell/Dense-Evolution/blob/main/LICENSE"
 echo
 if ! ask "Hai letto e accetti i termini della licenza? [s/N]" N; then
     echo "Installazione annullata."
