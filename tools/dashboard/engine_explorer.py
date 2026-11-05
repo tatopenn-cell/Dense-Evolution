@@ -130,7 +130,7 @@ EXAMPLES = {
     "angle": "0.3", "n_gates": "5", "n_shots": "100", "element_a": "'Si'", "element_b": "'Si'",
     "bond_length_angstrom": "2.35", "kxyz": "(0.0, 0.0, 0.0)", "lx": "2", "ly": "2",
     "mode_indices": "[1, 2]", "n_steps": "2", "k": "(0.0, 0.0, 0.0)", "cation": "'Ga'", "anion": "'As'",
-    "lattice_constant_angstrom": "5.65",
+    "lattice_constant_angstrom": "5.65", "pauli_terms": "{0: 'Z'}",
 }
 EXAMPLES_BY_FUNC = {
     ("double_excitation_ops", "p"): "0", ("single_excitation_ops", "p"): "0",
@@ -194,6 +194,7 @@ def build_args2(name, result, qasm, texts=None, values=None):
     for pname, kind, d in params:
         if first and name in FIRST_ARG:
             args[pname] = _first_arg(FIRST_ARG[name], qasm, result.n_qubits)
+            first = False
         elif kind == "state":
             args[pname] = s
         elif kind == "rho":
