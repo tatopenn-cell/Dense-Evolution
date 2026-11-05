@@ -53,7 +53,7 @@ qiskit-ibm-runtime==0.51.0
 httpx2==2.13.1
 
 # dev extra
-pytest==9.1.1
+pytest==9.2.0
 pytest-cov==7.1.0
 
 # docs extra
