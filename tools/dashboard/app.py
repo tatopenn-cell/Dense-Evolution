@@ -154,16 +154,18 @@ with st.sidebar:
     st.divider()
 
     if section == "Build":
+        run_clicked = st.button("▶ Run", type="primary", width="stretch")
         st.header("Circuit")
         preset_name = st.selectbox(
             "Preset", ["Custom"] + list(dc.QASM_LIBRARY.keys()), key="preset_select",
         )
         default_qasm = dc.QASM_LIBRARY.get(preset_name, dc.QASM_LIBRARY["Bell state (2 qubit)"])
         qasm_text = st.text_area(
-            "OpenQASM 2.0", value=default_qasm, height=220, key=f"qasm_text__{preset_name}",
+            "OpenQASM 2.0", value=default_qasm, height=150, key=f"qasm_text__{preset_name}",
         )
-        n_shots = st.number_input("Shots", min_value=1, max_value=100_000, value=1000, step=100)
-        seed = st.number_input("Seed", min_value=0, max_value=2 ** 31 - 1, value=42, step=1)
+        col_shots, col_seed = st.columns(2)
+        n_shots = col_shots.number_input("Shots", min_value=1, max_value=100_000, value=1000, step=100)
+        seed = col_seed.number_input("Seed", min_value=0, max_value=2 ** 31 - 1, value=42, step=1)
         with st.expander("Noise & backend"):
             run_noise_model = st.selectbox(
                 "Noise model", ["ideal", "depolarizing", "bitflip", "phaseflip",
@@ -179,7 +181,6 @@ with st.sidebar:
                 help="mps (Matrix Product State) uses less memory on weakly entangled "
                      "circuits, up to 24 qubits; beyond that, use Large Systems.",
             )
-        run_clicked = st.button("▶ Run", type="primary", width="stretch")
     else:
         run_clicked = False
 
@@ -204,10 +205,10 @@ if section == "Build":
         "Current state: " + (
             f"{result.n_qubits}-qubit circuit already run — open Results, "
             "or add noise in Noise." if result is not None and not error
-            else "press ▶ Run in the sidebar to run a new circuit."
+            else "press ▶ Run, the first button of the sidebar, to run a new circuit."
         )
     )
-    tab_builder, tab_circuit = st.tabs(["Graphical Editor", "Circuit"])
+    tab_circuit, tab_builder = st.tabs(["Circuit", "Graphical Editor"])
 
     with tab_builder:
         st.caption(
@@ -236,7 +237,10 @@ if section == "Build":
         elif error:
             st.error(f"Circuit run failed: {error}")
         else:
-            st.pyplot(dc.draw_circuit_figure(result.ops, result.n_qubits))
+            col_circuit, col_probs = st.columns([3, 2])
+            col_circuit.pyplot(dc.draw_circuit_figure(result.ops, result.n_qubits))
+            col_probs.caption("Probabilities (shots sampled from the statevector)")
+            col_probs.pyplot(dc.histogram_figure(result.counts))
 
     if error:
         st.error(f"Circuit run failed: {error}")
