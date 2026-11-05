@@ -111,7 +111,8 @@ def to_display(out):
 import ast
 
 ARRAYS = {"expectation_values", "noise_factors", "values", "lambdas", "time_us", "Ls", "S",
-          "event_times", "window_sizes", "kxyz", "k", "k_start", "k_end", "sigma_at_base_noise"}
+          "event_times", "window_sizes", "kxyz", "k", "k_start", "k_end", "sigma_at_base_noise",
+          "bloch_at_scales", "check_matrix", "events"}
 QEC_STABS = ["ZZI", "IZZ"]
 EXAMPLES = {
     "gamma": "0.1", "p": "0.1", "material": "'Si'", "k_start": "(0.0, 0.0, 0.0)", "k_end": "(1.0, 0.0, 0.0)",
@@ -131,12 +132,31 @@ EXAMPLES = {
     "bond_length_angstrom": "2.35", "kxyz": "(0.0, 0.0, 0.0)", "lx": "2", "ly": "2",
     "mode_indices": "[1, 2]", "n_steps": "2", "k": "(0.0, 0.0, 0.0)", "cation": "'Ga'", "anion": "'As'",
     "lattice_constant_angstrom": "5.65", "pauli_terms": "{0: 'Z'}",
+    "bloch_at_scales": "[[0.0, 0.0, 0.9], [0.0, 0.0, 0.81], [0.0, 0.0, 0.73]]",
+    "check_matrix": "[[1, 1, 0], [0, 1, 1]]", "events": "[[0, 1], [1, 0], [0, 0], [1, 1]]",
+    "n_samples": "64", "qubit": "0",
 }
 EXAMPLES_BY_FUNC = {
     ("double_excitation_ops", "p"): "0", ("single_excitation_ops", "p"): "0",
     ("trotter_evolve_ops", "t"): "0.5",
     ("trotter_evolve_ops", "terms"): "[(1.0, {0: 'Z', 1: 'Z'}), (0.5, {0: 'X'})]",
+    ("add_registers", "a"): "[0]", ("add_registers", "b"): "[1]",
+    ("subtract_registers", "a"): "[0]", ("subtract_registers", "b"): "[1]",
+    ("add_constant", "b"): "[0, 1]", ("add_constant", "c"): "1",
+    ("compare_registers", "a"): "[0]", ("compare_registers", "b"): "[1]", ("compare_registers", "out"): "2",
+    ("compare_constant", "b"): "[0]", ("compare_constant", "c"): "1", ("compare_constant", "out"): "1",
+    ("add_registers_mod", "a"): "[0]", ("add_registers_mod", "b"): "[1]", ("add_registers_mod", "N"): "2",
+    ("add_constant_mod", "b"): "[0, 1]", ("add_constant_mod", "c"): "1", ("add_constant_mod", "N"): "3",
+    ("multiply_add_mod", "x"): "[0]", ("multiply_add_mod", "b"): "[1]",
+    ("multiply_add_mod", "a"): "1", ("multiply_add_mod", "N"): "2",
+    ("multiply_mod", "x"): "[0, 1]", ("multiply_mod", "a"): "2", ("multiply_mod", "N"): "3",
+    ("power_mod", "x"): "[0]", ("power_mod", "y"): "[1]", ("power_mod", "a"): "1", ("power_mod", "N"): "2",
+    ("peeling_decode", "observed_syndrome"): "(1, 0, 0)",
+    ("union_find_decode", "observed_syndrome"): "(1, 0, 0)",
+    ("matching_erasure_decode", "observed_syndrome"): "(1, 0, 0)",
 }
+CSS_DECODERS = {"peeling_decode", "union_find_decode", "matching_erasure_decode"}
+QEC_STABS_CSS = ["ZZI", "IZZ", "XXX"]
 N_OVERRIDE = {"central_charge": 8}
 FIRST_ARG = {"from_qiskit": "qiskit", "run_qiskit_circuit": "qiskit", "from_pennylane": "pennylane",
              "run_pennylane_circuit": "pennylane", "circuit_to_energy_fn": "parsed"}
@@ -165,8 +185,10 @@ def plan2(name):
         k = pname.lower()
         if k.startswith("statevector"):
             kind = "state"
-        elif k == "rho_at_scales":
+        elif k.startswith("rho_at_scales"):
             kind = "rho_scales"
+        elif k == "key":
+            kind = "prng_key"
         elif k.startswith("rho") and kind not in ("state",):
             kind = "rho"
         elif kind == "unsupported" and pname not in NOT_FROM_UI:
@@ -200,7 +222,7 @@ def build_args2(name, result, qasm, texts=None, values=None):
         elif kind == "rho":
             args[pname] = _rho_one(s, result.n_qubits) if name == "amplitude_damping_channel" else rho
         elif kind == "rho_scales":
-            nf = [1.0, 2.0, 3.0]
+            nf = [1.0, 2.0, 3.0][:2] if name == "classically_augmented_zne_phaseflip" else [1.0, 2.0, 3.0]
             args[pname] = np.stack([np.asarray(de.global_depolarizing_channel(rho, 0.05 * f)) for f in nf])
         elif kind == "qasm":
             args[pname] = qasm
@@ -209,11 +231,17 @@ def build_args2(name, result, qasm, texts=None, values=None):
         elif kind == "n":
             args[pname] = N_OVERRIDE.get(name, len(QEC_STABS[0]) if qec else result.n_qubits)
         elif kind == "stabilizers":
-            args[pname] = QEC_STABS
+            args[pname] = QEC_STABS_CSS if name in CSS_DECODERS else QEC_STABS
+        elif kind == "prng_key":
+            import jax
+            args[pname] = jax.random.PRNGKey(0)
         elif kind == "pauli":
             args[pname] = values.get(pname, "Z" * (len(QEC_STABS[0]) if qec else result.n_qubits))
         elif kind == "literal":
-            v = ast.literal_eval(texts.get(pname, example(name, pname)))
+            text = texts.get(pname, example(name, pname))
+            if not text.strip():
+                raise ValueError(f"no example for parameter '{pname}': type a Python literal, for example [0, 1] or 0.5")
+            v = ast.literal_eval(text)
             args[pname] = np.asarray(v, dtype=float) if pname.lower() in ARRAYS else v
         elif kind in ("bool", "int", "float", "str"):
             args[pname] = values.get(pname, d)
