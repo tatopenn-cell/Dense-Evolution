@@ -35,7 +35,7 @@ def plan(name):
             continue
         k = p.name.lower()
         d = p.default
-        if k in STATE:
+        if k in STATE and not isinstance(d, str):
             kind = "state"
         elif k in RHO:
             kind = "rho"
@@ -151,6 +151,13 @@ EXAMPLES_BY_FUNC = {
     ("multiply_add_mod", "a"): "1", ("multiply_add_mod", "N"): "2",
     ("multiply_mod", "x"): "[0, 1]", ("multiply_mod", "a"): "2", ("multiply_mod", "N"): "3",
     ("power_mod", "x"): "[0]", ("power_mod", "y"): "[1]", ("power_mod", "a"): "1", ("power_mod", "N"): "2",
+    ("cuccaro_adder_qasm", "n"): "2", ("draper_adder_qasm", "n"): "2",
+    ("constant_adder_qasm", "c"): "1", ("constant_adder_qasm", "n"): "2",
+    ("modular_constant_adder_qasm", "c"): "1", ("modular_constant_adder_qasm", "N"): "3",
+    ("modular_constant_adder_qasm", "n"): "2",
+    ("cmult_mod_qasm", "a"): "2", ("cmult_mod_qasm", "N"): "3", ("cmult_mod_qasm", "n"): "2",
+    ("controlled_ua_qasm", "a"): "2", ("controlled_ua_qasm", "N"): "3", ("controlled_ua_qasm", "n"): "2",
+    ("shor_order_finding", "a"): "2", ("shor_order_finding", "N"): "3",
     ("peeling_decode", "observed_syndrome"): "(1, 0, 0)",
     ("union_find_decode", "observed_syndrome"): "(1, 0, 0)",
     ("matching_erasure_decode", "observed_syndrome"): "(1, 0, 0)",
