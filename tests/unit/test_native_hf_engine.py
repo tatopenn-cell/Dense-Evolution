@@ -82,7 +82,7 @@ class TestOverlapMatrix:
     def test_h2_sto3g_overlap_matrix(self):
         geometry_bohr = _linear_two_atom_geometry_bohr(0.735)
         shells = build_molecule_shells([1, 1], geometry_bohr, "sto-3g")
-        S = build_overlap_matrix(shells)
+        S = np.asarray(build_overlap_matrix(shells))
 
         assert S.shape == (2, 2)
         assert np.allclose(np.diag(S), 1.0, atol=1e-10)
@@ -221,7 +221,7 @@ class TestRepulsionTensorSymmetry:
     def test_h2_sto3g_repulsion_tensor_eight_fold_symmetry(self):
         geometry_bohr = _linear_two_atom_geometry_bohr(0.735)
         shells = build_molecule_shells([1, 1], geometry_bohr, "sto-3g")
-        V = build_repulsion_tensor(shells)
+        V = np.asarray(build_repulsion_tensor(shells))
 
         assert V == pytest.approx(V.transpose(1, 0, 2, 3), abs=1e-12)
         assert V == pytest.approx(V.transpose(0, 1, 3, 2), abs=1e-12)
@@ -393,8 +393,8 @@ class TestDShellBasisLoading:
         # the Dense-Evolution-Discovery experiment referenced above).
         geometry_bohr = np.array([[0.0, 0.0, 0.0]])
         shells = build_molecule_shells([10], geometry_bohr, "6-31g*")
-        S = build_overlap_matrix(shells)
-        H_core = build_core_hamiltonian(shells, [10.0], geometry_bohr)
+        S = np.asarray(build_overlap_matrix(shells))
+        H_core = np.asarray(build_core_hamiltonian(shells, [10.0], geometry_bohr))
 
         assert S == pytest.approx(S.T, abs=1e-9)
         assert np.allclose(np.diag(S), 1.0, atol=1e-8)
