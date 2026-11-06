@@ -39,8 +39,8 @@ def test_windows_exist_and_are_off_by_default(app):
 
 def test_chemistry_on_loads_the_ansatz_and_off_restores_the_circuit(app):
     before = app.sidebar.text_area(key="qasm_text__Custom").value
-    app.sidebar.slider(key="vqe_maxiter").set_value(3).run()
-    app.sidebar.toggle(key="chem_on").set_value(True).run()
+    app.sidebar.slider(key="vqe_maxiter").set_value(3)
+    app.sidebar.toggle(key="chem_on").set_value(True)
     _run(app)
     assert app.session_state["vqe_error"] is None, app.session_state["vqe_error"]
     assert app.session_state["vqe_result"] is not None
@@ -48,13 +48,13 @@ def test_chemistry_on_loads_the_ansatz_and_off_restores_the_circuit(app):
     assert ansatz == app.session_state["vqe_result"]["qasm"] != before
     assert app.session_state["result"] is not None
     assert "Chemistry" in _results_tabs(app)
-    app.sidebar.toggle(key="chem_on").set_value(False).run()
+    app.sidebar.toggle(key="chem_on").set_value(False)
     _run(app)
     assert app.sidebar.text_area(key="qasm_text__Custom").value == before
 
 
 def test_wormhole_runs_with_the_run_button(app):
-    app.sidebar.toggle(key="wh_on").set_value(True).run()
+    app.sidebar.toggle(key="wh_on").set_value(True)
     _run(app)
     assert app.session_state["wh_error"] is None, app.session_state["wh_error"]
     i_plus, i_minus, mu = app.session_state["wh_result"]
@@ -63,7 +63,7 @@ def test_wormhole_runs_with_the_run_button(app):
 
 
 def test_error_correction_finds_the_single_qubit_correction(app):
-    app.sidebar.toggle(key="qec_on").set_value(True).run()
+    app.sidebar.toggle(key="qec_on").set_value(True)
     _run(app)
     out = app.session_state["qec_result"]
     assert app.session_state["qec_error"] is None, app.session_state["qec_error"]
@@ -73,16 +73,16 @@ def test_error_correction_finds_the_single_qubit_correction(app):
 
 
 def test_error_correction_reports_a_wrong_pauli_error(app):
-    app.sidebar.toggle(key="qec_on").set_value(True).run()
-    app.sidebar.text_input(key="qec_pauli").set_value("XX").run()
+    app.sidebar.toggle(key="qec_on").set_value(True)
+    app.sidebar.text_input(key="qec_pauli").set_value("XX")
     _run(app)
     assert "needs exactly 5 characters" in app.session_state["qec_error"]
 
 
 def test_condensed_matter_gap_and_hubbard(app):
-    app.sidebar.toggle(key="cm_on").set_value(True).run()
-    app.sidebar.toggle(key="hub_on").set_value(True).run()
-    app.sidebar.slider(key="hub_n_sites").set_value(2).run()
+    app.sidebar.toggle(key="cm_on").set_value(True)
+    app.sidebar.toggle(key="hub_on").set_value(True)
+    app.sidebar.slider(key="hub_n_sites").set_value(2)
     _run(app)
     assert app.session_state["cm_error"] is None, app.session_state["cm_error"]
     assert app.session_state["cm_result"]["gap_gamma"] > 0

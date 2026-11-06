@@ -44,7 +44,7 @@ def test_running_from_results_stays_in_results(app):
 
 def test_entropy_of_a_bell_pair_is_shown_when_its_toggle_is_on(app):
     assert "State analysis" in [e.label for e in app.sidebar.expander]
-    app.sidebar.toggle(key="entropy_on").set_value(True).run()
+    app.sidebar.toggle(key="entropy_on").set_value(True)
     _run_button(app).click().run()
     app.main.radio(key="nav_section").set_value("Results").run()
     assert "Entropy & mutual information" in [tab.label for tab in app.main.tabs]
@@ -59,6 +59,6 @@ def test_entropy_of_a_bell_pair_is_shown_when_its_toggle_is_on(app):
 
 def test_entropy_tab_needs_a_circuit(app):
     app.session_state["result"] = None
-    app.sidebar.toggle(key="entropy_on").set_value(True).run()
+    app.sidebar.toggle(key="entropy_on").set_value(True)
     app.main.radio(key="nav_section").set_value("Results").run()
     assert "Entropy & mutual information" not in [tab.label for tab in app.main.tabs]

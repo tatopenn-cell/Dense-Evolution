@@ -26,7 +26,7 @@ def _grid(app):
 
 def _run_qasm(app, body, n):
     qasm = f"{HEADER}qreg q[{n}];\ncreg c[{n}];\n{body}"
-    app.sidebar.text_area(key="qasm_text__Custom").set_value(qasm).run()
+    app.sidebar.text_area(key="qasm_text__Custom").set_value(qasm)
     [b for b in app.sidebar.button if b.label == RUN][0].click().run()
 
 

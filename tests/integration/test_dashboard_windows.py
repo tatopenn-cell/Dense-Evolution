@@ -56,7 +56,7 @@ def test_old_sections_are_gone_from_the_top_menu(app):
 
 
 def test_magic_window_adds_a_results_tab_computed_by_run(app):
-    app.sidebar.toggle(key="magic_on").set_value(True).run()
+    app.sidebar.toggle(key="magic_on").set_value(True)
     _run(app)
     assert not app.exception
     assert "Magic" in _results_tabs(app)
@@ -65,7 +65,7 @@ def test_magic_window_adds_a_results_tab_computed_by_run(app):
 
 
 def test_density_channel_runs_with_the_main_circuit(app):
-    app.sidebar.toggle(key="dm_on").set_value(True).run()
+    app.sidebar.toggle(key="dm_on").set_value(True)
     _run(app)
     assert app.session_state["dm_error"] is None
     assert app.session_state["dm_result"] is not None
@@ -73,16 +73,16 @@ def test_density_channel_runs_with_the_main_circuit(app):
 
 
 def test_zne_runs_with_the_main_circuit(app):
-    app.sidebar.toggle(key="zne_on").set_value(True).run()
-    app.sidebar.slider(key="zne_n_trials").set_value(20).run()
+    app.sidebar.toggle(key="zne_on").set_value(True)
+    app.sidebar.slider(key="zne_n_trials").set_value(20)
     _run(app)
     assert app.session_state["zne_error"] is None
     assert app.session_state["zne_result"] is not None
 
 
 def test_bond_convergence_runs_with_the_main_circuit(app):
-    app.sidebar.toggle(key="bc_on").set_value(True).run()
-    app.sidebar.text_input(key="bc_bonds").set_value("2,4,8").run()
+    app.sidebar.toggle(key="bc_on").set_value(True)
+    app.sidebar.text_input(key="bc_bonds").set_value("2,4,8")
     _run(app)
     assert app.session_state["bond_convergence_error"] is None, app.session_state[
         "bond_convergence_error"
@@ -95,8 +95,8 @@ def test_mps_beyond_the_dense_limit_lists_the_top_states(app):
         f"cx q[{i}],q[{i + 1}];\n" for i in range(29)
     )
     app.sidebar.selectbox(key="preset_select").set_value("Custom").run()
-    app.sidebar.text_area(key="qasm_text__Custom").set_value(ghz).run()
-    app.sidebar.selectbox(key="run_backend").set_value("mps").run()
+    app.sidebar.text_area(key="qasm_text__Custom").set_value(ghz)
+    app.sidebar.selectbox(key="run_backend").set_value("mps")
     _run(app)
     assert not app.exception
     assert app.session_state["result"] is None
@@ -104,7 +104,7 @@ def test_mps_beyond_the_dense_limit_lists_the_top_states(app):
 
 
 def test_cosmic_ray_burst_runs_the_main_circuit_under_the_burst_profile(app):
-    app.sidebar.toggle(key="burst_on").set_value(True).run()
+    app.sidebar.toggle(key="burst_on").set_value(True)
     _run(app)
     assert app.session_state["burst_error"] is None, app.session_state["burst_error"]
     rows = app.session_state["burst_result"]["rows"]
@@ -115,7 +115,7 @@ def test_cosmic_ray_burst_runs_the_main_circuit_under_the_burst_profile(app):
 
 
 def test_oscillating_noise_uses_the_zne_strength(app):
-    app.sidebar.toggle(key="osc_on").set_value(True).run()
+    app.sidebar.toggle(key="osc_on").set_value(True)
     _run(app)
     out = app.session_state["osc_result"]
     assert out.base_p == app.sidebar.slider(key="zne_noise_p").value
@@ -125,7 +125,7 @@ def test_oscillating_noise_uses_the_zne_strength(app):
 
 def test_hardware_calibration_lists_the_error_rates(app):
     pytest.importorskip("qiskit_ibm_runtime")
-    app.sidebar.toggle(key="cal_on").set_value(True).run()
+    app.sidebar.toggle(key="cal_on").set_value(True)
     _run(app)
     assert app.session_state["cal_error"] is None, app.session_state["cal_error"]
     assert len(app.session_state["cal_result"]) > 0
@@ -134,7 +134,7 @@ def test_hardware_calibration_lists_the_error_rates(app):
 def test_function_explorer_runs_the_chosen_function_on_the_main_circuit(app):
     assert "Function explorer" in [e.label for e in app.sidebar.expander]
     assert "System" in [e.label for e in app.sidebar.expander]
-    app.sidebar.toggle(key="fn_on").set_value(True).run()
+    app.sidebar.toggle(key="fn_on").set_value(True)
     _run(app)
     assert not app.exception
     assert app.session_state["fn_error"] is None, app.session_state["fn_error"]
@@ -144,15 +144,15 @@ def test_function_explorer_runs_the_chosen_function_on_the_main_circuit(app):
 
 def test_step_by_step_is_a_window_and_the_gate_is_chosen_on_the_left(app):
     assert "Step by step" not in _results_tabs(app)
-    app.sidebar.toggle(key="steps_on").set_value(True).run()
-    app.sidebar.number_input(key="sota_step").set_value(2).run()
+    app.sidebar.toggle(key="steps_on").set_value(True)
+    app.sidebar.number_input(key="sota_step").set_value(2)
     _run(app)
     assert "Step by step" in _results_tabs(app)
     assert any("Gate 2 of" in c.value for c in app.main.caption)
 
 
 def test_exact_probabilities_replace_the_sampled_histogram(app):
-    app.sidebar.toggle(key="prob_exact").set_value(True).run()
+    app.sidebar.toggle(key="prob_exact").set_value(True)
     _run(app)
     app.main.radio(key="nav_section").set_value("Results").run()
     assert any("Exact probabilities" in c.value for c in app.main.caption)
@@ -173,9 +173,10 @@ def test_export_window_is_in_the_left_panel(app):
 
 def test_a_click_on_the_left_panel_does_not_start_any_calculation(app):
     first = app.session_state["result"]
-    app.sidebar.toggle(key="zne_on").set_value(True).run()
-    app.sidebar.slider(key="run_noise_p").set_value(0.3).run()
-    app.sidebar.toggle(key="chem_on").set_value(True).run()
+    app.sidebar.toggle(key="zne_on").set_value(True)
+    app.sidebar.slider(key="run_noise_p").set_value(0.3)
+    app.sidebar.toggle(key="chem_on").set_value(True)
+    app.run()
     assert app.session_state["result"] is first
     assert app.session_state.get("zne_result") is None
     assert app.session_state.get("vqe_result") is None

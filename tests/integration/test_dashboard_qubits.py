@@ -49,7 +49,7 @@ def test_a_custom_circuit_grows_by_its_register_and_runs(app):
 
 def test_the_qubits_the_gates_use_cannot_be_removed(app):
     qasm = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[5];\ncreg c[5];\nh q[0];\ncx q[0],q[3];\n'
-    app.sidebar.text_area(key="qasm_text__Custom").set_value(qasm).run()
+    app.sidebar.text_area(key="qasm_text__Custom").set_value(qasm)
     _run(app)
     assert _steps(app)[0] == 4
 

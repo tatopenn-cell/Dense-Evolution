@@ -28,7 +28,7 @@ def _run(at):
 
 
 def test_qubit_one_chosen_gives_the_outcome_10(app):
-    app.sidebar.multiselect(key="input_ones").set_value([1]).run()
+    app.sidebar.multiselect(key="input_ones").set_value([1])
     assert set(_run(app)) == {"10"}
 
 

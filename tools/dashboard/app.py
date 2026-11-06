@@ -1296,8 +1296,9 @@ if section == "Build":
     n_qubits_builder = col_nq.number_input(
         "Qubits", min_value=1, max_value=8, step=1, key="n_qubits_builder",
     )
+    st.session_state.setdefault("n_steps_builder", 12)
     n_steps_builder = col_steps.number_input(
-        "Steps", min_value=2, max_value=24, value=12, step=1, key="n_steps_builder",
+        "Steps", min_value=2, max_value=24, step=1, key="n_steps_builder",
     )
     builder_ops = ce.circuit_editor(int(n_qubits_builder), n_columns=int(n_steps_builder))
 
