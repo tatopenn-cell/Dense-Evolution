@@ -2,12 +2,8 @@
 import re
 
 import pytest
-from dashboard.circuit_tools import (
-    outcome_rows,
-    qubits_in_qasm,
-    topology_qasm,
-    with_input_values,
-)
+from dashboard.circuit_tools import (outcome_rows, qubits_in_qasm,
+                                     topology_qasm, with_input_values)
 
 BELL = (
     'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[2];\ncreg c[2];\n'

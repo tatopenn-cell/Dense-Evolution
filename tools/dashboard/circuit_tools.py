@@ -10,8 +10,9 @@ import re
 from collections.abc import Iterable
 from typing import Any
 
-import dense_evolution as de
 from dashboard_core.qasm_library import gate_tuples_to_qasm
+
+import dense_evolution as de
 from dense_evolution.circuits.topology import VALID_PATTERNS
 
 __all__ = ["outcome_rows", "qubits_in_qasm", "topology_qasm", "with_input_values"]
