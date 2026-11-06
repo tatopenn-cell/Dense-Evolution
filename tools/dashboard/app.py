@@ -2,12 +2,14 @@
 Dense Evolution - Interactive Dashboard (entrypoint)
 ------------------------------------------------------------
 Sidebar organized into grouped sections instead of a single flat row of
-tabs. Base sections (Build / Results / Chemistry / Noise / System) are
+tabs. Base sections (Build / Results) are
 always visible; an "Advanced mode" toggle in the sidebar reveals the rest
-(Dynamics / Wormhole / QEC / Condensed Matter /
-Import Circuit / All functions): a first-time visitor sees 5 sections.
-ZNE, density-matrix channel, Magic and MPS convergence are windows of the
-left panel (On/Off), computed by the single Run button on the fixed circuit.
+(Noise profiles /
+Import Circuit / All functions): a first-time visitor sees 2 sections.
+ZNE, density-matrix channel, Magic, MPS convergence, Chemistry (with Dynamics),
+Wormhole, error correction and condensed matter are windows of the left panel
+(On/Off), computed by the single Run button; the circuit stays fixed (Chemistry
+On loads the VQE ansatz into it, Off restores the previous circuit).
 
 Every number shown here comes from a run of dense_evolution's engine
 (dashboard_core + dense_evolution's public API). A free-text "paste
@@ -54,9 +56,9 @@ st.set_page_config(
     layout="wide",
 )
 
-_BASE_SECTIONS = ["Build", "Results", "Chemistry", "Noise", "System"]
+_BASE_SECTIONS = ["Build", "Results"]
 _ADVANCED_SECTIONS = [
-    "Dynamics", "Wormhole", "QEC", "Condensed Matter", "Import Circuit", "All functions",
+    "Noise", "Import Circuit", "System", "All functions",
 ]
 
 col_title, col_nav = st.columns([1, 1])
@@ -76,15 +78,16 @@ with (st.container() if advanced_mode else col_nav):
 _TOUR_STEPS = [
     (
         "👋 Welcome to Dense Evolution",
-        "The sections are on the left: **Build**, **Results**, **Chemistry**, "
-        "**Noise**, **System**. Every circuit you run goes through the "
-        "library's simulation engine.",
+        "**Build** is where you make the circuit, **Results** shows what it does. "
+        "On the left, the windows (Noise analysis, Chemistry, Wormhole, ...) have an "
+        "On/Off toggle: the ones that are On run together with the circuit. Every "
+        "circuit you run goes through the library's simulation engine.",
     ),
     (
         "🔀 Simple / Advanced mode",
         "The **\"Advanced mode\"** toggle at the top of the sidebar shows or "
-        "hides the specialist sections (Wormhole, QEC, Condensed Matter, ...). "
-        "Start in Simple mode: the 5 base sections are enough for a first circuit.",
+        "hides the specialist pages (noise profiles, hardware calibration, ...). "
+        "Start in Simple mode: Build and Results are enough for a first circuit.",
     ),
     (
         "✍️ The QASM editor",
@@ -150,13 +153,160 @@ def _load_qasm(qasm, go_to_build=False):
         st.session_state["nav_section"] = "Build"
 
 
+def _current_qasm():
+    preset = st.session_state.get("preset_select", "Custom")
+    default = dc.QASM_LIBRARY.get(preset, dc.QASM_LIBRARY["Bell state (2 qubit)"])
+    return st.session_state.get(f"qasm_text__{preset}", default)
+
+
+def _chem_toggled():
+    saved = st.session_state.get("chem_saved_qasm")
+    if not st.session_state.get("chem_on") and saved is not None:
+        _load_qasm(saved)
+        st.session_state["chem_saved_qasm"] = None
+
+
+def _on_run():
+    if not st.session_state.get("chem_on"):
+        return
+    mol = _cached_all_molecules()[st.session_state["mol_select"]]
+    try:
+        vqe = dc.run_vqe(
+            mol["symbols"], mol["geometry"], mol["charge"],
+            ansatz_type=st.session_state["vqe_ansatz"], n_layers=int(st.session_state["vqe_n_layers"]),
+            maxiter=int(st.session_state["vqe_maxiter"]),
+            step_size=float(st.session_state["vqe_step_size"]), seed=int(st.session_state["vqe_seed"]),
+        )
+        st.session_state["vqe_result"] = vqe
+        st.session_state["vqe_error"] = None
+        if st.session_state.get("chem_saved_qasm") is None:
+            st.session_state["chem_saved_qasm"] = _current_qasm()
+        _load_qasm(vqe["qasm"])
+    except Exception as exc:
+        st.session_state["vqe_result"] = None
+        st.session_state["vqe_error"] = str(exc)
+
+
+def _store(key, job):
+    st.session_state[f"{key}_result"] = None
+    st.session_state[f"{key}_error"] = None
+    try:
+        st.session_state[f"{key}_result"] = job()
+    except Exception as exc:
+        st.session_state[f"{key}_error"] = str(exc)
+
+
+def _job_landscape():
+    vqe = st.session_state.get("vqe_result")
+    if vqe is None or vqe["ansatz_type"] != "hardware_efficient" or vqe["n_params"] < 2:
+        raise ValueError("needs a hardware_efficient VQE with at least 2 parameters (Chemistry On)")
+    mol = _cached_all_molecules()[st.session_state["mol_select"]]
+    n_p = vqe["n_params"]
+    i, j = min(int(st.session_state["land_param_i"]), n_p - 1), min(int(st.session_state["land_param_j"]), n_p - 1)
+    if i == j:
+        raise ValueError("pick two different parameter indices")
+    base = np.asarray(vqe["params"], dtype=np.float64)
+    res = int(st.session_state["land_resolution"])
+    values_i = np.linspace(base[i] - np.pi, base[i] + np.pi, res)
+    values_j = np.linspace(base[j] - np.pi, base[j] + np.pi, res)
+    energies = dc.scan_hardware_efficient_energy_landscape(
+        mol["symbols"], mol["geometry"], mol["charge"], vqe["n_layers"], vqe["hf_occupation"],
+        base, i, j, values_i, values_j,
+    )
+    return (values_i, values_j, energies, i, j, base[i], base[j], vqe["vqe_energy_hartree"])
+
+
+def _job_geometry():
+    import jax
+    from basis_set_exchange.lut import element_Z_from_sym
+
+    mol = _cached_all_molecules()[st.session_state["mol_select"]]
+    atomic_numbers = [element_Z_from_sym(sym) for sym in mol["symbols"]]
+    n_electrons = sum(atomic_numbers) - mol["charge"]
+    geometry_bohr = np.asarray(mol["geometry"], dtype=np.float64) * ANGSTROM_TO_BOHR
+    energy_fn = build_energy_fn(
+        atomic_numbers, [float(z) for z in atomic_numbers], n_electrons, "sto-3g", geometry_bohr,
+    )
+    grad_fn = jax.grad(energy_fn)
+    geom = geometry_bohr.copy()
+    history = [float(energy_fn(geom))]
+    for _ in range(int(st.session_state["geom_opt_steps"])):
+        geom = geom - float(st.session_state["geom_opt_lr"]) * np.asarray(grad_fn(geom))
+        history.append(float(energy_fn(geom)))
+    return {"history": history}
+
+
+def _job_dynamics():
+    name = st.session_state["mol_select"]
+    return {
+        "forces": dc.compute_hellmann_feynman_forces(name),
+        "traj": dc.run_md_trajectory(
+            name, int(st.session_state["md_n_steps"]), dt_fs=float(st.session_state["md_dt_fs"]),
+            recompute_electronic_state=bool(st.session_state.get("md_recompute")),
+        ),
+    }
+
+
+def _job_wormhole():
+    fn = dc.run_wormhole_protocol_trotter if st.session_state["wh_method"] == "Trotter" else dc.run_wormhole_protocol
+    args = (
+        int(st.session_state["wh_n_majorana"]), int(st.session_state["wh_k_terms"]), float(st.session_state["wh_J"]),
+    )
+    rest = (
+        float(st.session_state["wh_t0"]), float(st.session_state["wh_t1"]),
+        int(st.session_state.get("wh_seed", 61)), bool(st.session_state["wh_with_message"]),
+    )
+    mu = float(st.session_state["wh_mu"])
+    return fn(*args, mu, *rest), fn(*args, -mu, *rest), mu
+
+
+def _job_qec():
+    stabilizers = [line.strip() for line in st.session_state["qec_stabilizers"].splitlines() if line.strip()]
+    n = len(stabilizers[0]) if stabilizers else 0
+    error = (st.session_state.get("qec_pauli") or "X" + "I" * max(n - 1, 0)).strip().upper()
+    if len(error) != n or set(error) - set("IXYZ"):
+        raise ValueError(f"the Pauli error needs exactly {n} characters from I, X, Y, Z (got '{error}')")
+    syndrome = dense_evolution.compute_syndrome(error, stabilizers)
+    observed_text = st.session_state.get("qec_observed", "")
+    observed = tuple(int(x) for x in observed_text.split(",") if x.strip()) or tuple(syndrome)
+    heralded = [int(x) for x in st.session_state.get("qec_heralded", "").split(",") if x.strip()]
+    decoded = dense_evolution.decode_with_erasure_fallback(observed, heralded, n, stabilizers)
+    return {"stabilizers": stabilizers, "error": error, "syndrome": syndrome, "decoded": decoded}
+
+
+def _job_condensed():
+    material = st.session_state["solid_material"]
+    start, end = (0.0, 0.0, 0.0), (1.0, 0.0, 0.0)
+    t_path, bands = dc.scan_bands_along_path(material, start, end, n_points=201)
+    return {
+        "material": material,
+        "gap_gamma": dense_evolution.direct_gap_at_gamma(material),
+        "extrema": dense_evolution.band_extrema_along_path(material, start, end),
+        "bands": (t_path, bands),
+    }
+
+
+def _job_hubbard():
+    n_sites = int(st.session_state["hub_n_sites"])
+    terms = dense_evolution.hubbard_hamiltonian_pauli_terms(
+        n_sites, float(st.session_state["hub_t"]), float(st.session_state["hub_U"]),
+    )
+    h_hub = dense_evolution.pauli_hamiltonian_to_matrix(terms, 2 * n_sites)
+    return 2 * n_sites, dc.ground_state_energy(h_hub)
+
+
+
 with st.sidebar:
     st.markdown(
         '<style>[data-testid="stSidebar"] [data-testid="stVerticalBlock"]{gap:0.25rem}'
-        '[data-testid="stSidebarUserContent"]{padding-top:1rem}</style>',
+        '[data-testid="stSidebarUserContent"]{padding-top:1rem}'
+        '.st-key-run_button{position:sticky;top:0;z-index:10;'
+        'background:var(--secondary-background-color,#f0f2f6)}</style>',
         unsafe_allow_html=True,
     )
-    run_clicked = st.button("▶ Run", type="primary", width="stretch")
+    run_clicked = st.button(
+        "▶ Run", type="primary", width="stretch", key="run_button", on_click=_on_run,
+    )
     preset_name = st.selectbox(
         "Preset", ["Custom"] + list(dc.QASM_LIBRARY.keys()), key="preset_select",
     )
@@ -264,6 +414,58 @@ with st.sidebar:
         st.text_input("Pauli observable (empty: Z on qubit 0)", key="bc_observable")
         st.text_input("Bonds (increasing, comma-separated)", value="4,8,16,32", key="bc_bonds")
         st.number_input("Tolerance", 1e-6, 1.0, 1e-3, format="%.6f", key="bc_tol")
+    with st.expander("Chemistry"):
+        st.toggle("On: the circuit becomes the VQE ansatz", key="chem_on", on_change=_chem_toggled)
+        st.selectbox("Molecule", list(_cached_all_molecules().keys()), key="mol_select")
+        st.selectbox("Ansatz", ["hardware_efficient", "uccsd"], key="vqe_ansatz")
+        st.slider("n_layers (hardware_efficient only)", 1, 12, 4, key="vqe_n_layers")
+        st.slider("Iterations (Adam)", 0, 500, 150, key="vqe_maxiter")
+        st.number_input("step_size", value=0.1, format="%.4f", key="vqe_step_size")
+        st.number_input("VQE seed", value=0, step=1, key="vqe_seed")
+        st.toggle("Energy landscape (two parameters)", key="chem_land_on")
+        st.number_input("Parameter A (index)", min_value=0, value=0, step=1, key="land_param_i")
+        st.number_input("Parameter B (index)", min_value=0, value=1, step=1, key="land_param_j")
+        st.slider("Grid resolution", 5, 41, 21, step=2, key="land_resolution")
+        if advanced_mode:
+            st.toggle("Optimize geometry (analytic dE/dR)", key="chem_geom_on")
+            st.slider("Descent steps", 1, 50, 15, key="geom_opt_steps")
+            st.number_input("Step (Bohr)", value=0.05, format="%.3f", key="geom_opt_lr")
+        st.toggle("Dynamics (forces and MD)", key="dyn_on")
+        st.slider("MD steps", 1, 50, 10, key="md_n_steps")
+        st.number_input("dt_fs", value=0.5, format="%.3f", key="md_dt_fs")
+        st.checkbox("Recompute the electronic state at every step (slower)", key="md_recompute")
+    with st.expander("Wormhole"):
+        st.toggle("On", key="wh_on")
+        st.select_slider("n_majorana", options=[8, 12, 16, 20], value=8, key="wh_n_majorana")
+        st.slider("k_terms", 4, 20, 10, key="wh_k_terms")
+        st.number_input("J", value=1.4142, format="%.4f", key="wh_J")
+        st.slider("mu", 1.0, 20.0, 12.0, key="wh_mu")
+        st.number_input("t0", value=0.3, format="%.3f", key="wh_t0")
+        st.number_input("t1", value=0.60, format="%.3f", key="wh_t1")
+        st.checkbox("Inject message", value=True, key="wh_with_message")
+        st.selectbox("Method", ["exact", "Trotter"], key="wh_method")
+        if st.button("Find a good instance", key="wh_find"):
+            st.session_state["wh_seed"] = dc.select_good_instance(
+                int(st.session_state["wh_n_majorana"]), int(st.session_state["wh_k_terms"]),
+                float(st.session_state["wh_J"]),
+            )
+        st.caption(f"Seed in use: {st.session_state.get('wh_seed', 61)}")
+    with st.expander("Error correction"):
+        st.toggle("On", key="qec_on")
+        st.text_area(
+            "Stabilizer generators (one per line; default: the [[5,1,3]] code)",
+            value=QEC_DEFAULT_STABILIZERS, height=100, key="qec_stabilizers",
+        )
+        st.text_input("Pauli error (empty: X on qubit 0)", key="qec_pauli")
+        st.text_input("Observed syndrome (empty: the computed one)", key="qec_observed")
+        st.text_input("Known erased qubits, optional (e.g. 2)", key="qec_heralded")
+    with st.expander("Condensed matter"):
+        st.toggle("Band structure (tight-binding)", key="cm_on")
+        st.selectbox("Material", sorted(dense_evolution.VHD_MATERIALS.keys()), key="solid_material")
+        st.toggle("Hubbard model", key="hub_on")
+        st.slider("n_sites", 2, 6, 4, key="hub_n_sites")
+        st.number_input("t (hopping)", value=1.0, format="%.3f", key="hub_t")
+        st.number_input("U (on-site repulsion)", value=2.0, format="%.3f", key="hub_U")
 
 if run_clicked:
     run_qasm = with_input_values(qasm_text, st.session_state.get("input_ones", []))
@@ -316,6 +518,21 @@ if run_clicked:
             st.session_state[f"{key}_result"] = job()
         except Exception as exc:
             st.session_state[f"{key}_error"] = str(exc)
+
+    for key, active, job in (
+        ("land", st.session_state.get("chem_on") and st.session_state.get("chem_land_on"), _job_landscape),
+        ("geom", st.session_state.get("chem_geom_on"), _job_geometry),
+        ("dyn", st.session_state.get("dyn_on"), _job_dynamics),
+        ("wh", st.session_state.get("wh_on"), _job_wormhole),
+        ("qec", st.session_state.get("qec_on"), _job_qec),
+        ("cm", st.session_state.get("cm_on"), _job_condensed),
+        ("hub", st.session_state.get("hub_on"), _job_hubbard),
+    ):
+        if active:
+            _store(key, job)
+        else:
+            st.session_state[f"{key}_result"] = None
+            st.session_state[f"{key}_error"] = None
 
 result = st.session_state.get("result")
 error = st.session_state.get("error")
@@ -423,6 +640,157 @@ def _show_bond_convergence():
     )
 
 
+def _show_chemistry():
+    err = st.session_state.get("vqe_error")
+    vqe = st.session_state.get("vqe_result")
+    if err:
+        st.error(f"VQE error: {err}")
+    elif vqe is None:
+        st.info("Turn Chemistry On and press ▶ Run: the circuit becomes the VQE ansatz.")
+    else:
+        col1, col2 = st.columns(2)
+        col1.metric("VQE energy (Hartree)", f"{vqe['vqe_energy_hartree']:.6f}")
+        if vqe["exact_energy_hartree"] is not None:
+            col2.metric("Exact energy (Hartree)", f"{vqe['exact_energy_hartree']:.6f}")
+        st.line_chart(vqe["energy_history"])
+        st.caption(
+            "The energy converges toward the molecule's ground state: the smaller the gap "
+            "to the exact energy, the better the circuit approximates it."
+        )
+        history = np.asarray(vqe["energy_history"], dtype=np.float64)
+        exact = vqe["exact_energy_hartree"]
+        reached_exact = exact is not None and abs(vqe["vqe_energy_hartree"] - exact) < 1.6e-3
+        if len(history) >= 10 and not reached_exact:
+            tail = history[-max(5, len(history) // 5):]
+            spread = float(np.ptp(history)) or 1.0
+            if float(np.std(np.diff(tail))) < 1e-4 * spread:
+                st.warning(
+                    "The curve flattened over the last iterations (almost no energy change): "
+                    "possible plateau or local minimum, not necessarily the global minimum. "
+                    "Try fewer n_layers or the UCCSD ansatz."
+                )
+    if st.session_state.get("chem_land_on"):
+        st.subheader("Energy landscape")
+        land = _show_analysis("land")
+        if land is not None:
+            st.pyplot(dc.energy_landscape_figure(*land))
+    if st.session_state.get("chem_geom_on"):
+        st.subheader("Geometry optimization")
+        geom = _show_analysis("geom")
+        if geom is not None:
+            st.line_chart(geom["history"])
+            st.caption(
+                f"Energy: {geom['history'][0]:.6f} -> {geom['history'][-1]:.6f} Hartree "
+                "(the first JAX compilation can take a few minutes)."
+            )
+
+
+def _show_dynamics():
+    out = _show_analysis("dyn")
+    if out is None:
+        return
+    col1, col2 = st.columns(2)
+    col1.metric("Energy (Hartree)", f"{out['forces']['energy_hartree']:.6f}")
+    col2.metric("Force norm (Hartree/Å)", f"{out['forces']['force_norm']:.6f}")
+    traj = out["traj"]
+    st.line_chart({"time_fs": traj["time_fs"], "energy_hartree": traj["energy_hartree"]})
+    st.line_chart({"time_fs": traj["time_fs"], "force_norm": traj["force_norm"]})
+    st.caption(
+        "Energy and force norm along the trajectory. If the simulation diverges "
+        "(nuclei too close), the function stops with an error message."
+    )
+
+
+def _show_wormhole():
+    out = _show_analysis("wh")
+    if out is None:
+        return
+    i_plus, i_minus, mu = out
+    import matplotlib.pyplot as _plt
+
+    fig, ax = _plt.subplots(figsize=(4, 3))
+    ax.barh(["mu > 0", "mu < 0"], [i_plus, -i_minus], color=["#648fff", "#dc267f"])
+    ax.set_xlabel("mutual information (signed)")
+    fig.tight_layout()
+    st.pyplot(fig)
+    st.caption(
+        f"I(mu=+{mu:g}) = {i_plus:.5f} · I(mu=-{mu:g}) = {i_minus:.5f}. Traversable-wormhole-inspired "
+        "teleportation (arXiv:2604.10090): the signal is the DIFFERENCE between positive and negative mu."
+    )
+
+
+def _show_qec():
+    out = _show_analysis("qec")
+    if out is None:
+        return
+    st.write(f"Code with {len(out['stabilizers'][0])} physical qubits, {len(out['stabilizers'])} stabilizers.")
+    st.write(f"Syndrome: `{out['syndrome']}`")
+    st.pyplot(dc.qec_syndrome_map_figure(out["stabilizers"], out["syndrome"], out["error"]))
+    st.caption(
+        "Red: stabilizers that anticommute with the error (syndrome bit 1, detected). Grey: those "
+        "that commute (bit 0, not detected). The marked qubit is where the injected error acts."
+    )
+    if out["decoded"] is None:
+        st.warning(
+            "Ambiguous syndrome: more than one minimum-weight correction fits it (for example a "
+            "bit-flip code like ZZI/IZZ cannot tell X from Y)."
+        )
+    else:
+        st.success(f"Correction found: `{out['decoded']}`")
+
+
+def _show_condensed():
+    if st.session_state.get("cm_on"):
+        out = _show_analysis("cm")
+        if out is not None:
+            vbm, _, cbm, _, gap = out["extrema"]
+            st.metric(f"Direct gap at Γ — {out['material']}", f"{out['gap_gamma']:.4f} eV")
+            col1, col2, col3 = st.columns(3)
+            col1.metric("VBM (eV)", f"{vbm:.4f}")
+            col2.metric("CBM (eV)", f"{cbm:.4f}")
+            col3.metric("Band gap Γ→X (eV)", f"{gap:.4f}")
+            st.caption(
+                "For indirect-gap materials (e.g. Si) the Γ→X scan gives the correct gap; the direct "
+                "gap at Γ alone would give the wrong value for them."
+            )
+            t_path, bands = out["bands"]
+            st.plotly_chart(dc.band_structure_figure(t_path, bands, out["material"]))
+            st.caption(
+                "All 10 sp3s* bands along Γ→X: hover a point to see the exact energy and its "
+                "position on the k-path. Band 3 (red) and band 4 (blue) are the VBM/CBM."
+            )
+    if st.session_state.get("hub_on"):
+        hub = _show_analysis("hub")
+        if hub is not None:
+            st.metric(f"Hubbard ground-state energy ({hub[0]} qubits)", f"{hub[1]:.6f}")
+
+
+def _active_windows(res):
+    windows = (
+        ("Chemistry", "chem_on", _show_chemistry),
+        ("Dynamics", "dyn_on", _show_dynamics),
+        ("ZNE mitigation", "zne_on", _show_zne),
+        ("Density-matrix channel", "dm_on", _show_density_channel),
+        ("Magic", "magic_on", lambda: _show_magic(res)),
+        ("MPS convergence", "bc_on", _show_bond_convergence),
+        ("Wormhole", "wh_on", _show_wormhole),
+        ("Error correction", "qec_on", _show_qec),
+    )
+    active = [(label, show) for label, key, show in windows if st.session_state.get(key)]
+    if st.session_state.get("magic_on") and res is None:
+        active = [(label, show) for label, show in active if label != "Magic"]
+    if st.session_state.get("cm_on") or st.session_state.get("hub_on"):
+        active.append(("Condensed matter", _show_condensed))
+    return active
+
+
+def _show_tabs(active):
+    if active:
+        for tab, (_, show) in zip(st.tabs([label for label, _ in active]), active):
+            with tab:
+                show()
+
+
 # ── BUILD ────────────────────────────────────────────────────────────────
 if section == "Build":
     st.caption(
@@ -489,12 +857,16 @@ if section == "Build":
 
 # ── RESULTS ──────────────────────────────────────────────────────────────
 elif section == "Results":
+    active = _active_windows(result)
     if result is None and large_result is not None:
         _show_large(large_result)
+        _show_tabs(active)
     elif result is None:
         st.info("No circuit run yet — open Build and press ▶ Run.")
+        _show_tabs(active)
     elif error:
         st.error(f"Circuit run failed: {error}")
+        _show_tabs(active)
     else:
         st.caption(
             f"Current state: {result.n_qubits}-qubit circuit — you can add noise "
@@ -512,14 +884,6 @@ elif section == "Results":
                 cols[i + 2].metric("MPS memory (MB)", f"{result.mps_memory_mb:.2f}")
             if result.fidelity_vs_ideal is not None:
                 st.caption("Fidelity = how far the noisy run is from the ideal circuit (1.0 = identical).")
-        active = [
-            (label, show) for label, key, show in (
-                ("ZNE mitigation", "zne_on", _show_zne),
-                ("Density-matrix channel", "dm_on", _show_density_channel),
-                ("Magic", "magic_on", lambda: _show_magic(result)),
-                ("MPS convergence", "bc_on", _show_bond_convergence),
-            ) if st.session_state.get(key)
-        ]
         (tab_sv, tab_prob, tab_qsphere, tab_bloch, tab_entropy, tab_steps, tab_pairs, tab_qubits,
          *tabs_active) = st.tabs(
             ["Statevector", "Probabilities", "Q-sphere", "Bloch per qubit", "Entropy & mutual information",
@@ -596,194 +960,6 @@ elif section == "Results":
                 col3.metric("I(A:B) (nat)", f"{i_ab:.4f}")
 
 
-# ── CHEMISTRY ────────────────────────────────────────────────────────────
-elif section == "Chemistry":
-    st.header("Molecules & Hamiltonians")
-    molecules = _cached_all_molecules()
-    mol_name = st.selectbox("Molecule", list(molecules.keys()), key="mol_select")
-    mol = molecules[mol_name]
-    st.caption(f"This molecule uses **{mol['n_qubits']} qubits**.")
-
-    if st.button("Build Hamiltonian"):
-        try:
-            H_dense, n_qubits = dc.build_molecular_hamiltonian(
-                mol["symbols"], mol["geometry"], mol["charge"],
-            )
-            st.session_state["ham_result"] = (H_dense, n_qubits)
-            st.session_state["ham_error"] = None
-        except Exception as exc:
-            st.session_state["ham_result"] = None
-            st.session_state["ham_error"] = str(exc)
-
-    ham_error = st.session_state.get("ham_error")
-    ham_result = st.session_state.get("ham_result")
-    if ham_error:
-        st.error(f"Error: {ham_error}")
-    elif ham_result is not None:
-        H_dense, n_qubits = ham_result
-        exact_e = dc.ground_state_energy(H_dense)
-        st.metric("Exact reference energy (Hartree)", f"{exact_e:.6f}")
-
-    st.divider()
-    st.header("VQE")
-    ansatz_type = st.selectbox("Ansatz", ["hardware_efficient", "uccsd"], key="vqe_ansatz")
-    n_layers = st.slider("n_layers (hardware_efficient only)", 1, 12, 4, key="vqe_n_layers")
-    maxiter = st.slider("Iterations (Adam)", 0, 500, 150, key="vqe_maxiter")
-    with st.expander("Advanced"):
-        step_size = st.number_input("step_size", value=0.1, format="%.4f", key="vqe_step_size")
-        seed_vqe = st.number_input("seed", value=0, step=1, key="vqe_seed")
-
-    if st.button("Run VQE", type="primary"):
-        try:
-            vqe_result = dc.run_vqe(
-                mol["symbols"], mol["geometry"], mol["charge"],
-                ansatz_type=ansatz_type, n_layers=int(n_layers), maxiter=int(maxiter),
-                step_size=float(step_size), seed=int(seed_vqe),
-            )
-            st.session_state["vqe_result"] = vqe_result
-            st.session_state["vqe_error"] = None
-        except Exception as exc:
-            st.session_state["vqe_result"] = None
-            st.session_state["vqe_error"] = str(exc)
-
-    vqe_error = st.session_state.get("vqe_error")
-    vqe_result = st.session_state.get("vqe_result")
-    if vqe_error:
-        st.error(f"VQE error: {vqe_error}")
-    elif vqe_result is not None:
-        col1, col2 = st.columns(2)
-        col1.metric("VQE energy (Hartree)", f"{vqe_result['vqe_energy_hartree']:.6f}")
-        if vqe_result["exact_energy_hartree"] is not None:
-            col2.metric("Exact energy (Hartree)", f"{vqe_result['exact_energy_hartree']:.6f}")
-        st.line_chart(vqe_result["energy_history"])
-        st.caption(
-            "The energy converges toward the molecule's ground state: the smaller the gap "
-            "to the exact energy, the better the circuit approximates it."
-        )
-        # Heuristic flattening check, not a formal Barren Plateau detector:
-        # BP is a training-time property (gradient variance vanishing with
-        # system size); this only looks at whether energy_history's own
-        # tail stopped moving, using data run_vqe already returns -- a
-        # proxy for "the optimizer may be stuck". Skipped once the energy is
-        # within chemical accuracy (1.6 mHa) of the exact value.
-        history = np.asarray(vqe_result["energy_history"], dtype=np.float64)
-        exact = vqe_result["exact_energy_hartree"]
-        reached_exact = exact is not None and abs(vqe_result["vqe_energy_hartree"] - exact) < 1.6e-3
-        if len(history) >= 10 and not reached_exact:
-            tail = history[-max(5, len(history) // 5):]
-            spread = float(np.ptp(history)) or 1.0
-            tail_std = float(np.std(np.diff(tail)))
-            if tail_std < 1e-4 * spread:
-                st.warning(
-                    "The curve flattened over the last iterations (almost no energy change): "
-                    "possible plateau or local minimum, not necessarily the global minimum. "
-                    "Try fewer n_layers or the UCCSD ansatz."
-                )
-        st.button("→ Load the VQE circuit into the QASM Editor", on_click=_load_qasm,
-                  args=(vqe_result["qasm"], True))
-
-        with st.expander("2D energy landscape"):
-            if vqe_result["ansatz_type"] != "hardware_efficient" or vqe_result["n_params"] < 2:
-                st.info(
-                    "Available only for the hardware_efficient ansatz with at least 2 "
-                    "parameters: UCCSD maps weights to angles affinely (not one parameter "
-                    "per rotation), so 'parameter i' does not correspond to a single angle."
-                )
-            else:
-                st.caption(
-                    "The circuit is re-run on a fixed grid around the minimum found by VQE, "
-                    "keeping every other parameter fixed: each point is an energy computed "
-                    "from scratch, not an interpolation."
-                )
-                n_p = vqe_result["n_params"]
-                col_pi, col_pj = st.columns(2)
-                land_i = col_pi.number_input(
-                    "Parameter A (index)", min_value=0, max_value=n_p - 1, value=0, key="land_param_i",
-                )
-                land_j = col_pj.number_input(
-                    "Parameter B (index)", min_value=0, max_value=n_p - 1,
-                    value=min(1, n_p - 1), key="land_param_j",
-                )
-                land_res = st.slider("Grid resolution", 5, 41, 21, step=2, key="land_resolution")
-                if land_i == land_j:
-                    st.warning("Pick two different indices.")
-                elif st.button("Compute energy landscape"):
-                    base_params = np.asarray(vqe_result["params"], dtype=np.float64)
-                    center_i, center_j = base_params[int(land_i)], base_params[int(land_j)]
-                    values_i = np.linspace(center_i - np.pi, center_i + np.pi, int(land_res))
-                    values_j = np.linspace(center_j - np.pi, center_j + np.pi, int(land_res))
-                    try:
-                        energies = dc.scan_hardware_efficient_energy_landscape(
-                            mol["symbols"], mol["geometry"], mol["charge"], vqe_result["n_layers"],
-                            vqe_result["hf_occupation"], base_params, int(land_i), int(land_j),
-                            values_i, values_j,
-                        )
-                        st.session_state["landscape_result"] = (
-                            values_i, values_j, energies, int(land_i), int(land_j),
-                            center_i, center_j, vqe_result["vqe_energy_hartree"],
-                        )
-                        st.session_state["landscape_error"] = None
-                    except Exception as exc:
-                        st.session_state["landscape_result"] = None
-                        st.session_state["landscape_error"] = str(exc)
-
-                land_error = st.session_state.get("landscape_error")
-                land_data = st.session_state.get("landscape_result")
-                if land_error:
-                    st.error(f"Error: {land_error}")
-                elif land_data is not None:
-                    st.pyplot(dc.energy_landscape_figure(*land_data))
-
-    if advanced_mode:
-        st.divider()
-        with st.expander("Optimize geometry (analytic dE/dR, native_hf)"):
-            st.caption(
-                "Relaxes the nuclear positions toward the energy minimum with the analytic "
-                "gradient dE/dR (native_hf). Different from run_md_trajectory (Dynamics), "
-                "which moves the nuclei with Newtonian dynamics at a fixed electronic state."
-            )
-            n_geom_steps = st.slider("Descent steps", 1, 50, 15, key="geom_opt_steps")
-            geom_lr = st.number_input("Step (learning rate, Bohr)", value=0.05, format="%.3f", key="geom_opt_lr")
-            if st.button("Optimize geometry"):
-                try:
-                    import jax
-                    from basis_set_exchange.lut import element_Z_from_sym
-
-                    atomic_numbers = [element_Z_from_sym(s) for s in mol["symbols"]]
-                    n_electrons = sum(atomic_numbers) - mol["charge"]
-                    geometry_bohr = np.asarray(mol["geometry"], dtype=np.float64) * ANGSTROM_TO_BOHR
-                    energy_fn = build_energy_fn(
-                        atomic_numbers, [float(z) for z in atomic_numbers], n_electrons,
-                        "sto-3g", geometry_bohr,
-                    )
-                    grad_fn = jax.grad(energy_fn)
-                    geom = geometry_bohr.copy()
-                    history = [float(energy_fn(geom))]
-                    for _ in range(int(n_geom_steps)):
-                        g = np.asarray(grad_fn(geom))
-                        geom = geom - float(geom_lr) * g
-                        history.append(float(energy_fn(geom)))
-                    st.session_state["geom_opt_result"] = {
-                        "history": history,
-                        "geometry_angstrom": (geom / ANGSTROM_TO_BOHR).tolist(),
-                    }
-                    st.session_state["geom_opt_error"] = None
-                except Exception as exc:
-                    st.session_state["geom_opt_result"] = None
-                    st.session_state["geom_opt_error"] = str(exc)
-
-            geom_error = st.session_state.get("geom_opt_error")
-            geom_res = st.session_state.get("geom_opt_result")
-            if geom_error:
-                st.error(f"Error: {geom_error}")
-            elif geom_res is not None:
-                st.line_chart(geom_res["history"])
-                st.caption(
-                    f"Energy: {geom_res['history'][0]:.6f} -> {geom_res['history'][-1]:.6f} Hartree "
-                    "(the first JAX compilation can take a few minutes)."
-                )
-
-
 # ── NOISE ────────────────────────────────────────────────────────────────
 elif section == "Noise":
     st.header("Channels & physical noise")
@@ -821,224 +997,7 @@ elif section == "Noise":
                 except ImportError as exc:
                     st.error(f"Requires the ia_utils package: {exc}")
         else:
-            st.info("Run a VQE in Chemistry first to get a trajectory to heal.")
-
-
-# ── DYNAMICS ─────────────────────────────────────────────────────────────
-elif section == "Dynamics":
-    st.header("QM/MM & MD trajectory")
-    molecules = _cached_all_molecules()
-    mol_name = st.selectbox("Molecule", list(molecules.keys()), key="dyn_mol_select")
-
-    if st.button("Compute forces"):
-        try:
-            forces_result = dc.compute_hellmann_feynman_forces(mol_name)
-            st.session_state["forces_result"] = forces_result
-            st.session_state["forces_error"] = None
-        except Exception as exc:
-            st.session_state["forces_result"] = None
-            st.session_state["forces_error"] = str(exc)
-
-    forces_error = st.session_state.get("forces_error")
-    forces_result = st.session_state.get("forces_result")
-    if forces_error:
-        st.error(f"Error: {forces_error}")
-    elif forces_result is not None:
-        col1, col2 = st.columns(2)
-        col1.metric("Energy (Hartree)", f"{forces_result['energy_hartree']:.6f}")
-        col2.metric("Force norm (Hartree/Å)", f"{forces_result['force_norm']:.6f}")
-
-    st.divider()
-    n_steps = st.slider("n_steps", 1, 50, 10, key="md_n_steps")
-    dt_fs = st.number_input("dt_fs", value=0.5, format="%.3f", key="md_dt_fs")
-    recompute = st.checkbox(
-        "Recompute the electronic state at every step (much slower, exact forces far "
-        "from the starting geometry)", value=False, key="md_recompute",
-    )
-    if st.button("Start MD trajectory", type="primary"):
-        try:
-            traj = dc.run_md_trajectory(
-                mol_name, int(n_steps), dt_fs=float(dt_fs), recompute_electronic_state=recompute,
-            )
-            st.session_state["md_traj"] = traj
-            st.session_state["md_error"] = None
-        except Exception as exc:
-            st.session_state["md_traj"] = None
-            st.session_state["md_error"] = str(exc)
-
-    md_error = st.session_state.get("md_error")
-    md_traj = st.session_state.get("md_traj")
-    if md_error:
-        st.error(f"Error: {md_error}")
-    elif md_traj is not None:
-        st.line_chart({"time_fs": md_traj["time_fs"], "energy_hartree": md_traj["energy_hartree"]})
-        st.line_chart({"time_fs": md_traj["time_fs"], "force_norm": md_traj["force_norm"]})
-        st.caption(
-            "Energy and force norm along the trajectory. If the simulation diverges "
-            "(nuclei too close), the function stops with an error message."
-        )
-
-
-# ── WORMHOLE ─────────────────────────────────────────────────────────────
-elif section == "Wormhole":
-    st.header("SYK protocol / Teleportation")
-    st.caption(
-        "Traversable-wormhole-inspired quantum teleportation (arXiv:2604.10090): the signal "
-        "of interest is the DIFFERENCE between positive and negative mu, not a single value."
-    )
-    n_majorana = st.select_slider("n_majorana", options=[8, 12, 16, 20], value=8, key="wh_n_majorana")
-    k_terms = st.slider("k_terms", 4, 20, 10, key="wh_k_terms")
-    J = st.number_input("J", value=1.4142, format="%.4f", key="wh_J")
-    mu = st.slider("mu", 1.0, 20.0, 12.0, key="wh_mu")
-    t0 = st.number_input("t0", value=0.3, format="%.3f", key="wh_t0")
-    t1 = st.number_input("t1", value=0.60, format="%.3f", key="wh_t1")
-    with_message = st.checkbox("Inject message (with_message)", value=True, key="wh_with_message")
-    method = st.selectbox("Method", ["exact", "Trotter"], key="wh_method")
-
-    if st.button("Find a good instance"):
-        seed = dc.select_good_instance(int(n_majorana), int(k_terms), float(J))
-        st.session_state["wh_seed"] = seed
-    seed = st.session_state.get("wh_seed", 61)
-    st.caption(f"Seed in use: **{seed}** (Find a good instance searches for the one with the cleanest signal)")
-
-    if st.button("Run protocol", type="primary"):
-        fn = dc.run_wormhole_protocol_trotter if method == "Trotter" else dc.run_wormhole_protocol
-        try:
-            i_plus = fn(int(n_majorana), int(k_terms), float(J), float(mu), float(t0), float(t1), int(seed), with_message)
-            i_minus = fn(int(n_majorana), int(k_terms), float(J), -float(mu), float(t0), float(t1), int(seed), with_message)
-            st.session_state["wh_result"] = (i_plus, i_minus)
-            st.session_state["wh_error"] = None
-        except Exception as exc:
-            st.session_state["wh_result"] = None
-            st.session_state["wh_error"] = str(exc)
-
-    wh_error = st.session_state.get("wh_error")
-    wh_result = st.session_state.get("wh_result")
-    if wh_error:
-        st.error(f"Error: {wh_error}")
-    elif wh_result is not None:
-        i_plus, i_minus = wh_result
-        import matplotlib.pyplot as _plt
-        fig, ax = _plt.subplots(figsize=(4, 3))
-        ax.barh(["mu > 0", "mu < 0"], [i_plus, -i_minus], color=["#648fff", "#dc267f"])
-        ax.set_xlabel("mutual information (signed)")
-        fig.tight_layout()
-        st.pyplot(fig)
-        st.caption(f"I(mu=+{mu:g}) = {i_plus:.5f} · I(mu=-{mu:g}) = {i_minus:.5f}")
-
-
-# ── QEC ──────────────────────────────────────────────────────────────────
-elif section == "QEC":
-    st.header("Quantum error correction")
-    stabilizers_text = st.text_area(
-        "Stabilizer generators (one per line). Default: the [[5,1,3]] code, which corrects "
-        "any single-qubit error",
-        value=QEC_DEFAULT_STABILIZERS, key="qec_stabilizers",
-    )
-    stabilizers = [s.strip() for s in stabilizers_text.splitlines() if s.strip()]
-    n_qubits_qec = len(stabilizers[0]) if stabilizers else 0
-    st.caption(f"Code with {n_qubits_qec} physical qubits, {len(stabilizers)} stabilizers.")
-
-    st.subheader("Syndrome calculator")
-    pauli_error = st.text_input(
-        f"Pauli error ({n_qubits_qec} characters from I, X, Y, Z)",
-        value="X" + "I" * max(n_qubits_qec - 1, 0), key="qec_error",
-    )
-    if st.button("Compute syndrome"):
-        pauli_error = pauli_error.strip().upper()
-        if len(pauli_error) != n_qubits_qec or set(pauli_error) - set("IXYZ"):
-            st.error(f"The Pauli error needs exactly {n_qubits_qec} characters from I, X, Y, Z (got '{pauli_error}').")
-        else:
-            try:
-                syndrome = dense_evolution.compute_syndrome(pauli_error, stabilizers)
-                st.session_state["qec_syndrome"] = syndrome
-                st.session_state["qec_syndrome_error"] = pauli_error
-            except Exception as exc:
-                st.error(f"Error: {exc}")
-    if "qec_syndrome" in st.session_state:
-        st.write(f"Syndrome: `{st.session_state['qec_syndrome']}`")
-        st.caption(
-            "Red: stabilizers that anticommute with the error (syndrome bit 1, detected). "
-            "Grey: those that commute (bit 0, not detected). The marked qubit is where the "
-            "injected error acts."
-        )
-        st.pyplot(dc.qec_syndrome_map_figure(
-            stabilizers, st.session_state["qec_syndrome"], st.session_state["qec_syndrome_error"],
-        ))
-
-    st.subheader("Decoding")
-    default_observed = ",".join(str(b) for b in st.session_state.get("qec_syndrome", (0, 0, 0, 1)))
-    observed_text = st.text_input("Observed syndrome (comma-separated bits)", value=default_observed, key="qec_observed")
-    heralded_text = st.text_input("Known erased qubits, optional (e.g. '2')", value="", key="qec_heralded")
-    if st.button("Decode"):
-        try:
-            observed = tuple(int(x) for x in observed_text.split(",") if x.strip() != "")
-            heralded = [int(x) for x in heralded_text.split(",") if x.strip() != ""]
-            decoded = dense_evolution.decode_with_erasure_fallback(
-                observed, heralded, n_qubits_qec, stabilizers,
-            )
-            st.session_state["qec_decoded"] = decoded
-        except Exception as exc:
-            st.session_state.pop("qec_decoded", None)
-            st.error(f"Error: {exc}")
-    if "qec_decoded" in st.session_state:
-        decoded = st.session_state["qec_decoded"]
-        if decoded is None:
-            st.warning(
-                "Ambiguous syndrome: more than one minimum-weight correction fits it (for "
-                "example a bit-flip code like ZZI/IZZ cannot tell X from Y)."
-            )
-        else:
-            st.success(f"Correction found: `{decoded}`")
-
-
-# ── CONDENSED MATTER ─────────────────────────────────────────────────────
-elif section == "Condensed Matter":
-    st.header("Solid state (tight-binding)")
-    material = st.selectbox("Material", sorted(dense_evolution.VHD_MATERIALS.keys()), key="solid_material")
-    if st.button("Compute gap at Γ"):
-        gap = dense_evolution.direct_gap_at_gamma(material)
-        st.metric(f"Direct gap at Γ — {material}", f"{gap:.4f} eV")
-    if st.button("Scan band Γ→X"):
-        vbm, vbm_k, cbm, cbm_k, gap = dense_evolution.band_extrema_along_path(
-            material, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
-        )
-        col1, col2, col3 = st.columns(3)
-        col1.metric("VBM (eV)", f"{vbm:.4f}")
-        col2.metric("CBM (eV)", f"{cbm:.4f}")
-        col3.metric("Band gap (eV)", f"{gap:.4f}")
-        st.caption(
-            "For indirect-gap materials (e.g. Si) this is the correct number; "
-            "\"Compute gap at Γ\" alone would give the wrong value for them."
-        )
-
-    if st.button("Plot band structure (Γ→X, interactive)"):
-        t_path, bands = dc.scan_bands_along_path(material, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0), n_points=201)
-        st.session_state["band_structure_result"] = (t_path, bands, material)
-
-    if "band_structure_result" in st.session_state:
-        t_path, bands, band_material = st.session_state["band_structure_result"]
-        st.plotly_chart(dc.band_structure_figure(t_path, bands, band_material))
-        st.caption(
-            "All 10 sp3s* bands along Γ→X: hover a point to see the exact energy and its "
-            "position on the k-path. Band 3 (red) and band 4 (blue) are the VBM/CBM that "
-            "\"Scan band Γ→X\" summarizes in one number."
-        )
-
-    st.divider()
-    st.header("Hubbard model")
-    n_sites = st.slider("n_sites", 2, 6, 4, key="hub_n_sites")
-    t_hop = st.number_input("t (hopping)", value=1.0, format="%.3f", key="hub_t")
-    U_int = st.number_input("U (on-site repulsion)", value=2.0, format="%.3f", key="hub_U")
-    if st.button("Build Hubbard Hamiltonian"):
-        try:
-            terms = dense_evolution.hubbard_hamiltonian_pauli_terms(int(n_sites), float(t_hop), float(U_int))
-            n_qubits_hub = 2 * int(n_sites)
-            H_hub = dense_evolution.pauli_hamiltonian_to_matrix(terms, n_qubits_hub)
-            e0 = dc.ground_state_energy(H_hub)
-            st.metric(f"Ground-state energy ({n_qubits_hub} qubits)", f"{e0:.6f}")
-        except Exception as exc:
-            st.error(f"Error: {exc}")
+            st.info("Turn the Chemistry window On and press ▶ Run to get a trajectory to heal.")
 
 
 # ── IMPORT CIRCUIT ───────────────────────────────────────────────────────

@@ -40,8 +40,16 @@ def test_windows_are_in_the_left_panel_and_off_by_default(app):
 def test_old_sections_are_gone_from_the_top_menu(app):
     app.main.toggle(key="advanced_mode").set_value(True).run()
     options = list(app.main.radio(key="nav_section").options)
-    assert "Magic & Divergences" not in options
-    assert "Large Systems" not in options
+    for gone in (
+        "Magic & Divergences",
+        "Large Systems",
+        "Chemistry",
+        "Dynamics",
+        "Wormhole",
+        "QEC",
+    ):
+        assert gone not in options
+    assert options == ["Build", "Results", "Noise", "Import Circuit", "System", "All functions"]
 
 
 def test_magic_window_adds_a_results_tab_computed_by_run(app):

@@ -8,7 +8,7 @@ pytest.importorskip("streamlit")
 from streamlit.testing.v1 import AppTest  # noqa: E402
 
 DASHBOARD = Path(__file__).resolve().parents[2] / "tools" / "dashboard"
-BASE = ["Build", "Results", "Chemistry", "Noise", "System"]
+BASE = ["Build", "Results"]
 
 
 @pytest.fixture
@@ -31,10 +31,10 @@ def test_toggle_is_in_the_main_area_and_not_in_the_sidebar(app):
         app.sidebar.toggle(key="advanced_mode")
 
 
-def test_advanced_mode_adds_the_six_advanced_sections(app):
-    assert len(app.main.radio(key="nav_section").options) == 5
+def test_advanced_mode_adds_the_four_advanced_sections(app):
+    assert len(app.main.radio(key="nav_section").options) == 2
     app.main.toggle(key="advanced_mode").set_value(True).run()
-    assert len(app.main.radio(key="nav_section").options) == 11
+    assert len(app.main.radio(key="nav_section").options) == 6
 
 
 def test_choosing_a_section_shows_its_page(app):
@@ -47,7 +47,7 @@ def test_choosing_a_section_shows_its_page(app):
 
 def test_switching_advanced_mode_off_returns_to_build(app):
     app.main.toggle(key="advanced_mode").set_value(True).run()
-    app.main.radio(key="nav_section").set_value("QEC").run()
-    assert app.main.radio(key="nav_section").value == "QEC"
+    app.main.radio(key="nav_section").set_value("Noise").run()
+    assert app.main.radio(key="nav_section").value == "Noise"
     app.main.toggle(key="advanced_mode").set_value(False).run()
     assert app.main.radio(key="nav_section").value == "Build"
