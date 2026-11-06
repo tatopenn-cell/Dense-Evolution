@@ -1,7 +1,7 @@
 """Input values of the qubits of an OpenQASM 2.0 circuit, for the dashboard."""
 
 import re
-from typing import Iterable
+from collections.abc import Iterable
 
 __all__ = ["qubits_in_qasm", "with_input_values"]
 

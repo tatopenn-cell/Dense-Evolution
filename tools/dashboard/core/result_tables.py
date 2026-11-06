@@ -1,11 +1,11 @@
 """Tables of the result of a run, for the dashboard."""
 
-from typing import Dict, List
+from typing import Any
 
 __all__ = ["outcome_rows"]
 
 
-def outcome_rows(counts: Dict[str, int]) -> List[dict]:
+def outcome_rows(counts: dict[str, int]) -> list[dict[str, Any]]:
     """Rows of the outcomes of a run, most frequent first.
 
     Args:
@@ -23,7 +23,7 @@ def outcome_rows(counts: Dict[str, int]) -> List[dict]:
     total = sum(counts.values())
     if total <= 0:
         return []
-    rows = [
+    rows: list[dict[str, Any]] = [
         {"outcome": key, "shots": int(n), "probability": n / total}
         for key, n in counts.items()
     ]
