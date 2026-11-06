@@ -151,6 +151,11 @@ def _load_qasm(qasm, go_to_build=False):
 
 
 with st.sidebar:
+    st.markdown(
+        '<style>[data-testid="stSidebar"] [data-testid="stVerticalBlock"]{gap:0.3rem}'
+        '[data-testid="stSidebarUserContent"]{padding-top:1rem}</style>',
+        unsafe_allow_html=True,
+    )
     run_clicked = st.button("▶ Run", type="primary", width="stretch")
     preset_name = st.selectbox(
         "Preset", ["Custom"] + list(dc.QASM_LIBRARY.keys()), key="preset_select",

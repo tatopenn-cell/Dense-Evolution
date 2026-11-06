@@ -31,10 +31,10 @@ def test_toggle_is_in_the_main_area_and_not_in_the_sidebar(app):
         app.sidebar.toggle(key="advanced_mode")
 
 
-def test_advanced_mode_adds_the_eight_advanced_sections(app):
+def test_advanced_mode_adds_the_six_advanced_sections(app):
     assert len(app.main.radio(key="nav_section").options) == 5
     app.main.toggle(key="advanced_mode").set_value(True).run()
-    assert len(app.main.radio(key="nav_section").options) == 13
+    assert len(app.main.radio(key="nav_section").options) == 11
 
 
 def test_choosing_a_section_shows_its_page(app):

@@ -73,12 +73,14 @@ def test_bond_convergence_runs_with_the_main_circuit(app):
     app.sidebar.toggle(key="bc_on").set_value(True).run()
     app.sidebar.text_input(key="bc_bonds").set_value("2,4").run()
     _run(app)
-    assert app.session_state["bond_convergence_error"] is None
+    assert app.session_state["bond_convergence_error"] is None, app.session_state[
+        "bond_convergence_error"
+    ]
     assert app.session_state["bond_convergence_result"] is not None
 
 
 def test_mps_beyond_the_dense_limit_lists_the_top_states(app):
-    ghz = "OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[30];\nh q[0];\n" + "".join(
+    ghz = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[30];\nh q[0];\n' + "".join(
         f"cx q[{i}],q[{i + 1}];\n" for i in range(29)
     )
     app.sidebar.selectbox(key="preset_select").set_value("Custom").run()
