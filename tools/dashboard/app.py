@@ -237,12 +237,6 @@ with st.sidebar:
         )
         entropy_clicked = st.button("Compute entropy and mutual information", key="entropy_run")
 
-    limits = dc.max_safe_dense_qubits()
-    st.caption(
-        f"🖥️ {limits['available_mb']:,.0f} / {limits['total_mb']:,.0f} MB free · "
-        f"up to **{limits['max_qubits_dense']} qubits** dense on this machine"
-    )
-
 if run_clicked:
     try:
         st.session_state["result"] = dc.run_circuit_from_qasm(
@@ -1132,3 +1126,9 @@ if section == "All functions":
                     st.write(ex.to_display(out))
             except Exception as exc:
                 st.error(f"Error: {exc}")
+
+limits = dc.max_safe_dense_qubits()
+st.caption(
+    f"🖥️ {limits['available_mb']:,.0f} / {limits['total_mb']:,.0f} MB free · "
+    f"up to **{limits['max_qubits_dense']} qubits** dense on this machine"
+)
