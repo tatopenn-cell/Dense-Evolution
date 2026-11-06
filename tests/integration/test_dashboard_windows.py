@@ -140,3 +140,11 @@ def test_function_explorer_runs_the_chosen_function_on_the_main_circuit(app):
     assert app.session_state["fn_error"] is None, app.session_state["fn_error"]
     assert app.session_state["fn_result"]["name"] == app.sidebar.selectbox(key="ex_fn").value
     assert "Function" in _results_tabs(app)
+
+
+def test_step_by_step_is_a_window_and_the_gate_is_chosen_on_the_left(app):
+    assert "Step by step" not in _results_tabs(app)
+    app.sidebar.toggle(key="steps_on").set_value(True).run()
+    app.sidebar.number_input(key="sota_step").set_value(2).run()
+    assert "Step by step" in _results_tabs(app)
+    assert any("Gate 2 of" in c.value for c in app.main.caption)

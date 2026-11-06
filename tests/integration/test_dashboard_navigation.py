@@ -42,4 +42,4 @@ def test_results_tabs_are_laid_out_in_two_fixed_rows(app):
     app.main.radio(key="nav_section").set_value("Results").run()
     styles = [m.value for m in app.main.markdown if "results_tabs" in m.value]
     assert len(styles) == 1
-    assert "repeat(4,1fr)" in styles[0]
+    assert "repeat(3,1fr)" in styles[0]

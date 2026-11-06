@@ -427,18 +427,20 @@ with st.sidebar:
         )
     with st.expander("State analysis"):
         previous_result = st.session_state.get("result")
-        qa_text = st.text_input("Subsystem A (comma-separated indices)", value="0", key="entropy_a")
-        qb_text = st.text_input(
+        st.toggle("Entropy & mutual information", key="entropy_on")
+        st.text_input("Subsystem A (comma-separated indices)", value="0", key="entropy_a")
+        st.text_input(
             "Subsystem B (comma-separated indices)",
             value="1" if previous_result is not None and previous_result.n_qubits > 1 else "",
             key="entropy_b",
         )
-        entropy_clicked = st.button("Compute entropy and mutual information", key="entropy_run")
         st.toggle("Magic", key="magic_on")
         st.number_input(
             "Magic: qubit (Qiskit numbering)", min_value=0, max_value=max(n_input - 1, 0), step=1,
             key="magic_qubit",
         )
+        st.toggle("Step by step", key="steps_on")
+        st.number_input("Gate (step by step)", min_value=1, value=1, step=1, key="sota_step")
         st.toggle("MPS convergence", key="bc_on")
         st.text_input("Pauli observable (empty: Z on qubit 0)", key="bc_observable")
         st.text_input("Bonds (increasing, comma-separated)", value="4,8,16,32", key="bc_bonds")
@@ -607,29 +609,6 @@ if run_clicked:
 result = st.session_state.get("result")
 error = st.session_state.get("error")
 large_result = st.session_state.get("large_mps_result")
-
-if entropy_clicked and result is None:
-    st.session_state["entropy_result"] = None
-    st.session_state["entropy_error"] = "run a circuit first"
-elif entropy_clicked:
-    try:
-        qa = [int(x) for x in qa_text.split(",") if x.strip() != ""]
-        qb = [int(x) for x in qb_text.split(",") if x.strip() != ""]
-        if set(qa) & set(qb):
-            raise ValueError("the two subsystems must be disjoint")
-        n = result.n_qubits
-        native_a = [n - 1 - q for q in qa]
-        native_b = [n - 1 - q for q in qb]
-        rho_a = dense_evolution.partial_trace(result.statevector, n, native_a)
-        rho_b = dense_evolution.partial_trace(result.statevector, n, native_b)
-        s_a = dense_evolution.von_neumann_entropy(rho_a)
-        s_b = dense_evolution.von_neumann_entropy(rho_b)
-        i_ab = dense_evolution.mutual_information(result.statevector, n, native_a, native_b)
-        st.session_state["entropy_result"] = (s_a, s_b, i_ab)
-        st.session_state["entropy_error"] = None
-    except Exception as exc:
-        st.session_state["entropy_result"] = None
-        st.session_state["entropy_error"] = str(exc)
 
 
 def _show_large(large):
@@ -906,8 +885,48 @@ def _two_row_tabs(labels):
         return st.tabs(labels)
 
 
+def _show_entropy(res):
+    st.caption(
+        "An entangled qubit has <Z>=0 even when its partner has been operated on: mutual "
+        "information sees correlations a single expectation value cannot (no-signaling "
+        "theorem). Qubit numbering as in Results (Qiskit convention)."
+    )
+    try:
+        qa = [int(x) for x in st.session_state["entropy_a"].split(",") if x.strip() != ""]
+        qb = [int(x) for x in st.session_state["entropy_b"].split(",") if x.strip() != ""]
+        if set(qa) & set(qb):
+            raise ValueError("the two subsystems must be disjoint")
+        n = res.n_qubits
+        native_a = [n - 1 - q for q in qa]
+        native_b = [n - 1 - q for q in qb]
+        rho_a = dense_evolution.partial_trace(res.statevector, n, native_a)
+        rho_b = dense_evolution.partial_trace(res.statevector, n, native_b)
+        s_a = dense_evolution.von_neumann_entropy(rho_a)
+        s_b = dense_evolution.von_neumann_entropy(rho_b)
+        i_ab = dense_evolution.mutual_information(res.statevector, n, native_a, native_b)
+    except Exception as exc:
+        st.error(f"Error: {exc}")
+        return
+    col1, col2, col3 = st.columns(3)
+    col1.metric("S(A) (nat)", f"{s_a:.4f}")
+    col2.metric("S(B) (nat)", f"{s_b:.4f}")
+    col3.metric("I(A:B) (nat)", f"{i_ab:.4f}")
+
+
+def _show_steps(res):
+    if res.n_qubits > 10 or not res.ops:
+        st.info("Available for circuits up to 10 qubits with at least one gate.")
+        return
+    states = sv.step_states(res.ops, res.n_qubits)
+    k = min(int(st.session_state.get("sota_step", 1)), len(res.ops))
+    st.caption(f"Gate {k} of {len(res.ops)}: {res.ops[k - 1]} — how each amplitude changes from the previous gate.")
+    st.dataframe(sv.difference_rows(states[k - 1], states[k], res.n_qubits), width="stretch")
+
+
 def _active_windows(res):
     windows = (
+        ("Entropy & mutual information", "entropy_on", lambda: _show_entropy(res)),
+        ("Step by step", "steps_on", lambda: _show_steps(res)),
         ("Chemistry", "chem_on", _show_chemistry),
         ("Dynamics", "dyn_on", _show_dynamics),
         ("ZNE mitigation", "zne_on", _show_zne),
@@ -922,8 +941,9 @@ def _active_windows(res):
         ("Error correction", "qec_on", _show_qec),
     )
     active = [(label, show) for label, key, show in windows if st.session_state.get(key)]
-    if st.session_state.get("magic_on") and res is None:
-        active = [(label, show) for label, show in active if label != "Magic"]
+    if res is None:
+        needs_circuit = ("Entropy & mutual information", "Step by step", "Magic")
+        active = [(label, show) for label, show in active if label not in needs_circuit]
     if st.session_state.get("cm_on") or st.session_state.get("hub_on"):
         active.append(("Condensed matter", _show_condensed))
     return active
@@ -1029,22 +1049,14 @@ elif section == "Results":
                 cols[i + 2].metric("MPS memory (MB)", f"{result.mps_memory_mb:.2f}")
             if result.fidelity_vs_ideal is not None:
                 st.caption("Fidelity = how far the noisy run is from the ideal circuit (1.0 = identical).")
-        (tab_sv, tab_prob, tab_qsphere, tab_bloch, tab_entropy, tab_steps, tab_pairs, tab_qubits,
+        (tab_sv, tab_prob, tab_qsphere, tab_bloch, tab_pairs, tab_qubits,
          *tabs_active) = _two_row_tabs(
-            ["Statevector", "Probabilities", "Q-sphere", "Bloch per qubit", "Entropy & mutual information",
-             "Step by step", "Qubit pairs", "Qubit summary"] + [label for label, _ in active]
+            ["Statevector", "Probabilities", "Q-sphere", "Bloch per qubit", "Qubit pairs", "Qubit summary"]
+            + [label for label, _ in active]
         )
         for tab, (_, show) in zip(tabs_active, active):
             with tab:
                 show()
-        with tab_steps:
-            if result.n_qubits > 10 or not result.ops:
-                st.info("Available for circuits up to 10 qubits with at least one gate.")
-            else:
-                states = sv.step_states(result.ops, result.n_qubits)
-                k = st.slider("Gate", 1, len(result.ops), 1, key="sota_step")
-                st.caption(f"Gate {k}: {result.ops[k - 1]} — how each amplitude changes from the previous gate.")
-                st.dataframe(sv.difference_rows(states[k - 1], states[k], result.n_qubits), width="stretch")
         with tab_pairs:
             if result.n_qubits < 2 or result.n_qubits > 10:
                 st.info("Available from 2 to 10 qubits.")
@@ -1082,26 +1094,5 @@ elif section == "Results":
         with tab_bloch:
             st.caption("One Bloch sphere per qubit, from its reduced density matrix.")
             st.pyplot(dc.bloch_multivector_figure(result.statevector))
-        with tab_entropy:
-            st.caption(
-                "An entangled qubit has <Z>=0 even when its partner has been operated on: "
-                "mutual information sees correlations a single expectation value cannot "
-                "(no-signaling theorem). Qubit numbering as in Results (Qiskit convention)."
-            )
-            st.caption(
-                "Choose the subsystems and press the button in the left panel, "
-                "under \"Entropy & magic\"."
-            )
-
-            entropy_error = st.session_state.get("entropy_error")
-            entropy_result = st.session_state.get("entropy_result")
-            if entropy_error:
-                st.error(f"Error: {entropy_error}")
-            elif entropy_result is not None:
-                s_a, s_b, i_ab = entropy_result
-                col1, col2, col3 = st.columns(3)
-                col1.metric("S(A) (nat)", f"{s_a:.4f}")
-                col2.metric("S(B) (nat)", f"{s_b:.4f}")
-                col3.metric("I(A:B) (nat)", f"{i_ab:.4f}")
 
 
