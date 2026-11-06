@@ -52,7 +52,23 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("⚛️ Dense Evolution — Dashboard")
+_BASE_SECTIONS = ["Build", "Results", "Chemistry", "Noise", "System"]
+_ADVANCED_SECTIONS = [
+    "Dynamics", "Wormhole", "QEC", "Magic & Divergences", "Condensed Matter",
+    "Large Systems", "Import Circuit", "All functions",
+]
+
+col_title, col_nav = st.columns([1, 2])
+col_title.title("⚛️ Dense Evolution — Dashboard")
+with col_nav:
+    advanced_mode = st.toggle("Advanced mode", key="advanced_mode")
+    all_sections = _BASE_SECTIONS + (_ADVANCED_SECTIONS if advanced_mode else [])
+    if st.session_state.get("nav_section") not in all_sections:
+        st.session_state["nav_section"] = "Build"
+    section = st.radio(
+        "Section", all_sections, key="nav_section", horizontal=True,
+        label_visibility="collapsed",
+    )
 
 # ── Guided tour: step overlay, only on the first run of the session ─────
 _TOUR_STEPS = [
@@ -125,12 +141,6 @@ if "result" not in st.session_state:
         st.session_state["result"] = None
         st.session_state["error"] = str(_exc)
 
-_BASE_SECTIONS = ["Build", "Results", "Chemistry", "Noise", "System"]
-_ADVANCED_SECTIONS = [
-    "Dynamics", "Wormhole", "QEC", "Magic & Divergences", "Condensed Matter",
-    "Large Systems", "Import Circuit", "All functions",
-]
-
 def _load_qasm(qasm, go_to_build=False):
     st.session_state["preset_select"] = "Custom"
     st.session_state["qasm_text__Custom"] = qasm
@@ -138,21 +148,7 @@ def _load_qasm(qasm, go_to_build=False):
         st.session_state["nav_section"] = "Build"
 
 
-# ── Health bar, always visible at the top of the sidebar ────────────────
 with st.sidebar:
-    limits = dc.max_safe_dense_qubits()
-    st.caption(
-        f"🖥️ {limits['available_mb']:,.0f} / {limits['total_mb']:,.0f} MB free · "
-        f"up to **{limits['max_qubits_dense']} qubits** dense on this machine"
-    )
-    st.divider()
-    advanced_mode = st.toggle("Advanced mode", key="advanced_mode")
-    all_sections = _BASE_SECTIONS + (_ADVANCED_SECTIONS if advanced_mode else [])
-    if st.session_state.get("nav_section") not in all_sections:
-        st.session_state["nav_section"] = "Build"
-    section = st.radio("Section", all_sections, key="nav_section")
-    st.divider()
-
     if section == "Build":
         run_clicked = st.button("▶ Run", type="primary", width="stretch")
         st.header("Circuit")
@@ -183,6 +179,12 @@ with st.sidebar:
             )
     else:
         run_clicked = False
+
+    limits = dc.max_safe_dense_qubits()
+    st.caption(
+        f"🖥️ {limits['available_mb']:,.0f} / {limits['total_mb']:,.0f} MB free · "
+        f"up to **{limits['max_qubits_dense']} qubits** dense on this machine"
+    )
 
 if run_clicked:
     try:
