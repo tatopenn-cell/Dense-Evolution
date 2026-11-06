@@ -61,8 +61,8 @@ _ADVANCED_SECTIONS = [
     "Large Systems", "Import Circuit", "All functions",
 ]
 
-col_title, col_nav = st.columns([1, 2])
-col_title.title("⚛️ Dense Evolution — Dashboard")
+col_title, col_nav = st.columns([1, 1])
+col_title.subheader("⚛️ Dense Evolution — Dashboard")
 with col_nav:
     advanced_mode = st.toggle("Advanced mode", key="advanced_mode")
     all_sections = _BASE_SECTIONS + (_ADVANCED_SECTIONS if advanced_mode else [])

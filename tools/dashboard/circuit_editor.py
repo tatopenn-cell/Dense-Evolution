@@ -195,7 +195,11 @@ def _move(step):
 
 
 def circuit_editor(n_qubits, n_columns=12):
-    """Mount the editor; returns the op list of the current grid."""
+    """Mount the editor; returns the op list of the current grid.
+
+    A change of ``n_columns`` keeps the gates that still fit in the new number of
+    steps and starts a new history.
+    """
     if st.session_state.get("ce_n") != n_qubits:
         start = [[None] * n_columns for _ in range(n_qubits)]
         link = st.query_params.get("circuit")
@@ -205,6 +209,13 @@ def circuit_editor(n_qubits, n_columns=12):
             except (ValueError, KeyError, TypeError):
                 pass
         st.session_state.update(ce_n=n_qubits, ce_hist=[start], ce_idx=0, ce_version=0, ce_start_version=None)
+    elif len(st.session_state["ce_hist"][st.session_state["ce_idx"]][0]) != n_columns:
+        grid = st.session_state["ce_hist"][st.session_state["ce_idx"]]
+        resized = [list(row[:n_columns]) + [None] * (n_columns - len(row)) for row in grid]
+        st.session_state.update(
+            ce_hist=[resized], ce_idx=0, ce_version=st.session_state["ce_version"] + 1,
+            ce_start_version=None,
+        )
 
     current = st.session_state["ce_hist"][st.session_state["ce_idx"]]
     if st.session_state.get("ce_start_version") != st.session_state["ce_version"]:
