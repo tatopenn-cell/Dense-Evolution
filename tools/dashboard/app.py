@@ -65,9 +65,10 @@ col_title, col_nav = st.columns([1, 1])
 col_title.subheader("⚛️ Dense Evolution — Dashboard")
 with col_nav:
     advanced_mode = st.toggle("Advanced mode", key="advanced_mode")
-    all_sections = _BASE_SECTIONS + (_ADVANCED_SECTIONS if advanced_mode else [])
-    if st.session_state.get("nav_section") not in all_sections:
-        st.session_state["nav_section"] = "Build"
+all_sections = _BASE_SECTIONS + (_ADVANCED_SECTIONS if advanced_mode else [])
+if st.session_state.get("nav_section") not in all_sections:
+    st.session_state["nav_section"] = "Build"
+with (st.container() if advanced_mode else col_nav):
     section = st.radio(
         "Section", all_sections, key="nav_section", horizontal=True,
         label_visibility="collapsed",
@@ -288,7 +289,10 @@ if section == "Build":
         st.session_state["input_ones"] = [
             i for i in st.session_state.get("input_ones", []) if i < n_input
         ]
-        st.multiselect("Qubits that start in |1⟩", list(range(n_input)), key="input_ones")
+        st.multiselect(
+            "Qubits that start in |1⟩", list(range(n_input)), key="input_ones",
+            label_visibility="collapsed", placeholder="Qubits that start in |1⟩ (none: all in |0⟩)",
+        )
         if result is None:
             st.info("Press ▶ Run in the sidebar to run the circuit.")
         elif error:
@@ -300,7 +304,9 @@ if section == "Build":
                 ["Probabilities", "Per qubit", "Outcomes"]
             )
             tab_probs.caption("Shots sampled from the statevector")
-            tab_probs.pyplot(dc.histogram_figure(result.counts))
+            histogram = dc.histogram_figure(result.counts)
+            histogram.set_size_inches(6, 3.4)
+            tab_probs.pyplot(histogram)
             tab_qubit.dataframe(
                 [
                     {"qubit": row["qubit"], "P(1)": row["P(1)"]}
