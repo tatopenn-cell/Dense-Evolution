@@ -1027,10 +1027,21 @@ elif section == "Results":
             with tab:
                 show()
         with tab_circuit:
-            col_circuit, col_outcomes = st.columns([3, 2])
+            col_circuit, col_probs = st.columns([3, 2])
             col_circuit.pyplot(dc.draw_circuit_figure(result.ops, result.n_qubits))
-            col_outcomes.caption("Outcomes of the shots")
-            col_outcomes.dataframe(outcome_rows(result.counts), width="stretch")
+            tab_probs, tab_qubit, tab_outcomes = col_probs.tabs(["Probabilities", "Per qubit", "Outcomes"])
+            tab_probs.caption("Shots sampled from the statevector")
+            histogram = dc.histogram_figure(result.counts)
+            histogram.set_size_inches(6, 3.4)
+            tab_probs.pyplot(histogram)
+            tab_qubit.dataframe(
+                [
+                    {"qubit": row["qubit"], "P(1)": row["P(1)"]}
+                    for row in sv.qubit_table(result.statevector, result.n_qubits)
+                ],
+                width="stretch",
+            )
+            tab_outcomes.dataframe(outcome_rows(result.counts), width="stretch")
         with tab_sv:
             st.caption(f"{result.n_qubits} qubits — {len(result.statevector)} amplitudes (Qiskit convention)")
             rows = [
@@ -1048,20 +1059,22 @@ elif section == "Results":
             st.dataframe(sv.qubit_table(result.statevector, result.n_qubits), width="stretch")
             st.code(sv.ket_string(result.statevector, result.n_qubits), language=None)
         with tab_prob:
-            col_hist, col_sphere = st.columns([3, 2])
-            with col_hist:
-                st.caption("Shots sampled from the computed statevector")
-                color_by_phase = st.checkbox(
-                    "Color by phase", key="prob_color_by_phase",
-                    help="Colors each bar by the complex phase of that state's amplitude "
-                         "(cyclic colormap); the bar height stays the shot count.",
-                )
-                st.pyplot(dc.histogram_figure(
-                    result.counts, statevector=result.statevector if color_by_phase else None,
-                ))
-            with col_sphere:
-                st.caption("Q-sphere")
-                st.pyplot(dc.qsphere_figure(result.statevector))
+            st.caption("Shots sampled from the computed statevector")
+            color_by_phase = st.checkbox(
+                "Color by phase", key="prob_color_by_phase",
+                help="Colors each bar by the complex phase of that state's amplitude "
+                     "(cyclic colormap); the bar height stays the shot count.",
+            )
+            histogram = dc.histogram_figure(
+                result.counts, statevector=result.statevector if color_by_phase else None,
+            )
+            histogram.set_size_inches(7, 2.4)
+            st.pyplot(histogram)
+            st.caption("Q-sphere")
+            sphere = dc.qsphere_figure(result.statevector)
+            sphere.set_size_inches(4, 4)
+            _, col_sphere, _ = st.columns([1, 2, 1])
+            col_sphere.pyplot(sphere)
         with tab_qubits:
             st.caption("One Bloch sphere per qubit, from its reduced density matrix.")
             st.pyplot(dc.bloch_multivector_figure(result.statevector))
