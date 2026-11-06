@@ -7,15 +7,25 @@ needs cannot live in ``dashboard_core`` until the next release.
 """
 
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import Any
+
+import numpy as np
 
 from dashboard_core.qasm_library import gate_tuples_to_qasm
 
 import dense_evolution as de
 from dense_evolution.circuits.topology import VALID_PATTERNS
 
-__all__ = ["outcome_rows", "qubits_in_qasm", "topology_qasm", "with_input_values"]
+__all__ = [
+    "measurement_rows",
+    "outcome_rows",
+    "qiskit_code",
+    "qubits_in_qasm",
+    "state_csv",
+    "topology_qasm",
+    "with_input_values",
+]
 
 _QREG = re.compile(r"^[ \t]*qreg[ \t]+(\w+)[ \t]*\[[ \t]*(\d+)[ \t]*\][ \t]*;", re.M)
 _HEAD = re.compile(r"^[ \t]*(OPENQASM|include|qreg|creg)\b")
@@ -170,3 +180,107 @@ def topology_qasm(
     if hadamards:
         ops = [("h", q) for q in range(n_qubits)] + ops
     return gate_tuples_to_qasm(ops, n_qubits)
+
+
+def measurement_rows(
+    counts: dict[str, int],
+    input_ones: Iterable[int],
+    n_qubits: int,
+    seed: int = 0,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """The shots of a run one by one: measurement number, input and output.
+
+    The run keeps only how many times each outcome came out, so the order of the
+    shots is drawn again from those counts, with ``seed``; every count is kept.
+
+    Args:
+        counts: shot count of each outcome, as a bitstring.
+        input_ones: the qubits that start in |1>.
+        n_qubits: size of the register.
+        seed: seed of the order of the shots.
+        limit: how many measurements to return at most.
+
+    Returns:
+        ``[{"measurement": 1, "input": "00", "output": "11"}, ...]``, the qubit 0 being
+        the rightmost bit in both strings, as in the outcomes of a run.
+
+    Examples:
+        >>> rows = measurement_rows({"11": 2, "00": 1}, [], 2, seed=1)
+        >>> sorted(r["output"] for r in rows)
+        ['00', '11', '11']
+        >>> rows[0]["input"]
+        '00'
+    """
+    ones = set(input_ones)
+    start = "".join("1" if q in ones else "0" for q in reversed(range(n_qubits)))
+    shots = [bits for bits, n in sorted(counts.items()) for _ in range(int(n))]
+    order = np.random.default_rng(seed).permutation(len(shots))
+    return [
+        {"measurement": k + 1, "input": start, "output": shots[i]}
+        for k, i in enumerate(order[:limit])
+    ]
+
+
+_SIMPLE = {"h", "x", "y", "z", "s", "sdg", "t", "tdg", "sx", "id"}
+_ANGLE_ONE = {"rx": "rx", "ry": "ry", "rz": "rz", "p": "p", "u1": "p", "phase": "p"}
+_TWO = {"cx", "cy", "cz", "swap"}
+_ANGLE_TWO = {"cp", "crz"}
+
+
+def qiskit_code(ops: Sequence[tuple], n_qubits: int) -> str:
+    """Qiskit program of a circuit given as gate tuples.
+
+    Args:
+        ops: dense_evolution gate tuples, ``("h", 0)``, ``("cp", 0, 1, 0.5)``, ...
+        n_qubits: size of the register.
+
+    Returns:
+        Python code that builds the same circuit as a Qiskit ``QuantumCircuit``,
+        with a measurement of every qubit at the end.
+
+    Raises:
+        ValueError: a gate has no Qiskit method of the same name.
+
+    Examples:
+        >>> print(qiskit_code([("h", 0), ("cx", 0, 1)], 2).splitlines()[3])
+        qc.h(0)
+    """
+    lines = [
+        "from qiskit import QuantumCircuit",
+        "",
+        f"qc = QuantumCircuit({n_qubits}, {n_qubits})",
+    ]
+    for op in ops:
+        name, args = op[0], op[1:]
+        if name in _SIMPLE or name in _TWO or name == "ccx":
+            lines.append(f"qc.{name}({', '.join(str(a) for a in args)})")
+        elif name in _ANGLE_ONE:
+            lines.append(f"qc.{_ANGLE_ONE[name]}({args[1]!r}, {args[0]})")
+        elif name in _ANGLE_TWO:
+            lines.append(f"qc.{name}({args[2]!r}, {args[0]}, {args[1]})")
+        else:
+            raise ValueError(f"no Qiskit method for the gate {name!r}")
+    lines.append(f"qc.measure(range({n_qubits}), range({n_qubits}))")
+    return "\n".join(lines) + "\n"
+
+
+def state_csv(statevector: Sequence[complex], n_qubits: int) -> str:
+    """The final state as a CSV text: one row for each basis state.
+
+    Args:
+        statevector: amplitudes in the Qiskit order (qubit 0 is the rightmost bit).
+        n_qubits: size of the register.
+
+    Returns:
+        A CSV with the columns ``state,re,im,probability``.
+
+    Examples:
+        >>> state_csv([2 ** -0.5, 0, 0, 2 ** -0.5], 2).splitlines()[0]
+        'state,re,im,probability'
+    """
+    rows = ["state,re,im,probability"]
+    for i, amp in enumerate(statevector):
+        amp = complex(amp)
+        rows.append(f"{format(i, f'0{n_qubits}b')},{amp.real!r},{amp.imag!r},{abs(amp) ** 2!r}")
+    return "\n".join(rows) + "\n"

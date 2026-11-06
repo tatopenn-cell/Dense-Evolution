@@ -126,3 +126,43 @@ def test_the_gate_is_written_on_every_edge():
 def test_wrong_arguments_are_refused(kwargs, message):
     with pytest.raises(ValueError, match=message):
         ct.topology_qasm(**kwargs)
+
+
+def test_measurements_keep_every_count_and_the_input_string():
+    rows = ct.measurement_rows({"11": 3, "00": 2}, [1], 2, seed=5)
+    assert len(rows) == 5
+    assert sorted(r["output"] for r in rows) == ["00", "00", "11", "11", "11"]
+    assert {r["input"] for r in rows} == {"10"}
+    assert [r["measurement"] for r in rows] == [1, 2, 3, 4, 5]
+
+
+def test_measurements_have_a_fixed_order_for_a_seed_and_a_limit():
+    counts = {"01": 50, "10": 50}
+    assert ct.measurement_rows(counts, [], 2, seed=3) == ct.measurement_rows(counts, [], 2, seed=3)
+    assert len(ct.measurement_rows(counts, [], 2, limit=7)) == 7
+
+
+def test_qiskit_code_of_a_circuit_with_angles_and_three_qubit_gate():
+    code = ct.qiskit_code([("h", 0), ("rx", 1, 0.3), ("cp", 0, 1, 0.5), ("ccx", 0, 1, 2)], 3)
+    assert code.splitlines() == [
+        "from qiskit import QuantumCircuit",
+        "",
+        "qc = QuantumCircuit(3, 3)",
+        "qc.h(0)",
+        "qc.rx(0.3, 1)",
+        "qc.cp(0.5, 0, 1)",
+        "qc.ccx(0, 1, 2)",
+        "qc.measure(range(3), range(3))",
+    ]
+
+
+def test_qiskit_code_rejects_a_gate_without_a_qiskit_method():
+    with pytest.raises(ValueError):
+        ct.qiskit_code([("zz", 0, 1)], 2)
+
+
+def test_state_csv_of_a_bell_pair():
+    lines = ct.state_csv([2**-0.5, 0, 0, 2**-0.5], 2).splitlines()
+    assert lines[0] == "state,re,im,probability"
+    assert [line.split(",")[0] for line in lines[1:]] == ["00", "01", "10", "11"]
+    assert float(lines[1].split(",")[3]) == pytest.approx(0.5)

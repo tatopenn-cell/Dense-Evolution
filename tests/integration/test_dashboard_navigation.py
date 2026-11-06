@@ -49,7 +49,11 @@ def test_results_tabs_are_fixed_and_wrap_onto_the_next_row(app):
 def test_results_fixed_tabs_group_the_related_views(app):
     app.main.radio(key="nav_section").set_value("Results").run()
     labels = [tab.label for tab in app.main.tabs]
-    top = [label for label in labels if label not in ("Probabilities", "Per qubit", "Outcomes")]
+    top = [
+        label
+        for label in labels
+        if label not in ("Probabilities", "Per qubit", "Outcomes", "Measurements")
+    ]
     assert top == ["Circuit", "Statevector", "Probabilities & Q-sphere", "Qubits"]
 
 

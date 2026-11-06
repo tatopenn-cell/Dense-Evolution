@@ -25,6 +25,7 @@ MATRICES = {
     "ry": "Ry(θ) = [[cos θ/2, −sin θ/2], [sin θ/2, cos θ/2]]",
     "rz": "Rz(θ) = [[e^(−iθ/2), 0], [0, e^(iθ/2)]]",
     "p": "P(θ) = [[1, 0], [0, e^(iθ)]]",
+    "actrl": "Anti-control ○: the gate acts when this qubit is |0⟩ (an X before and after)",
     "ctrl": "Control ●: drag it into the column of a gate and the gate acts when this qubit is |1⟩ "
     "(two ● on an X make a Toffoli)",
     "tgt_x": "Target of CX: X = [[0, 1], [1, 0]] when the control is |1⟩",
@@ -148,7 +149,7 @@ export default function(component) {
   root.appendChild(gridEl);
   const hint = document.createElement('div');
   hint.className = 'ce-hint';
-  hint.textContent = 'Drag a ● into the column of a gate to control it · hover a gate for its matrix · click a cell to remove · Ctrl+Z undo · Ctrl+Y redo';
+  hint.textContent = 'Drag a ● (acts on 1) or ○ (acts on 0) into the column of a gate to control it · hover a gate for its matrix · click a cell to remove · Ctrl+Z undo · Ctrl+Y redo';
   root.appendChild(hint);
   parentElement.appendChild(root);
 
@@ -175,7 +176,7 @@ export default function(component) {
     for (let r = 0; r < nQubits; r++) {
       if (!grid[r][c]) continue;
       filled.push(r);
-      if (base(r) === 'ctrl' || base(r) === 'swap') linked = true;
+      if (base(r) === 'ctrl' || base(r) === 'actrl' || base(r) === 'swap') linked = true;
     }
     const lo = filled[0];
     const hi = filled[filled.length - 1];
@@ -288,7 +289,8 @@ def _unify(base):
 
 def grid_to_ops(grid):
     """Op list of the grid. A column with ● control dots and one other gate is that gate
-    controlled by them (one dot: cx cy cz cp crz; two dots on X: ccx)."""
+    controlled by them (one dot: cx cy cz cp crz; two dots on X: ccx). An anti-control ○
+    is a control that acts on |0⟩: an X on that qubit before and after the gate."""
     ops = []
     for c in range(len(grid[0]) if grid else 0):
         cells = [
@@ -297,9 +299,10 @@ def grid_to_ops(grid):
             if grid[r][c]
             for g, a in [_split(grid[r][c])]
         ]
-        ctrls = [r for r, g, _ in cells if g == "ctrl"]
+        ctrls = [r for r, g, _ in cells if g in ("ctrl", "actrl")]
+        flips = [{"gate": "x", "qubits": [r]} for r, g, _ in cells if g == "actrl"]
         swaps = [r for r, g, _ in cells if g == "swap"]
-        gates = [(r, g, a) for r, g, a in cells if g not in ("ctrl", "swap")]
+        gates = [(r, g, a) for r, g, a in cells if g not in ("ctrl", "actrl", "swap")]
         if not ctrls and not swaps:
             for r, g, a in gates:
                 ops.append(
@@ -307,15 +310,17 @@ def grid_to_ops(grid):
                 )
         elif ctrls and len(gates) == 1 and len(cells) == len(ctrls) + 1:
             r, g, a = gates[0]
+            op = None
             if g == "x" and len(ctrls) == 1:
-                ops.append({"gate": "cx", "qubits": [ctrls[0], r]})
+                op = {"gate": "cx", "qubits": [ctrls[0], r]}
             elif g == "x" and len(ctrls) == 2:
-                ops.append({"gate": "ccx", "qubits": [*ctrls, r]})
+                op = {"gate": "ccx", "qubits": [*ctrls, r]}
             elif g in _CONTROLLED and len(ctrls) == 1:
                 op = {"gate": _CONTROLLED[g], "qubits": [ctrls[0], r]}
                 if g in _PARAM_SINGLES:
                     op["angle"] = a
-                ops.append(op)
+            if op:
+                ops += flips + [op] + flips
         elif len(swaps) == 2 and len(cells) == 2:
             ops.append({"gate": "swap", "qubits": swaps})
     return ops
@@ -374,6 +379,7 @@ def grid_from_ops(ops, n_qubits):
     return grid, skipped
 
 
+_ANTI_CONTROL = {"id": "actrl", "label": "○", "kind": "control"}
 _ANGLE_CHIPS = [
     {"id": "rx", "label": "Rx", "kind": "single", "param": True},
     {"id": "ry", "label": "Ry", "kind": "single", "param": True},
@@ -385,6 +391,7 @@ _ANGLE_CHIPS = [
 def _palette():
     skip = ("rx", "ry", "rz", "tgt_x", "tgt_y", "tgt_z")
     chips = [g for g in GATE_PALETTE if g["id"] not in skip] + _ANGLE_CHIPS
+    chips.insert([g["id"] for g in chips].index("ctrl") + 1, _ANTI_CONTROL)
     return [dict(g, matrix=MATRICES[g["id"]]) for g in chips]
 
 

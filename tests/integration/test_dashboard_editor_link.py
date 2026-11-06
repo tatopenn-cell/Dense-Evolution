@@ -121,3 +121,17 @@ def test_a_control_dot_on_any_gate_and_links_saved_with_separate_targets(monkeyp
     assert ce.grid_to_ops([["ctrl"], ["h"]]) == []
     ids = [chip["id"] for chip in ce._palette()]
     assert not any(i.startswith("tgt_") for i in ids)
+
+
+def test_an_anti_control_acts_on_zero_with_an_x_before_and_after(monkeypatch):
+    monkeypatch.syspath_prepend(str(DASHBOARD))
+    sys.modules.pop("circuit_editor", None)
+    import circuit_editor as ce
+
+    assert ce.grid_to_ops([["actrl"], ["x"]]) == [
+        {"gate": "x", "qubits": [0]},
+        {"gate": "cx", "qubits": [0, 1]},
+        {"gate": "x", "qubits": [0]},
+    ]
+    assert ce.grid_to_ops([["actrl"], ["ctrl"], ["x"]])[1] == {"gate": "ccx", "qubits": [0, 1, 2]}
+    assert "actrl" in [chip["id"] for chip in ce._palette()]

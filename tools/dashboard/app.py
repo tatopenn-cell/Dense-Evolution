@@ -31,7 +31,10 @@ import dense_evolution
 import streamlit as st
 
 import dashboard_core as dc
-from circuit_tools import outcome_rows, qubits_in_qasm, topology_qasm, with_input_values
+from circuit_tools import (
+    measurement_rows, outcome_rows, qiskit_code, qubits_in_qasm, state_csv, topology_qasm,
+    with_input_values,
+)
 import sota_views as sv
 import engine_explorer as ex
 import circuit_editor as ce
@@ -547,6 +550,7 @@ with st.sidebar:
             "Magic: qubit (Qiskit numbering)", min_value=0, max_value=max(n_input - 1, 0), step=1,
             key="magic_qubit",
         )
+        st.toggle("Exact probabilities (not sampled shots)", key="prob_exact")
         st.toggle("Step by step", key="steps_on")
         st.number_input("Gate (step by step)", min_value=1, value=1, step=1, key="sota_step")
         st.toggle("MPS convergence", key="bc_on")
@@ -631,6 +635,24 @@ with st.sidebar:
         for p_name, kind, _ in ex.plan2(fn_name):
             if kind == "literal":
                 st.text_input(p_name, ex.example(fn_name, p_name), key=f"ex_{fn_name}_{p_name}")
+    with st.expander("Export"):
+        shown = st.session_state.get("result")
+        st.download_button(
+            "Circuit as OpenQASM", _current_qasm(), "circuit.qasm", disabled=shown is None,
+            key="export_qasm",
+        )
+        try:
+            code = qiskit_code(shown.ops, shown.n_qubits) if shown is not None else ""
+        except ValueError:
+            code = ""
+        st.download_button(
+            "Circuit as Qiskit code", code, "circuit_qiskit.py", disabled=not code, key="export_qiskit",
+        )
+        st.download_button(
+            "Final state and probabilities (CSV)",
+            state_csv(shown.statevector, shown.n_qubits) if shown is not None else "",
+            "state.csv", disabled=shown is None, key="export_state",
+        )
     with st.expander("System"):
         limits = dc.max_safe_dense_qubits()
         st.caption(
@@ -965,6 +987,20 @@ def _show_calibration():
     st.caption(f"{len(out)} (gate, qubit) pairs with a calibrated error rate (FakeSherbrooke, IBM Eagle 127 qubits).")
 
 
+def _exact_probability_figure(res):
+    import matplotlib.pyplot as plt
+
+    probs = np.abs(np.asarray(res.statevector)) ** 2
+    shown = [(format(i, f"0{res.n_qubits}b"), float(p)) for i, p in enumerate(probs) if p > 1e-12]
+    shown = sorted(shown, key=lambda t: -t[1])[:64]
+    fig, ax = plt.subplots(figsize=(8, 1.6))
+    ax.bar([bits for bits, _ in shown], [p for _, p in shown], color="#648fff")
+    ax.set_ylabel("probability")
+    ax.tick_params(axis="x", labelrotation=90, labelsize=7)
+    fig.tight_layout()
+    return fig
+
+
 def _show_function():
     out = _show_analysis("fn")
     if out is None:
@@ -1144,7 +1180,9 @@ elif section == "Results":
         with tab_circuit:
             col_circuit, col_probs = st.columns([3, 2])
             col_circuit.pyplot(dc.draw_circuit_figure(result.ops, result.n_qubits))
-            tab_probs, tab_qubit, tab_outcomes = col_probs.tabs(["Probabilities", "Per qubit", "Outcomes"])
+            tab_probs, tab_qubit, tab_outcomes, tab_shots = col_probs.tabs(
+                ["Probabilities", "Per qubit", "Outcomes", "Measurements"]
+            )
             tab_probs.caption("Shots sampled from the statevector")
             histogram = dc.histogram_figure(result.counts)
             histogram.set_size_inches(6, 3.4)
@@ -1157,6 +1195,14 @@ elif section == "Results":
                 width="stretch",
             )
             tab_outcomes.dataframe(outcome_rows(result.counts), width="stretch")
+            tab_shots.caption("The shots one by one (the first 100): measurement, input and output.")
+            tab_shots.dataframe(
+                measurement_rows(
+                    result.counts, st.session_state.get("input_ones", []), result.n_qubits,
+                    seed=int(st.session_state.get("_run_seed", 42)),
+                ),
+                width="stretch",
+            )
         with tab_sv:
             st.caption(f"{result.n_qubits} qubits — {len(result.statevector)} amplitudes (Qiskit convention)")
             rows = [
@@ -1180,11 +1226,15 @@ elif section == "Results":
                 help="Colors each bar by the complex phase of that state's amplitude "
                      "(cyclic colormap); the bar height stays the shot count.",
             )
-            histogram = dc.histogram_figure(
-                result.counts, statevector=result.statevector if color_by_phase else None,
-            )
-            histogram.set_size_inches(8, 1.6)
-            st.pyplot(histogram)
+            if st.session_state.get("prob_exact"):
+                st.pyplot(_exact_probability_figure(result))
+                st.caption("Exact probabilities of the final state; the states with probability zero are not drawn.")
+            else:
+                histogram = dc.histogram_figure(
+                    result.counts, statevector=result.statevector if color_by_phase else None,
+                )
+                histogram.set_size_inches(8, 1.6)
+                st.pyplot(histogram)
             st.caption("Q-sphere")
             sphere = dc.qsphere_figure(result.statevector)
             sphere.set_size_inches(7, 7)

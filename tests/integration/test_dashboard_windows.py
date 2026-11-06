@@ -148,3 +148,22 @@ def test_step_by_step_is_a_window_and_the_gate_is_chosen_on_the_left(app):
     app.sidebar.number_input(key="sota_step").set_value(2).run()
     assert "Step by step" in _results_tabs(app)
     assert any("Gate 2 of" in c.value for c in app.main.caption)
+
+
+def test_exact_probabilities_replace_the_sampled_histogram(app):
+    app.sidebar.toggle(key="prob_exact").set_value(True).run()
+    app.main.radio(key="nav_section").set_value("Results").run()
+    assert any("Exact probabilities" in c.value for c in app.main.caption)
+
+
+def test_the_results_circuit_tab_lists_the_shots_one_by_one(app):
+    app.main.radio(key="nav_section").set_value("Results").run()
+    assert "Measurements" in [tab.label for tab in app.main.tabs]
+    frames = [e.value for e in app.main.dataframe]
+    shots = [f for f in frames if list(f.columns) == ["measurement", "input", "output"]]
+    assert len(shots) == 1 and len(shots[0]) == 100
+    assert set(shots[0]["output"]) <= {"00", "11"}
+
+
+def test_export_window_is_in_the_left_panel(app):
+    assert "Export" in [e.label for e in app.sidebar.expander]
