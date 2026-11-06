@@ -1,4 +1,4 @@
-"""The Topology tab of the Build page loads an entangling layer into the editor."""
+"""The Topology window of the left panel loads an entangling layer into the editor."""
 import sys
 from pathlib import Path
 
@@ -19,15 +19,16 @@ def app(monkeypatch):
 
 
 def test_circular_on_five_qubits_loads_the_wrap_around_edge(app):
-    assert "Topology" in [tab.label for tab in app.main.tabs]
-    app.main.selectbox(key="topo_pattern").set_value("circular").run()
-    app.main.number_input(key="topo_qubits").set_value(5).run()
-    app.main.button(key="topo_load").click().run()
+    assert "Topology" in [expander.label for expander in app.sidebar.expander]
+    assert "Topology" not in [tab.label for tab in app.main.tabs]
+    app.sidebar.selectbox(key="topo_pattern").set_value("circular").run()
+    app.sidebar.number_input(key="topo_qubits").set_value(5).run()
+    app.sidebar.button(key="topo_load").click().run()
     assert "cx q[4],q[0];" in app.sidebar.text_area(key="qasm_text__Custom").value
 
 
 def test_hub_input_is_only_for_the_star_pattern(app):
     with pytest.raises(KeyError):
-        app.main.number_input(key="topo_hub")
-    app.main.selectbox(key="topo_pattern").set_value("star").run()
-    assert app.main.number_input(key="topo_hub").value == 0
+        app.sidebar.number_input(key="topo_hub")
+    app.sidebar.selectbox(key="topo_pattern").set_value("star").run()
+    assert app.sidebar.number_input(key="topo_hub").value == 0
