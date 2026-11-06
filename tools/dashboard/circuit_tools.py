@@ -17,15 +17,16 @@ import dense_evolution as de
 from dense_evolution.circuits.topology import VALID_PATTERNS
 
 __all__ = [
-    "min_qubits",
-    "with_qubit_count",
+    "dense_qubit_cap",
     "measurement_rows",
+    "min_qubits",
     "outcome_rows",
     "qiskit_code",
     "qubits_in_qasm",
     "state_csv",
     "topology_qasm",
     "with_input_values",
+    "with_qubit_count",
 ]
 
 _QREG = re.compile(r"^[ \t]*qreg[ \t]+(\w+)[ \t]*\[[ \t]*(\d+)[ \t]*\][ \t]*;", re.M)
