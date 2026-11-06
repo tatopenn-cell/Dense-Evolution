@@ -225,6 +225,35 @@ def _connectable_functions():
     return [name for name in ex.functions() if ex.connectable(name)]
 
 
+def _show_in_editor(res):
+    if res is None:
+        return
+    n = res.n_qubits
+    grid, skipped = ce.grid_from_ops(res.ops, n)
+    steps = len(grid[0])
+    history = st.session_state.get("ce_hist")
+    if history:
+        current = history[st.session_state["ce_idx"]]
+        drawn = any(cell for row in current for cell in row)
+        if drawn and current != st.session_state.get("ce_installed"):
+            return
+    if n > 8 or steps > 24:
+        st.session_state["editor_note"] = (
+            f"The editor shows up to 8 qubits and 24 steps; this circuit has {n} qubits and "
+            f"{steps} steps."
+        )
+        return
+    st.session_state["editor_note"] = (
+        f"{skipped} gate(s) cannot be drawn on the grid (rotations other than π/2, controlled "
+        "phases, gates on three qubits); they still run." if skipped else None
+    )
+    st.session_state.update(
+        editor_pending={"n": n, "steps": steps}, ce_n=n, ce_hist=[grid], ce_idx=0,
+        ce_version=st.session_state.get("ce_version", 0) + 1, ce_start_version=None,
+        ce_installed=grid,
+    )
+
+
 def _current_qasm():
     preset = st.session_state.get("preset_select", "Custom")
     default = dc.QASM_LIBRARY.get(preset, dc.QASM_LIBRARY["Bell state (2 qubit)"])
@@ -688,6 +717,8 @@ if run_clicked:
 result = st.session_state.get("result")
 error = st.session_state.get("error")
 large_result = st.session_state.get("large_mps_result")
+if run_clicked or "ce_installed" not in st.session_state:
+    _show_in_editor(result)
 
 
 def _show_large(large):
@@ -1047,6 +1078,12 @@ if section == "Build":
         "target in the same column form a 2-qubit gate, two × in the same column "
         "form a SWAP."
     )
+    pending = st.session_state.pop("editor_pending", None)
+    if pending:
+        st.session_state["n_qubits_builder"] = pending["n"]
+        st.session_state["n_steps_builder"] = pending["steps"]
+    if st.session_state.get("editor_note"):
+        st.caption(st.session_state["editor_note"])
     if "n_qubits_builder" not in st.session_state:
         try:
             st.session_state["n_qubits_builder"] = min(8, json.loads(st.query_params.get("circuit", "")).get("n", 3))

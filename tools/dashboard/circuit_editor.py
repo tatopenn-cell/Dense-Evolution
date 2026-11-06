@@ -5,6 +5,7 @@ cells), with undo/redo (a history list and an index) and the gate matrix
 shown on hover.
 """
 import json
+import math
 
 import streamlit as st
 
@@ -162,7 +163,9 @@ def grid_to_ops(grid):
     ops = []
     for c in range(len(grid[0]) if grid else 0):
         cells = [(r, grid[r][c]) for r in range(len(grid)) if grid[r][c]]
-        singles = [(r, g) for r, g in cells if g in MATRICES and not g.startswith(("tgt_", "ctrl", "swap"))]
+        singles = [
+            (r, g) for r, g in cells if g in MATRICES and not g.startswith(("tgt_", "ctrl", "swap"))
+        ]
         ctrls = [r for r, g in cells if g == "ctrl"]
         tgts = [(r, g[4:]) for r, g in cells if g.startswith("tgt_")]
         swaps = [r for r, g in cells if g == "swap"]
@@ -175,6 +178,49 @@ def grid_to_ops(grid):
     return ops
 
 
+_SINGLE_GATES = {"h", "x", "y", "z", "s", "sdg", "t", "tdg", "sx"}
+_ROTATIONS = {"rx", "ry", "rz"}
+_TARGETS = {"cx": "tgt_x", "cy": "tgt_y", "cz": "tgt_z"}
+
+
+def grid_from_ops(ops, n_qubits):
+    """Draw a gate-tuple circuit on the editor grid.
+
+    Returns ``(grid, skipped)``: ``grid`` has ``n_qubits`` rows and at least twelve columns,
+    ``skipped`` counts the gates the grid cannot show (rotations other than pi/2,
+    controlled phases, three-qubit gates, ...). Single-qubit gates on different qubits
+    share a column; a two-qubit gate has a column of its own, as the editor requires.
+    """
+    columns = []
+    singles_open = False
+    skipped = 0
+    for op in ops:
+        name, args = op[0], op[1:]
+        single = True
+        if name in _SINGLE_GATES:
+            cells = {args[0]: name}
+        elif name in _ROTATIONS and abs(args[1] - math.pi / 2) < 1e-9:
+            cells = {args[0]: name}
+        elif name in _TARGETS:
+            cells, single = {args[0]: "ctrl", args[1]: _TARGETS[name]}, False
+        elif name == "swap":
+            cells, single = {args[0]: "swap", args[1]: "swap"}, False
+        else:
+            skipped += 1
+            continue
+        if single and singles_open and not set(cells) & set(columns[-1]):
+            columns[-1].update(cells)
+        else:
+            columns.append(dict(cells))
+            singles_open = single
+    n_columns = max(len(columns), 12)
+    grid = [[None] * n_columns for _ in range(n_qubits)]
+    for c, cells in enumerate(columns):
+        for r, g in cells.items():
+            grid[r][c] = g
+    return grid, skipped
+
+
 def _palette():
     return [dict(g, matrix=MATRICES[g["id"]]) for g in GATE_PALETTE]
 
@@ -182,7 +228,7 @@ def _palette():
 def _push(grid):
     h, i = st.session_state["ce_hist"], st.session_state["ce_idx"]
     if grid != h[i]:
-        del h[i + 1:]
+        del h[i + 1 :]
         h.append(grid)
         st.session_state["ce_idx"] = len(h) - 1
 
@@ -208,12 +254,16 @@ def circuit_editor(n_qubits, n_columns=12):
                 start = decode_grid(link, n_qubits, n_columns)
             except (ValueError, KeyError, TypeError):
                 pass
-        st.session_state.update(ce_n=n_qubits, ce_hist=[start], ce_idx=0, ce_version=0, ce_start_version=None)
+        st.session_state.update(
+            ce_n=n_qubits, ce_hist=[start], ce_idx=0, ce_version=0, ce_start_version=None
+        )
     elif len(st.session_state["ce_hist"][st.session_state["ce_idx"]][0]) != n_columns:
         grid = st.session_state["ce_hist"][st.session_state["ce_idx"]]
         resized = [list(row[:n_columns]) + [None] * (n_columns - len(row)) for row in grid]
         st.session_state.update(
-            ce_hist=[resized], ce_idx=0, ce_version=st.session_state["ce_version"] + 1,
+            ce_hist=[resized],
+            ce_idx=0,
+            ce_version=st.session_state["ce_version"] + 1,
             ce_start_version=None,
         )
 
@@ -224,7 +274,12 @@ def circuit_editor(n_qubits, n_columns=12):
     comp = st.components.v2.component("dense_evolution_circuit_editor", css=_CSS, js=_JS)
     res = comp(
         key=f"ce_{n_qubits}_{st.session_state['ce_version']}",
-        data={"n_qubits": n_qubits, "n_columns": len(start[0]), "palette": _palette(), "initial": start},
+        data={
+            "n_qubits": n_qubits,
+            "n_columns": len(start[0]),
+            "palette": _palette(),
+            "initial": start,
+        },
         default={"grid": start},
         on_grid_change=lambda: None,
         on_history_change=lambda: None,
@@ -239,7 +294,11 @@ def circuit_editor(n_qubits, n_columns=12):
     if b1.button("↶ Undo", disabled=st.session_state["ce_idx"] == 0, key="ce_undo"):
         _move(-1)
         st.rerun()
-    if b2.button("↷ Redo", disabled=st.session_state["ce_idx"] >= len(st.session_state["ce_hist"]) - 1, key="ce_redo"):
+    if b2.button(
+        "↷ Redo",
+        disabled=st.session_state["ce_idx"] >= len(st.session_state["ce_hist"]) - 1,
+        key="ce_redo",
+    ):
         _move(1)
         st.rerun()
 
