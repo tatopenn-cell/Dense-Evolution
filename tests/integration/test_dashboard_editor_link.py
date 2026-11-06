@@ -49,10 +49,29 @@ def test_running_a_loaded_circuit_draws_it_on_the_editor(app):
     assert app.main.number_input(key="n_qubits_builder").value == 3
 
 
-def test_gates_the_grid_cannot_draw_are_reported(app):
-    _run_qasm(app, "h q[0];\nrx(0.3) q[0];\ncx q[0],q[1];\n", 2)
-    assert "1 gate(s) cannot be drawn" in app.session_state["editor_note"]
-    assert any("cannot be drawn" in c.value for c in app.main.caption)
+def test_rotations_and_controlled_phases_keep_their_angle(app):
+    _run_qasm(app, "rx(0.3) q[0];\ncp(0.5) q[0],q[1];\nccx q[0],q[1],q[2];\n", 3)
+    grid = _grid(app)
+    assert grid[0][0] == "rx:0.3"
+    assert (grid[0][1], grid[1][1]) == ("ctrl", "tgt_p:0.5")
+    assert (grid[0][2], grid[1][2], grid[2][2]) == ("ctrl", "ctrl", "tgt_x")
+    assert app.session_state["editor_note"] is None
+
+
+def test_the_qft_preset_is_drawn_completely(app):
+    name = [o for o in app.sidebar.selectbox(key="preset_select").options if "QFT" in o][0]
+    app.sidebar.selectbox(key="preset_select").set_value(name).run()
+    [b for b in app.sidebar.button if b.label == RUN][0].click().run()
+    assert not app.exception
+    assert app.session_state["editor_note"] is None
+    cells = [cell for row in _grid(app) for cell in row if cell]
+    assert any(cell.startswith("tgt_p:") for cell in cells)
+
+
+def test_a_circuit_beyond_the_editor_size_is_reported(app):
+    _run_qasm(app, "h q[0];\n", 9)
+    assert "up to 8 qubits" in app.session_state["editor_note"]
+    assert any("up to 8 qubits" in c.value for c in app.main.caption)
 
 
 def test_gates_placed_by_hand_are_not_overwritten_by_a_run(app):
@@ -70,10 +89,22 @@ def test_grid_from_ops_packs_single_gates_and_gives_pairs_their_own_column(monke
     import circuit_editor as ce
 
     grid, skipped = ce.grid_from_ops(
-        [("h", 0), ("h", 1), ("cx", 0, 1), ("swap", 0, 1), ("ccx", 0, 1, 2)], 3
+        [("h", 0), ("h", 1), ("cx", 0, 1), ("swap", 0, 1), ("id", 0)], 3
     )
     assert skipped == 1
     assert [row[0] for row in grid] == ["h", "h", None]
     assert (grid[0][1], grid[1][1]) == ("ctrl", "tgt_x")
     assert (grid[0][2], grid[1][2]) == ("swap", "swap")
     assert len(grid[0]) == 12
+
+
+def test_the_editor_ops_round_trip_through_the_grid(monkeypatch):
+    monkeypatch.syspath_prepend(str(DASHBOARD))
+    sys.modules.pop("circuit_editor", None)
+    import circuit_editor as ce
+
+    ops = [("h", 0), ("rx", 1, 0.3), ("cp", 0, 1, 0.5), ("ccx", 0, 1, 2), ("crz", 2, 0, 1.0)]
+    grid, _ = ce.grid_from_ops(ops, 3)
+    assert ce.ops_to_tuples(ce.grid_to_ops(grid)) == ops
+    assert ce.decode_grid(ce.encode_grid(grid), 3, 12) == grid
+    assert ce.grid_to_ops([["rx"]]) == [{"gate": "rx", "qubits": [0], "angle": 1.5707963267948966}]

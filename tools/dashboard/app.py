@@ -244,8 +244,8 @@ def _show_in_editor(res):
         )
         return
     st.session_state["editor_note"] = (
-        f"{skipped} gate(s) cannot be drawn on the grid (rotations other than π/2, controlled "
-        "phases, gates on three qubits); they still run." if skipped else None
+        f"{skipped} gate(s) cannot be drawn on the grid (for example id or u3); they still run."
+        if skipped else None
     )
     st.session_state.update(
         editor_pending={"n": n, "steps": steps}, ce_n=n, ce_hist=[grid], ce_idx=0,
@@ -1099,8 +1099,7 @@ if section == "Build":
     builder_ops = ce.circuit_editor(int(n_qubits_builder), n_columns=int(n_steps_builder))
 
     st.button("→ Load into the Circuit Editor", on_click=_load_qasm,
-              args=(dc.gate_tuples_to_qasm(dc.ops_to_native_tuples(int(n_qubits_builder), builder_ops),
-                                           int(n_qubits_builder)) if builder_ops else None,),
+              args=(dc.gate_tuples_to_qasm(ce.ops_to_tuples(builder_ops), int(n_qubits_builder)) if builder_ops else None,),
               disabled=not builder_ops, help="Place at least one gate on the grid first." if not builder_ops else None)
 
     if error:
