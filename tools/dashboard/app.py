@@ -4,9 +4,10 @@ Dense Evolution - Interactive Dashboard (entrypoint)
 Sidebar organized into grouped sections instead of a single flat row of
 tabs. Base sections (Build / Results / Chemistry / Noise / System) are
 always visible; an "Advanced mode" toggle in the sidebar reveals the rest
-(Dynamics / Wormhole / QEC / Magic & Divergences / Condensed Matter /
-Large Systems / Import Circuit / All functions): a first-time visitor sees
-5 sections, not 13.
+(Dynamics / Wormhole / QEC / Condensed Matter /
+Import Circuit / All functions): a first-time visitor sees 5 sections.
+ZNE, density-matrix channel, Magic and MPS convergence are windows of the
+left panel (On/Off), computed by the single Run button on the fixed circuit.
 
 Every number shown here comes from a run of dense_evolution's engine
 (dashboard_core + dense_evolution's public API). A free-text "paste
@@ -55,8 +56,7 @@ st.set_page_config(
 
 _BASE_SECTIONS = ["Build", "Results", "Chemistry", "Noise", "System"]
 _ADVANCED_SECTIONS = [
-    "Dynamics", "Wormhole", "QEC", "Magic & Divergences", "Condensed Matter",
-    "Large Systems", "Import Circuit", "All functions",
+    "Dynamics", "Wormhole", "QEC", "Condensed Matter", "Import Circuit", "All functions",
 ]
 
 col_title, col_nav = st.columns([1, 1])
@@ -183,8 +183,9 @@ with st.sidebar:
         run_backend = st.selectbox(
             "Backend", ["dense", "mps"], key="run_backend",
             help="mps (Matrix Product State) uses less memory on weakly entangled "
-                 "circuits, up to 24 qubits; beyond that, use Large Systems.",
+                 "circuits. Beyond the dense limit it lists the k most probable states.",
         )
+        st.slider("k (most probable states beyond the dense limit)", 1, 100, 32, key="large_k")
     with st.expander("Topology"):
         pattern_labels = {
             "linear": "linear (chain)",
@@ -235,21 +236,87 @@ with st.sidebar:
             key="entropy_b",
         )
         entropy_clicked = st.button("Compute entropy and mutual information", key="entropy_run")
+    with st.expander("ZNE mitigation"):
+        st.toggle("On", key="zne_on")
+        st.text_input("Pauli observable (empty: Z on every qubit)", key="zne_pauli")
+        st.selectbox(
+            "Noise model", ["depolarizing", "bitflip", "phaseflip", "amplitude_damping", "combined"],
+            key="zne_noise_model",
+        )
+        st.slider("Noise strength (p)", 0.0, 0.5, 0.05, key="zne_noise_p")
+        st.selectbox("Extrapolation method", ["richardson", "polynomial"], key="zne_method")
+        st.slider("Monte Carlo trials per point", 20, 500, 200, key="zne_n_trials")
+    with st.expander("Density-matrix channel"):
+        st.toggle("On", key="dm_on")
+        st.selectbox("Channel", ["global_depolarizing", "amplitude_damping"], key="dm_channel")
+        st.slider("Channel parameter", 0.0, 1.0, 0.1, key="dm_param")
+    with st.expander("Magic"):
+        st.toggle("On", key="magic_on")
+        st.number_input(
+            "Qubit (Qiskit numbering)", min_value=0, max_value=max(n_input - 1, 0), step=1,
+            key="magic_qubit",
+        )
+    with st.expander("MPS convergence"):
+        st.toggle("On", key="bc_on")
+        st.text_input("Pauli observable (empty: Z on qubit 0)", key="bc_observable")
+        st.text_input("Bonds (increasing, comma-separated)", value="4,8,16,32", key="bc_bonds")
+        st.number_input("Tolerance", 1e-6, 1.0, 1e-3, format="%.6f", key="bc_tol")
 
 if run_clicked:
+    run_qasm = with_input_values(qasm_text, st.session_state.get("input_ones", []))
+    st.session_state["large_mps_result"] = None
     try:
-        st.session_state["result"] = dc.run_circuit_from_qasm(
-            with_input_values(qasm_text, st.session_state.get("input_ones", [])),
-            n_shots=int(n_shots), seed=int(seed),
-            noise_model=run_noise_model, noise_p=float(run_noise_p), backend=run_backend,
-        )
+        if run_backend == "mps" and n_input > dc.MPS_DENSE_CONTRACTION_LIMIT:
+            st.session_state["large_mps_result"] = dc.run_large_circuit_mps(
+                run_qasm, k=int(st.session_state["large_k"]), seed=int(seed),
+            )
+            st.session_state["result"] = None
+        else:
+            st.session_state["result"] = dc.run_circuit_from_qasm(
+                run_qasm, n_shots=int(n_shots), seed=int(seed),
+                noise_model=run_noise_model, noise_p=float(run_noise_p), backend=run_backend,
+            )
         st.session_state["error"] = None
     except Exception as exc:
         st.session_state["result"] = None
         st.session_state["error"] = str(exc)
 
+    run_result = st.session_state["result"]
+    for key, active, job in (
+        ("zne", st.session_state.get("zne_on"), lambda: dc.run_zne_mitigation(
+            dc.gate_tuples_to_qasm(run_result.ops, run_result.n_qubits),
+            pauli_string=st.session_state.get("zne_pauli") or "Z" * run_result.n_qubits,
+            noise_model=st.session_state["zne_noise_model"],
+            noise_p=float(st.session_state["zne_noise_p"]),
+            extrapolation_method=st.session_state["zne_method"],
+            n_trials=int(st.session_state["zne_n_trials"]),
+        )),
+        ("dm", st.session_state.get("dm_on"), lambda: dc.run_density_matrix_channel(
+            dc.gate_tuples_to_qasm(run_result.ops, run_result.n_qubits),
+            st.session_state["dm_channel"], float(st.session_state["dm_param"]),
+        )),
+        ("bond_convergence", st.session_state.get("bc_on"), lambda: dc.run_bond_convergence_check(
+            run_qasm,
+            [st.session_state.get("bc_observable") or "Z" + "I" * (n_input - 1)],
+            [int(b) for b in st.session_state["bc_bonds"].split(",") if b.strip() != ""],
+            tol=float(st.session_state["bc_tol"]),
+        )),
+    ):
+        st.session_state[f"{key}_result"] = None
+        st.session_state[f"{key}_error"] = None
+        if not active:
+            continue
+        if key != "bond_convergence" and run_result is None:
+            st.session_state[f"{key}_error"] = "run a dense circuit first"
+            continue
+        try:
+            st.session_state[f"{key}_result"] = job()
+        except Exception as exc:
+            st.session_state[f"{key}_error"] = str(exc)
+
 result = st.session_state.get("result")
 error = st.session_state.get("error")
+large_result = st.session_state.get("large_mps_result")
 
 if entropy_clicked and result is None:
     st.session_state["entropy_result"] = None
@@ -273,6 +340,84 @@ elif entropy_clicked:
     except Exception as exc:
         st.session_state["entropy_result"] = None
         st.session_state["entropy_error"] = str(exc)
+
+
+def _show_large(large):
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Qubits", large.n_qubits)
+    col2.metric("Max bond used", large.mps_max_bond_used)
+    col3.metric("MPS memory (MB)", f"{large.mps_memory_mb:.2f}")
+    st.caption(f"Mean truncation error (JSD): {large.mps_avg_jsd:.2e}")
+    top_states = sorted(large.top_k_states, key=lambda t: -t[1])
+    st.dataframe([{"state": bits, "probability": p} for bits, p in top_states], width="stretch")
+
+
+def _show_analysis(name):
+    err = st.session_state.get(f"{name}_error")
+    out = st.session_state.get(f"{name}_result")
+    if err:
+        st.error(f"Error: {err}")
+    elif out is None:
+        st.info("Turn it On in the left panel and press ▶ Run.")
+    return out
+
+
+def _show_zne():
+    out = _show_analysis("zne")
+    if out is None:
+        return
+    col1, col2 = st.columns(2)
+    col1.metric("Ideal value", f"{out.ideal_expectation:.4f}")
+    col2.metric("Extrapolated to zero noise", f"{out.zne_extrapolated:.4f}")
+    st.pyplot(dc.zne_bar_figure(
+        out.noise_factors, out.noisy_expectations, out.noisy_sems,
+        out.zne_extrapolated, out.ideal_expectation,
+    ))
+    st.caption(
+        "Each point is the value measured at that noise scale (1x, 2x, 3x...), with a ±1 SEM "
+        "error bar (standard error of the mean over the Monte Carlo samples); the "
+        "extrapolation estimates the zero-noise value."
+    )
+
+
+def _show_density_channel():
+    out = _show_analysis("dm")
+    if out is not None:
+        st.bar_chart({"ideal": out.ideal_diagonal, "noisy": out.noisy_diagonal})
+
+
+def _show_magic(res):
+    st.metric(
+        "Stabilizer Rényi entropy (whole state)", f"{stabilizer_renyi_entropy(res.statevector):.6f} bit"
+    )
+    st.caption("Zero for every stabilizer state, positive for 'magic' (non-Clifford) states.")
+    qubit = min(int(st.session_state.get("magic_qubit", 0)), res.n_qubits - 1)
+    rho = dense_evolution.partial_trace(res.statevector, res.n_qubits, [res.n_qubits - 1 - qubit])
+    st.metric(f"magic_entropy (qubit {qubit})", f"{magic_entropy(rho):.6f} bit")
+    st.caption("3-copy Key-Unitary construction: 0 for |0>,|1>,|+>,|->,|+i>,|-i>, 0.811 for T and H.")
+
+
+def _show_bond_convergence():
+    out = _show_analysis("bond_convergence")
+    if out is None:
+        return
+    verdict = {
+        "converged": "✅ converged", "not_converged": "⚠️ not_converged", "undecidable": "❔ undecidable",
+    }[out.verdicts[0]]
+    st.metric("Verdict", verdict)
+    st.dataframe(
+        [
+            {"bond": b, "chi_used": c, "avg_jsd": j, "budget_violations": v, "|<P>|": abs(val)}
+            for b, c, j, v, val in zip(
+                out.bonds, out.chi_used, out.avg_jsd, out.budget_violations, out.values[0],
+            )
+        ],
+        width="stretch",
+    )
+    st.caption(
+        "diffs (change between consecutive bonds): " + ", ".join(f"{d:.2e}" for d in out.diffs[0])
+        + ". If chi_used at the highest bond equals its cap the verdict is 'undecidable'."
+    )
 
 
 # ── BUILD ────────────────────────────────────────────────────────────────
@@ -341,7 +486,9 @@ if section == "Build":
 
 # ── RESULTS ──────────────────────────────────────────────────────────────
 elif section == "Results":
-    if result is None:
+    if result is None and large_result is not None:
+        _show_large(large_result)
+    elif result is None:
         st.info("No circuit run yet — open Build and press ▶ Run.")
     elif error:
         st.error(f"Circuit run failed: {error}")
@@ -362,10 +509,22 @@ elif section == "Results":
                 cols[i + 2].metric("MPS memory (MB)", f"{result.mps_memory_mb:.2f}")
             if result.fidelity_vs_ideal is not None:
                 st.caption("Fidelity = how far the noisy run is from the ideal circuit (1.0 = identical).")
-        tab_sv, tab_prob, tab_qsphere, tab_bloch, tab_entropy, tab_steps, tab_pairs, tab_qubits = st.tabs(
+        active = [
+            (label, show) for label, key, show in (
+                ("ZNE mitigation", "zne_on", _show_zne),
+                ("Density-matrix channel", "dm_on", _show_density_channel),
+                ("Magic", "magic_on", lambda: _show_magic(result)),
+                ("MPS convergence", "bc_on", _show_bond_convergence),
+            ) if st.session_state.get(key)
+        ]
+        (tab_sv, tab_prob, tab_qsphere, tab_bloch, tab_entropy, tab_steps, tab_pairs, tab_qubits,
+         *tabs_active) = st.tabs(
             ["Statevector", "Probabilities", "Q-sphere", "Bloch per qubit", "Entropy & mutual information",
-             "Step by step", "Qubit pairs", "Qubit summary"]
+             "Step by step", "Qubit pairs", "Qubit summary"] + [label for label, _ in active]
         )
+        for tab, (_, show) in zip(tabs_active, active):
+            with tab:
+                show()
         with tab_steps:
             if result.n_qubits > 10 or not result.ops:
                 st.info("Available for circuits up to 10 qubits with at least one gate.")
@@ -624,62 +783,8 @@ elif section == "Chemistry":
 
 # ── NOISE ────────────────────────────────────────────────────────────────
 elif section == "Noise":
-    st.header("ZNE mitigation")
-    if result is None:
-        st.info("Needs a circuit that has already run: open Build, press ▶ Run, then come back.")
-    else:
-        pauli_string = st.text_input(
-            "Pauli observable (one character per qubit, e.g. 'Z' or 'ZZ')",
-            value="Z" * result.n_qubits, key="zne_pauli",
-        )
-        noise_model = st.selectbox(
-            "Noise model", ["depolarizing", "bitflip", "phaseflip", "amplitude_damping", "combined"],
-            key="zne_noise_model",
-        )
-        noise_p = st.slider("Noise strength (p)", 0.0, 0.5, 0.05, key="zne_noise_p")
-        extrapolation_method = st.selectbox(
-            "Extrapolation method", ["richardson", "polynomial"], key="zne_method",
-        )
-        n_trials = st.slider("n_trials (Monte Carlo average per point)", 20, 500, 200, key="zne_n_trials")
-
-        if st.button("Apply ZNE mitigation", type="primary"):
-            qasm_for_zne = dc.gate_tuples_to_qasm(result.ops, result.n_qubits)
-            try:
-                zne_result = dc.run_zne_mitigation(
-                    qasm_for_zne, pauli_string=pauli_string, noise_model=noise_model,
-                    noise_p=float(noise_p), extrapolation_method=extrapolation_method,
-                    n_trials=int(n_trials),
-                )
-                st.session_state["zne_result"] = zne_result
-                st.session_state["zne_error"] = None
-            except Exception as exc:
-                st.session_state["zne_result"] = None
-                st.session_state["zne_error"] = str(exc)
-
-        zne_error = st.session_state.get("zne_error")
-        zne_result = st.session_state.get("zne_result")
-        if zne_error:
-            st.error(f"Error: {zne_error}")
-        elif zne_result is not None:
-            col1, col2 = st.columns(2)
-            col1.metric("Ideal value", f"{zne_result.ideal_expectation:.4f}")
-            col2.metric("Extrapolated to zero noise", f"{zne_result.zne_extrapolated:.4f}")
-            st.pyplot(dc.zne_bar_figure(
-                zne_result.noise_factors, zne_result.noisy_expectations, zne_result.noisy_sems,
-                zne_result.zne_extrapolated, zne_result.ideal_expectation,
-            ))
-            st.caption(
-                "Each point is the value measured at that noise scale (1x, 2x, 3x...), with "
-                "a ±1 SEM error bar (standard error of the mean over the n_trials Monte Carlo "
-                "samples, not the spread of single trials); the extrapolation estimates the "
-                "zero-noise value."
-            )
-
-    st.divider()
     st.header("Channels & physical noise")
-    tab_cosmic, tab_osc, tab_dm, tab_heal = st.tabs(
-        ["Cosmic-ray burst", "Oscillating noise", "Density-matrix channel", "Heal vector"]
-    )
+    tab_cosmic, tab_osc, tab_heal = st.tabs(["Cosmic-ray burst", "Oscillating noise", "Heal vector"])
     with tab_cosmic:
         st.caption("Reproduces an event measured on a 26-qubit chip (arXiv:2104.05219).")
         baseline_gamma = st.number_input("baseline_gamma", value=1e-4, format="%.6f", key="cosmic_gamma")
@@ -695,21 +800,6 @@ elif section == "Noise":
             osc_result = dc.run_oscillating_noise(float(base_p), float(freq), float(amp))
             st.line_chart({str(f): p for f, p in zip(osc_result.factors, osc_result.p_eff)})
             st.caption("If this curve is not smooth, the smooth-noise assumption ZNE relies on breaks.")
-    with tab_dm:
-        if result is None:
-            st.info("Needs a circuit that has already run.")
-        else:
-            channel = st.selectbox("Channel", ["global_depolarizing", "amplitude_damping"], key="dm_channel")
-            param = st.slider("Channel parameter", 0.0, 1.0, 0.1, key="dm_param")
-            if st.button("Apply channel"):
-                qasm_for_dm = dc.gate_tuples_to_qasm(result.ops, result.n_qubits)
-                try:
-                    dm_result = dc.run_density_matrix_channel(qasm_for_dm, channel, float(param))
-                    st.bar_chart({
-                        "ideal": dm_result.ideal_diagonal, "noisy": dm_result.noisy_diagonal,
-                    })
-                except Exception as exc:
-                    st.error(f"Error: {exc}")
     with tab_heal:
         if vqe_result := st.session_state.get("vqe_result"):
             st.caption("Heals the energy trajectory of the last VQE run in Chemistry.")
@@ -899,29 +989,6 @@ elif section == "QEC":
             st.success(f"Correction found: `{decoded}`")
 
 
-# ── MAGIC & DIVERGENCES ──────────────────────────────────────────────────
-elif section == "Magic & Divergences":
-    st.header("Magic diagnostics")
-    if result is None:
-        st.info("Needs a circuit that has already run: open Build.")
-    else:
-        st.metric("Stabilizer Rényi entropy (whole state)", f"{stabilizer_renyi_entropy(result.statevector):.6f} bit")
-        st.caption("Zero for every stabilizer state, positive for 'magic' (non-Clifford) states.")
-
-        qubit_idx = st.number_input(
-            "Qubit for magic_entropy (single qubit, Qiskit numbering as in Results)",
-            min_value=0, max_value=result.n_qubits - 1, value=0, key="magic_qubit",
-        )
-        # result.statevector is in Qiskit's little-endian order; partial_trace
-        # uses dense_evolution's own MSB-first convention -- the two disagree
-        # on which physical qubit index N means, so the Qiskit-facing index
-        # has to be flipped before calling it.
-        native_qubit_idx = result.n_qubits - 1 - int(qubit_idx)
-        rho = dense_evolution.partial_trace(result.statevector, result.n_qubits, [native_qubit_idx])
-        st.metric(f"magic_entropy (qubit {qubit_idx})", f"{magic_entropy(rho):.6f} bit")
-        st.caption("3-copy Key-Unitary construction: 0 for |0>,|1>,|+>,|->,|+i>,|-i>, 0.811 for T and H.")
-
-
 # ── CONDENSED MATTER ─────────────────────────────────────────────────────
 elif section == "Condensed Matter":
     st.header("Solid state (tight-binding)")
@@ -969,104 +1036,6 @@ elif section == "Condensed Matter":
             st.metric(f"Ground-state energy ({n_qubits_hub} qubits)", f"{e0:.6f}")
         except Exception as exc:
             st.error(f"Error: {exc}")
-
-
-# ── LARGE SYSTEMS ────────────────────────────────────────────────────────
-elif section == "Large Systems":
-    st.header("Large Systems (MPS beyond the dense limit)")
-    st.caption(
-        f"Above {dc.MPS_DENSE_CONTRACTION_LIMIT} qubits there is no dense statevector array "
-        "to build: run_large_circuit_mps finds the k most probable states with EXACT "
-        "probabilities (not sampled), without ever materializing the full state. The "
-        "Build backend/noise settings do not apply here: it is a separate execution path."
-    )
-    default_large_qasm = dc.gate_tuples_to_qasm(dense_evolution.ghz_state(30), 30)
-    large_qasm_text = st.text_area(
-        "OpenQASM 2.0 (large circuit)", value=default_large_qasm, height=200, key="large_qasm_text",
-    )
-    k_states = st.slider("k (how many most probable states to show)", 1, 100, 32, key="large_k")
-    large_seed = st.number_input("Seed", min_value=0, max_value=2 ** 31 - 1, value=42, step=1, key="large_seed")
-
-    if st.button("Run in MPS mode", type="primary"):
-        try:
-            large_result = dc.run_large_circuit_mps(large_qasm_text, k=int(k_states), seed=int(large_seed))
-            st.session_state["large_mps_result"] = large_result
-            st.session_state["large_mps_error"] = None
-        except Exception as exc:
-            st.session_state["large_mps_result"] = None
-            st.session_state["large_mps_error"] = str(exc)
-
-    large_error = st.session_state.get("large_mps_error")
-    large_result = st.session_state.get("large_mps_result")
-    if large_error:
-        st.error(f"Error: {large_error}")
-    elif large_result is not None:
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Qubits", large_result.n_qubits)
-        col2.metric("Max bond used", large_result.mps_max_bond_used)
-        col3.metric("MPS memory (MB)", f"{large_result.mps_memory_mb:.2f}")
-        st.caption(f"Mean truncation error (JSD): {large_result.mps_avg_jsd:.2e}")
-        top_states_sorted = sorted(large_result.top_k_states, key=lambda t: -t[1])
-        st.dataframe(
-            [{"state": bits, "probability": p} for bits, p in top_states_sorted],
-            width="stretch",
-        )
-
-    with st.expander("Convergence with bond dimension"):
-        st.caption(
-            "mps_avg_jsd above is a mean truncation error over the whole state: it does not "
-            "say whether the observable you care about has settled as the bond grows. Here "
-            "the circuit is re-run at increasing bonds to check whether the expectation value "
-            "stops changing. If 'chi_used' at the highest bond already equals its cap, the "
-            "verdict is 'undecidable': the truncation never had room to show convergence."
-        )
-        bc_qasm_text = st.text_area(
-            "OpenQASM 2.0 (circuit to check)", value=default_large_qasm, height=150, key="bc_qasm_text",
-        )
-        bc_observable = st.text_input(
-            "Observable (Pauli string, e.g. ZIII)", value="Z" + "I" * 29, key="bc_observable",
-        )
-        bc_bonds_text = st.text_input("Bonds to test (increasing, comma-separated)", value="4,8,16,32", key="bc_bonds")
-        bc_tol = st.number_input("Tolerance", min_value=1e-6, max_value=1.0, value=1e-3, format="%.6f", key="bc_tol")
-        if st.button("Run convergence check"):
-            try:
-                bonds = [int(b) for b in bc_bonds_text.split(",") if b.strip() != ""]
-                bc_result = dc.run_bond_convergence_check(bc_qasm_text, [bc_observable], bonds, tol=float(bc_tol))
-                st.session_state["bond_convergence_result"] = bc_result
-                st.session_state["bond_convergence_error"] = None
-            except Exception as exc:
-                st.session_state["bond_convergence_result"] = None
-                st.session_state["bond_convergence_error"] = str(exc)
-
-        bc_error = st.session_state.get("bond_convergence_error")
-        bc_result = st.session_state.get("bond_convergence_result")
-        if bc_error:
-            st.error(f"Error: {bc_error}")
-        elif bc_result is not None:
-            verdict = bc_result.verdicts[0]
-            verdict_label = {
-                "converged": "✅ converged",
-                "not_converged": "⚠️ not_converged",
-                "undecidable": "❔ undecidable",
-            }[verdict]
-            st.metric("Verdict", verdict_label)
-            st.dataframe(
-                [
-                    {
-                        "bond": b, "chi_used": c, "avg_jsd": j, "budget_violations": v,
-                        "|<P>|": abs(val),
-                    }
-                    for b, c, j, v, val in zip(
-                        bc_result.bonds, bc_result.chi_used, bc_result.avg_jsd,
-                        bc_result.budget_violations, bc_result.values[0],
-                    )
-                ],
-                width="stretch",
-            )
-            st.caption(
-                "diffs (change between consecutive bonds): "
-                + ", ".join(f"{d:.2e}" for d in bc_result.diffs[0])
-            )
 
 
 # ── IMPORT CIRCUIT ───────────────────────────────────────────────────────

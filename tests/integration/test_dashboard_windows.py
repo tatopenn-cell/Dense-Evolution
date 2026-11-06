@@ -1,0 +1,90 @@
+"""Analysis windows: left-panel settings with On/Off, one Run, one Results tab each."""
+import sys
+from pathlib import Path
+
+import pytest
+
+pytest.importorskip("streamlit")
+from streamlit.testing.v1 import AppTest  # noqa: E402
+
+DASHBOARD = Path(__file__).resolve().parents[2] / "tools" / "dashboard"
+RUN = "▶ Run"
+
+
+@pytest.fixture
+def app(monkeypatch):
+    monkeypatch.syspath_prepend(str(DASHBOARD))
+    for name in ("dashboard_core", "sota_views", "engine_explorer", "circuit_editor"):
+        sys.modules.pop(name, None)
+    return AppTest.from_file(str(DASHBOARD / "app.py"), default_timeout=180).run()
+
+
+def _run(app):
+    [button for button in app.sidebar.button if button.label == RUN][0].click().run()
+
+
+def _results_tabs(app):
+    app.main.radio(key="nav_section").set_value("Results").run()
+    return [tab.label for tab in app.main.tabs]
+
+
+def test_windows_are_in_the_left_panel_and_off_by_default(app):
+    labels = [e.label for e in app.sidebar.expander]
+    for name in ("ZNE mitigation", "Density-matrix channel", "Magic", "MPS convergence"):
+        assert name in labels
+    for key in ("zne_on", "dm_on", "magic_on", "bc_on"):
+        assert app.sidebar.toggle(key=key).value is False
+    assert "ZNE mitigation" not in _results_tabs(app)
+
+
+def test_old_sections_are_gone_from_the_top_menu(app):
+    app.main.toggle(key="advanced_mode").set_value(True).run()
+    options = list(app.main.radio(key="nav_section").options)
+    assert "Magic & Divergences" not in options
+    assert "Large Systems" not in options
+
+
+def test_magic_window_adds_a_results_tab_computed_by_run(app):
+    app.sidebar.toggle(key="magic_on").set_value(True).run()
+    _run(app)
+    assert not app.exception
+    assert "Magic" in _results_tabs(app)
+    values = [m.value for m in app.main.metric]
+    assert any(v.startswith("1.") or v.startswith("0.") for v in values)
+
+
+def test_density_channel_runs_with_the_main_circuit(app):
+    app.sidebar.toggle(key="dm_on").set_value(True).run()
+    _run(app)
+    assert app.session_state["dm_error"] is None
+    assert app.session_state["dm_result"] is not None
+    assert "Density-matrix channel" in _results_tabs(app)
+
+
+def test_zne_runs_with_the_main_circuit(app):
+    app.sidebar.toggle(key="zne_on").set_value(True).run()
+    app.sidebar.slider(key="zne_n_trials").set_value(20).run()
+    _run(app)
+    assert app.session_state["zne_error"] is None
+    assert app.session_state["zne_result"] is not None
+
+
+def test_bond_convergence_runs_with_the_main_circuit(app):
+    app.sidebar.toggle(key="bc_on").set_value(True).run()
+    app.sidebar.text_input(key="bc_bonds").set_value("2,4").run()
+    _run(app)
+    assert app.session_state["bond_convergence_error"] is None
+    assert app.session_state["bond_convergence_result"] is not None
+
+
+def test_mps_beyond_the_dense_limit_lists_the_top_states(app):
+    ghz = "OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[30];\nh q[0];\n" + "".join(
+        f"cx q[{i}],q[{i + 1}];\n" for i in range(29)
+    )
+    app.sidebar.selectbox(key="preset_select").set_value("Custom").run()
+    app.sidebar.text_area(key="qasm_text__Custom").set_value(ghz).run()
+    app.sidebar.selectbox(key="run_backend").set_value("mps").run()
+    _run(app)
+    assert not app.exception
+    assert app.session_state["result"] is None
+    assert app.session_state["large_mps_result"].n_qubits == 30

@@ -27,7 +27,7 @@ def _run_button(app):
 def test_every_section_has_the_left_panel(app):
     app.main.toggle(key="advanced_mode").set_value(True).run()
     sections = list(app.main.radio(key="nav_section").options)
-    assert len(sections) == 13
+    assert len(sections) == 11
     for name in sections:
         app.main.radio(key="nav_section").set_value(name).run()
         assert not app.exception, name
