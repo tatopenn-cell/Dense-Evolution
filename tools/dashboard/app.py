@@ -353,16 +353,17 @@ def _qasm_key(preset, n):
 
 
 def _preset_changed():
-    preset = st.session_state["preset_select"]
-    if preset != "Custom":
+    preset = st.session_state.get("preset_select")
+    if preset in dc.QASM_LIBRARY:
         st.session_state["qubits_select"] = qubits_in_qasm(dc.QASM_LIBRARY[preset])
 
 
 def _qubits_changed():
-    if st.session_state.get("preset_select") == "Custom":
+    chosen = st.session_state.get("qubits_select")
+    if st.session_state.get("preset_select") == "Custom" and chosen is not None:
         bell = dc.QASM_LIBRARY["Bell state (2 qubit)"]
         text = st.session_state.get("qasm_text__Custom", bell)
-        st.session_state["qasm_text__Custom"] = with_qubit_count(text, int(st.session_state["qubits_select"]))
+        st.session_state["qasm_text__Custom"] = with_qubit_count(text, int(chosen))
 
 
 def _current_qasm():
