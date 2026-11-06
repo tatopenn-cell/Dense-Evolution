@@ -152,13 +152,12 @@ def _load_qasm(qasm, go_to_build=False):
 
 with st.sidebar:
     run_clicked = st.button("▶ Run", type="primary", width="stretch")
-    st.header("Circuit")
     preset_name = st.selectbox(
         "Preset", ["Custom"] + list(dc.QASM_LIBRARY.keys()), key="preset_select",
     )
     default_qasm = dc.QASM_LIBRARY.get(preset_name, dc.QASM_LIBRARY["Bell state (2 qubit)"])
     qasm_text = st.text_area(
-        "OpenQASM 2.0", value=default_qasm, height=150, key=f"qasm_text__{preset_name}",
+        "OpenQASM 2.0", value=default_qasm, height=120, key=f"qasm_text__{preset_name}",
     )
     col_shots, col_seed = st.columns(2)
     n_shots = col_shots.number_input("Shots", min_value=1, max_value=100_000, value=1000, step=100)
