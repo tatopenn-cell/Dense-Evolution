@@ -75,7 +75,7 @@ def test_error_correction_reports_a_wrong_pauli_error(app):
     app.sidebar.toggle(key="qec_on").set_value(True).run()
     app.sidebar.text_input(key="qec_pauli").set_value("XX").run()
     _run(app)
-    assert "needs exactly 5 characters" in app.session_state["qec_error_error"]
+    assert "needs exactly 5 characters" in app.session_state["qec_error"]
 
 
 def test_condensed_matter_gap_and_hubbard(app):
