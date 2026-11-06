@@ -6,11 +6,10 @@ download ``app.py`` and the files beside it from GitHub, and take
 needs cannot live in ``dashboard_core`` until the next release.
 """
 
+import random
 import re
 from collections.abc import Iterable, Sequence
 from typing import Any
-
-import numpy as np
 
 from dashboard_core.qasm_library import gate_tuples_to_qasm
 
@@ -215,10 +214,10 @@ def measurement_rows(
     ones = set(input_ones)
     start = "".join("1" if q in ones else "0" for q in reversed(range(n_qubits)))
     shots = [bits for bits, n in sorted(counts.items()) for _ in range(int(n))]
-    order = np.random.default_rng(seed).permutation(len(shots))
+    random.Random(seed).shuffle(shots)
     return [
-        {"measurement": k + 1, "input": start, "output": shots[i]}
-        for k, i in enumerate(order[:limit])
+        {"measurement": k + 1, "input": start, "output": bits}
+        for k, bits in enumerate(shots[:limit])
     ]
 
 

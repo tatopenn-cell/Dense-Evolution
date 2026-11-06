@@ -59,7 +59,7 @@ def test_rotations_and_controlled_phases_keep_their_angle(app):
 
 
 def test_the_qft_preset_is_drawn_completely(app):
-    name = [o for o in app.sidebar.selectbox(key="preset_select").options if "QFT" in o][0]
+    name = [o for o in app.sidebar.selectbox(key="preset_select").options if "Fourier" in o][0]
     app.sidebar.selectbox(key="preset_select").set_value(name).run()
     [b for b in app.sidebar.button if b.label == RUN][0].click().run()
     assert not app.exception
@@ -79,6 +79,8 @@ def test_gates_placed_by_hand_are_not_overwritten_by_a_run(app):
     grid[0][5] = "x"
     app.session_state["ce_hist"] = [grid]
     app.session_state["ce_idx"] = 0
+    app.session_state["ce_version"] += 1
+    app.session_state["ce_start_version"] = None
     [b for b in app.sidebar.button if b.label == RUN][0].click().run()
     assert _grid(app)[0][5] == "x"
 

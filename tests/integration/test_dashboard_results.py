@@ -24,7 +24,7 @@ def _results(app):
 
 def test_build_has_only_the_graphical_editor(app):
     assert [tab.label for tab in app.main.tabs] == []
-    assert app.main.number_input(key="n_qubits_builder").value == 3
+    assert app.main.number_input(key="n_qubits_builder").value == 2
 
 
 def test_the_circuit_tab_of_results_keeps_its_three_views(app):
