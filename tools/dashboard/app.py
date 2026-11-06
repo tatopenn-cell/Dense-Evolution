@@ -336,7 +336,9 @@ def de_ghz(n):
     return dense_evolution.ghz_state(n)
 
 
-_MPS_CAP = {"star": 500, "full": 60, "qft": 100, "random": 60}
+# Largest sizes run on Kaggle (CPU) with run_large_circuit_mps; the rest of the families
+# (GHZ, Bell, superposition, linear chain) were run up to 1500 qubits in 36 s, bond 2, 1.1 GB.
+_MPS_CAP = {"circular": 500, "brick": 500, "star": 500, "qft": 100, "random": 60, "full": 60}
 _MPS_SIZES = (32, 40, 48, 64, 100, 128, 200, 256, 300, 500, 750, 1000, 1250, 1500)
 
 
