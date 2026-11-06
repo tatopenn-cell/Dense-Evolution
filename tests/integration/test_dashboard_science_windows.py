@@ -49,6 +49,7 @@ def test_chemistry_on_loads_the_ansatz_and_off_restores_the_circuit(app):
     assert app.session_state["result"] is not None
     assert "Chemistry" in _results_tabs(app)
     app.sidebar.toggle(key="chem_on").set_value(False).run()
+    _run(app)
     assert app.sidebar.text_area(key="qasm_text__Custom").value == before
 
 

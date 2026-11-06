@@ -228,6 +228,45 @@ def _connectable_functions():
     return [name for name in ex.functions() if ex.connectable(name)]
 
 
+def _memo(key, job):
+    cache = st.session_state.setdefault("_view_cache", {})
+    if key not in cache:
+        cache[key] = job()
+    return cache[key]
+
+
+def _png(fig, width=None, height=None):
+    import io
+
+    import matplotlib.pyplot as plt
+
+    if width:
+        fig.set_size_inches(width, height)
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return buf.getvalue()
+
+
+def _ran(key):
+    return key in st.session_state.get("ran_with", set())
+
+
+def _param(key):
+    return st.session_state.get("ran_params", {}).get(key, st.session_state.get(key))
+
+
+def _press_run():
+    st.info("Press ▶ Run to compute this window.")
+
+
+def _qsphere_figure(res):
+    sphere = dc.qsphere_figure(res.statevector)
+    sphere.set_size_inches(7, 7)
+    sphere.subplots_adjust(left=0, right=1, bottom=0, top=1)
+    return sphere
+
+
 def _show_in_editor(res):
     if res is None:
         return
@@ -263,15 +302,12 @@ def _current_qasm():
     return st.session_state.get(f"qasm_text__{preset}", default)
 
 
-def _chem_toggled():
-    saved = st.session_state.get("chem_saved_qasm")
-    if not st.session_state.get("chem_on") and saved is not None:
-        _load_qasm(saved)
-        st.session_state["chem_saved_qasm"] = None
-
-
 def _on_run():
     if not st.session_state.get("chem_on"):
+        saved = st.session_state.get("chem_saved_qasm")
+        if saved is not None:
+            _load_qasm(saved)
+            st.session_state["chem_saved_qasm"] = None
         return
     mol = _cached_all_molecules()[st.session_state["mol_select"]]
     try:
@@ -342,7 +378,7 @@ def _job_function():
         raise ValueError("run a dense circuit first")
     name = st.session_state["ex_fn"]
     texts = {
-        p_name: st.session_state[f"ex_{name}_{p_name}"]
+        p_name: st.session_state.get(f"ex_{name}_{p_name}", ex.example(name, p_name))
         for p_name, kind, _ in ex.plan2(name) if kind == "literal"
     }
     qasm = dc.gate_tuples_to_qasm(res.ops, res.n_qubits)
@@ -402,6 +438,11 @@ def _job_dynamics():
 
 
 def _job_wormhole():
+    if st.session_state.get("wh_find_on"):
+        st.session_state["wh_seed"] = dc.select_good_instance(
+            int(st.session_state["wh_n_majorana"]), int(st.session_state["wh_k_terms"]),
+            float(st.session_state["wh_J"]),
+        )
     fn = dc.run_wormhole_protocol_trotter if st.session_state["wh_method"] == "Trotter" else dc.run_wormhole_protocol
     args = (
         int(st.session_state["wh_n_majorana"]), int(st.session_state["wh_k_terms"]), float(st.session_state["wh_J"]),
@@ -458,43 +499,139 @@ with st.sidebar:
         'background:var(--secondary-background-color,#f0f2f6)}</style>',
         unsafe_allow_html=True,
     )
-    run_clicked = st.button(
-        "▶ Run", type="primary", width="stretch", key="run_button", on_click=_on_run,
-    )
     preset_name = st.selectbox(
         "Preset", ["Custom"] + list(dc.QASM_LIBRARY.keys()), key="preset_select",
     )
-    default_qasm = dc.QASM_LIBRARY.get(preset_name, dc.QASM_LIBRARY["Bell state (2 qubit)"])
-    qasm_text = st.text_area(
-        "OpenQASM 2.0", value=default_qasm, height=120, key=f"qasm_text__{preset_name}",
-    )
-    col_shots, col_seed = st.columns(2)
-    n_shots = col_shots.number_input("Shots", min_value=1, max_value=100_000, value=1000, step=100)
-    seed = col_seed.number_input("Seed", min_value=0, max_value=2 ** 31 - 1, value=42, step=1)
-    n_input = qubits_in_qasm(qasm_text)
-    st.session_state["input_ones"] = [
-        i for i in st.session_state.get("input_ones", []) if i < n_input
-    ]
-    st.multiselect(
-        "Qubits that start in |1⟩", list(range(n_input)), key="input_ones",
-        label_visibility="collapsed", placeholder="Qubits that start in |1⟩ (none: all in |0⟩)",
-    )
-    with st.expander("Noise & backend"):
-        run_noise_model = st.selectbox(
-            "Noise model", ["ideal", "depolarizing", "bitflip", "phaseflip",
-                            "amplitude_damping", "combined"],
-            key="run_noise_model",
+    with st.form("run_form", border=False):
+        run_clicked = st.form_submit_button(
+            "▶ Run", type="primary", width="stretch", key="run_button", on_click=_on_run,
         )
-        run_noise_p = st.slider(
-            "Noise strength (p)", 0.0, 1.0, 0.0, key="run_noise_p",
-            disabled=(run_noise_model == "ideal"),
+        default_qasm = dc.QASM_LIBRARY.get(preset_name, dc.QASM_LIBRARY["Bell state (2 qubit)"])
+        qasm_text = st.text_area(
+            "OpenQASM 2.0", value=default_qasm, height=120, key=f"qasm_text__{preset_name}",
         )
-        run_backend = st.selectbox(
-            "Backend", ["dense", "mps"], key="run_backend",
-            help="mps (Matrix Product State) uses less memory on weakly entangled "
-                 "circuits. Beyond the dense limit it lists the k most probable states.",
+        col_shots, col_seed = st.columns(2)
+        n_shots = col_shots.number_input("Shots", min_value=1, max_value=100_000, value=1000, step=100)
+        seed = col_seed.number_input("Seed", min_value=0, max_value=2 ** 31 - 1, value=42, step=1)
+        n_input = qubits_in_qasm(qasm_text)
+        st.session_state["input_ones"] = [
+            i for i in st.session_state.get("input_ones", []) if i < n_input
+        ]
+        st.multiselect(
+            "Qubits that start in |1⟩", list(range(n_input)), key="input_ones",
+            label_visibility="collapsed", placeholder="Qubits that start in |1⟩ (none: all in |0⟩)",
         )
-        st.slider("k (most probable states beyond the dense limit)", 1, 100, 32, key="large_k")
+        with st.expander("Noise & backend"):
+            run_noise_model = st.selectbox(
+                "Noise model", ["ideal", "depolarizing", "bitflip", "phaseflip",
+                                "amplitude_damping", "combined"],
+                key="run_noise_model",
+            )
+            run_noise_p = st.slider(
+                "Noise strength (p)", 0.0, 1.0, 0.0, key="run_noise_p",
+                help="Not used when the noise model is ideal.",
+            )
+            run_backend = st.selectbox(
+                "Backend", ["dense", "mps"], key="run_backend",
+                help="mps (Matrix Product State) uses less memory on weakly entangled "
+                     "circuits. Beyond the dense limit it lists the k most probable states.",
+            )
+            st.slider("k (most probable states beyond the dense limit)", 1, 100, 32, key="large_k")
+        with st.expander("State analysis"):
+            previous_result = st.session_state.get("result")
+            st.toggle("Entropy & mutual information", key="entropy_on")
+            st.text_input("Subsystem A (comma-separated indices)", value="0", key="entropy_a")
+            st.text_input(
+                "Subsystem B (comma-separated indices)",
+                value="1" if previous_result is not None and previous_result.n_qubits > 1 else "",
+                key="entropy_b",
+            )
+            st.toggle("Magic", key="magic_on")
+            st.number_input(
+                "Magic: qubit (Qiskit numbering)", min_value=0, max_value=max(n_input - 1, 0), step=1,
+                key="magic_qubit",
+            )
+            st.toggle("Exact probabilities (not sampled shots)", key="prob_exact")
+            st.toggle("Step by step", key="steps_on")
+            st.number_input("Gate (step by step)", min_value=1, value=1, step=1, key="sota_step")
+            st.toggle("MPS convergence", key="bc_on")
+            st.text_input("Pauli observable (empty: Z on qubit 0)", key="bc_observable")
+            st.text_input("Bonds (increasing, comma-separated)", value="4,8,16,32", key="bc_bonds")
+            st.number_input("Tolerance", 1e-6, 1.0, 1e-3, format="%.6f", key="bc_tol")
+        with st.expander("Noise"):
+            st.toggle("ZNE mitigation", key="zne_on")
+            st.text_input("Pauli observable (empty: Z on every qubit)", key="zne_pauli")
+            st.selectbox(
+                "Noise model", ["depolarizing", "bitflip", "phaseflip", "amplitude_damping", "combined"],
+                key="zne_noise_model",
+            )
+            st.slider("Noise strength (p)", 0.0, 0.5, 0.05, key="zne_noise_p")
+            st.selectbox("Extrapolation method", ["richardson", "polynomial"], key="zne_method")
+            st.slider("Monte Carlo trials per point", 20, 500, 200, key="zne_n_trials")
+            st.toggle("Density-matrix channel", key="dm_on")
+            st.selectbox("Channel", ["global_depolarizing", "amplitude_damping"], key="dm_channel")
+            st.slider("Channel parameter", 0.0, 1.0, 0.1, key="dm_param")
+            st.toggle("Cosmic-ray burst on the circuit", key="burst_on")
+            st.number_input(
+                "Baseline decay probability", 0.0, 1.0, 0.01, format="%.4f", key="cosmic_gamma",
+            )
+            st.toggle("Oscillating noise (on the ZNE scale factors)", key="osc_on")
+            st.slider("freq", 0.1, 5.0, 1.0, key="osc_freq")
+            st.slider("amp", 0.0, 0.5, 0.1, key="osc_amp")
+            st.toggle("Hardware calibration (FakeSherbrooke)", key="cal_on")
+        with st.expander("Chemistry"):
+            st.toggle("On: the circuit becomes the VQE ansatz", key="chem_on")
+            st.selectbox("Molecule", list(_cached_all_molecules().keys()), key="mol_select")
+            st.selectbox("Ansatz", ["hardware_efficient", "uccsd"], key="vqe_ansatz")
+            st.slider("n_layers (hardware_efficient only)", 1, 12, 4, key="vqe_n_layers")
+            st.slider("Iterations (Adam)", 0, 500, 150, key="vqe_maxiter")
+            st.number_input("step_size", value=0.1, format="%.4f", key="vqe_step_size")
+            st.number_input("VQE seed", value=0, step=1, key="vqe_seed")
+            st.toggle("Energy landscape (two parameters)", key="chem_land_on")
+            st.number_input("Parameter A (index)", min_value=0, value=0, step=1, key="land_param_i")
+            st.number_input("Parameter B (index)", min_value=0, value=1, step=1, key="land_param_j")
+            st.slider("Grid resolution", 5, 41, 21, step=2, key="land_resolution")
+            st.toggle("Optimize geometry (analytic dE/dR)", key="chem_geom_on")
+            st.slider("Descent steps", 1, 50, 15, key="geom_opt_steps")
+            st.number_input("Step (Bohr)", value=0.05, format="%.3f", key="geom_opt_lr")
+            st.toggle("Dynamics (forces and MD)", key="dyn_on")
+            st.slider("MD steps", 1, 50, 10, key="md_n_steps")
+            st.number_input("dt_fs", value=0.5, format="%.3f", key="md_dt_fs")
+            st.checkbox("Recompute the electronic state at every step (slower)", key="md_recompute")
+            st.toggle("Heal the VQE energy trajectory", key="heal_on")
+        with st.expander("Protocols"):
+            st.toggle("Wormhole", key="wh_on")
+            st.select_slider("n_majorana", options=[8, 12, 16, 20], value=8, key="wh_n_majorana")
+            st.slider("k_terms", 4, 20, 10, key="wh_k_terms")
+            st.number_input("J", value=1.4142, format="%.4f", key="wh_J")
+            st.slider("mu", 1.0, 20.0, 12.0, key="wh_mu")
+            st.number_input("t0", value=0.3, format="%.3f", key="wh_t0")
+            st.number_input("t1", value=0.60, format="%.3f", key="wh_t1")
+            st.checkbox("Inject message", value=True, key="wh_with_message")
+            st.selectbox("Method", ["exact", "Trotter"], key="wh_method")
+            st.checkbox("Look for a good instance first (cleanest signal)", key="wh_find_on")
+            st.caption(f"Seed in use: {st.session_state.get('wh_seed', 61)}")
+            st.toggle("Error correction", key="qec_on")
+            st.text_area(
+                "Stabilizer generators (one per line; default: the [[5,1,3]] code)",
+                value=QEC_DEFAULT_STABILIZERS, height=100, key="qec_stabilizers",
+            )
+            st.text_input("Pauli error (empty: X on qubit 0)", key="qec_pauli")
+            st.text_input("Observed syndrome (empty: the computed one)", key="qec_observed")
+            st.text_input("Known erased qubits, optional (e.g. 2)", key="qec_heralded")
+        with st.expander("Condensed matter"):
+            st.toggle("Band structure (tight-binding)", key="cm_on")
+            st.selectbox("Material", sorted(dense_evolution.VHD_MATERIALS.keys()), key="solid_material")
+            st.toggle("Hubbard model", key="hub_on")
+            st.slider("n_sites", 2, 6, 4, key="hub_n_sites")
+            st.number_input("t (hopping)", value=1.0, format="%.3f", key="hub_t")
+            st.number_input("U (on-site repulsion)", value=2.0, format="%.3f", key="hub_U")
+        with st.expander("Function explorer"):
+            st.toggle("On", key="fn_on")
+            fn_name = st.selectbox("Function", _connectable_functions(), key="ex_fn")
+            for p_name, kind, _ in ex.plan2(fn_name):
+                if kind == "literal":
+                    st.text_input(p_name, ex.example(fn_name, p_name), key=f"ex_{fn_name}_{p_name}")
     with st.expander("Topology"):
         pattern_labels = {
             "linear": "linear (chain)",
@@ -536,105 +673,6 @@ with st.sidebar:
             "→ Load into the Circuit Editor", on_click=_load_qasm, args=(topo_text,),
             disabled=topo_text is None, key="topo_load",
         )
-    with st.expander("State analysis"):
-        previous_result = st.session_state.get("result")
-        st.toggle("Entropy & mutual information", key="entropy_on")
-        st.text_input("Subsystem A (comma-separated indices)", value="0", key="entropy_a")
-        st.text_input(
-            "Subsystem B (comma-separated indices)",
-            value="1" if previous_result is not None and previous_result.n_qubits > 1 else "",
-            key="entropy_b",
-        )
-        st.toggle("Magic", key="magic_on")
-        st.number_input(
-            "Magic: qubit (Qiskit numbering)", min_value=0, max_value=max(n_input - 1, 0), step=1,
-            key="magic_qubit",
-        )
-        st.toggle("Exact probabilities (not sampled shots)", key="prob_exact")
-        st.toggle("Step by step", key="steps_on")
-        st.number_input("Gate (step by step)", min_value=1, value=1, step=1, key="sota_step")
-        st.toggle("MPS convergence", key="bc_on")
-        st.text_input("Pauli observable (empty: Z on qubit 0)", key="bc_observable")
-        st.text_input("Bonds (increasing, comma-separated)", value="4,8,16,32", key="bc_bonds")
-        st.number_input("Tolerance", 1e-6, 1.0, 1e-3, format="%.6f", key="bc_tol")
-    with st.expander("Noise"):
-        st.toggle("ZNE mitigation", key="zne_on")
-        st.text_input("Pauli observable (empty: Z on every qubit)", key="zne_pauli")
-        st.selectbox(
-            "Noise model", ["depolarizing", "bitflip", "phaseflip", "amplitude_damping", "combined"],
-            key="zne_noise_model",
-        )
-        st.slider("Noise strength (p)", 0.0, 0.5, 0.05, key="zne_noise_p")
-        st.selectbox("Extrapolation method", ["richardson", "polynomial"], key="zne_method")
-        st.slider("Monte Carlo trials per point", 20, 500, 200, key="zne_n_trials")
-        st.toggle("Density-matrix channel", key="dm_on")
-        st.selectbox("Channel", ["global_depolarizing", "amplitude_damping"], key="dm_channel")
-        st.slider("Channel parameter", 0.0, 1.0, 0.1, key="dm_param")
-        st.toggle("Cosmic-ray burst on the circuit", key="burst_on")
-        st.number_input(
-            "Baseline decay probability", 0.0, 1.0, 0.01, format="%.4f", key="cosmic_gamma",
-        )
-        st.toggle("Oscillating noise (on the ZNE scale factors)", key="osc_on")
-        st.slider("freq", 0.1, 5.0, 1.0, key="osc_freq")
-        st.slider("amp", 0.0, 0.5, 0.1, key="osc_amp")
-        st.toggle("Hardware calibration (FakeSherbrooke)", key="cal_on")
-    with st.expander("Chemistry"):
-        st.toggle("On: the circuit becomes the VQE ansatz", key="chem_on", on_change=_chem_toggled)
-        st.selectbox("Molecule", list(_cached_all_molecules().keys()), key="mol_select")
-        st.selectbox("Ansatz", ["hardware_efficient", "uccsd"], key="vqe_ansatz")
-        st.slider("n_layers (hardware_efficient only)", 1, 12, 4, key="vqe_n_layers")
-        st.slider("Iterations (Adam)", 0, 500, 150, key="vqe_maxiter")
-        st.number_input("step_size", value=0.1, format="%.4f", key="vqe_step_size")
-        st.number_input("VQE seed", value=0, step=1, key="vqe_seed")
-        st.toggle("Energy landscape (two parameters)", key="chem_land_on")
-        st.number_input("Parameter A (index)", min_value=0, value=0, step=1, key="land_param_i")
-        st.number_input("Parameter B (index)", min_value=0, value=1, step=1, key="land_param_j")
-        st.slider("Grid resolution", 5, 41, 21, step=2, key="land_resolution")
-        st.toggle("Optimize geometry (analytic dE/dR)", key="chem_geom_on")
-        st.slider("Descent steps", 1, 50, 15, key="geom_opt_steps")
-        st.number_input("Step (Bohr)", value=0.05, format="%.3f", key="geom_opt_lr")
-        st.toggle("Dynamics (forces and MD)", key="dyn_on")
-        st.slider("MD steps", 1, 50, 10, key="md_n_steps")
-        st.number_input("dt_fs", value=0.5, format="%.3f", key="md_dt_fs")
-        st.checkbox("Recompute the electronic state at every step (slower)", key="md_recompute")
-        st.toggle("Heal the VQE energy trajectory", key="heal_on")
-    with st.expander("Protocols"):
-        st.toggle("Wormhole", key="wh_on")
-        st.select_slider("n_majorana", options=[8, 12, 16, 20], value=8, key="wh_n_majorana")
-        st.slider("k_terms", 4, 20, 10, key="wh_k_terms")
-        st.number_input("J", value=1.4142, format="%.4f", key="wh_J")
-        st.slider("mu", 1.0, 20.0, 12.0, key="wh_mu")
-        st.number_input("t0", value=0.3, format="%.3f", key="wh_t0")
-        st.number_input("t1", value=0.60, format="%.3f", key="wh_t1")
-        st.checkbox("Inject message", value=True, key="wh_with_message")
-        st.selectbox("Method", ["exact", "Trotter"], key="wh_method")
-        if st.button("Find a good instance", key="wh_find"):
-            st.session_state["wh_seed"] = dc.select_good_instance(
-                int(st.session_state["wh_n_majorana"]), int(st.session_state["wh_k_terms"]),
-                float(st.session_state["wh_J"]),
-            )
-        st.caption(f"Seed in use: {st.session_state.get('wh_seed', 61)}")
-        st.toggle("Error correction", key="qec_on")
-        st.text_area(
-            "Stabilizer generators (one per line; default: the [[5,1,3]] code)",
-            value=QEC_DEFAULT_STABILIZERS, height=100, key="qec_stabilizers",
-        )
-        st.text_input("Pauli error (empty: X on qubit 0)", key="qec_pauli")
-        st.text_input("Observed syndrome (empty: the computed one)", key="qec_observed")
-        st.text_input("Known erased qubits, optional (e.g. 2)", key="qec_heralded")
-    with st.expander("Condensed matter"):
-        st.toggle("Band structure (tight-binding)", key="cm_on")
-        st.selectbox("Material", sorted(dense_evolution.VHD_MATERIALS.keys()), key="solid_material")
-        st.toggle("Hubbard model", key="hub_on")
-        st.slider("n_sites", 2, 6, 4, key="hub_n_sites")
-        st.number_input("t (hopping)", value=1.0, format="%.3f", key="hub_t")
-        st.number_input("U (on-site repulsion)", value=2.0, format="%.3f", key="hub_U")
-    with st.expander("Function explorer"):
-        st.toggle("On", key="fn_on")
-        fn_name = st.selectbox("Function", _connectable_functions(), key="ex_fn")
-        for p_name, kind, _ in ex.plan2(fn_name):
-            if kind == "literal":
-                st.text_input(p_name, ex.example(fn_name, p_name), key=f"ex_{fn_name}_{p_name}")
     with st.expander("Export"):
         shown = st.session_state.get("result")
         st.download_button(
@@ -642,7 +680,10 @@ with st.sidebar:
             key="export_qasm",
         )
         try:
-            code = qiskit_code(shown.ops, shown.n_qubits) if shown is not None else ""
+            code = (
+                _memo(("qiskit",), lambda: qiskit_code(shown.ops, shown.n_qubits))
+                if shown is not None else ""
+            )
         except ValueError:
             code = ""
         st.download_button(
@@ -650,7 +691,8 @@ with st.sidebar:
         )
         st.download_button(
             "Final state and probabilities (CSV)",
-            state_csv(shown.statevector, shown.n_qubits) if shown is not None else "",
+            _memo(("state_csv",), lambda: state_csv(shown.statevector, shown.n_qubits))
+            if shown is not None else "",
             "state.csv", disabled=shown is None, key="export_state",
         )
     with st.expander("System"):
@@ -662,6 +704,13 @@ with st.sidebar:
         )
 
 if run_clicked:
+    st.session_state["_view_cache"] = {}
+    st.session_state["ran_with"] = {
+        key for key in ("magic_on", "entropy_on", "steps_on", "prob_exact") if st.session_state.get(key)
+    }
+    st.session_state["ran_params"] = {
+        key: st.session_state.get(key) for key in ("magic_qubit", "entropy_a", "entropy_b", "sota_step")
+    }
     run_qasm = with_input_values(qasm_text, st.session_state.get("input_ones", []))
     st.session_state["_run_qasm"] = run_qasm
     st.session_state["_run_shots"] = int(n_shots)
@@ -770,10 +819,10 @@ def _show_zne():
     col1, col2 = st.columns(2)
     col1.metric("Ideal value", f"{out.ideal_expectation:.4f}")
     col2.metric("Extrapolated to zero noise", f"{out.zne_extrapolated:.4f}")
-    st.pyplot(dc.zne_bar_figure(
+    st.image(_memo(("zne",), lambda: _png(dc.zne_bar_figure(
         out.noise_factors, out.noisy_expectations, out.noisy_sems,
         out.zne_extrapolated, out.ideal_expectation,
-    ))
+    ))), use_container_width=True)
     st.caption(
         "Each point is the value measured at that noise scale (1x, 2x, 3x...), with a ±1 SEM "
         "error bar (standard error of the mean over the Monte Carlo samples); the "
@@ -788,13 +837,18 @@ def _show_density_channel():
 
 
 def _show_magic(res):
-    st.metric(
-        "Stabilizer Rényi entropy (whole state)", f"{stabilizer_renyi_entropy(res.statevector):.6f} bit"
-    )
+    if not _ran("magic_on"):
+        return _press_run()
+    qubit = min(int(_param("magic_qubit") or 0), res.n_qubits - 1)
+
+    def job():
+        rho = dense_evolution.partial_trace(res.statevector, res.n_qubits, [res.n_qubits - 1 - qubit])
+        return stabilizer_renyi_entropy(res.statevector), magic_entropy(rho)
+
+    whole, single = _memo(("magic", qubit), job)
+    st.metric("Stabilizer Rényi entropy (whole state)", f"{whole:.6f} bit")
     st.caption("Zero for every stabilizer state, positive for 'magic' (non-Clifford) states.")
-    qubit = min(int(st.session_state.get("magic_qubit", 0)), res.n_qubits - 1)
-    rho = dense_evolution.partial_trace(res.statevector, res.n_qubits, [res.n_qubits - 1 - qubit])
-    st.metric(f"magic_entropy (qubit {qubit})", f"{magic_entropy(rho):.6f} bit")
+    st.metric(f"magic_entropy (qubit {qubit})", f"{single:.6f} bit")
     st.caption("3-copy Key-Unitary construction: 0 for |0>,|1>,|+>,|->,|+i>,|-i>, 0.811 for T and H.")
 
 
@@ -863,7 +917,7 @@ def _show_chemistry():
         st.subheader("Energy landscape")
         land = _show_analysis("land")
         if land is not None:
-            st.pyplot(dc.energy_landscape_figure(*land))
+            st.image(_memo(("land",), lambda: _png(dc.energy_landscape_figure(*land))), use_container_width=True)
     if st.session_state.get("chem_geom_on"):
         st.subheader("Geometry optimization")
         geom = _show_analysis("geom")
@@ -902,7 +956,7 @@ def _show_wormhole():
     ax.barh(["mu > 0", "mu < 0"], [i_plus, -i_minus], color=["#648fff", "#dc267f"])
     ax.set_xlabel("mutual information (signed)")
     fig.tight_layout()
-    st.pyplot(fig)
+    st.image(_memo(("wormhole",), lambda: _png(fig)), use_container_width=True)
     st.caption(
         f"I(mu=+{mu:g}) = {i_plus:.5f} · I(mu=-{mu:g}) = {i_minus:.5f}. Traversable-wormhole-inspired "
         "teleportation (arXiv:2604.10090): the signal is the DIFFERENCE between positive and negative mu."
@@ -915,7 +969,9 @@ def _show_qec():
         return
     st.write(f"Code with {len(out['stabilizers'][0])} physical qubits, {len(out['stabilizers'])} stabilizers.")
     st.write(f"Syndrome: `{out['syndrome']}`")
-    st.pyplot(dc.qec_syndrome_map_figure(out["stabilizers"], out["syndrome"], out["error"]))
+    st.image(_memo(("qec",), lambda: _png(dc.qec_syndrome_map_figure(
+        out["stabilizers"], out["syndrome"], out["error"],
+    ))), use_container_width=True)
     st.caption(
         "Red: stabilizers that anticommute with the error (syndrome bit 1, detected). Grey: those "
         "that commute (bit 0, not detected). The marked qubit is where the injected error acts."
@@ -944,7 +1000,7 @@ def _show_condensed():
                 "gap at Γ alone would give the wrong value for them."
             )
             t_path, bands = out["bands"]
-            st.plotly_chart(dc.band_structure_figure(t_path, bands, out["material"]))
+            st.plotly_chart(_memo(("band",), lambda: dc.band_structure_figure(t_path, bands, out["material"])))
             st.caption(
                 "All 10 sp3s* bands along Γ→X: hover a point to see the exact energy and its "
                 "position on the k-path. Band 3 (red) and band 4 (blue) are the VBM/CBM."
@@ -1007,7 +1063,7 @@ def _show_function():
         return
     st.caption(f"{out['name']}: " + " ".join(out["doc"]))
     if hasattr(out["out"], "savefig"):
-        st.pyplot(out["out"])
+        st.image(_memo(("fn",), lambda: _png(out["out"])), use_container_width=True)
     else:
         st.write(ex.to_display(out["out"]))
 
@@ -1036,9 +1092,12 @@ def _show_entropy(res):
         "information sees correlations a single expectation value cannot (no-signaling "
         "theorem). Qubit numbering as in Results (Qiskit convention)."
     )
-    try:
-        qa = [int(x) for x in st.session_state["entropy_a"].split(",") if x.strip() != ""]
-        qb = [int(x) for x in st.session_state["entropy_b"].split(",") if x.strip() != ""]
+    if not _ran("entropy_on"):
+        return _press_run()
+
+    def job():
+        qa = [int(x) for x in _param("entropy_a").split(",") if x.strip() != ""]
+        qb = [int(x) for x in _param("entropy_b").split(",") if x.strip() != ""]
         if set(qa) & set(qb):
             raise ValueError("the two subsystems must be disjoint")
         n = res.n_qubits
@@ -1046,9 +1105,14 @@ def _show_entropy(res):
         native_b = [n - 1 - q for q in qb]
         rho_a = dense_evolution.partial_trace(res.statevector, n, native_a)
         rho_b = dense_evolution.partial_trace(res.statevector, n, native_b)
-        s_a = dense_evolution.von_neumann_entropy(rho_a)
-        s_b = dense_evolution.von_neumann_entropy(rho_b)
-        i_ab = dense_evolution.mutual_information(res.statevector, n, native_a, native_b)
+        return (
+            dense_evolution.von_neumann_entropy(rho_a),
+            dense_evolution.von_neumann_entropy(rho_b),
+            dense_evolution.mutual_information(res.statevector, n, native_a, native_b),
+        )
+
+    try:
+        s_a, s_b, i_ab = _memo(("entropy", _param("entropy_a"), _param("entropy_b")), job)
     except Exception as exc:
         st.error(f"Error: {exc}")
         return
@@ -1059,13 +1123,19 @@ def _show_entropy(res):
 
 
 def _show_steps(res):
+    if not _ran("steps_on"):
+        return _press_run()
     if res.n_qubits > 10 or not res.ops:
         st.info("Available for circuits up to 10 qubits with at least one gate.")
         return
-    states = sv.step_states(res.ops, res.n_qubits)
-    k = min(int(st.session_state.get("sota_step", 1)), len(res.ops))
+    k = min(int(_param("sota_step") or 1), len(res.ops))
+
+    def job():
+        states = sv.step_states(res.ops, res.n_qubits)
+        return sv.difference_rows(states[k - 1], states[k], res.n_qubits)
+
     st.caption(f"Gate {k} of {len(res.ops)}: {res.ops[k - 1]} — how each amplitude changes from the previous gate.")
-    st.dataframe(sv.difference_rows(states[k - 1], states[k], res.n_qubits), width="stretch")
+    st.dataframe(_memo(("steps", k), job), width="stretch")
 
 
 def _active_windows(res):
@@ -1179,33 +1249,40 @@ elif section == "Results":
                 show()
         with tab_circuit:
             col_circuit, col_probs = st.columns([3, 2])
-            col_circuit.pyplot(dc.draw_circuit_figure(result.ops, result.n_qubits))
+            col_circuit.image(
+                _memo(("circuit",), lambda: _png(dc.draw_circuit_figure(result.ops, result.n_qubits))),
+                use_container_width=True,
+            )
             tab_probs, tab_qubit, tab_outcomes, tab_shots = col_probs.tabs(
                 ["Probabilities", "Per qubit", "Outcomes", "Measurements"]
             )
             tab_probs.caption("Shots sampled from the statevector")
-            histogram = dc.histogram_figure(result.counts)
-            histogram.set_size_inches(6, 3.4)
-            tab_probs.pyplot(histogram)
+            tab_probs.image(
+                _memo(("hist_small",), lambda: _png(dc.histogram_figure(result.counts), 6, 3.4)),
+                use_container_width=True,
+            )
             tab_qubit.dataframe(
                 [
                     {"qubit": row["qubit"], "P(1)": row["P(1)"]}
-                    for row in sv.qubit_table(result.statevector, result.n_qubits)
+                    for row in _memo(("qubit_table",), lambda: sv.qubit_table(result.statevector, result.n_qubits))
                 ],
                 width="stretch",
             )
             tab_outcomes.dataframe(outcome_rows(result.counts), width="stretch")
             tab_shots.caption("The shots one by one (the first 100): measurement, input and output.")
             tab_shots.dataframe(
-                measurement_rows(
-                    result.counts, st.session_state.get("input_ones", []), result.n_qubits,
-                    seed=int(st.session_state.get("_run_seed", 42)),
+                _memo(
+                    ("shots",),
+                    lambda: measurement_rows(
+                        result.counts, st.session_state.get("input_ones", []), result.n_qubits,
+                        seed=int(st.session_state.get("_run_seed", 42)),
+                    ),
                 ),
                 width="stretch",
             )
         with tab_sv:
             st.caption(f"{result.n_qubits} qubits — {len(result.statevector)} amplitudes (Qiskit convention)")
-            rows = [
+            rows = _memo(("sv_rows",), lambda: [
                 {
                     "state": format(i, f"0{result.n_qubits}b"),
                     "amplitude (re)": float(amp.real),
@@ -1215,10 +1292,13 @@ elif section == "Results":
                 }
                 for i, amp in enumerate(result.statevector)
                 if abs(amp) > 1e-10
-            ]
+            ])
             st.dataframe(rows, width="stretch")
-            st.dataframe(sv.qubit_table(result.statevector, result.n_qubits), width="stretch")
-            st.code(sv.ket_string(result.statevector, result.n_qubits), language=None)
+            st.dataframe(
+                _memo(("qubit_table",), lambda: sv.qubit_table(result.statevector, result.n_qubits)),
+                width="stretch",
+            )
+            st.code(_memo(("ket",), lambda: sv.ket_string(result.statevector, result.n_qubits)), language=None)
         with tab_prob:
             st.caption("Shots sampled from the computed statevector")
             color_by_phase = st.checkbox(
@@ -1226,23 +1306,40 @@ elif section == "Results":
                 help="Colors each bar by the complex phase of that state's amplitude "
                      "(cyclic colormap); the bar height stays the shot count.",
             )
-            if st.session_state.get("prob_exact"):
-                st.pyplot(_exact_probability_figure(result))
+            if st.session_state.get("prob_exact") and _ran("prob_exact"):
+                st.image(
+                    _memo(("exact",), lambda: _png(_exact_probability_figure(result))),
+                    use_container_width=True,
+                )
                 st.caption("Exact probabilities of the final state; the states with probability zero are not drawn.")
             else:
-                histogram = dc.histogram_figure(
-                    result.counts, statevector=result.statevector if color_by_phase else None,
+                st.image(
+                    _memo(
+                        ("hist", bool(color_by_phase)),
+                        lambda: _png(
+                            dc.histogram_figure(
+                                result.counts,
+                                statevector=result.statevector if color_by_phase else None,
+                            ),
+                            8,
+                            1.6,
+                        ),
+                    ),
+                    use_container_width=True,
                 )
-                histogram.set_size_inches(8, 1.6)
-                st.pyplot(histogram)
+                if st.session_state.get("prob_exact"):
+                    st.caption("Press ▶ Run to draw the exact probabilities.")
             st.caption("Q-sphere")
-            sphere = dc.qsphere_figure(result.statevector)
-            sphere.set_size_inches(7, 7)
-            sphere.subplots_adjust(left=0, right=1, bottom=0, top=1)
-            st.pyplot(sphere)
+            st.image(_memo(("qsphere",), lambda: _png(_qsphere_figure(result))), use_container_width=True)
         with tab_qubits:
             st.caption("One Bloch sphere per qubit, from its reduced density matrix.")
-            st.pyplot(dc.bloch_multivector_figure(result.statevector))
+            st.image(
+                _memo(("bloch",), lambda: _png(dc.bloch_multivector_figure(result.statevector))),
+                use_container_width=True,
+            )
             if 2 <= result.n_qubits <= 10:
                 st.caption("Qubit pairs")
-                st.pyplot(sv.half_matrix_figure(result.statevector, result.n_qubits))
+                st.image(
+                    _memo(("pairs",), lambda: _png(sv.half_matrix_figure(result.statevector, result.n_qubits))),
+                    use_container_width=True,
+                )

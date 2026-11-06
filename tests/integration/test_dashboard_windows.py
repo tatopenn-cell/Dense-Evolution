@@ -146,12 +146,14 @@ def test_step_by_step_is_a_window_and_the_gate_is_chosen_on_the_left(app):
     assert "Step by step" not in _results_tabs(app)
     app.sidebar.toggle(key="steps_on").set_value(True).run()
     app.sidebar.number_input(key="sota_step").set_value(2).run()
+    _run(app)
     assert "Step by step" in _results_tabs(app)
     assert any("Gate 2 of" in c.value for c in app.main.caption)
 
 
 def test_exact_probabilities_replace_the_sampled_histogram(app):
     app.sidebar.toggle(key="prob_exact").set_value(True).run()
+    _run(app)
     app.main.radio(key="nav_section").set_value("Results").run()
     assert any("Exact probabilities" in c.value for c in app.main.caption)
 
@@ -167,3 +169,23 @@ def test_the_results_circuit_tab_lists_the_shots_one_by_one(app):
 
 def test_export_window_is_in_the_left_panel(app):
     assert "Export" in [e.label for e in app.sidebar.expander]
+
+
+def test_a_click_on_the_left_panel_does_not_start_any_calculation(app):
+    first = app.session_state["result"]
+    app.sidebar.toggle(key="zne_on").set_value(True).run()
+    app.sidebar.slider(key="run_noise_p").set_value(0.3).run()
+    app.sidebar.toggle(key="chem_on").set_value(True).run()
+    assert app.session_state["result"] is first
+    assert app.session_state.get("zne_result") is None
+    assert app.session_state.get("vqe_result") is None
+
+
+def test_results_are_drawn_once_per_run_and_kept_for_the_clicks_after(app):
+    app.main.radio(key="nav_section").set_value("Results").run()
+    cache = app.session_state["_view_cache"]
+    assert ("circuit",) in cache and ("qsphere",) in cache
+    png = cache[("circuit",)]
+    app.main.radio(key="nav_section").set_value("Build").run()
+    app.main.radio(key="nav_section").set_value("Results").run()
+    assert app.session_state["_view_cache"][("circuit",)] is png

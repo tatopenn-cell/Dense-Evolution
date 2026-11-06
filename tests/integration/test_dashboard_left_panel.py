@@ -45,6 +45,7 @@ def test_running_from_results_stays_in_results(app):
 def test_entropy_of_a_bell_pair_is_shown_when_its_toggle_is_on(app):
     assert "State analysis" in [e.label for e in app.sidebar.expander]
     app.sidebar.toggle(key="entropy_on").set_value(True).run()
+    _run_button(app).click().run()
     app.main.radio(key="nav_section").set_value("Results").run()
     assert "Entropy & mutual information" in [tab.label for tab in app.main.tabs]
     values = {m.label: float(m.value) for m in app.main.metric if m.label.endswith("(nat)")}
