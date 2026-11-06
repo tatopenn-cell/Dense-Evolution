@@ -30,7 +30,7 @@ jobs:
         shell: pwsh
         run: |
           $d = "$env:USERPROFILE\DenseEvolutionDashboard"
-          foreach ($f in @("$d\app.py", "$d\launch-dashboard.bat",
+          foreach ($f in @("$d\app.py", "$d\circuit_tools.py", "$d\launch-dashboard.bat",
                            "$env:USERPROFILE\Desktop\Dense-Evolution Dashboard (Streamlit).lnk",
                            "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Dense-Evolution Dashboard (Streamlit).lnk")) {
             if (-not (Test-Path $f)) { Write-Error "missing: $f"; exit 1 }
@@ -81,7 +81,7 @@ jobs:
         run: printf 's\nS\nn\n' | bash tools/installer/install-dashboard.sh
       - name: Files and shortcut exist
         run: |
-          test -f ~/.dense-evolution-dashboard/app.py && test -f ~/.dense-evolution-dashboard/sota_views.py && test -f ~/.dense-evolution-dashboard/circuit_editor.py
+          test -f ~/.dense-evolution-dashboard/app.py && test -f ~/.dense-evolution-dashboard/sota_views.py && test -f ~/.dense-evolution-dashboard/circuit_editor.py && test -f ~/.dense-evolution-dashboard/circuit_tools.py
           test -x ~/.dense-evolution-dashboard/launch-dashboard.sh
           ls ~/Desktop | grep -q "Dense-Evolution Dashboard (Streamlit)"
       - name: Launcher starts the app

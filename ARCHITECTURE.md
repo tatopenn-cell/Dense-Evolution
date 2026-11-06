@@ -33,7 +33,7 @@ had been missing it). Every new MCP tool is a thin wrapper: kernel endpoint in
 `local_site/app/server.py` calling a `dashboard_core` function calling the real
 `dense_evolution`/`ia_utils` code above — no logic lives in the MCP layer itself.
 The same `tools/dashboard/` folder also holds the offline Streamlit Dashboard (`app.py`,
-`circuit_editor.py`, `engine_explorer.py`, `sota_views.py`), promoted from
+`circuit_editor.py`, `circuit_tools.py`, `engine_explorer.py`, `sota_views.py`), promoted from
 Dense-Evolution-Discovery, with its installers in `tools/installer/` and the
 `dashboard-installers` workflow; `tools/ia_utils/` holds the RAG/vector-healing utilities.
 

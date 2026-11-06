@@ -28,9 +28,7 @@ import dense_evolution
 import streamlit as st
 
 import dashboard_core as dc
-from dashboard_core.input_values import qubits_in_qasm, with_input_values
-from dashboard_core.result_tables import outcome_rows
-from dashboard_core.topology_qasm import topology_qasm
+from circuit_tools import outcome_rows, qubits_in_qasm, topology_qasm, with_input_values
 import sota_views as sv
 import engine_explorer as ex
 import circuit_editor as ce

@@ -69,6 +69,7 @@ powershell -NoProfile -Command "try { Invoke-WebRequest -Uri '%APP_URL%' -OutFil
 powershell -NoProfile -Command "try { Invoke-WebRequest -Uri '%APP_URL:app.py=sota_views.py%' -OutFile '%INSTALL_DIR%\sota_views.py' -UseBasicParsing } catch { exit 1 }" >nul 2>&1
 powershell -NoProfile -Command "try { Invoke-WebRequest -Uri '%APP_URL:app.py=engine_explorer.py%' -OutFile '%INSTALL_DIR%\engine_explorer.py' -UseBasicParsing } catch { exit 1 }" >nul 2>&1
 powershell -NoProfile -Command "try { Invoke-WebRequest -Uri '%APP_URL:app.py=circuit_editor.py%' -OutFile '%INSTALL_DIR%\circuit_editor.py' -UseBasicParsing } catch { exit 1 }" >nul 2>&1
+powershell -NoProfile -Command "try { Invoke-WebRequest -Uri '%APP_URL:app.py=circuit_tools.py%' -OutFile '%INSTALL_DIR%\circuit_tools.py' -UseBasicParsing } catch { exit 1 }" >nul 2>&1
 if not exist "%INSTALL_DIR%\circuit_editor.py" (
     echo Download non riuscito ^(serve internet^).
     pause

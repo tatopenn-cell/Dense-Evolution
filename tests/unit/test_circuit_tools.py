@@ -1,8 +1,69 @@
-"""Tests of the OpenQASM of an entangling layer, on edges written by hand."""
+"""Tests of the helpers of the Build page, on values written by hand."""
 import re
 
 import pytest
-from dashboard_core.topology_qasm import topology_qasm
+from dashboard.circuit_tools import (
+    outcome_rows,
+    qubits_in_qasm,
+    topology_qasm,
+    with_input_values,
+)
+
+BELL = (
+    'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[2];\ncreg c[2];\n'
+    "h q[0];\ncx q[0],q[1];\nmeasure q -> c;\n"
+)
+HEAD = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[2];\ncreg c[2];\n'
+TAIL = "h q[0];\ncx q[0],q[1];\nmeasure q -> c;\n"
+
+
+def test_x_line_goes_after_the_declarations_and_before_the_gates():
+    assert with_input_values(BELL, [1]) == HEAD + "x q[1];\n" + TAIL
+
+
+def test_no_qubit_returns_the_text_unchanged():
+    assert with_input_values(BELL, []) == BELL
+
+
+def test_lines_are_in_increasing_order_of_the_index():
+    assert with_input_values(BELL, [1, 0]) == HEAD + "x q[0];\nx q[1];\n" + TAIL
+
+
+def test_an_index_out_of_range_is_ignored():
+    assert with_input_values(BELL, [5]) == BELL
+
+
+def test_a_negative_index_and_a_text_with_no_qreg_are_refused():
+    with pytest.raises(ValueError, match="-1"):
+        with_input_values(BELL, [-1])
+    with pytest.raises(ValueError, match="qreg"):
+        with_input_values("OPENQASM 2.0;\n", [0])
+
+
+def test_qubits_in_qasm():
+    assert qubits_in_qasm("OPENQASM 2.0;\nqreg q[2];\n") == 2
+    assert qubits_in_qasm("OPENQASM 2.0;\n") == 0
+
+
+def test_rows_are_most_frequent_first():
+    assert outcome_rows({"11": 497, "00": 503}) == [
+        {"outcome": "00", "shots": 503, "probability": 0.503},
+        {"outcome": "11", "shots": 497, "probability": 0.497},
+    ]
+
+
+def test_equal_shots_are_sorted_by_outcome():
+    rows = outcome_rows({"10": 5, "01": 5, "00": 5})
+    assert [row["outcome"] for row in rows] == ["00", "01", "10"]
+
+
+def test_probabilities_sum_to_one():
+    rows = outcome_rows({"000": 3, "001": 7, "111": 90})
+    assert sum(row["probability"] for row in rows) == pytest.approx(1.0, abs=1e-12)
+
+
+def test_empty_counts_give_no_row():
+    assert outcome_rows({}) == []
 
 
 def _edges(text, gate="cx"):
