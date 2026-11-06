@@ -17,6 +17,8 @@ import dense_evolution as de
 from dense_evolution.circuits.topology import VALID_PATTERNS
 
 __all__ = [
+    "min_qubits",
+    "with_qubit_count",
     "measurement_rows",
     "outcome_rows",
     "qiskit_code",
@@ -283,3 +285,91 @@ def state_csv(statevector: Sequence[complex], n_qubits: int) -> str:
         amp = complex(amp)
         rows.append(f"{format(i, f'0{n_qubits}b')},{amp.real!r},{amp.imag!r},{abs(amp) ** 2!r}")
     return "\n".join(rows) + "\n"
+
+
+def min_qubits(qasm: str) -> int:
+    """Fewest qubits a circuit can have: the highest qubit its gates use, plus one.
+
+    Args:
+        qasm: the OpenQASM 2.0 text.
+
+    Returns:
+        The highest index written in a gate line plus one, at least 1.
+
+    Examples:
+        >>> min_qubits('qreg q[5];\\ncreg c[5];\\nh q[0];\\ncx q[0],q[2];\\n')
+        3
+        >>> min_qubits('qreg q[4];\\n')
+        1
+    """
+    used = [
+        int(i)
+        for line in qasm.splitlines()
+        if not _HEAD.match(line)
+        for i in re.findall(r"\[\s*(\d+)\s*\]", line)
+    ]
+    return max(used) + 1 if used else 1
+
+
+def dense_qubit_cap(
+    available_mb: float,
+    total_mb: float,
+    threshold: float = 0.15,
+    negligible_mb: float = 512.0,
+    ceiling: int = 30,
+) -> int:
+    """Largest register a dense statevector can have on this machine.
+
+    The rule is the one of ``SafeMemoryGuard.check_allocation``: after allocating the
+    ``2 ** n`` complex128 amplitudes, ``threshold`` of the total RAM must still be free;
+    an allocation under ``negligible_mb`` is always allowed while that much RAM is free.
+
+    Args:
+        available_mb: free RAM now, in MB.
+        total_mb: total RAM, in MB.
+        threshold: share of the total RAM that must stay free (the guard uses 15%).
+        negligible_mb: size below which the guard does not check.
+        ceiling: the largest size the dense simulator is meant for.
+
+    Returns:
+        The largest qubit count that passes, at least 1.
+
+    Examples:
+        >>> dense_qubit_cap(8000, 16000)
+        28
+        >>> dense_qubit_cap(300, 300)
+        23
+    """
+    n = 1
+    while n < ceiling:
+        need = 2 ** (n + 1) * 16 / 1e6
+        if need < negligible_mb and available_mb > negligible_mb:
+            fits = True
+        else:
+            left = available_mb - need
+            fits = left >= 0 and left / total_mb >= threshold
+        if not fits:
+            break
+        n += 1
+    return n
+
+
+def with_qubit_count(qasm: str, n_qubits: int) -> str:
+    """The same circuit with the first ``qreg`` and the first ``creg`` set to ``n_qubits``.
+
+    Args:
+        qasm: the OpenQASM 2.0 text.
+        n_qubits: the new size of the registers.
+
+    Returns:
+        The text with both sizes changed; the gates are not touched.
+
+    Examples:
+        >>> with_qubit_count('qreg q[2];\\ncreg c[2];\\nh q[0];\\n', 4)
+        'qreg q[4];\\ncreg c[4];\\nh q[0];\\n'
+    """
+    for reg in ("qreg", "creg"):
+        qasm = re.sub(
+            rf"({reg}[ \t]+\w+[ \t]*\[)[ \t]*\d+([ \t]*\])", rf"\g<1>{n_qubits}\g<2>", qasm, count=1
+        )
+    return qasm

@@ -32,8 +32,9 @@ import streamlit as st
 
 import dashboard_core as dc
 from circuit_tools import (
-    measurement_rows, outcome_rows, qiskit_code, qubits_in_qasm, state_csv, topology_qasm,
-    with_input_values,
+    dense_qubit_cap, measurement_rows, min_qubits, outcome_rows, qiskit_code, qubits_in_qasm,
+    state_csv,
+    topology_qasm, with_input_values, with_qubit_count,
 )
 import sota_views as sv
 import engine_explorer as ex
@@ -296,10 +297,76 @@ def _show_in_editor(res):
     )
 
 
+_SCALABLE = (
+    ("Bell", "ghz", 2),
+    ("Superposition", "superposition", 1),
+    ("GHZ", "ghz", 2),
+    ("Quantum Fourier", "qft", 1),
+    ("Random circuit", "random", 2),
+    ("Entangling linear", "linear", 2),
+    ("Entangling ring", "circular", 3),
+    ("Entangling full", "full", 2),
+    ("Entangling star", "star", 2),
+    ("Entangling brick", "brick", 2),
+)
+
+
+def _family(preset):
+    for prefix, family, smallest in _SCALABLE:
+        if preset.startswith(prefix):
+            return family, smallest
+    return None
+
+
+def _family_qasm(family, n):
+    if family == "ghz":
+        ops = de_ghz(n)
+    elif family == "qft":
+        ops = dense_evolution.qft(n)
+    elif family == "random":
+        ops = dense_evolution.random_circuit(n, 2 * n + 2, seed=7)
+    elif family == "superposition":
+        ops = [("h", q) for q in range(n)]
+    else:
+        ops = [("h", q) for q in range(n)] + dense_evolution.entangling_layer(n, pattern=family)
+    return dc.gate_tuples_to_qasm(ops, n)
+
+
+def de_ghz(n):
+    return dense_evolution.ghz_state(n)
+
+
+_MPS_CAP = {"star": 500, "full": 60, "qft": 100, "random": 60}
+_MPS_SIZES = (32, 40, 48, 64, 100, 128, 200, 256, 300, 500, 750, 1000, 1250, 1500)
+
+
+def _qubit_steps(smallest, keep, family=None):
+    largest = _MPS_CAP.get(family, 1500)
+    sizes = [*range(1, 9), *range(10, 33, 2), *_MPS_SIZES]
+    return sorted({n for n in sizes if smallest <= n <= largest} | {keep})
+
+
+def _qasm_key(preset, n):
+    return f"qasm_text__{preset}__{n}" if _family(preset) else f"qasm_text__{preset}"
+
+
+def _preset_changed():
+    preset = st.session_state["preset_select"]
+    if preset != "Custom":
+        st.session_state["qubits_select"] = qubits_in_qasm(dc.QASM_LIBRARY[preset])
+
+
+def _qubits_changed():
+    if st.session_state.get("preset_select") == "Custom":
+        bell = dc.QASM_LIBRARY["Bell state (2 qubit)"]
+        text = st.session_state.get("qasm_text__Custom", bell)
+        st.session_state["qasm_text__Custom"] = with_qubit_count(text, int(st.session_state["qubits_select"]))
+
+
 def _current_qasm():
     preset = st.session_state.get("preset_select", "Custom")
     default = dc.QASM_LIBRARY.get(preset, dc.QASM_LIBRARY["Bell state (2 qubit)"])
-    return st.session_state.get(f"qasm_text__{preset}", default)
+    return st.session_state.get(st.session_state.get("_qasm_key", f"qasm_text__{preset}"), default)
 
 
 def _on_run():
@@ -495,20 +562,50 @@ with st.sidebar:
     st.markdown(
         '<style>[data-testid="stSidebar"] [data-testid="stVerticalBlock"]{gap:0.25rem}'
         '[data-testid="stSidebarUserContent"]{padding-top:1rem}'
-        '.st-key-run_button{position:sticky;top:0;z-index:10;'
+        '.st-key-qubits_box{position:sticky;top:0;z-index:11;'
+        'background:var(--secondary-background-color,#f0f2f6)}'
+        '.st-key-run_button{position:sticky;top:5rem;z-index:10;'
         'background:var(--secondary-background-color,#f0f2f6)}</style>',
         unsafe_allow_html=True,
     )
+    qubit_slot = st.container(key="qubits_box")
     preset_name = st.selectbox(
         "Preset", ["Custom"] + list(dc.QASM_LIBRARY.keys()), key="preset_select",
+        on_change=_preset_changed,
     )
+    ram = dense_evolution.chunk.SafeMemoryGuard().status()
+    dense_cap = dense_qubit_cap(ram["available_mb"], ram["total_mb"])
+    family = _family(preset_name)
+    if preset_name == "Custom":
+        shown = st.session_state.get("qasm_text__Custom", dc.QASM_LIBRARY["Bell state (2 qubit)"])
+        now = qubits_in_qasm(shown)
+        steps = _qubit_steps(min_qubits(shown), now)
+    else:
+        now = qubits_in_qasm(dc.QASM_LIBRARY[preset_name])
+        steps = _qubit_steps(family[1], now, family[0]) if family else [now]
+    if st.session_state.get("qubits_select") not in steps:
+        st.session_state["qubits_select"] = now if now in steps else steps[0]
+    with qubit_slot:
+        n_chosen = st.select_slider(
+            "Qubits", options=steps, key="qubits_select", disabled=len(steps) == 1,
+            on_change=_qubits_changed,
+            format_func=lambda n: f"{n} · MPS" if n > dense_cap else str(n),
+            help=f"Dense up to {dense_cap} qubits on this machine (15% of the RAM stays free); "
+                 "beyond that the circuit runs on MPS and Run lists its most probable states. A "
+                 "circuit cannot have fewer qubits than its gates use, and some presets have a "
+                 "fixed size.",
+        )
+    st.session_state["_qasm_key"] = _qasm_key(preset_name, n_chosen)
     with st.form("run_form", border=False):
         run_clicked = st.form_submit_button(
             "▶ Run", type="primary", width="stretch", key="run_button", on_click=_on_run,
         )
-        default_qasm = dc.QASM_LIBRARY.get(preset_name, dc.QASM_LIBRARY["Bell state (2 qubit)"])
+        default_qasm = (
+            _family_qasm(family[0], n_chosen) if family
+            else dc.QASM_LIBRARY.get(preset_name, dc.QASM_LIBRARY["Bell state (2 qubit)"])
+        )
         qasm_text = st.text_area(
-            "OpenQASM 2.0", value=default_qasm, height=120, key=f"qasm_text__{preset_name}",
+            "OpenQASM 2.0", value=default_qasm, height=120, key=st.session_state["_qasm_key"],
         )
         col_shots, col_seed = st.columns(2)
         n_shots = col_shots.number_input("Shots", min_value=1, max_value=100_000, value=1000, step=100)
@@ -717,7 +814,7 @@ if run_clicked:
     st.session_state["_run_seed"] = int(seed)
     st.session_state["large_mps_result"] = None
     try:
-        if run_backend == "mps" and n_input > dc.MPS_DENSE_CONTRACTION_LIMIT:
+        if n_input > dc.MPS_DENSE_CONTRACTION_LIMIT and (run_backend == "mps" or n_input > dense_cap):
             st.session_state["large_mps_result"] = dc.run_large_circuit_mps(
                 run_qasm, k=int(st.session_state["large_k"]), seed=int(seed),
             )

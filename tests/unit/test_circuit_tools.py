@@ -166,3 +166,19 @@ def test_state_csv_of_a_bell_pair():
     assert lines[0] == "state,re,im,probability"
     assert [line.split(",")[0] for line in lines[1:]] == ["00", "01", "10", "11"]
     assert float(lines[1].split(",")[3]) == pytest.approx(0.5)
+
+
+def test_the_smallest_register_is_the_highest_qubit_used_plus_one():
+    assert ct.min_qubits("qreg q[5];\ncreg c[5];\nh q[0];\ncx q[0],q[2];\n") == 3
+    assert ct.min_qubits("qreg q[4];\n") == 1
+
+
+def test_the_register_size_changes_in_both_declarations_and_nothing_else():
+    text = "qreg q[2];\ncreg c[2];\nh q[0];\n"
+    assert ct.with_qubit_count(text, 4) == "qreg q[4];\ncreg c[4];\nh q[0];\n"
+
+
+def test_dense_cap_keeps_fifteen_percent_of_the_ram_free():
+    assert ct.dense_qubit_cap(8000, 16000) == 28
+    assert ct.dense_qubit_cap(300, 300) == 23
+    assert ct.dense_qubit_cap(16000, 16000, ceiling=20) == 20
