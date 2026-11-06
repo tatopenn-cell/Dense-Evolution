@@ -30,7 +30,7 @@ def _results_tabs(app):
 
 def test_windows_are_in_the_left_panel_and_off_by_default(app):
     labels = [e.label for e in app.sidebar.expander]
-    for name in ("Noise analysis", "Entropy & magic", "MPS convergence"):
+    for name in ("Noise", "State analysis"):
         assert name in labels
     for key in ("zne_on", "dm_on", "magic_on", "bc_on"):
         assert app.sidebar.toggle(key=key).value is False
@@ -42,6 +42,8 @@ def test_old_sections_are_gone_from_the_top_menu(app):
     options = list(app.main.radio(key="nav_section").options)
     for gone in (
         "Magic & Divergences",
+        "Noise",
+        "Import Circuit",
         "Large Systems",
         "Chemistry",
         "Dynamics",
@@ -49,7 +51,7 @@ def test_old_sections_are_gone_from_the_top_menu(app):
         "QEC",
     ):
         assert gone not in options
-    assert options == ["Build", "Results", "Noise", "Import Circuit", "System", "All functions"]
+    assert options == ["Build", "Results", "System", "All functions"]
 
 
 def test_magic_window_adds_a_results_tab_computed_by_run(app):
@@ -98,3 +100,31 @@ def test_mps_beyond_the_dense_limit_lists_the_top_states(app):
     assert not app.exception
     assert app.session_state["result"] is None
     assert app.session_state["large_mps_result"].n_qubits == 30
+
+
+def test_cosmic_ray_burst_runs_the_main_circuit_under_the_burst_profile(app):
+    app.sidebar.toggle(key="burst_on").set_value(True).run()
+    _run(app)
+    assert app.session_state["burst_error"] is None, app.session_state["burst_error"]
+    rows = app.session_state["burst_result"]["rows"]
+    assert len(rows) == 4
+    assert all(0.0 <= row["fidelity"] <= 1.0 for row in rows)
+    assert rows[-1]["fidelity"] >= rows[2]["fidelity"]
+    assert "Cosmic-ray burst" in _results_tabs(app)
+
+
+def test_oscillating_noise_uses_the_zne_strength(app):
+    app.sidebar.toggle(key="osc_on").set_value(True).run()
+    _run(app)
+    out = app.session_state["osc_result"]
+    assert out.base_p == app.sidebar.slider(key="zne_noise_p").value
+    assert out.p_eff[0] == pytest.approx(out.base_p)
+    assert "Oscillating noise" in _results_tabs(app)
+
+
+def test_hardware_calibration_lists_the_error_rates(app):
+    pytest.importorskip("qiskit_ibm_runtime")
+    app.sidebar.toggle(key="cal_on").set_value(True).run()
+    _run(app)
+    assert app.session_state["cal_error"] is None, app.session_state["cal_error"]
+    assert len(app.session_state["cal_result"]) > 0

@@ -31,10 +31,10 @@ def test_toggle_is_in_the_main_area_and_not_in_the_sidebar(app):
         app.sidebar.toggle(key="advanced_mode")
 
 
-def test_advanced_mode_adds_the_four_advanced_sections(app):
+def test_advanced_mode_adds_the_two_advanced_sections(app):
     assert len(app.main.radio(key="nav_section").options) == 2
     app.main.toggle(key="advanced_mode").set_value(True).run()
-    assert len(app.main.radio(key="nav_section").options) == 6
+    assert len(app.main.radio(key="nav_section").options) == 4
 
 
 def test_choosing_a_section_shows_its_page(app):
@@ -47,7 +47,7 @@ def test_choosing_a_section_shows_its_page(app):
 
 def test_switching_advanced_mode_off_returns_to_build(app):
     app.main.toggle(key="advanced_mode").set_value(True).run()
-    app.main.radio(key="nav_section").set_value("Noise").run()
-    assert app.main.radio(key="nav_section").value == "Noise"
+    app.main.radio(key="nav_section").set_value("System").run()
+    assert app.main.radio(key="nav_section").value == "System"
     app.main.toggle(key="advanced_mode").set_value(False).run()
     assert app.main.radio(key="nav_section").value == "Build"

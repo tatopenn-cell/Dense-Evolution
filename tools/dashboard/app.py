@@ -1,20 +1,19 @@
 """
 Dense Evolution - Interactive Dashboard (entrypoint)
 ------------------------------------------------------------
-Sidebar organized into grouped sections instead of a single flat row of
-tabs. Base sections (Build / Results) are
-always visible; an "Advanced mode" toggle in the sidebar reveals the rest
-(Noise profiles /
-Import Circuit / All functions): a first-time visitor sees 2 sections.
-ZNE, density-matrix channel, Magic, MPS convergence, Chemistry (with Dynamics),
-Wormhole, error correction and condensed matter are windows of the left panel
-(On/Off), computed by the single Run button; the circuit stays fixed (Chemistry
-On loads the VQE ansatz into it, Off restores the previous circuit).
+Two pages, Build and Results; an "Advanced mode" toggle adds System and
+All functions. Every analysis is a window of the left panel with an On/Off
+toggle, computed by the single Run button on the fixed circuit: State
+analysis (entropy, magic, MPS convergence), Noise (ZNE, density-matrix
+channel, cosmic-ray burst, oscillating noise, hardware calibration),
+Chemistry (VQE, dynamics, vector healing), Protocols (wormhole, error
+correction) and Condensed matter. Chemistry On loads the VQE ansatz into the
+circuit, Off restores the previous one.
 
 Every number shown here comes from a run of dense_evolution's engine
 (dashboard_core + dense_evolution's public API). A free-text "paste
 Qiskit/PennyLane code" importer would need to exec() arbitrary Python, so
-the Import Circuit section is limited to a fixed Qiskit fake backend.
+the hardware-calibration window is limited to a fixed Qiskit fake backend.
 
 Run with:
     pip install streamlit
@@ -58,7 +57,7 @@ st.set_page_config(
 
 _BASE_SECTIONS = ["Build", "Results"]
 _ADVANCED_SECTIONS = [
-    "Noise", "Import Circuit", "System", "All functions",
+    "System", "All functions",
 ]
 
 col_title, col_nav = st.columns([1, 1])
@@ -86,7 +85,7 @@ _TOUR_STEPS = [
     (
         "🔀 Simple / Advanced mode",
         "The **\"Advanced mode\"** toggle at the top of the sidebar shows or "
-        "hides the specialist pages (noise profiles, hardware calibration, ...). "
+        "hides the technical pages (system information, all engine functions). "
         "Start in Simple mode: Build and Results are enough for a first circuit.",
     ),
     (
@@ -194,6 +193,42 @@ def _store(key, job):
         st.session_state[f"{key}_result"] = job()
     except Exception as exc:
         st.session_state[f"{key}_error"] = str(exc)
+
+
+def _job_burst():
+    res = st.session_state.get("result")
+    if res is None:
+        raise ValueError("run a dense circuit first")
+    gamma = float(st.session_state["cosmic_gamma"])
+    burst = dc.run_cosmic_ray_burst(gamma)
+    rows = []
+    for t, prob in zip(burst.times_us, burst.decay_probabilities):
+        noisy = dc.run_circuit_from_qasm(
+            st.session_state["_run_qasm"], n_shots=int(st.session_state["_run_shots"]),
+            seed=int(st.session_state["_run_seed"]), noise_model="amplitude_damping",
+            noise_p=min(float(prob), 1.0),
+        )
+        rows.append({"time_us": t, "decay_probability": prob, "fidelity": noisy.fidelity_vs_ideal})
+    return {"rows": rows, "peak_ratio": burst.peak_ratio}
+
+
+def _job_oscillating():
+    base = float(st.session_state["zne_noise_p"])
+    return dc.run_oscillating_noise(base, float(st.session_state["osc_freq"]), float(st.session_state["osc_amp"]))
+
+
+def _job_calibration():
+    from qiskit_ibm_runtime.fake_provider import FakeSherbrooke
+
+    return dense_evolution.noise_model_from_qiskit_backend(FakeSherbrooke())
+
+
+def _job_heal():
+    vqe = st.session_state.get("vqe_result")
+    if vqe is None:
+        raise ValueError("turn Chemistry On and press ▶ Run first: it gives the trajectory to heal")
+    vectors = np.asarray(vqe["energy_history"], dtype=np.float64).reshape(-1, 1)
+    return {"original": vectors[:, 0].tolist(), "healed": dc.run_vector_healing(vectors)}
 
 
 def _job_landscape():
@@ -382,7 +417,7 @@ with st.sidebar:
             "→ Load into the Circuit Editor", on_click=_load_qasm, args=(topo_text,),
             disabled=topo_text is None, key="topo_load",
         )
-    with st.expander("Entropy & magic"):
+    with st.expander("State analysis"):
         previous_result = st.session_state.get("result")
         qa_text = st.text_input("Subsystem A (comma-separated indices)", value="0", key="entropy_a")
         qb_text = st.text_input(
@@ -396,7 +431,11 @@ with st.sidebar:
             "Magic: qubit (Qiskit numbering)", min_value=0, max_value=max(n_input - 1, 0), step=1,
             key="magic_qubit",
         )
-    with st.expander("Noise analysis"):
+        st.toggle("MPS convergence", key="bc_on")
+        st.text_input("Pauli observable (empty: Z on qubit 0)", key="bc_observable")
+        st.text_input("Bonds (increasing, comma-separated)", value="4,8,16,32", key="bc_bonds")
+        st.number_input("Tolerance", 1e-6, 1.0, 1e-3, format="%.6f", key="bc_tol")
+    with st.expander("Noise"):
         st.toggle("ZNE mitigation", key="zne_on")
         st.text_input("Pauli observable (empty: Z on every qubit)", key="zne_pauli")
         st.selectbox(
@@ -409,11 +448,14 @@ with st.sidebar:
         st.toggle("Density-matrix channel", key="dm_on")
         st.selectbox("Channel", ["global_depolarizing", "amplitude_damping"], key="dm_channel")
         st.slider("Channel parameter", 0.0, 1.0, 0.1, key="dm_param")
-    with st.expander("MPS convergence"):
-        st.toggle("On", key="bc_on")
-        st.text_input("Pauli observable (empty: Z on qubit 0)", key="bc_observable")
-        st.text_input("Bonds (increasing, comma-separated)", value="4,8,16,32", key="bc_bonds")
-        st.number_input("Tolerance", 1e-6, 1.0, 1e-3, format="%.6f", key="bc_tol")
+        st.toggle("Cosmic-ray burst on the circuit", key="burst_on")
+        st.number_input(
+            "Baseline decay probability", 0.0, 1.0, 0.01, format="%.4f", key="cosmic_gamma",
+        )
+        st.toggle("Oscillating noise (on the ZNE scale factors)", key="osc_on")
+        st.slider("freq", 0.1, 5.0, 1.0, key="osc_freq")
+        st.slider("amp", 0.0, 0.5, 0.1, key="osc_amp")
+        st.toggle("Hardware calibration (FakeSherbrooke)", key="cal_on")
     with st.expander("Chemistry"):
         st.toggle("On: the circuit becomes the VQE ansatz", key="chem_on", on_change=_chem_toggled)
         st.selectbox("Molecule", list(_cached_all_molecules().keys()), key="mol_select")
@@ -434,8 +476,9 @@ with st.sidebar:
         st.slider("MD steps", 1, 50, 10, key="md_n_steps")
         st.number_input("dt_fs", value=0.5, format="%.3f", key="md_dt_fs")
         st.checkbox("Recompute the electronic state at every step (slower)", key="md_recompute")
-    with st.expander("Wormhole"):
-        st.toggle("On", key="wh_on")
+        st.toggle("Heal the VQE energy trajectory", key="heal_on")
+    with st.expander("Protocols"):
+        st.toggle("Wormhole", key="wh_on")
         st.select_slider("n_majorana", options=[8, 12, 16, 20], value=8, key="wh_n_majorana")
         st.slider("k_terms", 4, 20, 10, key="wh_k_terms")
         st.number_input("J", value=1.4142, format="%.4f", key="wh_J")
@@ -450,8 +493,7 @@ with st.sidebar:
                 float(st.session_state["wh_J"]),
             )
         st.caption(f"Seed in use: {st.session_state.get('wh_seed', 61)}")
-    with st.expander("Error correction"):
-        st.toggle("On", key="qec_on")
+        st.toggle("Error correction", key="qec_on")
         st.text_area(
             "Stabilizer generators (one per line; default: the [[5,1,3]] code)",
             value=QEC_DEFAULT_STABILIZERS, height=100, key="qec_stabilizers",
@@ -469,6 +511,9 @@ with st.sidebar:
 
 if run_clicked:
     run_qasm = with_input_values(qasm_text, st.session_state.get("input_ones", []))
+    st.session_state["_run_qasm"] = run_qasm
+    st.session_state["_run_shots"] = int(n_shots)
+    st.session_state["_run_seed"] = int(seed)
     st.session_state["large_mps_result"] = None
     try:
         if run_backend == "mps" and n_input > dc.MPS_DENSE_CONTRACTION_LIMIT:
@@ -527,6 +572,10 @@ if run_clicked:
         ("qec", st.session_state.get("qec_on"), _job_qec),
         ("cm", st.session_state.get("cm_on"), _job_condensed),
         ("hub", st.session_state.get("hub_on"), _job_hubbard),
+        ("burst", st.session_state.get("burst_on"), _job_burst),
+        ("osc", st.session_state.get("osc_on"), _job_oscillating),
+        ("cal", st.session_state.get("cal_on"), _job_calibration),
+        ("heal", st.session_state.get("heal_on"), _job_heal),
     ):
         if active:
             _store(key, job)
@@ -669,6 +718,15 @@ def _show_chemistry():
                     "possible plateau or local minimum, not necessarily the global minimum. "
                     "Try fewer n_layers or the UCCSD ansatz."
                 )
+    if st.session_state.get("heal_on"):
+        st.subheader("Vector healing")
+        heal = _show_analysis("heal")
+        if heal is not None:
+            st.line_chart({"original": heal["original"], "healed": [v[0] for v in heal["healed"].healed_vectors]})
+            st.caption(
+                f"Correction triggered: {heal['healed'].fallback_triggered} · "
+                f"reconstruction error: {heal['healed'].reconstruction_error:.4g}"
+            )
     if st.session_state.get("chem_land_on"):
         st.subheader("Energy landscape")
         land = _show_analysis("land")
@@ -765,6 +823,38 @@ def _show_condensed():
             st.metric(f"Hubbard ground-state energy ({hub[0]} qubits)", f"{hub[1]:.6f}")
 
 
+def _show_burst():
+    out = _show_analysis("burst")
+    if out is None:
+        return
+    st.dataframe(out["rows"], width="stretch")
+    st.bar_chart({f"{r['time_us']:g} us": r["fidelity"] for r in out["rows"]})
+    st.caption(
+        f"The circuit is run with amplitude damping whose strength follows the burst profile "
+        f"(peak {out['peak_ratio']:.2f}x the baseline, recovery ~25 ms; arXiv:2104.05219, "
+        "arXiv:2501.00331): fidelity against the ideal circuit at each time after the impact."
+    )
+
+
+def _show_oscillating():
+    out = _show_analysis("osc")
+    if out is None:
+        return
+    st.line_chart({"oscillating p": out.p_eff, "base p": [out.base_p] * len(out.p_eff)})
+    st.caption(
+        f"Noise strength against the scale factors {out.factors}, around the ZNE strength "
+        f"p = {out.base_p:g}. If this curve is not smooth, the smooth-noise assumption ZNE relies on breaks."
+    )
+
+
+def _show_calibration():
+    out = _show_analysis("cal")
+    if out is None:
+        return
+    st.dataframe(out[:50], width="stretch")
+    st.caption(f"{len(out)} (gate, qubit) pairs with a calibrated error rate (FakeSherbrooke, IBM Eagle 127 qubits).")
+
+
 def _active_windows(res):
     windows = (
         ("Chemistry", "chem_on", _show_chemistry),
@@ -773,6 +863,9 @@ def _active_windows(res):
         ("Density-matrix channel", "dm_on", _show_density_channel),
         ("Magic", "magic_on", lambda: _show_magic(res)),
         ("MPS convergence", "bc_on", _show_bond_convergence),
+        ("Cosmic-ray burst", "burst_on", _show_burst),
+        ("Oscillating noise", "osc_on", _show_oscillating),
+        ("Hardware calibration", "cal_on", _show_calibration),
         ("Wormhole", "wh_on", _show_wormhole),
         ("Error correction", "qec_on", _show_qec),
     )
@@ -958,67 +1051,6 @@ elif section == "Results":
                 col1.metric("S(A) (nat)", f"{s_a:.4f}")
                 col2.metric("S(B) (nat)", f"{s_b:.4f}")
                 col3.metric("I(A:B) (nat)", f"{i_ab:.4f}")
-
-
-# ── NOISE ────────────────────────────────────────────────────────────────
-elif section == "Noise":
-    st.header("Channels & physical noise")
-    tab_cosmic, tab_osc, tab_heal = st.tabs(["Cosmic-ray burst", "Oscillating noise", "Heal vector"])
-    with tab_cosmic:
-        st.caption("Reproduces an event measured on a 26-qubit chip (arXiv:2104.05219).")
-        baseline_gamma = st.number_input("baseline_gamma", value=1e-4, format="%.6f", key="cosmic_gamma")
-        if st.button("Simulate burst"):
-            cosmic_result = dc.run_cosmic_ray_burst(float(baseline_gamma))
-            st.bar_chart({str(t): p for t, p in zip(cosmic_result.times_us, cosmic_result.decay_probabilities)})
-            st.caption(f"Peak/baseline ratio: {cosmic_result.peak_ratio:.2f}x")
-    with tab_osc:
-        base_p = st.slider("base_p", 0.0, 0.5, 0.05, key="osc_base_p")
-        freq = st.slider("freq", 0.1, 5.0, 1.0, key="osc_freq")
-        amp = st.slider("amp", 0.0, 0.5, 0.1, key="osc_amp")
-        if st.button("Simulate oscillating noise"):
-            osc_result = dc.run_oscillating_noise(float(base_p), float(freq), float(amp))
-            st.line_chart({str(f): p for f, p in zip(osc_result.factors, osc_result.p_eff)})
-            st.caption("If this curve is not smooth, the smooth-noise assumption ZNE relies on breaks.")
-    with tab_heal:
-        if vqe_result := st.session_state.get("vqe_result"):
-            st.caption("Heals the energy trajectory of the last VQE run in Chemistry.")
-            if st.button("Heal vector"):
-                try:
-                    vectors = np.asarray(vqe_result["energy_history"], dtype=np.float64).reshape(-1, 1)
-                    heal_result = dc.run_vector_healing(vectors)
-                    st.line_chart({
-                        "original": [v[0] for v in vectors.tolist()],
-                        "healed": [v[0] for v in heal_result.healed_vectors],
-                    })
-                    st.caption(
-                        f"Correction triggered: {heal_result.fallback_triggered} · "
-                        f"reconstruction error: {heal_result.reconstruction_error:.4g}"
-                    )
-                except ImportError as exc:
-                    st.error(f"Requires the ia_utils package: {exc}")
-        else:
-            st.info("Turn the Chemistry window On and press ▶ Run to get a trajectory to heal.")
-
-
-# ── IMPORT CIRCUIT ───────────────────────────────────────────────────────
-elif section == "Import Circuit":
-    st.header("Noise from hardware calibration")
-    st.caption(
-        "Loads the calibrated error rates of a fixed Qiskit fake backend (FakeSherbrooke, "
-        "IBM Eagle 127 qubits). A \"paste Qiskit/PennyLane code\" importer would need to "
-        "execute arbitrary Python on the server, so it is not offered."
-    )
-    if st.button("Load FakeSherbrooke calibration"):
-        try:
-            from qiskit_ibm_runtime.fake_provider import FakeSherbrooke
-            backend = FakeSherbrooke()
-            specs = dense_evolution.noise_model_from_qiskit_backend(backend)
-            st.dataframe(specs[:50], width="stretch")
-            st.caption(f"{len(specs)} (gate, qubit) pairs with a calibrated error rate.")
-        except ImportError as exc:
-            st.error(f"Requires qiskit-ibm-runtime: {exc}")
-        except Exception as exc:
-            st.error(f"Error: {exc}")
 
 
 # ── SYSTEM ───────────────────────────────────────────────────────────────

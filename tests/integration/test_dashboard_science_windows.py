@@ -31,7 +31,7 @@ def _results_tabs(app):
 
 def test_windows_exist_and_are_off_by_default(app):
     labels = [e.label for e in app.sidebar.expander]
-    for name in ("Chemistry", "Wormhole", "Error correction", "Condensed matter"):
+    for name in ("Chemistry", "Protocols", "Condensed matter"):
         assert name in labels
     for key in ("chem_on", "dyn_on", "wh_on", "qec_on", "cm_on", "hub_on"):
         assert app.sidebar.toggle(key=key).value is False

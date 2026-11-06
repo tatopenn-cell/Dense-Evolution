@@ -27,7 +27,7 @@ def _run_button(app):
 def test_every_section_has_the_left_panel(app):
     app.main.toggle(key="advanced_mode").set_value(True).run()
     sections = list(app.main.radio(key="nav_section").options)
-    assert len(sections) == 6
+    assert len(sections) == 4
     for name in sections:
         app.main.radio(key="nav_section").set_value(name).run()
         assert not app.exception, name
@@ -44,7 +44,7 @@ def test_running_from_results_stays_in_results(app):
 
 
 def test_entropy_of_a_bell_pair_is_computed_from_the_left_panel(app):
-    assert "Entropy & magic" in [e.label for e in app.sidebar.expander]
+    assert "State analysis" in [e.label for e in app.sidebar.expander]
     app.main.radio(key="nav_section").set_value("Results").run()
     app.sidebar.button(key="entropy_run").click().run()
     s_a, s_b, i_ab = app.session_state["entropy_result"]
