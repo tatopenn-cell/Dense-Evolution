@@ -28,6 +28,9 @@ import dense_evolution
 import streamlit as st
 
 import dashboard_core as dc
+from dashboard_core.input_values import qubits_in_qasm, with_input_values
+from dashboard_core.result_tables import outcome_rows
+from dashboard_core.topology_qasm import topology_qasm
 import sota_views as sv
 import engine_explorer as ex
 import circuit_editor as ce
@@ -189,7 +192,8 @@ with st.sidebar:
 if run_clicked:
     try:
         st.session_state["result"] = dc.run_circuit_from_qasm(
-            qasm_text, n_shots=int(n_shots), seed=int(seed),
+            with_input_values(qasm_text, st.session_state.get("input_ones", [])),
+            n_shots=int(n_shots), seed=int(seed),
             noise_model=run_noise_model, noise_p=float(run_noise_p), backend=run_backend,
         )
         st.session_state["error"] = None
@@ -210,7 +214,7 @@ if section == "Build":
             else "press ▶ Run, the first button of the sidebar, to run a new circuit."
         )
     )
-    tab_circuit, tab_builder = st.tabs(["Circuit", "Graphical Editor"])
+    tab_circuit, tab_builder, tab_topology = st.tabs(["Circuit", "Graphical Editor", "Topology"])
 
     with tab_builder:
         st.caption(
@@ -223,17 +227,68 @@ if section == "Build":
                 st.session_state["n_qubits_builder"] = min(8, json.loads(st.query_params.get("circuit", "")).get("n", 3))
             except (ValueError, AttributeError):
                 st.session_state["n_qubits_builder"] = 3
-        n_qubits_builder = st.number_input(
+        col_nq, col_steps = st.columns(2)
+        n_qubits_builder = col_nq.number_input(
             "Qubits", min_value=1, max_value=8, step=1, key="n_qubits_builder",
         )
-        builder_ops = ce.circuit_editor(int(n_qubits_builder))
+        n_steps_builder = col_steps.number_input(
+            "Steps", min_value=2, max_value=24, value=12, step=1, key="n_steps_builder",
+        )
+        builder_ops = ce.circuit_editor(int(n_qubits_builder), n_columns=int(n_steps_builder))
 
         st.button("→ Load into the Circuit Editor", on_click=_load_qasm,
                   args=(dc.gate_tuples_to_qasm(dc.ops_to_native_tuples(int(n_qubits_builder), builder_ops),
                                                int(n_qubits_builder)) if builder_ops else None,),
                   disabled=not builder_ops, help="Place at least one gate on the grid first." if not builder_ops else None)
 
+    with tab_topology:
+        pattern_labels = {
+            "linear": "linear (chain)",
+            "circular": "circular (ring)",
+            "full": "full (all-to-all)",
+            "star": "star (hub)",
+            "brick": "brick (brickwork)",
+        }
+        topo_pattern = st.selectbox(
+            "Pattern", list(pattern_labels), format_func=pattern_labels.get, key="topo_pattern",
+        )
+        topo_qubits = st.number_input("Qubits", 2, 12, 5, step=1, key="topo_qubits", help="Qubits of the layer.")
+        topo_gate = st.selectbox("Gate", ["cx", "cz", "cy"], key="topo_gate")
+        topo_reverse = st.checkbox("Reverse direction", key="topo_reverse")
+        topo_hub = 0
+        if topo_pattern == "star":
+            if "topo_hub" in st.session_state:
+                st.session_state["topo_hub"] = min(st.session_state["topo_hub"], int(topo_qubits) - 1)
+            topo_hub = st.number_input(
+                "Hub qubit", min_value=0, max_value=int(topo_qubits) - 1, value=0, step=1, key="topo_hub",
+            )
+        topo_h = st.checkbox("Hadamard on every qubit first", value=True, key="topo_h")
+        try:
+            topo_text = topology_qasm(
+                int(topo_qubits), topo_pattern, gate=topo_gate, reverse=topo_reverse,
+                hub=int(topo_hub), hadamards=topo_h,
+            )
+            topo_edges = [
+                (a, b) for _, a, b in dense_evolution.entangling_layer(
+                    int(topo_qubits), pattern=topo_pattern, gate=topo_gate,
+                    reverse=topo_reverse, hub=int(topo_hub),
+                )
+            ]
+            st.caption(f"{len(topo_edges)} edges: " + ", ".join(f"({a},{b})" for a, b in topo_edges))
+        except ValueError as exc:
+            topo_text = None
+            st.error(str(exc))
+        st.button(
+            "→ Load into the Circuit Editor", on_click=_load_qasm, args=(topo_text,),
+            disabled=topo_text is None, key="topo_load",
+        )
+
     with tab_circuit:
+        n_input = qubits_in_qasm(qasm_text)
+        st.session_state["input_ones"] = [
+            i for i in st.session_state.get("input_ones", []) if i < n_input
+        ]
+        st.multiselect("Qubits that start in |1⟩", list(range(n_input)), key="input_ones")
         if result is None:
             st.info("Press ▶ Run in the sidebar to run the circuit.")
         elif error:
@@ -241,8 +296,19 @@ if section == "Build":
         else:
             col_circuit, col_probs = st.columns([3, 2])
             col_circuit.pyplot(dc.draw_circuit_figure(result.ops, result.n_qubits))
-            col_probs.caption("Probabilities (shots sampled from the statevector)")
-            col_probs.pyplot(dc.histogram_figure(result.counts))
+            tab_probs, tab_qubit, tab_outcomes = col_probs.tabs(
+                ["Probabilities", "Per qubit", "Outcomes"]
+            )
+            tab_probs.caption("Shots sampled from the statevector")
+            tab_probs.pyplot(dc.histogram_figure(result.counts))
+            tab_qubit.dataframe(
+                [
+                    {"qubit": row["qubit"], "P(1)": row["P(1)"]}
+                    for row in sv.qubit_table(result.statevector, result.n_qubits)
+                ],
+                width="stretch",
+            )
+            tab_outcomes.dataframe(outcome_rows(result.counts), width="stretch")
 
     if error:
         st.error(f"Circuit run failed: {error}")
