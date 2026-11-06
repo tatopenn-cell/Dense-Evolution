@@ -1068,13 +1068,13 @@ elif section == "Results":
             histogram = dc.histogram_figure(
                 result.counts, statevector=result.statevector if color_by_phase else None,
             )
-            histogram.set_size_inches(7, 2.4)
+            histogram.set_size_inches(8, 1.6)
             st.pyplot(histogram)
             st.caption("Q-sphere")
             sphere = dc.qsphere_figure(result.statevector)
-            sphere.set_size_inches(4, 4)
-            _, col_sphere, _ = st.columns([1, 2, 1])
-            col_sphere.pyplot(sphere)
+            sphere.set_size_inches(7, 7)
+            sphere.subplots_adjust(left=0, right=1, bottom=0, top=1)
+            st.pyplot(sphere)
         with tab_qubits:
             st.caption("One Bloch sphere per qubit, from its reduced density matrix.")
             st.pyplot(dc.bloch_multivector_figure(result.statevector))
