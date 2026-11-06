@@ -1,4 +1,4 @@
-"""The section menu and the Advanced switch of the dashboard sit in the main area."""
+"""The page menu of the dashboard sits in the main area; the windows are in the left panel."""
 import sys
 from pathlib import Path
 
@@ -25,29 +25,21 @@ def test_radio_is_in_the_main_area_and_not_in_the_sidebar(app):
         app.sidebar.radio(key="nav_section")
 
 
-def test_toggle_is_in_the_main_area_and_not_in_the_sidebar(app):
-    assert app.main.toggle(key="advanced_mode").value is False
+def test_there_is_no_advanced_switch(app):
     with pytest.raises(KeyError):
-        app.sidebar.toggle(key="advanced_mode")
+        app.main.toggle(key="advanced_mode")
+    assert "Optimize geometry (analytic dE/dR)" in [t.label for t in app.sidebar.toggle]
 
 
-def test_advanced_mode_adds_the_two_advanced_sections(app):
-    assert len(app.main.radio(key="nav_section").options) == 2
-    app.main.toggle(key="advanced_mode").set_value(True).run()
-    assert len(app.main.radio(key="nav_section").options) == 4
-
-
-def test_choosing_a_section_shows_its_page(app):
+def test_choosing_a_page_shows_it(app):
     app.main.radio(key="nav_section").set_value("Results").run()
     assert "Q-sphere" in [tab.label for tab in app.main.tabs]
-    app.main.toggle(key="advanced_mode").set_value(True).run()
-    app.main.radio(key="nav_section").set_value("All functions").run()
-    assert "All engine functions" in [h.value for h in app.main.header]
+    app.main.radio(key="nav_section").set_value("Build").run()
+    assert "Graphical Editor" in [tab.label for tab in app.main.tabs]
 
 
-def test_switching_advanced_mode_off_returns_to_build(app):
-    app.main.toggle(key="advanced_mode").set_value(True).run()
-    app.main.radio(key="nav_section").set_value("System").run()
-    assert app.main.radio(key="nav_section").value == "System"
-    app.main.toggle(key="advanced_mode").set_value(False).run()
-    assert app.main.radio(key="nav_section").value == "Build"
+def test_results_tabs_are_laid_out_in_two_fixed_rows(app):
+    app.main.radio(key="nav_section").set_value("Results").run()
+    styles = [m.value for m in app.main.markdown if "results_tabs" in m.value]
+    assert len(styles) == 1
+    assert "repeat(4,1fr)" in styles[0]

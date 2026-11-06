@@ -38,10 +38,11 @@ def test_windows_are_in_the_left_panel_and_off_by_default(app):
 
 
 def test_old_sections_are_gone_from_the_top_menu(app):
-    app.main.toggle(key="advanced_mode").set_value(True).run()
     options = list(app.main.radio(key="nav_section").options)
     for gone in (
         "Magic & Divergences",
+        "System",
+        "All functions",
         "Noise",
         "Import Circuit",
         "Large Systems",
@@ -51,7 +52,7 @@ def test_old_sections_are_gone_from_the_top_menu(app):
         "QEC",
     ):
         assert gone not in options
-    assert options == ["Build", "Results", "System", "All functions"]
+    assert options == ["Build", "Results"]
 
 
 def test_magic_window_adds_a_results_tab_computed_by_run(app):
@@ -128,3 +129,14 @@ def test_hardware_calibration_lists_the_error_rates(app):
     _run(app)
     assert app.session_state["cal_error"] is None, app.session_state["cal_error"]
     assert len(app.session_state["cal_result"]) > 0
+
+
+def test_function_explorer_runs_the_chosen_function_on_the_main_circuit(app):
+    assert "Function explorer" in [e.label for e in app.sidebar.expander]
+    assert "System" in [e.label for e in app.sidebar.expander]
+    app.sidebar.toggle(key="fn_on").set_value(True).run()
+    _run(app)
+    assert not app.exception
+    assert app.session_state["fn_error"] is None, app.session_state["fn_error"]
+    assert app.session_state["fn_result"]["name"] == app.sidebar.selectbox(key="ex_fn").value
+    assert "Function" in _results_tabs(app)

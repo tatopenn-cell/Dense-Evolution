@@ -1,13 +1,14 @@
 """
 Dense Evolution - Interactive Dashboard (entrypoint)
 ------------------------------------------------------------
-Two pages, Build and Results; an "Advanced mode" toggle adds System and
-All functions. Every analysis is a window of the left panel with an On/Off
-toggle, computed by the single Run button on the fixed circuit: State
-analysis (entropy, magic, MPS convergence), Noise (ZNE, density-matrix
-channel, cosmic-ray burst, oscillating noise, hardware calibration),
-Chemistry (VQE, dynamics, vector healing), Protocols (wormhole, error
-correction) and Condensed matter. Chemistry On loads the VQE ansatz into the
+Two pages, Build and Results. Every analysis is a window of the left panel
+with an On/Off toggle, computed by the single Run button on the fixed
+circuit: State analysis (entropy, magic, MPS convergence), Noise (ZNE,
+density-matrix channel, cosmic-ray burst, oscillating noise, hardware
+calibration), Chemistry (VQE, dynamics, vector healing), Protocols (wormhole,
+error correction), Condensed matter and the Function explorer; System shows
+the limits of the machine. Results has one tab for each window that is On,
+in two fixed rows. Chemistry On loads the VQE ansatz into the
 circuit, Off restores the previous one.
 
 Every number shown here comes from a run of dense_evolution's engine
@@ -56,20 +57,14 @@ st.set_page_config(
 )
 
 _BASE_SECTIONS = ["Build", "Results"]
-_ADVANCED_SECTIONS = [
-    "System", "All functions",
-]
 
 col_title, col_nav = st.columns([1, 1])
 col_title.subheader("⚛️ Dense Evolution — Dashboard")
-with col_nav:
-    advanced_mode = st.toggle("Advanced mode", key="advanced_mode")
-all_sections = _BASE_SECTIONS + (_ADVANCED_SECTIONS if advanced_mode else [])
-if st.session_state.get("nav_section") not in all_sections:
+if st.session_state.get("nav_section") not in _BASE_SECTIONS:
     st.session_state["nav_section"] = "Build"
-with (st.container() if advanced_mode else col_nav):
+with col_nav:
     section = st.radio(
-        "Section", all_sections, key="nav_section", horizontal=True,
+        "Section", _BASE_SECTIONS, key="nav_section", horizontal=True,
         label_visibility="collapsed",
     )
 
@@ -81,12 +76,6 @@ _TOUR_STEPS = [
         "On the left, the windows (Noise analysis, Chemistry, Wormhole, ...) have an "
         "On/Off toggle: the ones that are On run together with the circuit. Every "
         "circuit you run goes through the library's simulation engine.",
-    ),
-    (
-        "🔀 Simple / Advanced mode",
-        "The **\"Advanced mode\"** toggle at the top of the sidebar shows or "
-        "hides the technical pages (system information, all engine functions). "
-        "Start in Simple mode: Build and Results are enough for a first circuit.",
     ),
     (
         "✍️ The QASM editor",
@@ -150,6 +139,11 @@ def _load_qasm(qasm, go_to_build=False):
     st.session_state["qasm_text__Custom"] = qasm
     if go_to_build:
         st.session_state["nav_section"] = "Build"
+
+
+@st.cache_data
+def _connectable_functions():
+    return [name for name in ex.functions() if ex.connectable(name)]
 
 
 def _current_qasm():
@@ -229,6 +223,20 @@ def _job_heal():
         raise ValueError("turn Chemistry On and press ▶ Run first: it gives the trajectory to heal")
     vectors = np.asarray(vqe["energy_history"], dtype=np.float64).reshape(-1, 1)
     return {"original": vectors[:, 0].tolist(), "healed": dc.run_vector_healing(vectors)}
+
+
+def _job_function():
+    res = st.session_state.get("result")
+    if res is None:
+        raise ValueError("run a dense circuit first")
+    name = st.session_state["ex_fn"]
+    texts = {
+        p_name: st.session_state[f"ex_{name}_{p_name}"]
+        for p_name, kind, _ in ex.plan2(name) if kind == "literal"
+    }
+    qasm = dc.gate_tuples_to_qasm(res.ops, res.n_qubits)
+    out = getattr(ex.de, name)(**ex.build_args2(name, res, qasm, texts=texts))
+    return {"name": name, "doc": (ex.inspect.getdoc(getattr(ex.de, name)) or "").splitlines()[:1], "out": out}
 
 
 def _job_landscape():
@@ -468,10 +476,9 @@ with st.sidebar:
         st.number_input("Parameter A (index)", min_value=0, value=0, step=1, key="land_param_i")
         st.number_input("Parameter B (index)", min_value=0, value=1, step=1, key="land_param_j")
         st.slider("Grid resolution", 5, 41, 21, step=2, key="land_resolution")
-        if advanced_mode:
-            st.toggle("Optimize geometry (analytic dE/dR)", key="chem_geom_on")
-            st.slider("Descent steps", 1, 50, 15, key="geom_opt_steps")
-            st.number_input("Step (Bohr)", value=0.05, format="%.3f", key="geom_opt_lr")
+        st.toggle("Optimize geometry (analytic dE/dR)", key="chem_geom_on")
+        st.slider("Descent steps", 1, 50, 15, key="geom_opt_steps")
+        st.number_input("Step (Bohr)", value=0.05, format="%.3f", key="geom_opt_lr")
         st.toggle("Dynamics (forces and MD)", key="dyn_on")
         st.slider("MD steps", 1, 50, 10, key="md_n_steps")
         st.number_input("dt_fs", value=0.5, format="%.3f", key="md_dt_fs")
@@ -508,6 +515,19 @@ with st.sidebar:
         st.slider("n_sites", 2, 6, 4, key="hub_n_sites")
         st.number_input("t (hopping)", value=1.0, format="%.3f", key="hub_t")
         st.number_input("U (on-site repulsion)", value=2.0, format="%.3f", key="hub_U")
+    with st.expander("Function explorer"):
+        st.toggle("On", key="fn_on")
+        fn_name = st.selectbox("Function", _connectable_functions(), key="ex_fn")
+        for p_name, kind, _ in ex.plan2(fn_name):
+            if kind == "literal":
+                st.text_input(p_name, ex.example(fn_name, p_name), key=f"ex_{fn_name}_{p_name}")
+    with st.expander("System"):
+        limits = dc.max_safe_dense_qubits()
+        st.caption(
+            f"🖥️ {limits['available_mb']:,.0f} / {limits['total_mb']:,.0f} MB free · up to "
+            f"**{limits['max_qubits_dense']} qubits** dense · "
+            f"{limits['threshold_pct'] * 100:.0f}% of RAM stays free after every allocation"
+        )
 
 if run_clicked:
     run_qasm = with_input_values(qasm_text, st.session_state.get("input_ones", []))
@@ -576,6 +596,7 @@ if run_clicked:
         ("osc", st.session_state.get("osc_on"), _job_oscillating),
         ("cal", st.session_state.get("cal_on"), _job_calibration),
         ("heal", st.session_state.get("heal_on"), _job_heal),
+        ("fn", st.session_state.get("fn_on"), _job_function),
     ):
         if active:
             _store(key, job)
@@ -855,6 +876,36 @@ def _show_calibration():
     st.caption(f"{len(out)} (gate, qubit) pairs with a calibrated error rate (FakeSherbrooke, IBM Eagle 127 qubits).")
 
 
+def _show_function():
+    out = _show_analysis("fn")
+    if out is None:
+        return
+    st.caption(f"{out['name']}: " + " ".join(out["doc"]))
+    if hasattr(out["out"], "savefig"):
+        st.pyplot(out["out"])
+    else:
+        st.write(ex.to_display(out["out"]))
+
+
+def _two_row_tabs(labels):
+    per_row = max(1, -(-len(labels) // 2))
+    with st.container(key="results_tabs"):
+        st.markdown(
+            "<style>"
+            ".st-key-results_tabs [data-baseweb=\"tab-list\"]"
+            f"{{display:grid;grid-template-columns:repeat({per_row},1fr);overflow:visible}}"
+            ".st-key-results_tabs [data-baseweb=\"tab-highlight\"],"
+            ".st-key-results_tabs [data-baseweb=\"tab-border\"]{display:none}"
+            ".st-key-results_tabs button[role=\"tab\"]{white-space:normal;"
+            "border-bottom:2px solid transparent}"
+            ".st-key-results_tabs button[role=\"tab\"][aria-selected=\"true\"]"
+            "{border-bottom:2px solid var(--primary-color,#ff4b4b)}"
+            "</style>",
+            unsafe_allow_html=True,
+        )
+        return st.tabs(labels)
+
+
 def _active_windows(res):
     windows = (
         ("Chemistry", "chem_on", _show_chemistry),
@@ -866,6 +917,7 @@ def _active_windows(res):
         ("Cosmic-ray burst", "burst_on", _show_burst),
         ("Oscillating noise", "osc_on", _show_oscillating),
         ("Hardware calibration", "cal_on", _show_calibration),
+        ("Function", "fn_on", _show_function),
         ("Wormhole", "wh_on", _show_wormhole),
         ("Error correction", "qec_on", _show_qec),
     )
@@ -879,7 +931,7 @@ def _active_windows(res):
 
 def _show_tabs(active):
     if active:
-        for tab, (_, show) in zip(st.tabs([label for label, _ in active]), active):
+        for tab, (_, show) in zip(_two_row_tabs([label for label, _ in active]), active):
             with tab:
                 show()
 
@@ -978,7 +1030,7 @@ elif section == "Results":
             if result.fidelity_vs_ideal is not None:
                 st.caption("Fidelity = how far the noisy run is from the ideal circuit (1.0 = identical).")
         (tab_sv, tab_prob, tab_qsphere, tab_bloch, tab_entropy, tab_steps, tab_pairs, tab_qubits,
-         *tabs_active) = st.tabs(
+         *tabs_active) = _two_row_tabs(
             ["Statevector", "Probabilities", "Q-sphere", "Bloch per qubit", "Entropy & mutual information",
              "Step by step", "Qubit pairs", "Qubit summary"] + [label for label, _ in active]
         )
@@ -1053,44 +1105,3 @@ elif section == "Results":
                 col3.metric("I(A:B) (nat)", f"{i_ab:.4f}")
 
 
-# ── SYSTEM ───────────────────────────────────────────────────────────────
-elif section == "System":
-    st.header("Limits of this machine")
-    limits = dc.max_safe_dense_qubits()
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Available RAM", f"{limits['available_mb']:,.0f} MB")
-    col2.metric("Total RAM", f"{limits['total_mb']:,.0f} MB")
-    col3.metric("Max dense qubits", limits["max_qubits_dense"])
-    st.caption(
-        f"Safety threshold: {limits['threshold_pct'] * 100:.0f}% of RAM must stay free "
-        "after every allocation, computed from this machine's current memory."
-    )
-
-
-# ── ALL ENGINE FUNCTIONS ─────────────────────────────────────────────────
-if section == "All functions":
-    st.header("All engine functions")
-    if result is None:
-        st.info("Run a circuit in Build first.")
-    else:
-        names = [f for f in ex.functions() if ex.connectable(f)]
-        fname = st.selectbox("Function", names, key="ex_fn")
-        st.caption((ex.inspect.getdoc(getattr(ex.de, fname)) or "").splitlines()[0] if ex.inspect.getdoc(getattr(ex.de, fname)) else "")
-        texts = {p: st.text_input(p, ex.example(fname, p), key=f"ex_{fname}_{p}")
-                 for p, k, _ in ex.plan2(fname) if k == "literal"}
-        if st.button("Run function", key="ex_run"):
-            try:
-                qasm = dc.gate_tuples_to_qasm(result.ops, result.n_qubits)
-                out = getattr(ex.de, fname)(**ex.build_args2(fname, result, qasm, texts=texts))
-                if hasattr(out, "savefig"):
-                    st.pyplot(out)
-                else:
-                    st.write(ex.to_display(out))
-            except Exception as exc:
-                st.error(f"Error: {exc}")
-
-limits = dc.max_safe_dense_qubits()
-st.caption(
-    f"🖥️ {limits['available_mb']:,.0f} / {limits['total_mb']:,.0f} MB free · "
-    f"up to **{limits['max_qubits_dense']} qubits** dense on this machine"
-)
