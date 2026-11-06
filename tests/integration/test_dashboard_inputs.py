@@ -8,9 +8,7 @@ pytest.importorskip("streamlit")
 from streamlit.testing.v1 import AppTest  # noqa: E402
 
 DASHBOARD = Path(__file__).resolve().parents[2] / "tools" / "dashboard"
-NO_GATE = (
-    'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[2];\ncreg c[2];\nmeasure q -> c;\n'
-)
+NO_GATE = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[2];\ncreg c[2];\nmeasure q -> c;\n'
 
 
 @pytest.fixture

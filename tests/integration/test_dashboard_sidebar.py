@@ -24,5 +24,9 @@ def test_run_is_first_and_the_circuit_controls_follow(monkeypatch):
         sys.modules.pop(name, None)
     app = AppTest.from_file(str(DASHBOARD / "app.py"), default_timeout=180).run()
     assert list(_labels(app.sidebar))[:5] == [
-        "▶ Run", "Preset", "OpenQASM 2.0", "Shots", "Seed",
+        "▶ Run",
+        "Preset",
+        "OpenQASM 2.0",
+        "Shots",
+        "Seed",
     ]

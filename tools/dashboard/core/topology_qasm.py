@@ -53,9 +53,7 @@ def topology_qasm(
         raise ValueError(f"gate must be one of {_GATES}, got {gate!r}")
     if pattern == "star" and not 0 <= hub < n_qubits:
         raise ValueError(f"hub must satisfy 0 <= hub < {n_qubits}, got {hub}")
-    ops = de.entangling_layer(
-        n_qubits, pattern=pattern, gate=gate, reverse=reverse, hub=hub
-    )
+    ops = de.entangling_layer(n_qubits, pattern=pattern, gate=gate, reverse=reverse, hub=hub)
     if hadamards:
         ops = [("h", q) for q in range(n_qubits)] + ops
     return gate_tuples_to_qasm(ops, n_qubits)

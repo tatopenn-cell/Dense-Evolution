@@ -24,8 +24,7 @@ def outcome_rows(counts: dict[str, int]) -> list[dict[str, Any]]:
     if total <= 0:
         return []
     rows: list[dict[str, Any]] = [
-        {"outcome": key, "shots": int(n), "probability": n / total}
-        for key, n in counts.items()
+        {"outcome": key, "shots": int(n), "probability": n / total} for key, n in counts.items()
     ]
     rows.sort(key=lambda row: (-row["shots"], row["outcome"]))
     return rows
