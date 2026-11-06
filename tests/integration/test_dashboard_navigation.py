@@ -48,9 +48,28 @@ def test_results_tabs_are_fixed_and_wrap_onto_the_next_row(app):
 
 def test_results_fixed_tabs_group_the_related_views(app):
     app.main.radio(key="nav_section").set_value("Results").run()
-    assert [tab.label for tab in app.main.tabs] == [
-        "Circuit",
-        "Statevector",
-        "Probabilities & Q-sphere",
-        "Qubits",
-    ]
+    labels = [tab.label for tab in app.main.tabs]
+    top = [label for label in labels if label not in ("Probabilities", "Per qubit", "Outcomes")]
+    assert top == ["Circuit", "Statevector", "Probabilities & Q-sphere", "Qubits"]
+
+
+def test_theme_selector_is_at_the_top_right_with_four_themes(app):
+    box = app.main.selectbox(key="theme")
+    assert list(box.options) == ["Light", "Dark", "Pink fantasy", "Dark fantasy"]
+    assert box.value == "Light"
+    with pytest.raises(KeyError):
+        app.sidebar.selectbox(key="theme")
+
+
+def test_each_theme_changes_the_page_colors_without_breaking_it(app):
+    colors = {}
+    for name in ("Dark", "Pink fantasy", "Dark fantasy"):
+        app.main.selectbox(key="theme").set_value(name).run()
+        assert not app.exception, name
+        styles = [m.value for m in app.main.markdown if "--primary-color" in m.value]
+        assert len(styles) == 1, name
+        assert "@" not in styles[0], name
+        colors[name] = styles[0]
+    assert len(set(colors.values())) == 3
+    assert "invert" in colors["Dark"] and "invert" in colors["Dark fantasy"]
+    assert "invert" not in colors["Pink fantasy"]

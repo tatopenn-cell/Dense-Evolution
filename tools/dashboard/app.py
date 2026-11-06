@@ -58,8 +58,87 @@ st.set_page_config(
 
 _BASE_SECTIONS = ["Build", "Results"]
 
-col_title, col_nav = st.columns([1, 1])
+_THEMES = {
+    "Light": {
+        "bg": "#ffffff", "side": "#f0f2f6", "fg": "#1f2430", "inp": "#ffffff", "border": "#d0d5dd",
+        "accent": "#ff4b4b", "onaccent": "#ffffff", "radius": "8px", "invert": False,
+        "page": "#ffffff", "sidebar": "#f0f2f6", "extra": "",
+    },
+    "Dark": {
+        "bg": "#0e1117", "side": "#161b22", "fg": "#e6e6e6", "inp": "#1f2430", "border": "#30363d",
+        "accent": "#4da3ff", "onaccent": "#06101c", "radius": "8px", "invert": True,
+        "page": "#0e1117", "sidebar": "#161b22", "extra": "",
+    },
+    "Pink fantasy": {
+        "bg": "#fff0f6", "side": "#ffe0f0", "fg": "#5b3a6b", "inp": "#ffffff", "border": "#ffb3d9",
+        "accent": "#ff7ab8", "onaccent": "#ffffff", "radius": "18px", "invert": False,
+        "page": "linear-gradient(135deg,#fff0f6 0%,#e4f3ff 55%,#fdeaff 100%)",
+        "sidebar": "linear-gradient(180deg,#ffd6ea 0%,#d6ecff 100%)",
+        "extra": (
+            "button[kind=primary]{border-radius:999px!important;box-shadow:0 2px 10px #ff7ab855}"
+            "[data-testid=stExpander]{box-shadow:0 2px 12px #8fd3ff55}"
+            "h1,h2,h3{color:#c2539a!important}"
+        ),
+    },
+    "Dark fantasy": {
+        "bg": "#120816", "side": "#1c0b24", "fg": "#f5e9d8", "inp": "#2a1236", "border": "#ff7a00",
+        "accent": "#ff7a00", "onaccent": "#120816", "radius": "10px", "invert": True,
+        "page": "radial-gradient(circle at top right,#3a0d52 0%,#120816 60%)",
+        "sidebar": "linear-gradient(180deg,#240a30 0%,#0f0614 100%)",
+        "extra": (
+            "[data-testid=stSidebar]{border-right:1px solid #b026ff}"
+            "[data-testid=stExpander]{border-color:#b026ff!important}"
+            "h1,h2,h3{color:#ff7a00!important;text-shadow:0 0 10px #ff7a0088}"
+            "button[kind=primary]{box-shadow:0 0 14px #ff7a00aa}"
+            "button[role=tab][aria-selected=true]{color:#7cfc00!important}"
+        ),
+    },
+}
+
+_THEME_CSS = (
+    ":root{--primary-color:@accent@;--secondary-background-color:@side@}"
+    "[data-testid=stApp],[data-testid=stAppViewContainer],[data-testid=stHeader]"
+    "{background:@page@!important;color:@fg@}"
+    "[data-testid=stSidebar],[data-testid=stSidebar]>div{background:@sidebar@!important}"
+    "[data-testid=stApp] h1,[data-testid=stApp] h2,[data-testid=stApp] h3,[data-testid=stApp] h4,"
+    "[data-testid=stApp] p,[data-testid=stApp] label,[data-testid=stApp] li,"
+    "[data-testid=stCaptionContainer],[data-testid=stMetricValue],[data-testid=stMetricLabel],"
+    "[data-testid=stWidgetLabel] p{color:@fg@!important}"
+    "input,textarea,[data-baseweb=select]>div,[data-baseweb=input],[data-baseweb=textarea]"
+    "{background:@inp@!important;color:@fg@!important;border-color:@border@!important}"
+    "[data-baseweb=popover] *,[data-baseweb=menu] *{background:@inp@;color:@fg@}"
+    "button[kind=primary]{background:@accent@!important;color:@onaccent@!important;border:0!important}"
+    "button[kind=secondary]{background:@inp@!important;color:@fg@!important;"
+    "border:1px solid @border@!important}"
+    "[data-testid=stExpander]{border:1px solid @border@!important;border-radius:@radius@}"
+    "button[role=tab]{color:@fg@!important}"
+)
+_THEME_INVERT = (
+    "[data-testid=stDataFrame],[data-testid=stImage] img,[data-testid=stPlotlyChart],"
+    "[data-testid=stCustomComponentV1]{filter:invert(0.9) hue-rotate(180deg)}"
+)
+
+
+def _theme_css(name):
+    t = _THEMES[name]
+    css = _THEME_CSS + (_THEME_INVERT if t["invert"] else "") + t["extra"]
+    for key, value in t.items():
+        css = css.replace(f"@{key}@", str(value))
+    return f"<style>{css}</style>"
+
+
+
+if "theme" not in st.session_state:
+    wanted = st.query_params.get("theme", "Light")
+    st.session_state["theme"] = wanted if wanted in _THEMES else "Light"
+
+col_title, col_nav, col_theme = st.columns([4, 3, 2])
 col_title.subheader("⚛️ Dense Evolution — Dashboard")
+with col_theme:
+    theme_name = st.selectbox("Theme", list(_THEMES), key="theme", label_visibility="collapsed")
+if st.query_params.get("theme") != theme_name:
+    st.query_params["theme"] = theme_name
+st.markdown(_theme_css(theme_name), unsafe_allow_html=True)
 if st.session_state.get("nav_section") not in _BASE_SECTIONS:
     st.session_state["nav_section"] = "Build"
 with col_nav:
@@ -1005,8 +1084,8 @@ elif section == "Results":
         _show_tabs(active)
     else:
         st.caption(
-            f"Current state: {result.n_qubits}-qubit circuit — you can add noise "
-            "(Noise) or build a new one (Build)."
+            f"Current state: {result.n_qubits}-qubit circuit — turn windows On in the left "
+            "panel and press ▶ Run, or build a new one (Build)."
         )
         if result.fidelity_vs_ideal is not None or result.backend == "mps":
             cols = st.columns(4)
