@@ -1,4 +1,4 @@
-"""The qubits chosen in the Build page start in |1> when the circuit runs."""
+"""The qubits chosen in the left panel start in |1> when the circuit runs."""
 import sys
 from pathlib import Path
 
@@ -28,7 +28,7 @@ def _run(at):
 
 
 def test_qubit_one_chosen_gives_the_outcome_10(app):
-    app.main.multiselect(key="input_ones").set_value([1]).run()
+    app.sidebar.multiselect(key="input_ones").set_value([1]).run()
     assert set(_run(app)) == {"10"}
 
 

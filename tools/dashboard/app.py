@@ -151,96 +151,41 @@ def _load_qasm(qasm, go_to_build=False):
 
 
 with st.sidebar:
-    if section == "Build":
-        run_clicked = st.button("▶ Run", type="primary", width="stretch")
-        st.header("Circuit")
-        preset_name = st.selectbox(
-            "Preset", ["Custom"] + list(dc.QASM_LIBRARY.keys()), key="preset_select",
-        )
-        default_qasm = dc.QASM_LIBRARY.get(preset_name, dc.QASM_LIBRARY["Bell state (2 qubit)"])
-        qasm_text = st.text_area(
-            "OpenQASM 2.0", value=default_qasm, height=150, key=f"qasm_text__{preset_name}",
-        )
-        col_shots, col_seed = st.columns(2)
-        n_shots = col_shots.number_input("Shots", min_value=1, max_value=100_000, value=1000, step=100)
-        seed = col_seed.number_input("Seed", min_value=0, max_value=2 ** 31 - 1, value=42, step=1)
-        with st.expander("Noise & backend"):
-            run_noise_model = st.selectbox(
-                "Noise model", ["ideal", "depolarizing", "bitflip", "phaseflip",
-                                "amplitude_damping", "combined"],
-                key="run_noise_model",
-            )
-            run_noise_p = st.slider(
-                "Noise strength (p)", 0.0, 1.0, 0.0, key="run_noise_p",
-                disabled=(run_noise_model == "ideal"),
-            )
-            run_backend = st.selectbox(
-                "Backend", ["dense", "mps"], key="run_backend",
-                help="mps (Matrix Product State) uses less memory on weakly entangled "
-                     "circuits, up to 24 qubits; beyond that, use Large Systems.",
-            )
-    else:
-        run_clicked = False
-
-    limits = dc.max_safe_dense_qubits()
-    st.caption(
-        f"🖥️ {limits['available_mb']:,.0f} / {limits['total_mb']:,.0f} MB free · "
-        f"up to **{limits['max_qubits_dense']} qubits** dense on this machine"
+    run_clicked = st.button("▶ Run", type="primary", width="stretch")
+    preset_name = st.selectbox(
+        "Preset", ["Custom"] + list(dc.QASM_LIBRARY.keys()), key="preset_select",
     )
-
-if run_clicked:
-    try:
-        st.session_state["result"] = dc.run_circuit_from_qasm(
-            with_input_values(qasm_text, st.session_state.get("input_ones", [])),
-            n_shots=int(n_shots), seed=int(seed),
-            noise_model=run_noise_model, noise_p=float(run_noise_p), backend=run_backend,
-        )
-        st.session_state["error"] = None
-    except Exception as exc:
-        st.session_state["result"] = None
-        st.session_state["error"] = str(exc)
-
-result = st.session_state.get("result")
-error = st.session_state.get("error")
-
-
-# ── BUILD ────────────────────────────────────────────────────────────────
-if section == "Build":
-    st.caption(
-        "Current state: " + (
-            f"{result.n_qubits}-qubit circuit already run — open Results, "
-            "or add noise in Noise." if result is not None and not error
-            else "press ▶ Run, the first button of the sidebar, to run a new circuit."
-        )
+    default_qasm = dc.QASM_LIBRARY.get(preset_name, dc.QASM_LIBRARY["Bell state (2 qubit)"])
+    qasm_text = st.text_area(
+        "OpenQASM 2.0", value=default_qasm, height=120, key=f"qasm_text__{preset_name}",
     )
-    tab_circuit, tab_builder, tab_topology = st.tabs(["Circuit", "Graphical Editor", "Topology"])
-
-    with tab_builder:
-        st.caption(
-            "Drag gates onto the grid to build a circuit by hand: a control ● and a "
-            "target in the same column form a 2-qubit gate, two × in the same column "
-            "form a SWAP."
+    col_shots, col_seed = st.columns(2)
+    n_shots = col_shots.number_input("Shots", min_value=1, max_value=100_000, value=1000, step=100)
+    seed = col_seed.number_input("Seed", min_value=0, max_value=2 ** 31 - 1, value=42, step=1)
+    n_input = qubits_in_qasm(qasm_text)
+    st.session_state["input_ones"] = [
+        i for i in st.session_state.get("input_ones", []) if i < n_input
+    ]
+    st.multiselect(
+        "Qubits that start in |1⟩", list(range(n_input)), key="input_ones",
+        label_visibility="collapsed", placeholder="Qubits that start in |1⟩ (none: all in |0⟩)",
+    )
+    with st.expander("Noise & backend"):
+        run_noise_model = st.selectbox(
+            "Noise model", ["ideal", "depolarizing", "bitflip", "phaseflip",
+                            "amplitude_damping", "combined"],
+            key="run_noise_model",
         )
-        if "n_qubits_builder" not in st.session_state:
-            try:
-                st.session_state["n_qubits_builder"] = min(8, json.loads(st.query_params.get("circuit", "")).get("n", 3))
-            except (ValueError, AttributeError):
-                st.session_state["n_qubits_builder"] = 3
-        col_nq, col_steps = st.columns(2)
-        n_qubits_builder = col_nq.number_input(
-            "Qubits", min_value=1, max_value=8, step=1, key="n_qubits_builder",
+        run_noise_p = st.slider(
+            "Noise strength (p)", 0.0, 1.0, 0.0, key="run_noise_p",
+            disabled=(run_noise_model == "ideal"),
         )
-        n_steps_builder = col_steps.number_input(
-            "Steps", min_value=2, max_value=24, value=12, step=1, key="n_steps_builder",
+        run_backend = st.selectbox(
+            "Backend", ["dense", "mps"], key="run_backend",
+            help="mps (Matrix Product State) uses less memory on weakly entangled "
+                 "circuits, up to 24 qubits; beyond that, use Large Systems.",
         )
-        builder_ops = ce.circuit_editor(int(n_qubits_builder), n_columns=int(n_steps_builder))
-
-        st.button("→ Load into the Circuit Editor", on_click=_load_qasm,
-                  args=(dc.gate_tuples_to_qasm(dc.ops_to_native_tuples(int(n_qubits_builder), builder_ops),
-                                               int(n_qubits_builder)) if builder_ops else None,),
-                  disabled=not builder_ops, help="Place at least one gate on the grid first." if not builder_ops else None)
-
-    with tab_topology:
+    with st.expander("Topology"):
         pattern_labels = {
             "linear": "linear (chain)",
             "circular": "circular (ring)",
@@ -251,7 +196,7 @@ if section == "Build":
         topo_pattern = st.selectbox(
             "Pattern", list(pattern_labels), format_func=pattern_labels.get, key="topo_pattern",
         )
-        topo_qubits = st.number_input("Qubits", 2, 12, 5, step=1, key="topo_qubits", help="Qubits of the layer.")
+        topo_qubits = st.number_input("Qubits", 2, 12, 5, step=1, key="topo_qubits")
         topo_gate = st.selectbox("Gate", ["cx", "cz", "cy"], key="topo_gate")
         topo_reverse = st.checkbox("Reverse direction", key="topo_reverse")
         topo_hub = 0
@@ -281,16 +226,92 @@ if section == "Build":
             "→ Load into the Circuit Editor", on_click=_load_qasm, args=(topo_text,),
             disabled=topo_text is None, key="topo_load",
         )
+    with st.expander("Entropy & mutual information"):
+        previous_result = st.session_state.get("result")
+        qa_text = st.text_input("Subsystem A (comma-separated indices)", value="0", key="entropy_a")
+        qb_text = st.text_input(
+            "Subsystem B (comma-separated indices)",
+            value="1" if previous_result is not None and previous_result.n_qubits > 1 else "",
+            key="entropy_b",
+        )
+        entropy_clicked = st.button("Compute entropy and mutual information", key="entropy_run")
+
+if run_clicked:
+    try:
+        st.session_state["result"] = dc.run_circuit_from_qasm(
+            with_input_values(qasm_text, st.session_state.get("input_ones", [])),
+            n_shots=int(n_shots), seed=int(seed),
+            noise_model=run_noise_model, noise_p=float(run_noise_p), backend=run_backend,
+        )
+        st.session_state["error"] = None
+    except Exception as exc:
+        st.session_state["result"] = None
+        st.session_state["error"] = str(exc)
+
+result = st.session_state.get("result")
+error = st.session_state.get("error")
+
+if entropy_clicked and result is None:
+    st.session_state["entropy_result"] = None
+    st.session_state["entropy_error"] = "run a circuit first"
+elif entropy_clicked:
+    try:
+        qa = [int(x) for x in qa_text.split(",") if x.strip() != ""]
+        qb = [int(x) for x in qb_text.split(",") if x.strip() != ""]
+        if set(qa) & set(qb):
+            raise ValueError("the two subsystems must be disjoint")
+        n = result.n_qubits
+        native_a = [n - 1 - q for q in qa]
+        native_b = [n - 1 - q for q in qb]
+        rho_a = dense_evolution.partial_trace(result.statevector, n, native_a)
+        rho_b = dense_evolution.partial_trace(result.statevector, n, native_b)
+        s_a = dense_evolution.von_neumann_entropy(rho_a)
+        s_b = dense_evolution.von_neumann_entropy(rho_b)
+        i_ab = dense_evolution.mutual_information(result.statevector, n, native_a, native_b)
+        st.session_state["entropy_result"] = (s_a, s_b, i_ab)
+        st.session_state["entropy_error"] = None
+    except Exception as exc:
+        st.session_state["entropy_result"] = None
+        st.session_state["entropy_error"] = str(exc)
+
+
+# ── BUILD ────────────────────────────────────────────────────────────────
+if section == "Build":
+    st.caption(
+        "Current state: " + (
+            f"{result.n_qubits}-qubit circuit already run — open Results, "
+            "or add noise in Noise." if result is not None and not error
+            else "press ▶ Run, the first button of the sidebar, to run a new circuit."
+        )
+    )
+    tab_circuit, tab_builder = st.tabs(["Circuit", "Graphical Editor"])
+
+    with tab_builder:
+        st.caption(
+            "Drag gates onto the grid to build a circuit by hand: a control ● and a "
+            "target in the same column form a 2-qubit gate, two × in the same column "
+            "form a SWAP."
+        )
+        if "n_qubits_builder" not in st.session_state:
+            try:
+                st.session_state["n_qubits_builder"] = min(8, json.loads(st.query_params.get("circuit", "")).get("n", 3))
+            except (ValueError, AttributeError):
+                st.session_state["n_qubits_builder"] = 3
+        col_nq, col_steps = st.columns(2)
+        n_qubits_builder = col_nq.number_input(
+            "Qubits", min_value=1, max_value=8, step=1, key="n_qubits_builder",
+        )
+        n_steps_builder = col_steps.number_input(
+            "Steps", min_value=2, max_value=24, value=12, step=1, key="n_steps_builder",
+        )
+        builder_ops = ce.circuit_editor(int(n_qubits_builder), n_columns=int(n_steps_builder))
+
+        st.button("→ Load into the Circuit Editor", on_click=_load_qasm,
+                  args=(dc.gate_tuples_to_qasm(dc.ops_to_native_tuples(int(n_qubits_builder), builder_ops),
+                                               int(n_qubits_builder)) if builder_ops else None,),
+                  disabled=not builder_ops, help="Place at least one gate on the grid first." if not builder_ops else None)
 
     with tab_circuit:
-        n_input = qubits_in_qasm(qasm_text)
-        st.session_state["input_ones"] = [
-            i for i in st.session_state.get("input_ones", []) if i < n_input
-        ]
-        st.multiselect(
-            "Qubits that start in |1⟩", list(range(n_input)), key="input_ones",
-            label_visibility="collapsed", placeholder="Qubits that start in |1⟩ (none: all in |0⟩)",
-        )
         if result is None:
             st.info("Press ▶ Run in the sidebar to run the circuit.")
         elif error:
@@ -396,32 +417,10 @@ elif section == "Results":
                 "mutual information sees correlations a single expectation value cannot "
                 "(no-signaling theorem). Qubit numbering as in Results (Qiskit convention)."
             )
-            all_qubits = list(range(result.n_qubits))
-            qa_text = st.text_input("Subsystem A (comma-separated indices)", value="0", key="entropy_a")
-            qb_text = st.text_input("Subsystem B (comma-separated indices)", value="1" if result.n_qubits > 1 else "", key="entropy_b")
-            if st.button("Compute entropy and mutual information"):
-                try:
-                    qa = [int(x) for x in qa_text.split(",") if x.strip() != ""]
-                    qb = [int(x) for x in qb_text.split(",") if x.strip() != ""]
-                    if set(qa) & set(qb):
-                        raise ValueError("the two subsystems must be disjoint")
-                    # Same Qiskit-little-endian -> native-MSB-first conversion
-                    # as Magic & Divergences: flip each index before calling
-                    # partial_trace/mutual_information, which use dense_evolution's
-                    # own convention, not Qiskit's.
-                    n = result.n_qubits
-                    native_a = [n - 1 - q for q in qa]
-                    native_b = [n - 1 - q for q in qb]
-                    rho_a = dense_evolution.partial_trace(result.statevector, n, native_a)
-                    rho_b = dense_evolution.partial_trace(result.statevector, n, native_b)
-                    s_a = dense_evolution.von_neumann_entropy(rho_a)
-                    s_b = dense_evolution.von_neumann_entropy(rho_b)
-                    i_ab = dense_evolution.mutual_information(result.statevector, n, native_a, native_b)
-                    st.session_state["entropy_result"] = (s_a, s_b, i_ab)
-                    st.session_state["entropy_error"] = None
-                except Exception as exc:
-                    st.session_state["entropy_result"] = None
-                    st.session_state["entropy_error"] = str(exc)
+            st.caption(
+                "Choose the subsystems and press the button in the left panel, "
+                "under \"Entropy & mutual information\"."
+            )
 
             entropy_error = st.session_state.get("entropy_error")
             entropy_result = st.session_state.get("entropy_result")
@@ -1126,3 +1125,9 @@ if section == "All functions":
                     st.write(ex.to_display(out))
             except Exception as exc:
                 st.error(f"Error: {exc}")
+
+limits = dc.max_safe_dense_qubits()
+st.caption(
+    f"🖥️ {limits['available_mb']:,.0f} / {limits['total_mb']:,.0f} MB free · "
+    f"up to **{limits['max_qubits_dense']} qubits** dense on this machine"
+)
