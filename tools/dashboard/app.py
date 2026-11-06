@@ -959,61 +959,33 @@ def _show_tabs(active):
 if section == "Build":
     st.caption(
         "Current state: " + (
-            f"{result.n_qubits}-qubit circuit already run — open Results, "
-            "or add noise in Noise." if result is not None and not error
+            f"{result.n_qubits}-qubit circuit already run — open Results." if result is not None and not error
             else "press ▶ Run, the first button of the sidebar, to run a new circuit."
         )
     )
-    tab_circuit, tab_builder = st.tabs(["Circuit", "Graphical Editor"])
+    st.caption(
+        "Drag gates onto the grid to build a circuit by hand: a control ● and a "
+        "target in the same column form a 2-qubit gate, two × in the same column "
+        "form a SWAP."
+    )
+    if "n_qubits_builder" not in st.session_state:
+        try:
+            st.session_state["n_qubits_builder"] = min(8, json.loads(st.query_params.get("circuit", "")).get("n", 3))
+        except (ValueError, AttributeError):
+            st.session_state["n_qubits_builder"] = 3
+    col_nq, col_steps = st.columns(2)
+    n_qubits_builder = col_nq.number_input(
+        "Qubits", min_value=1, max_value=8, step=1, key="n_qubits_builder",
+    )
+    n_steps_builder = col_steps.number_input(
+        "Steps", min_value=2, max_value=24, value=12, step=1, key="n_steps_builder",
+    )
+    builder_ops = ce.circuit_editor(int(n_qubits_builder), n_columns=int(n_steps_builder))
 
-    with tab_builder:
-        st.caption(
-            "Drag gates onto the grid to build a circuit by hand: a control ● and a "
-            "target in the same column form a 2-qubit gate, two × in the same column "
-            "form a SWAP."
-        )
-        if "n_qubits_builder" not in st.session_state:
-            try:
-                st.session_state["n_qubits_builder"] = min(8, json.loads(st.query_params.get("circuit", "")).get("n", 3))
-            except (ValueError, AttributeError):
-                st.session_state["n_qubits_builder"] = 3
-        col_nq, col_steps = st.columns(2)
-        n_qubits_builder = col_nq.number_input(
-            "Qubits", min_value=1, max_value=8, step=1, key="n_qubits_builder",
-        )
-        n_steps_builder = col_steps.number_input(
-            "Steps", min_value=2, max_value=24, value=12, step=1, key="n_steps_builder",
-        )
-        builder_ops = ce.circuit_editor(int(n_qubits_builder), n_columns=int(n_steps_builder))
-
-        st.button("→ Load into the Circuit Editor", on_click=_load_qasm,
-                  args=(dc.gate_tuples_to_qasm(dc.ops_to_native_tuples(int(n_qubits_builder), builder_ops),
-                                               int(n_qubits_builder)) if builder_ops else None,),
-                  disabled=not builder_ops, help="Place at least one gate on the grid first." if not builder_ops else None)
-
-    with tab_circuit:
-        if result is None:
-            st.info("Press ▶ Run in the sidebar to run the circuit.")
-        elif error:
-            st.error(f"Circuit run failed: {error}")
-        else:
-            col_circuit, col_probs = st.columns([3, 2])
-            col_circuit.pyplot(dc.draw_circuit_figure(result.ops, result.n_qubits))
-            tab_probs, tab_qubit, tab_outcomes = col_probs.tabs(
-                ["Probabilities", "Per qubit", "Outcomes"]
-            )
-            tab_probs.caption("Shots sampled from the statevector")
-            histogram = dc.histogram_figure(result.counts)
-            histogram.set_size_inches(6, 3.4)
-            tab_probs.pyplot(histogram)
-            tab_qubit.dataframe(
-                [
-                    {"qubit": row["qubit"], "P(1)": row["P(1)"]}
-                    for row in sv.qubit_table(result.statevector, result.n_qubits)
-                ],
-                width="stretch",
-            )
-            tab_outcomes.dataframe(outcome_rows(result.counts), width="stretch")
+    st.button("→ Load into the Circuit Editor", on_click=_load_qasm,
+              args=(dc.gate_tuples_to_qasm(dc.ops_to_native_tuples(int(n_qubits_builder), builder_ops),
+                                           int(n_qubits_builder)) if builder_ops else None,),
+              disabled=not builder_ops, help="Place at least one gate on the grid first." if not builder_ops else None)
 
     if error:
         st.error(f"Circuit run failed: {error}")
@@ -1048,12 +1020,17 @@ elif section == "Results":
                 cols[i + 2].metric("MPS memory (MB)", f"{result.mps_memory_mb:.2f}")
             if result.fidelity_vs_ideal is not None:
                 st.caption("Fidelity = how far the noisy run is from the ideal circuit (1.0 = identical).")
-        (tab_sv, tab_prob, tab_qubits, *tabs_active) = _fixed_tabs(
-            ["Statevector", "Probabilities & Q-sphere", "Qubits"] + [label for label, _ in active]
+        (tab_circuit, tab_sv, tab_prob, tab_qubits, *tabs_active) = _fixed_tabs(
+            ["Circuit", "Statevector", "Probabilities & Q-sphere", "Qubits"] + [label for label, _ in active]
         )
         for tab, (_, show) in zip(tabs_active, active):
             with tab:
                 show()
+        with tab_circuit:
+            col_circuit, col_outcomes = st.columns([3, 2])
+            col_circuit.pyplot(dc.draw_circuit_figure(result.ops, result.n_qubits))
+            col_outcomes.caption("Outcomes of the shots")
+            col_outcomes.dataframe(outcome_rows(result.counts), width="stretch")
         with tab_sv:
             st.caption(f"{result.n_qubits} qubits — {len(result.statevector)} amplitudes (Qiskit convention)")
             rows = [

@@ -35,7 +35,8 @@ def test_choosing_a_page_shows_it(app):
     app.main.radio(key="nav_section").set_value("Results").run()
     assert "Probabilities & Q-sphere" in [tab.label for tab in app.main.tabs]
     app.main.radio(key="nav_section").set_value("Build").run()
-    assert "Graphical Editor" in [tab.label for tab in app.main.tabs]
+    assert [tab.label for tab in app.main.tabs] == []
+    assert app.main.number_input(key="n_steps_builder").value == 12
 
 
 def test_results_tabs_are_fixed_and_wrap_onto_the_next_row(app):
@@ -48,6 +49,7 @@ def test_results_tabs_are_fixed_and_wrap_onto_the_next_row(app):
 def test_results_fixed_tabs_group_the_related_views(app):
     app.main.radio(key="nav_section").set_value("Results").run()
     assert [tab.label for tab in app.main.tabs] == [
+        "Circuit",
         "Statevector",
         "Probabilities & Q-sphere",
         "Qubits",
