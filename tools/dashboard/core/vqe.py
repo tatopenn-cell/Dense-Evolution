@@ -75,7 +75,7 @@ import numpy as np
 
 import dense_evolution as de
 
-from .hamiltonians import _get_pennylane_hamiltonian, build_molecular_hamiltonian
+from .hamiltonians import _electron_count, _get_hamiltonian, build_molecular_hamiltonian
 
 __all__ = ['run_vqe', 'scan_hardware_efficient_energy_landscape']
 
@@ -326,17 +326,12 @@ def run_vqe(symbols, geometry, charge=0, ansatz_type="hardware_efficient", n_lay
     """
     import pennylane as qml
 
-    H, n_qubits = _get_pennylane_hamiltonian(symbols, geometry, charge, "jordan_wigner",
-                                              active_electrons, active_orbitals)
+    H, n_qubits = _get_hamiltonian(symbols, geometry, charge, "jordan_wigner",
+                                   active_electrons, active_orbitals)
 
-    # Molecule() is cheap (~15ms, no HF solve) -- just needed here for its
-    # real total-electron count, to pick the right Hartree-Fock occupation
-    # when the caller didn't already fix it via an active-space choice.
-    if active_electrons is not None:
-        electrons = active_electrons
-    else:
-        molecule = qml.qchem.Molecule(symbols, np.asarray(geometry), charge=charge, unit="angstrom")
-        electrons = molecule.n_electrons
+    # The total electron count picks the Hartree-Fock occupation when the caller
+    # did not fix it with an active space.
+    electrons = active_electrons if active_electrons is not None else _electron_count(symbols, geometry, charge)
     hf_occupation = qml.qchem.hf_state(electrons, n_qubits)
 
     singles = doubles = None

@@ -310,6 +310,22 @@ def _get_hamiltonian(symbols, geometry, charge, mapping, active_electrons, activ
     return _get_native_hamiltonian(symbols, geometry, charge, mapping, active_electrons, active_orbitals)
 
 
+def _electron_count(symbols, geometry, charge):
+    """Total electrons of the molecule. PennyLane's Molecule counts them but only knows
+    the elements of its own STO-3G table; for the others (Si ...) the count is the sum
+    of the atomic numbers, as _get_native_hamiltonian does."""
+    from pennylane.qchem.basis_data import STO3G
+
+    if all(s in STO3G for s in symbols):
+        import pennylane as qml
+
+        molecule = qml.qchem.Molecule(symbols, np.asarray(geometry), charge=charge, unit="angstrom")
+        return molecule.n_electrons
+    from basis_set_exchange.lut import element_Z_from_sym
+
+    return sum(element_Z_from_sym(s) for s in symbols) - charge
+
+
 def _water_geometry(bond_length_angstrom: float, angle_degrees: float):
     """Real equilibrium water geometry: O at the origin, both O-H bonds
     at the given real bond length and real H-O-H bond angle (104.5 deg),
@@ -453,6 +469,8 @@ def get_all_molecules(catalog=None, mapping="jordan_wigner"):
             "geometry": np.asarray(geometry).tolist(),
             "charge": spec["charge"],
             "n_qubits": n_qubits,
+            "active_electrons": spec.get("active_electrons"),
+            "active_orbitals": spec.get("active_orbitals"),
         }
     return out
 

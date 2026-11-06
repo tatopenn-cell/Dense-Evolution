@@ -385,6 +385,7 @@ def _on_run():
             ansatz_type=st.session_state["vqe_ansatz"], n_layers=int(st.session_state["vqe_n_layers"]),
             maxiter=int(st.session_state["vqe_maxiter"]),
             step_size=float(st.session_state["vqe_step_size"]), seed=int(st.session_state["vqe_seed"]),
+            active_electrons=mol.get("active_electrons"), active_orbitals=mol.get("active_orbitals"),
         )
         st.session_state["vqe_result"] = vqe
         st.session_state["vqe_error"] = None
@@ -471,6 +472,7 @@ def _job_landscape():
     energies = dc.scan_hardware_efficient_energy_landscape(
         mol["symbols"], mol["geometry"], mol["charge"], vqe["n_layers"], vqe["hf_occupation"],
         base, i, j, values_i, values_j,
+        active_electrons=mol.get("active_electrons"), active_orbitals=mol.get("active_orbitals"),
     )
     return (values_i, values_j, energies, i, j, base[i], base[j], vqe["vqe_energy_hartree"])
 
