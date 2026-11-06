@@ -18,14 +18,15 @@ def _labels(block):
             yield node.label
 
 
-def test_run_is_first_and_the_circuit_controls_follow(monkeypatch):
+def test_qubits_preset_and_run_come_first_and_the_circuit_controls_follow(monkeypatch):
     monkeypatch.syspath_prepend(str(DASHBOARD))
     for name in ("dashboard_core", "sota_views", "engine_explorer", "circuit_editor"):
         sys.modules.pop(name, None)
     app = AppTest.from_file(str(DASHBOARD / "app.py"), default_timeout=180).run()
-    assert list(_labels(app.sidebar))[:5] == [
-        "▶ Run",
+    assert list(_labels(app.sidebar))[:6] == [
+        "Qubits",
         "Preset",
+        "▶ Run",
         "OpenQASM 2.0",
         "Shots",
         "Seed",

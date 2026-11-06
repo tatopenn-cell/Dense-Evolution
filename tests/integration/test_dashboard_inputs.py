@@ -17,7 +17,7 @@ def app(monkeypatch):
     for name in ("dashboard_core", "sota_views", "engine_explorer", "circuit_editor"):
         sys.modules.pop(name, None)
     at = AppTest.from_file(str(DASHBOARD / "app.py"), default_timeout=180).run()
-    at.sidebar.text_area(key="qasm_text__Custom").set_value(NO_GATE).run()
+    at.sidebar.text_area(key="qasm_text__Custom").set_value(NO_GATE)
     return at
 
 
