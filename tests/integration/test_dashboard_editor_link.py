@@ -34,7 +34,7 @@ def test_the_bell_circuit_is_drawn_when_the_page_opens(app):
     grid = _grid(app)
     assert grid[0][0] == "h"
     assert grid[0][1] == "ctrl"
-    assert grid[1][1] == "tgt_x"
+    assert grid[1][1] == "x"
     assert app.main.number_input(key="n_qubits_builder").value == 2
     assert app.main.number_input(key="n_steps_builder").value == 12
 
@@ -45,7 +45,7 @@ def test_running_a_loaded_circuit_draws_it_on_the_editor(app):
     grid = _grid(app)
     assert len(grid) == 3
     assert grid[0][0] == "h"
-    assert (grid[1][1], grid[2][2]) == ("tgt_x", "tgt_x")
+    assert (grid[1][1], grid[2][2]) == ("x", "x")
     assert app.main.number_input(key="n_qubits_builder").value == 3
 
 
@@ -53,8 +53,8 @@ def test_rotations_and_controlled_phases_keep_their_angle(app):
     _run_qasm(app, "rx(0.3) q[0];\ncp(0.5) q[0],q[1];\nccx q[0],q[1],q[2];\n", 3)
     grid = _grid(app)
     assert grid[0][0] == "rx:0.3"
-    assert (grid[0][1], grid[1][1]) == ("ctrl", "tgt_p:0.5")
-    assert (grid[0][2], grid[1][2], grid[2][2]) == ("ctrl", "ctrl", "tgt_x")
+    assert (grid[0][1], grid[1][1]) == ("ctrl", "p:0.5")
+    assert (grid[0][2], grid[1][2], grid[2][2]) == ("ctrl", "ctrl", "x")
     assert app.session_state["editor_note"] is None
 
 
@@ -65,7 +65,7 @@ def test_the_qft_preset_is_drawn_completely(app):
     assert not app.exception
     assert app.session_state["editor_note"] is None
     cells = [cell for row in _grid(app) for cell in row if cell]
-    assert any(cell.startswith("tgt_p:") for cell in cells)
+    assert any(cell.startswith("p:") for cell in cells)
 
 
 def test_a_circuit_beyond_the_editor_size_is_reported(app):
@@ -93,7 +93,7 @@ def test_grid_from_ops_packs_single_gates_and_gives_pairs_their_own_column(monke
     )
     assert skipped == 1
     assert [row[0] for row in grid] == ["h", "h", None]
-    assert (grid[0][1], grid[1][1]) == ("ctrl", "tgt_x")
+    assert (grid[0][1], grid[1][1]) == ("ctrl", "x")
     assert (grid[0][2], grid[1][2]) == ("swap", "swap")
     assert len(grid[0]) == 12
 
@@ -108,3 +108,16 @@ def test_the_editor_ops_round_trip_through_the_grid(monkeypatch):
     assert ce.ops_to_tuples(ce.grid_to_ops(grid)) == ops
     assert ce.decode_grid(ce.encode_grid(grid), 3, 12) == grid
     assert ce.grid_to_ops([["rx"]]) == [{"gate": "rx", "qubits": [0], "angle": 1.5707963267948966}]
+
+
+def test_a_control_dot_on_any_gate_and_links_saved_with_separate_targets(monkeypatch):
+    monkeypatch.syspath_prepend(str(DASHBOARD))
+    sys.modules.pop("circuit_editor", None)
+    import circuit_editor as ce
+
+    assert ce.grid_to_ops([["ctrl"], ["x"]]) == [{"gate": "cx", "qubits": [0, 1]}]
+    assert ce.grid_to_ops([["ctrl"], ["tgt_x"]]) == [{"gate": "cx", "qubits": [0, 1]}]
+    assert ce.grid_to_ops([["z"], ["ctrl"]]) == [{"gate": "cz", "qubits": [1, 0]}]
+    assert ce.grid_to_ops([["ctrl"], ["h"]]) == []
+    ids = [chip["id"] for chip in ce._palette()]
+    assert not any(i.startswith("tgt_") for i in ids)

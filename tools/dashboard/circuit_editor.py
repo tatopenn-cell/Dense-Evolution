@@ -25,7 +25,8 @@ MATRICES = {
     "ry": "Ry(θ) = [[cos θ/2, −sin θ/2], [sin θ/2, cos θ/2]]",
     "rz": "Rz(θ) = [[e^(−iθ/2), 0], [0, e^(iθ/2)]]",
     "p": "P(θ) = [[1, 0], [0, e^(iθ)]]",
-    "ctrl": "Control ●: the column's gate acts when this qubit is |1⟩ (two ● and one ⊕ make a Toffoli)",
+    "ctrl": "Control ●: drag it into the column of a gate and the gate acts when this qubit is |1⟩ "
+    "(two ● on an X make a Toffoli)",
     "tgt_x": "Target of CX: X = [[0, 1], [1, 0]] when the control is |1⟩",
     "tgt_y": "Target of CY: Y = [[0, −i], [i, 0]] when the control is |1⟩",
     "tgt_z": "Target of CZ: Z = [[1, 0], [0, −1]] when the control is |1⟩",
@@ -55,6 +56,12 @@ _CSS = """
 .ce-cell.ce-filled { background: var(--st-secondary-background-color, #262730); font-weight: bold; }
 .ce-cell.ce-over { outline: 2px dashed #4af; }
 .ce-hint { font-size: 12px; opacity: 0.75; }
+.ce-cell { position: relative; z-index: 0; }
+.ce-cell.ce-wire-up::before, .ce-cell.ce-wire-down::after {
+  content: ''; position: absolute; left: 50%; width: 2px; margin-left: -1px; background: #4af; z-index: -1;
+}
+.ce-cell.ce-wire-up::before { top: -2px; height: calc(50% + 2px); }
+.ce-cell.ce-wire-down::after { bottom: -2px; height: calc(50% + 2px); }
 .ce-cell small { display: block; font-size: 9px; opacity: 0.85; line-height: 1; }
 .ce-angle { font-size: 13px; display: flex; align-items: center; gap: 6px; margin-left: 8px; }
 .ce-angle input { width: 90px; font-family: monospace; }
@@ -141,7 +148,7 @@ export default function(component) {
   root.appendChild(gridEl);
   const hint = document.createElement('div');
   hint.className = 'ce-hint';
-  hint.textContent = 'Hover a gate for its matrix · click a cell to remove · Ctrl+Z undo · Ctrl+Y redo';
+  hint.textContent = 'Drag a ● into the column of a gate to control it · hover a gate for its matrix · click a cell to remove · Ctrl+Z undo · Ctrl+Y redo';
   root.appendChild(hint);
   parentElement.appendChild(root);
 
@@ -158,6 +165,25 @@ export default function(component) {
       cell.appendChild(small);
     }
     cell.title = g ? g.matrix + (parts.length > 1 ? ` · θ = ${Number(parts[1])} rad` : '') : '';
+    renderWires(c);
+  }
+
+  function renderWires(c) {
+    const base = (r) => (grid[r][c] ? grid[r][c].split(':')[0] : null);
+    const filled = [];
+    let linked = false;
+    for (let r = 0; r < nQubits; r++) {
+      if (!grid[r][c]) continue;
+      filled.push(r);
+      if (base(r) === 'ctrl' || base(r) === 'swap') linked = true;
+    }
+    const lo = filled[0];
+    const hi = filled[filled.length - 1];
+    for (let r = 0; r < nQubits; r++) {
+      const on = linked && filled.length > 1 && r >= lo && r <= hi;
+      cellEls[r][c].classList.toggle('ce-wire-up', on && r > lo);
+      cellEls[r][c].classList.toggle('ce-wire-down', on && r < hi);
+    }
   }
 
   function fmtAngle(x) {
@@ -252,30 +278,44 @@ def decode_grid(text, n_qubits, n_columns=12):
 
 
 _PARAM_SINGLES = {"rx", "ry", "rz", "p"}
-_CONTROLLED = {"x": "cx", "y": "cy", "z": "cz", "p": "cp", "rz": "crz"}
+_CONTROLLED = {"y": "cy", "z": "cz", "p": "cp", "rz": "crz"}
+
+
+def _unify(base):
+    """Cells written with a separate target (``tgt_x``, saved links) are the plain gate."""
+    return base[4:] if base.startswith("tgt_") else base
 
 
 def grid_to_ops(grid):
+    """Op list of the grid. A column with ● control dots and one other gate is that gate
+    controlled by them (one dot: cx cy cz cp crz; two dots on X: ccx)."""
     ops = []
     for c in range(len(grid[0]) if grid else 0):
-        cells = [(r,) + _split(grid[r][c]) for r in range(len(grid)) if grid[r][c]]
-        singles = [
-            (r, g, a) for r, g, a in cells if not g.startswith(("tgt_", "ctrl", "swap"))
+        cells = [
+            (r, _unify(g), a)
+            for r in range(len(grid))
+            if grid[r][c]
+            for g, a in [_split(grid[r][c])]
         ]
         ctrls = [r for r, g, _ in cells if g == "ctrl"]
-        tgts = [(r, g[4:], a) for r, g, a in cells if g.startswith("tgt_")]
         swaps = [r for r, g, _ in cells if g == "swap"]
-        if len(singles) == len(cells):
-            for r, g, a in singles:
-                ops.append({"gate": g, "qubits": [r], **({"angle": a} if g in _PARAM_SINGLES else {})})
-        elif len(ctrls) == 1 and len(tgts) == 1 and len(cells) == 2:
-            kind = tgts[0][1]
-            op = {"gate": _CONTROLLED[kind], "qubits": [ctrls[0], tgts[0][0]]}
-            if kind in ("p", "rz"):
-                op["angle"] = tgts[0][2]
-            ops.append(op)
-        elif len(ctrls) == 2 and len(tgts) == 1 and tgts[0][1] == "x" and len(cells) == 3:
-            ops.append({"gate": "ccx", "qubits": [*ctrls, tgts[0][0]]})
+        gates = [(r, g, a) for r, g, a in cells if g not in ("ctrl", "swap")]
+        if not ctrls and not swaps:
+            for r, g, a in gates:
+                ops.append(
+                    {"gate": g, "qubits": [r], **({"angle": a} if g in _PARAM_SINGLES else {})}
+                )
+        elif ctrls and len(gates) == 1 and len(cells) == len(ctrls) + 1:
+            r, g, a = gates[0]
+            if g == "x" and len(ctrls) == 1:
+                ops.append({"gate": "cx", "qubits": [ctrls[0], r]})
+            elif g == "x" and len(ctrls) == 2:
+                ops.append({"gate": "ccx", "qubits": [*ctrls, r]})
+            elif g in _CONTROLLED and len(ctrls) == 1:
+                op = {"gate": _CONTROLLED[g], "qubits": [ctrls[0], r]}
+                if g in _PARAM_SINGLES:
+                    op["angle"] = a
+                ops.append(op)
         elif len(swaps) == 2 and len(cells) == 2:
             ops.append({"gate": "swap", "qubits": swaps})
     return ops
@@ -288,8 +328,8 @@ def ops_to_tuples(ops):
 
 _SINGLE_GATES = {"h", "x", "y", "z", "s", "sdg", "t", "tdg", "sx"}
 _ROTATIONS = {"rx": "rx", "ry": "ry", "rz": "rz", "p": "p", "u1": "p", "phase": "p"}
-_TARGETS = {"cx": "tgt_x", "cy": "tgt_y", "cz": "tgt_z"}
-_ANGLED_TARGETS = {"cp": "tgt_p", "crz": "tgt_rz"}
+_TARGETS = {"cx": "x", "cy": "y", "cz": "z"}
+_ANGLED_TARGETS = {"cp": "p", "crz": "rz"}
 
 
 def grid_from_ops(ops, n_qubits):
@@ -315,7 +355,7 @@ def grid_from_ops(ops, n_qubits):
         elif name in _ANGLED_TARGETS:
             cells = {args[0]: "ctrl", args[1]: f"{_ANGLED_TARGETS[name]}:{format(args[2], '.12g')}"}
         elif name == "ccx":
-            cells = {args[0]: "ctrl", args[1]: "ctrl", args[2]: "tgt_x"}
+            cells = {args[0]: "ctrl", args[1]: "ctrl", args[2]: "x"}
         elif name == "swap":
             cells = {args[0]: "swap", args[1]: "swap"}
         else:
@@ -339,13 +379,12 @@ _ANGLE_CHIPS = [
     {"id": "ry", "label": "Ry", "kind": "single", "param": True},
     {"id": "rz", "label": "Rz", "kind": "single", "param": True},
     {"id": "p", "label": "P", "kind": "single", "param": True},
-    {"id": "tgt_p", "label": "● P", "kind": "target", "param": True},
-    {"id": "tgt_rz", "label": "● Rz", "kind": "target", "param": True},
 ]
 
 
 def _palette():
-    chips = [g for g in GATE_PALETTE if g["id"] not in ("rx", "ry", "rz")] + _ANGLE_CHIPS
+    skip = ("rx", "ry", "rz", "tgt_x", "tgt_y", "tgt_z")
+    chips = [g for g in GATE_PALETTE if g["id"] not in skip] + _ANGLE_CHIPS
     return [dict(g, matrix=MATRICES[g["id"]]) for g in chips]
 
 
