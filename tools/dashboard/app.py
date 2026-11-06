@@ -8,7 +8,7 @@ density-matrix channel, cosmic-ray burst, oscillating noise, hardware
 calibration), Chemistry (VQE, dynamics, vector healing), Protocols (wormhole,
 error correction), Condensed matter and the Function explorer; System shows
 the limits of the machine. Results has one tab for each window that is On,
-in two fixed rows. Chemistry On loads the VQE ansatz into the
+in fixed rows (no scrolling: a tab that does not fit goes on the next row). Chemistry On loads the VQE ansatz into the
 circuit, Off restores the previous one.
 
 Every number shown here comes from a run of dense_evolution's engine
@@ -866,13 +866,12 @@ def _show_function():
         st.write(ex.to_display(out["out"]))
 
 
-def _two_row_tabs(labels):
-    per_row = max(1, -(-len(labels) // 2))
+def _fixed_tabs(labels):
     with st.container(key="results_tabs"):
         st.markdown(
             "<style>"
             ".st-key-results_tabs [data-baseweb=\"tab-list\"]"
-            f"{{display:grid;grid-template-columns:repeat({per_row},1fr);overflow:visible}}"
+            "{display:flex;flex-wrap:wrap;overflow:visible}"
             ".st-key-results_tabs [data-baseweb=\"tab-highlight\"],"
             ".st-key-results_tabs [data-baseweb=\"tab-border\"]{display:none}"
             ".st-key-results_tabs button[role=\"tab\"]{white-space:normal;"
@@ -951,7 +950,7 @@ def _active_windows(res):
 
 def _show_tabs(active):
     if active:
-        for tab, (_, show) in zip(_two_row_tabs([label for label, _ in active]), active):
+        for tab, (_, show) in zip(_fixed_tabs([label for label, _ in active]), active):
             with tab:
                 show()
 
@@ -1049,22 +1048,12 @@ elif section == "Results":
                 cols[i + 2].metric("MPS memory (MB)", f"{result.mps_memory_mb:.2f}")
             if result.fidelity_vs_ideal is not None:
                 st.caption("Fidelity = how far the noisy run is from the ideal circuit (1.0 = identical).")
-        (tab_sv, tab_prob, tab_qsphere, tab_bloch, tab_pairs, tab_qubits,
-         *tabs_active) = _two_row_tabs(
-            ["Statevector", "Probabilities", "Q-sphere", "Bloch per qubit", "Qubit pairs", "Qubit summary"]
-            + [label for label, _ in active]
+        (tab_sv, tab_prob, tab_qubits, *tabs_active) = _fixed_tabs(
+            ["Statevector", "Probabilities & Q-sphere", "Qubits"] + [label for label, _ in active]
         )
         for tab, (_, show) in zip(tabs_active, active):
             with tab:
                 show()
-        with tab_pairs:
-            if result.n_qubits < 2 or result.n_qubits > 10:
-                st.info("Available from 2 to 10 qubits.")
-            else:
-                st.pyplot(sv.half_matrix_figure(result.statevector, result.n_qubits))
-        with tab_qubits:
-            st.dataframe(sv.qubit_table(result.statevector, result.n_qubits), width="stretch")
-            st.code(sv.ket_string(result.statevector, result.n_qubits), language=None)
         with tab_sv:
             st.caption(f"{result.n_qubits} qubits — {len(result.statevector)} amplitudes (Qiskit convention)")
             rows = [
@@ -1079,20 +1068,26 @@ elif section == "Results":
                 if abs(amp) > 1e-10
             ]
             st.dataframe(rows, width="stretch")
+            st.dataframe(sv.qubit_table(result.statevector, result.n_qubits), width="stretch")
+            st.code(sv.ket_string(result.statevector, result.n_qubits), language=None)
         with tab_prob:
-            st.caption("Shots sampled from the computed statevector")
-            color_by_phase = st.checkbox(
-                "Color by phase", key="prob_color_by_phase",
-                help="Colors each bar by the complex phase of that state's amplitude "
-                     "(cyclic colormap); the bar height stays the shot count.",
-            )
-            st.pyplot(dc.histogram_figure(
-                result.counts, statevector=result.statevector if color_by_phase else None,
-            ))
-        with tab_qsphere:
-            st.pyplot(dc.qsphere_figure(result.statevector))
-        with tab_bloch:
+            col_hist, col_sphere = st.columns([3, 2])
+            with col_hist:
+                st.caption("Shots sampled from the computed statevector")
+                color_by_phase = st.checkbox(
+                    "Color by phase", key="prob_color_by_phase",
+                    help="Colors each bar by the complex phase of that state's amplitude "
+                         "(cyclic colormap); the bar height stays the shot count.",
+                )
+                st.pyplot(dc.histogram_figure(
+                    result.counts, statevector=result.statevector if color_by_phase else None,
+                ))
+            with col_sphere:
+                st.caption("Q-sphere")
+                st.pyplot(dc.qsphere_figure(result.statevector))
+        with tab_qubits:
             st.caption("One Bloch sphere per qubit, from its reduced density matrix.")
             st.pyplot(dc.bloch_multivector_figure(result.statevector))
-
-
+            if 2 <= result.n_qubits <= 10:
+                st.caption("Qubit pairs")
+                st.pyplot(sv.half_matrix_figure(result.statevector, result.n_qubits))

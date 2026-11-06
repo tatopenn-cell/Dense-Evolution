@@ -33,13 +33,22 @@ def test_there_is_no_advanced_switch(app):
 
 def test_choosing_a_page_shows_it(app):
     app.main.radio(key="nav_section").set_value("Results").run()
-    assert "Q-sphere" in [tab.label for tab in app.main.tabs]
+    assert "Probabilities & Q-sphere" in [tab.label for tab in app.main.tabs]
     app.main.radio(key="nav_section").set_value("Build").run()
     assert "Graphical Editor" in [tab.label for tab in app.main.tabs]
 
 
-def test_results_tabs_are_laid_out_in_two_fixed_rows(app):
+def test_results_tabs_are_fixed_and_wrap_onto_the_next_row(app):
     app.main.radio(key="nav_section").set_value("Results").run()
     styles = [m.value for m in app.main.markdown if "results_tabs" in m.value]
     assert len(styles) == 1
-    assert "repeat(3,1fr)" in styles[0]
+    assert "flex-wrap:wrap" in styles[0]
+
+
+def test_results_fixed_tabs_group_the_related_views(app):
+    app.main.radio(key="nav_section").set_value("Results").run()
+    assert [tab.label for tab in app.main.tabs] == [
+        "Statevector",
+        "Probabilities & Q-sphere",
+        "Qubits",
+    ]
