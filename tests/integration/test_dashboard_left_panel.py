@@ -44,7 +44,7 @@ def test_running_from_results_stays_in_results(app):
 
 
 def test_entropy_of_a_bell_pair_is_computed_from_the_left_panel(app):
-    assert "Entropy & mutual information" in [e.label for e in app.sidebar.expander]
+    assert "Entropy & magic" in [e.label for e in app.sidebar.expander]
     app.main.radio(key="nav_section").set_value("Results").run()
     app.sidebar.button(key="entropy_run").click().run()
     s_a, s_b, i_ab = app.session_state["entropy_result"]

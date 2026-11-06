@@ -152,7 +152,7 @@ def _load_qasm(qasm, go_to_build=False):
 
 with st.sidebar:
     st.markdown(
-        '<style>[data-testid="stSidebar"] [data-testid="stVerticalBlock"]{gap:0.3rem}'
+        '<style>[data-testid="stSidebar"] [data-testid="stVerticalBlock"]{gap:0.25rem}'
         '[data-testid="stSidebarUserContent"]{padding-top:1rem}</style>',
         unsafe_allow_html=True,
     )
@@ -232,7 +232,7 @@ with st.sidebar:
             "→ Load into the Circuit Editor", on_click=_load_qasm, args=(topo_text,),
             disabled=topo_text is None, key="topo_load",
         )
-    with st.expander("Entropy & mutual information"):
+    with st.expander("Entropy & magic"):
         previous_result = st.session_state.get("result")
         qa_text = st.text_input("Subsystem A (comma-separated indices)", value="0", key="entropy_a")
         qb_text = st.text_input(
@@ -241,8 +241,13 @@ with st.sidebar:
             key="entropy_b",
         )
         entropy_clicked = st.button("Compute entropy and mutual information", key="entropy_run")
-    with st.expander("ZNE mitigation"):
-        st.toggle("On", key="zne_on")
+        st.toggle("Magic", key="magic_on")
+        st.number_input(
+            "Magic: qubit (Qiskit numbering)", min_value=0, max_value=max(n_input - 1, 0), step=1,
+            key="magic_qubit",
+        )
+    with st.expander("Noise analysis"):
+        st.toggle("ZNE mitigation", key="zne_on")
         st.text_input("Pauli observable (empty: Z on every qubit)", key="zne_pauli")
         st.selectbox(
             "Noise model", ["depolarizing", "bitflip", "phaseflip", "amplitude_damping", "combined"],
@@ -251,16 +256,9 @@ with st.sidebar:
         st.slider("Noise strength (p)", 0.0, 0.5, 0.05, key="zne_noise_p")
         st.selectbox("Extrapolation method", ["richardson", "polynomial"], key="zne_method")
         st.slider("Monte Carlo trials per point", 20, 500, 200, key="zne_n_trials")
-    with st.expander("Density-matrix channel"):
-        st.toggle("On", key="dm_on")
+        st.toggle("Density-matrix channel", key="dm_on")
         st.selectbox("Channel", ["global_depolarizing", "amplitude_damping"], key="dm_channel")
         st.slider("Channel parameter", 0.0, 1.0, 0.1, key="dm_param")
-    with st.expander("Magic"):
-        st.toggle("On", key="magic_on")
-        st.number_input(
-            "Qubit (Qiskit numbering)", min_value=0, max_value=max(n_input - 1, 0), step=1,
-            key="magic_qubit",
-        )
     with st.expander("MPS convergence"):
         st.toggle("On", key="bc_on")
         st.text_input("Pauli observable (empty: Z on qubit 0)", key="bc_observable")
@@ -583,7 +581,7 @@ elif section == "Results":
             )
             st.caption(
                 "Choose the subsystems and press the button in the left panel, "
-                "under \"Entropy & mutual information\"."
+                "under \"Entropy & magic\"."
             )
 
             entropy_error = st.session_state.get("entropy_error")

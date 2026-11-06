@@ -30,7 +30,7 @@ def _results_tabs(app):
 
 def test_windows_are_in_the_left_panel_and_off_by_default(app):
     labels = [e.label for e in app.sidebar.expander]
-    for name in ("ZNE mitigation", "Density-matrix channel", "Magic", "MPS convergence"):
+    for name in ("Noise analysis", "Entropy & magic", "MPS convergence"):
         assert name in labels
     for key in ("zne_on", "dm_on", "magic_on", "bc_on"):
         assert app.sidebar.toggle(key=key).value is False
@@ -71,7 +71,7 @@ def test_zne_runs_with_the_main_circuit(app):
 
 def test_bond_convergence_runs_with_the_main_circuit(app):
     app.sidebar.toggle(key="bc_on").set_value(True).run()
-    app.sidebar.text_input(key="bc_bonds").set_value("2,4").run()
+    app.sidebar.text_input(key="bc_bonds").set_value("2,4,8").run()
     _run(app)
     assert app.session_state["bond_convergence_error"] is None, app.session_state[
         "bond_convergence_error"
