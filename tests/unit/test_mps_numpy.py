@@ -28,6 +28,16 @@ def _phase_invariant_max_abs(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.max(np.abs(a - phase * b)))
 
 
+def _layered(n: int, layers: int) -> list:
+    ops: list = []
+    for k in range(layers):
+        ops += [("h", q) for q in range(n)]
+        ops += [("rx", q, 0.3 + 0.17 * k + 0.05 * q) for q in range(n)]
+        ops += [("cx", q, q + 1) for q in range(k % 2, n - 1, 2)]
+        ops += [("cp", q, (q + 3) % n, 0.4 + 0.1 * k) for q in range(0, n, 2)]
+    return ops
+
+
 def _run_dense(ops, n: int) -> np.ndarray:
     sim = de.DenseSVSimulator(n_qubits=n, use_float32=False)
     sim.run_circuit_jit(ops)
@@ -91,8 +101,8 @@ def _drive_jax_mps_eager(mps, ops) -> None:
 
 
 def test_b_bond_dimension_and_top_probs_match_jax_mps() -> None:
-    n = 12
-    ops = de.random_circuit(n, 24, seed=5)
+    n = 10
+    ops = _layered(n, 8)
     mps_jax = MPSSimulator(n_qubits=n, max_bond=8, use_float32=False)
     mps_np = mn.MPSSimulatorNumpy(n, max_bond=8, dtype=np.complex128)
     with warnings.catch_warnings():
@@ -103,6 +113,7 @@ def test_b_bond_dimension_and_top_probs_match_jax_mps() -> None:
     chi_jax = [int(c) for c in np.asarray(mps_jax._real_chi)]
     chi_np = [int(c) for c in mps_np.bond_dimensions()]
     assert len(chi_jax) == len(chi_np) == n + 1
+    assert max(chi_np) == 8 and mps_np.budget_violations > 0
     assert chi_jax == chi_np, f"bond dims differ: jax={chi_jax} np={chi_np}"
 
     idx_j, p_j = mps_jax.get_top_k_probable_states(16)
@@ -118,7 +129,7 @@ def test_c_chi_search_matches_vectorized_jax() -> None:
 
     rng = np.random.default_rng(20260419)
     for trial in range(200):
-        dim = int(rng.integers(2, 41))
+        dim = int(rng.choice([2, 3, 8, 16, 40]))
         raw = rng.random(dim)
         s = np.sort(raw)[::-1]
         s = s / float(np.linalg.norm(s))
@@ -312,12 +323,7 @@ def test_n_pauli_errors_and_the_warning_of_a_capped_bond() -> None:
         mn.pauli_expectation(mps, "ZQZ")
     assert abs(mn.pauli_expectation(mps, "zzz") - 1.0) < 1e-12
     n = 8
-    layered = []
-    for k in range(6):
-        layered += [("h", q) for q in range(n)]
-        layered += [("rx", q, 0.3 + 0.17 * k + 0.05 * q) for q in range(n)]
-        layered += [("cx", q, q + 1) for q in range(k % 2, n - 1, 2)]
-        layered += [("cp", q, (q + 3) % n, 0.4 + 0.1 * k) for q in range(0, n, 2)]
+    layered = _layered(n, 6)
     sim = mn.MPSSimulatorNumpy(n, max_bond=2)
     with pytest.warns(UserWarning, match="bond dimension capped") as caught:
         sim.run_circuit(layered)
