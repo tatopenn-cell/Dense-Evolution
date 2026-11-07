@@ -499,6 +499,7 @@ async function loadPresetsAndPalette() {
     syncQubitCountFromQasm(presets[sel.value]);
   });
   $("qasm").value = presets["Bell state (2 qubit)"] || "";
+  if (presets["Bell state (2 qubit)"]) sel.value = "Bell state (2 qubit)";
   syncQubitCountFromQasm($("qasm").value);
 }
 
