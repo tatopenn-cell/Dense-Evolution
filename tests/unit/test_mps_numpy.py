@@ -225,3 +225,21 @@ def test_h_unknown_gate_and_statevector_limit() -> None:
     mps_25 = MPSSimulatorNumpy(25)
     with pytest.raises(MemoryError):
         mps_25.contract_to_statevector()
+
+
+def test_i_lambda_vectors_are_normalized() -> None:
+    """Every internal lambda must be unit norm (Vidal: |lambda|_2 = 1).
+
+    With max_bond=1 the truncation is active at every bond, so the
+    renormalization ``s_kept_renorm = s_kept / ||s_kept||`` of
+    ``_svd_truncate`` matters: without it, the kept singular values
+    of a truncated bond have norm < 1 and sum(lambda**2) drifts below
+    1 bond by bond.
+    """
+    n = 6
+    ops = de.random_circuit(n, 12, seed=3)
+    mps = MPSSimulatorNumpy(n, max_bond=1)
+    mps.run_circuit(ops)
+    for i, lam in enumerate(mps.lambdas):
+        s = float(np.sum(np.abs(lam) ** 2))
+        assert abs(s - 1.0) < 1e-9, f"bond {i}: sum|lambda|**2 = {s}"
