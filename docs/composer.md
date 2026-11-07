@@ -376,7 +376,21 @@ throughout the [API Reference](api/index.md), not a separate demo.
   </details>
 </div>
 
+<script src="../assets/composer/web_kernel.js"></script>
 <script src="../assets/composer/app.js"></script>
+
+!!! tip "No kernel? Run the circuit in your browser"
+    If no local kernel answers, the page offers **Prova nel browser (NumPy,
+    senza installare)**. It loads Pyodide (Python in WebAssembly) and the NumPy
+    MPS simulator
+    ([`dense_evolution/backends/mps_numpy.py`](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/dense_evolution/backends/mps_numpy.py)),
+    so the circuit runs in this page and is sent nowhere. What it does: any
+    OpenQASM circuit of the supported gates, up to 1500 qubits, answered with the
+    most probable states, the bond dimension and the memory of the MPS. What it
+    does not: the full statevector, the Q-sphere and Bloch spheres, noise
+    models, VQE, Hamiltonians and mitigation, which need JAX and the local
+    kernel below. The numbers are in single precision (`complex64`); the
+    first load downloads Pyodide from jsDelivr, so it needs the network.
 
 !!! note "Runs on your own machine, not a shared server"
     This page is static — every circuit runs on a real local kernel

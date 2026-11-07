@@ -371,3 +371,18 @@ body {
 #de-composer-root details.de-collapsible[open] > summary {
   border-bottom: 1px solid var(--md-default-fg-color--lightest, #ddd);
 }
+
+/* Browser mode (web_kernel.js): the NumPy engine runs only the circuit, so the
+   panels that need the local kernel are hidden, and so are the controls it
+   does not use. A state of 1500 qubits is a 1500-character string: let it wrap. */
+#de-composer-root.web-mode details.de-collapsible {
+  display: none;
+}
+
+.web-hidden {
+  display: none !important;
+}
+
+#statevector-table td:first-child {
+  word-break: break-all;
+}
