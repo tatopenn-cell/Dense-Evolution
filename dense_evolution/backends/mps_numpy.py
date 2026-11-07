@@ -239,8 +239,13 @@ class MPSSimulatorNumpy:
         n_qubits: number of qubits.
         max_bond: largest admissible bond dimension.
         svd_cutoff: smallest singular value that counts as nonzero; when
-            ``None``, ``1e-12`` is used.
+            ``None``, ``1e-12`` for ``complex128`` and ``1e-6`` for
+            ``complex64`` (a cutoff of ``1e-12`` sits below the noise of
+            single precision, and the bond would never shrink).
         jsd_budget: maximum admissible JSD per truncation.
+        dtype: ``np.complex64`` (default, single precision) or
+            ``np.complex128`` (double precision). The tensors are stored in
+            it; the JSD and the search of the bond are computed in float64.
     """
 
     def __init__(
@@ -249,18 +254,26 @@ class MPSSimulatorNumpy:
         max_bond: int = 64,
         svd_cutoff: float | None = None,
         jsd_budget: float = 1e-5,
+        dtype=np.complex64,
     ) -> None:
+        self.dtype = np.dtype(dtype)
+        if self.dtype not in (np.dtype(np.complex64), np.dtype(np.complex128)):
+            raise ValueError(
+                f"MPSSimulatorNumpy: dtype must be complex64 or complex128, got {dtype!r}"
+            )
+        double = self.dtype == np.dtype(np.complex128)
+        self.real_dtype = np.dtype(np.float64 if double else np.float32)
         self.n = int(n_qubits)
         self.chi = int(max_bond)
-        self.eps = float(svd_cutoff) if svd_cutoff is not None else 1e-12
+        self.eps = float(svd_cutoff) if svd_cutoff is not None else (1e-12 if double else 1e-6)
         self.jsd_budget = float(jsd_budget)
         self.gammas: list[np.ndarray] = []
         for _ in range(self.n):
-            g: np.ndarray = np.zeros((1, 2, 1), dtype=np.complex128)
+            g: np.ndarray = np.zeros((1, 2, 1), dtype=self.dtype)
             g[0, 0, 0] = 1.0
             self.gammas.append(g)
         self.lambdas: list[np.ndarray] = [
-            np.ones(1, dtype=np.complex128) for _ in range(self.n + 1)
+            np.ones(1, dtype=self.real_dtype) for _ in range(self.n + 1)
         ]
         self.truncation_errors: list[float] = []
         self.jsd_per_bond: list[float] = []
@@ -268,7 +281,7 @@ class MPSSimulatorNumpy:
 
     def apply_gate_1q(self, gate: np.ndarray, qubit: int) -> None:
         """Apply a (2, 2) unitary to ``qubit`` in place (Vidal Eq. 4)."""
-        g = np.asarray(gate, dtype=np.complex128)
+        g = np.asarray(gate, dtype=self.dtype)
         self.gammas[qubit] = np.einsum("ij,ljr->lir", g, self.gammas[qubit])
 
     def apply_gate_2q(self, gate_2q: np.ndarray, q1: int, q2: int) -> None:
@@ -280,7 +293,7 @@ class MPSSimulatorNumpy:
         ``lambda`` and the two new gammas. Non-adjacent qubits go through
         a chain of swap gates, as page 3 prescribes.
         """
-        g = np.asarray(gate_2q, dtype=np.complex128).reshape(2, 2, 2, 2)
+        g = np.asarray(gate_2q, dtype=self.dtype).reshape(2, 2, 2, 2)
         if abs(q1 - q2) != 1:
             self._apply_nonlocal_2q(g, q1, q2)
             return

@@ -35,7 +35,7 @@ def _run_dense(ops, n: int) -> np.ndarray:
 
 
 def _run_mps_numpy(ops, n: int, max_bond: int = 64) -> "mn.MPSSimulatorNumpy":
-    mps = mn.MPSSimulatorNumpy(n, max_bond=max_bond)
+    mps = mn.MPSSimulatorNumpy(n, max_bond=max_bond, dtype=np.complex128)
     mps.run_circuit(ops)
     return mps
 
@@ -94,7 +94,7 @@ def test_b_bond_dimension_and_top_probs_match_jax_mps() -> None:
     n = 12
     ops = de.random_circuit(n, 24, seed=5)
     mps_jax = MPSSimulator(n_qubits=n, max_bond=8, use_float32=False)
-    mps_np = mn.MPSSimulatorNumpy(n, max_bond=8)
+    mps_np = mn.MPSSimulatorNumpy(n, max_bond=8, dtype=np.complex128)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         _drive_jax_mps_eager(mps_jax, ops)
@@ -182,8 +182,8 @@ sim = mps_numpy.MPSSimulatorNumpy(n)
 sim.run_circuit(ops)
 idx, p = sim.get_top_k_probable_states(2)
 assert sorted(idx) == [0, 2 ** n - 1], sorted(idx)
-assert abs(float(p[0]) - 0.5) < 1e-9
-assert abs(float(p[1]) - 0.5) < 1e-9
+assert abs(float(p[0]) - 0.5) < 1e-6
+assert abs(float(p[1]) - 0.5) < 1e-6
 print("STANDALONE_OK")
 """
     r = subprocess.run(
@@ -204,8 +204,8 @@ def test_g_top_k_indices_are_python_ints_on_150_qubits() -> None:
     for i in idx:
         assert isinstance(i, int), f"index {i!r} has type {type(i).__name__}"
     assert sorted(idx) == [0, 2**n - 1]
-    assert abs(float(p[0]) - 0.5) < 1e-9
-    assert abs(float(p[1]) - 0.5) < 1e-9
+    assert abs(float(p[0]) - 0.5) < 1e-6
+    assert abs(float(p[1]) - 0.5) < 1e-6
 
 
 def test_h_unknown_gate_and_statevector_limit() -> None:
@@ -229,7 +229,7 @@ def test_i_lambda_vectors_are_normalized() -> None:
     """
     n = 6
     ops = de.random_circuit(n, 12, seed=3)
-    mps = mn.MPSSimulatorNumpy(n, max_bond=1)
+    mps = mn.MPSSimulatorNumpy(n, max_bond=1, dtype=np.complex128)
     mps.run_circuit(ops)
     for i, lam in enumerate(mps.lambdas):
         s = float(np.sum(np.abs(lam) ** 2))
@@ -301,7 +301,7 @@ def test_m_metrics_of_an_empty_and_of_an_entangled_state() -> None:
     sim.run_circuit([("h", 0), ("cx", 0, 1), ("cx", 1, 2)])
     assert sim.max_bond_used() == 2
     assert 0.0 <= sim.avg_jsd() < 1e-5
-    assert sim.total_truncation_error() < 1e-9
+    assert sim.total_truncation_error() < 1e-6
 
 
 def test_n_pauli_errors_and_the_warning_of_a_capped_bond() -> None:
@@ -324,3 +324,21 @@ def test_n_pauli_errors_and_the_warning_of_a_capped_bond() -> None:
     assert len(caught) == 1
     assert sim.budget_violations >= 1
     assert sim.total_truncation_error() > 0.0
+
+
+def test_o_the_default_is_single_precision_and_double_is_on_request() -> None:
+    single = mn.MPSSimulatorNumpy(3)
+    double = mn.MPSSimulatorNumpy(3, dtype=np.complex128)
+    assert single.gammas[0].dtype == np.complex64 and single.eps == 1e-6
+    assert double.gammas[0].dtype == np.complex128 and double.eps == 1e-12
+    assert mn.MPSSimulatorNumpy(3, svd_cutoff=1e-3).eps == 1e-3
+    with pytest.raises(ValueError, match="dtype must be"):
+        mn.MPSSimulatorNumpy(3, dtype=np.float32)
+    n = 40
+    ops = [("h", 0)] + [("cx", q, q + 1) for q in range(n - 1)]
+    s32 = mn.MPSSimulatorNumpy(n)
+    s32.run_circuit(ops)
+    s64 = mn.MPSSimulatorNumpy(n, dtype=np.complex128)
+    s64.run_circuit(ops)
+    assert s32.max_bond_used() == s64.max_bond_used() == 2
+    assert s32.memory_bytes() * 2 == s64.memory_bytes()

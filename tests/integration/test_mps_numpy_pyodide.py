@@ -126,8 +126,8 @@ def test_1_ghz_200_inside_pyodide():
     print(f"jax_in_pyodide: {out['jax_in_pyodide']}")
     assert res["bond"] == 2
     assert res["idx"] == ["0", str(2**200 - 1)]
-    assert abs(res["p"][0] - 0.5) < 1e-9
-    assert abs(res["p"][1] - 0.5) < 1e-9
+    assert abs(res["p"][0] - 0.5) < 1e-6
+    assert abs(res["p"][1] - 0.5) < 1e-6
 
 
 def test_2_random_circuit_matches_cpython():
@@ -144,7 +144,7 @@ def test_2_random_circuit_matches_cpython():
     k = 8
 
     n_cp, ops_cp = parse_qasm_subset(qasm)
-    sim_cp = MPSSimulatorNumpy(n_cp, max_bond=max_bond)
+    sim_cp = MPSSimulatorNumpy(n_cp, max_bond=max_bond, dtype=np.complex128)
     sim_cp.run_circuit(ops_cp)
     idx_cp, p_cp = sim_cp.get_top_k_probable_states(k)
 
@@ -154,7 +154,9 @@ def test_2_random_circuit_matches_cpython():
         "import mps_numpy, qasm_subset\n"
         "qasm = " + json.dumps(qasm) + "\n"
         "n, ops = qasm_subset.parse_qasm_subset(qasm)\n"
-        "sim = mps_numpy.MPSSimulatorNumpy(n, max_bond=" + str(max_bond) + ")\n"
+        "sim = mps_numpy.MPSSimulatorNumpy(n, max_bond="
+        + str(max_bond)
+        + ", dtype=__import__('numpy').complex128)\n"
         "t0 = time.time()\n"
         "sim.run_circuit(ops)\n"
         "idx, p = sim.get_top_k_probable_states(" + str(k) + ")\n"
