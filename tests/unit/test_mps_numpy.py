@@ -16,9 +16,8 @@ import numpy as np
 import pytest
 
 import dense_evolution as de
+from dense_evolution.backends import mps_numpy as mn
 from dense_evolution.backends.mps import MPSSimulator, _vectorized_chi_search
-from dense_evolution.backends.mps_numpy import (MPSSimulatorNumpy, chi_search,
-                                                pauli_expectation)
 
 
 def _phase_invariant_max_abs(a: np.ndarray, b: np.ndarray) -> float:
@@ -35,8 +34,8 @@ def _run_dense(ops, n: int) -> np.ndarray:
     return np.asarray(sim.get_statevector())
 
 
-def _run_mps_numpy(ops, n: int, max_bond: int = 64) -> "MPSSimulatorNumpy":
-    mps = MPSSimulatorNumpy(n, max_bond=max_bond)
+def _run_mps_numpy(ops, n: int, max_bond: int = 64) -> "mn.MPSSimulatorNumpy":
+    mps = mn.MPSSimulatorNumpy(n, max_bond=max_bond)
     mps.run_circuit(ops)
     return mps
 
@@ -69,8 +68,6 @@ def _drive_jax_mps_eager(mps, ops) -> None:
     """
     import jax.numpy as jnp
 
-    from dense_evolution.backends.mps_numpy import gate_1q, gate_2q
-
     static_1q = ("id", "i", "h", "x", "y", "z", "s", "sdg", "t", "tdg", "sx")
     param_1q = ("rx", "ry", "rz", "p", "u1", "phase")
     static_2q = ("cx", "cy", "cz", "swap")
@@ -78,14 +75,14 @@ def _drive_jax_mps_eager(mps, ops) -> None:
     for op in ops:
         name = op[0].lower()
         if name in static_1q:
-            mps.apply_gate_1q(jnp.asarray(gate_1q(name)), int(op[1]))
+            mps.apply_gate_1q(jnp.asarray(mn.gate_1q(name)), int(op[1]))
         elif name in param_1q:
-            mps.apply_gate_1q(jnp.asarray(gate_1q(name, float(op[2]))), int(op[1]))
+            mps.apply_gate_1q(jnp.asarray(mn.gate_1q(name, float(op[2]))), int(op[1]))
         elif name in static_2q:
-            mat = gate_2q(name).reshape(2, 2, 2, 2)
+            mat = mn.gate_2q(name).reshape(2, 2, 2, 2)
             mps.apply_gate_2q(jnp.asarray(mat), int(op[1]), int(op[2]))
         elif name in param_2q:
-            mat = gate_2q(name, float(op[3])).reshape(2, 2, 2, 2)
+            mat = mn.gate_2q(name, float(op[3])).reshape(2, 2, 2, 2)
             mps.apply_gate_2q(jnp.asarray(mat), int(op[1]), int(op[2]))
         elif name == "ccx":
             mps.apply_ccx(int(op[1]), int(op[2]), int(op[3]))
@@ -97,7 +94,7 @@ def test_b_bond_dimension_and_top_probs_match_jax_mps() -> None:
     n = 12
     ops = de.random_circuit(n, 24, seed=5)
     mps_jax = MPSSimulator(n_qubits=n, max_bond=8, use_float32=False)
-    mps_np = MPSSimulatorNumpy(n, max_bond=8)
+    mps_np = mn.MPSSimulatorNumpy(n, max_bond=8)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         _drive_jax_mps_eager(mps_jax, ops)
@@ -110,16 +107,10 @@ def test_b_bond_dimension_and_top_probs_match_jax_mps() -> None:
 
     idx_j, p_j = mps_jax.get_top_k_probable_states(16)
     idx_n, p_n = mps_np.get_top_k_probable_states(16)
-    d_j = {int(i): float(p) for i, p in zip(idx_j, p_j)}
-    d_n = {int(i): float(p) for i, p in zip(idx_n, p_n)}
-    shared = set(d_j) & set(d_n)
-    assert len(shared) >= 12, (
-        f"only {len(shared)} indices shared between top-16 sets; "
-        f"jax={sorted(d_j)} np={sorted(d_n)}"
-    )
-    for idx in shared:
-        assert abs(d_j[idx] - d_n[idx]) < 1e-6, (idx, d_j[idx], d_n[idx])
-    assert abs(float(np.sum(p_j)) - float(np.sum(p_n))) < 1e-6
+    assert len(p_j) == len(p_n) == 16
+    assert np.allclose(np.sort(p_j), np.sort(p_n), atol=1e-6), (np.sort(p_j), np.sort(p_n))
+    shared = {int(i) for i in idx_j} & {int(i) for i in idx_n}
+    assert len(shared) >= 14, f"only {len(shared)} indices shared between the two top-16 sets"
 
 
 def test_c_chi_search_matches_vectorized_jax() -> None:
@@ -132,7 +123,7 @@ def test_c_chi_search_matches_vectorized_jax() -> None:
         s = np.sort(raw)[::-1]
         s = s / float(np.linalg.norm(s))
 
-        chi_np, jsd_np = chi_search(s, 1e-12, 1e-5, 16)
+        chi_np, jsd_np = mn.chi_search(s, 1e-12, 1e-5, 16)
         chi_jx, jsd_jx = _vectorized_chi_search(jnp.asarray(s), 1e-12, 1e-5, 16)
         assert int(chi_np) == int(chi_jx), (trial, dim, chi_np, chi_jx)
         assert abs(float(jsd_np) - float(jsd_jx)) < 1e-9, (trial, dim, jsd_np, jsd_jx)
@@ -162,7 +153,7 @@ def test_e_pauli_expectation_matches_dense() -> None:
     mps = _run_mps_numpy(ops, n)
     for s in ("ZZIIX", "XIIIX", "IIYII"):
         expected = complex(de.pauli_expectation(psi, s, n_qubits=n))
-        got = complex(pauli_expectation(mps, s))
+        got = complex(mn.pauli_expectation(mps, s))
         err = abs(expected - got)
         assert err < 1e-9, f"{s}: expected={expected} got={got} err={err}"
 
@@ -207,7 +198,7 @@ print("STANDALONE_OK")
 
 def test_g_top_k_indices_are_python_ints_on_150_qubits() -> None:
     n = 150
-    mps = MPSSimulatorNumpy(n)
+    mps = mn.MPSSimulatorNumpy(n)
     mps.run_circuit([("h", 0)] + [("cx", q, q + 1) for q in range(n - 1)])
     idx, p = mps.get_top_k_probable_states(2)
     for i in idx:
@@ -218,11 +209,11 @@ def test_g_top_k_indices_are_python_ints_on_150_qubits() -> None:
 
 
 def test_h_unknown_gate_and_statevector_limit() -> None:
-    mps = MPSSimulatorNumpy(3)
+    mps = mn.MPSSimulatorNumpy(3)
     with pytest.raises(ValueError):
         mps.run_circuit([("not_a_gate", 0)])
 
-    mps_25 = MPSSimulatorNumpy(25)
+    mps_25 = mn.MPSSimulatorNumpy(25)
     with pytest.raises(MemoryError):
         mps_25.contract_to_statevector()
 
@@ -238,8 +229,32 @@ def test_i_lambda_vectors_are_normalized() -> None:
     """
     n = 6
     ops = de.random_circuit(n, 12, seed=3)
-    mps = MPSSimulatorNumpy(n, max_bond=1)
+    mps = mn.MPSSimulatorNumpy(n, max_bond=1)
     mps.run_circuit(ops)
     for i, lam in enumerate(mps.lambdas):
         s = float(np.sum(np.abs(lam) ** 2))
         assert abs(s - 1.0) < 1e-9, f"bond {i}: sum|lambda|**2 = {s}"
+
+
+def test_j_gate_matrices_are_the_ones_of_the_jax_simulator() -> None:
+    import jax.numpy as jnp
+
+    from dense_evolution.backends.mps import _mps_1q_matrix, _mps_2q_matrix
+    from dense_evolution.config import ensure_x64
+
+    ensure_x64()
+    angle = 0.37
+    one_qubit = {
+        "id": 0, "h": 1, "x": 2, "y": 3, "z": 4, "s": 5, "sdg": 6, "t": 7, "tdg": 8,
+        "rx": 9, "ry": 10, "rz": 11, "p": 12, "sx": 13,
+    }  # fmt: skip
+    for name, gate_id in one_qubit.items():
+        ref = np.asarray(_mps_1q_matrix(jnp.asarray(gate_id), jnp.asarray(angle), jnp.complex128))
+        assert np.allclose(mn.gate_1q(name, angle), ref, atol=1e-12), name
+    for alias in ("u1", "phase", "i"):
+        same = "p" if alias != "i" else "id"
+        assert np.allclose(mn.gate_1q(alias, angle), mn.gate_1q(same, angle)), alias
+    two_qubit = {"cx": 20, "cz": 21, "cp": 22, "swap": 23, "cy": 24, "crz": 25}
+    for name, gate_id in two_qubit.items():
+        ref = np.asarray(_mps_2q_matrix(jnp.asarray(gate_id), jnp.asarray(angle), jnp.complex128))
+        assert np.allclose(mn.gate_2q(name, angle), ref.reshape(4, 4), atol=1e-12), name

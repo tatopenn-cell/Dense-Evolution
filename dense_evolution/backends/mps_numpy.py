@@ -17,15 +17,23 @@ References:
         together".
 """
 
+from __future__ import annotations
+
 import heapq
 import math
 import warnings
 
 import numpy as np
 
+
+def _expi(angle: float) -> complex:
+    """``exp(1j * angle)`` with the standard library only."""
+    return complex(math.cos(angle), math.sin(angle))
+
+
 _SQRT2_INV = 1.0 / math.sqrt(2.0)
-_EXP_PI4 = complex(math.cos(math.pi / 4.0), math.sin(math.pi / 4.0))
-_EXP_M_PI4 = complex(math.cos(-math.pi / 4.0), math.sin(-math.pi / 4.0))
+_EXP_PI4 = _expi(math.pi / 4.0)
+_EXP_M_PI4 = _expi(-math.pi / 4.0)
 
 _1Q_STATIC = ("id", "i", "h", "x", "y", "z", "s", "sdg", "t", "tdg", "sx")
 _1Q_PARAM = ("rx", "ry", "rz", "p", "u1", "phase")
@@ -94,10 +102,10 @@ def gate_1q(name: str, angle: float | None = None) -> np.ndarray:
         return np.array([[c, -s], [s, c]], dtype=np.complex128)
     if key == "rz":
         return np.array(
-            [[math.e ** (-1j * theta / 2.0), 0], [0, math.e ** (1j * theta / 2.0)]],
+            [[_expi(-theta / 2.0), 0], [0, _expi(theta / 2.0)]],
             dtype=np.complex128,
         )
-    return np.array([[1, 0], [0, math.e ** (1j * theta)]], dtype=np.complex128)
+    return np.array([[1, 0], [0, _expi(theta)]], dtype=np.complex128)
 
 
 def gate_2q(name: str, angle: float | None = None) -> np.ndarray:
@@ -141,12 +149,8 @@ def gate_2q(name: str, angle: float | None = None) -> np.ndarray:
         raise ValueError(f"gate_2q: gate {name!r} needs an angle")
     theta = float(angle)
     if key == "cp":
-        return np.diag(np.array([1, 1, 1, math.e ** (1j * theta)], dtype=np.complex128))
-    return np.diag(
-        np.array(
-            [1, 1, math.e ** (-1j * theta / 2.0), math.e ** (1j * theta / 2.0)], dtype=np.complex128
-        )
-    )
+        return np.diag(np.array([1, 1, 1, _expi(theta)], dtype=np.complex128))
+    return np.diag(np.array([1, 1, _expi(-theta / 2.0), _expi(theta / 2.0)], dtype=np.complex128))
 
 
 def jsd_vectors(p: np.ndarray, q: np.ndarray) -> float:
@@ -522,7 +526,10 @@ _PAULI_MATS = {
 
 
 def pauli_expectation(mps: MPSSimulatorNumpy, pauli_string: str) -> complex:
-    """Expectation value ``<psi|P|psi> / <psi|psi>`` of a Pauli string.
+    """Expectation value ``<psi|P|psi>`` of a Pauli string.
+
+    The state is normalized by construction (every truncation renormalizes
+    the kept singular values), so no division by ``<psi|psi>`` is needed.
 
     The string has one character per qubit (``I``, ``X``, ``Y``, ``Z``),
     with qubit 0 as the leftmost character, matching the convention of
@@ -556,5 +563,5 @@ def pauli_expectation(mps: MPSSimulatorNumpy, pauli_string: str) -> complex:
         v = np.einsum("ab,abcd->cd", v, e)
         if i + 1 < mps.n:
             lam = mps.lambdas[i + 1]
-            v = v * np.outer(lam, np.conj(lam))
+            v = v * np.outer(np.conj(lam), lam)
     return complex(v[0, 0])

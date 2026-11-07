@@ -7,12 +7,12 @@ correctness of the algorithm is covered by ``tests/unit/test_mps_numpy.py``
 engine runs on Pyodide and matches CPython.
 
 The CDN of Pyodide is fetched from jsdelivr; when it cannot be reached
-the tests skip, and the reason names the CDN.
+(the script does not load, or a download inside the page fails) the tests
+skip, and the reason names the CDN. Any other error, in particular a Python
+error inside Pyodide, fails the test.
 """
 
 import json
-import shutil
-import sys
 import time
 from pathlib import Path
 
@@ -59,58 +59,46 @@ async ([mn_src, qs_src, code]) => {
 """
 
 
-def _ensure_qasm_library():
-    """Build a fake dashboard_core package for gate_tuples_to_qasm."""
-    fake = Path("/tmp/_mpsnumpy_pyodide_qasm") / "dashboard_core"
-    if not fake.exists():
-        fake.mkdir(parents=True)
-        (fake / "__init__.py").write_text("")
-        shutil.copy(
-            REPO_ROOT / "tools/dashboard/core/qasm_library.py",
-            fake / "qasm_library.py",
-        )
-        shutil.copy(
-            REPO_ROOT / "tools/dashboard/core/_gate_tables.py",
-            fake / "_gate_tables.py",
-        )
-    if str(fake.parent) not in sys.path:
-        sys.path.insert(0, str(fake.parent))
+_NETWORK_ERRORS = ("Failed to fetch", "NetworkError", "net::ERR", "Load failed")
 
 
 def _qasm_of(ops, n: int) -> str:
-    _ensure_qasm_library()
     from dashboard_core.qasm_library import gate_tuples_to_qasm
 
     return gate_tuples_to_qasm(ops, n_qubits=n)
 
 
-def _run_in_pyodide_once(code: str) -> dict:
+def _skip_unreachable(exc: Exception) -> None:
+    pytest.skip(f"Pyodide CDN {PYODIDE_CDN} unreachable: {type(exc).__name__}: {exc}")
+
+
+def _run_in_pyodide(code: str, *, attempts: int = 3) -> dict:
     mn_src = (REPO_ROOT / "dense_evolution/backends/mps_numpy.py").read_text()
     qs_src = (REPO_ROOT / "dense_evolution/backends/qasm_subset.py").read_text()
 
     with sync_playwright() as p:
         browser = p.chromium.launch()
-        page = browser.new_page()
         try:
-            page.goto("about:blank")
-            page.add_script_tag(url=PYODIDE_CDN)
-            page.wait_for_function("typeof loadPyodide === 'function'", timeout=120_000)
-            raw = page.evaluate(_JS_RUNNER, [mn_src, qs_src, code])
+            page = browser.new_page()
+            for attempt in range(attempts):
+                try:
+                    page.goto("about:blank")
+                    page.add_script_tag(url=PYODIDE_CDN)
+                    page.wait_for_function("typeof loadPyodide === 'function'", timeout=120_000)
+                    break
+                except Exception as exc:
+                    if attempt == attempts - 1:
+                        _skip_unreachable(exc)
+                    time.sleep(3)
+            try:
+                raw = page.evaluate(_JS_RUNNER, [mn_src, qs_src, code])
+            except Exception as exc:
+                if any(signature in str(exc) for signature in _NETWORK_ERRORS):
+                    _skip_unreachable(exc)
+                raise
         finally:
             browser.close()
     return json.loads(raw)
-
-
-def _run_in_pyodide(code: str, *, attempts: int = 3) -> dict:
-    for attempt in range(attempts):
-        try:
-            return _run_in_pyodide_once(code)
-        except Exception as exc:  # noqa: BLE001 -- CDN failures are opaque
-            if attempt == attempts - 1:
-                pytest.skip(
-                    f"Pyodide CDN {PYODIDE_CDN} unreachable: " f"{type(exc).__name__}: {exc}"
-                )
-            time.sleep(3)
 
 
 def test_1_ghz_200_inside_pyodide():
@@ -126,7 +114,7 @@ def test_1_ghz_200_inside_pyodide():
         "idx, p = sim.get_top_k_probable_states(2)\n"
         "dt = time.time() - t0\n"
         "json.dumps({'seconds': dt, 'bond': sim.max_bond_used(),"
-        " 'idx': sorted(int(i) for i in idx),"
+        " 'idx': [str(i) for i in sorted(idx)],"
         " 'p': [float(x) for x in p]})\n"
     )
     out = _run_in_pyodide(code)
@@ -137,57 +125,52 @@ def test_1_ghz_200_inside_pyodide():
     )
     print(f"jax_in_pyodide: {out['jax_in_pyodide']}")
     assert res["bond"] == 2
-    assert res["idx"] == [0, 2**200 - 1]
+    assert res["idx"] == ["0", str(2**200 - 1)]
     assert abs(res["p"][0] - 0.5) < 1e-9
     assert abs(res["p"][1] - 0.5) < 1e-9
 
 
-def test_2_qft_20_matches_cpython():
+def test_2_random_circuit_matches_cpython():
+    import numpy as np
+
     import dense_evolution as de
     from dense_evolution.backends.mps_numpy import MPSSimulatorNumpy
     from dense_evolution.backends.qasm_subset import parse_qasm_subset
 
-    ops = de.qft(20)
-    qasm = _qasm_of(ops, 20)
-    max_bond = 128
+    n = 12
+    ops = de.random_circuit(n, 24, seed=5)
+    qasm = _qasm_of(ops, n)
+    max_bond = 16
     k = 8
 
     n_cp, ops_cp = parse_qasm_subset(qasm)
     sim_cp = MPSSimulatorNumpy(n_cp, max_bond=max_bond)
     sim_cp.run_circuit(ops_cp)
     idx_cp, p_cp = sim_cp.get_top_k_probable_states(k)
-    cp_dict = {int(i): float(x) for i, x in zip(idx_cp, p_cp)}
 
-    qasm_for_js = json.dumps(qasm)
     code = (
         "import sys, json, time\n"
         "sys.path.insert(0, '/work')\n"
         "import mps_numpy, qasm_subset\n"
-        "qasm = " + qasm_for_js + "\n"
+        "qasm = " + json.dumps(qasm) + "\n"
         "n, ops = qasm_subset.parse_qasm_subset(qasm)\n"
         "sim = mps_numpy.MPSSimulatorNumpy(n, max_bond=" + str(max_bond) + ")\n"
         "t0 = time.time()\n"
         "sim.run_circuit(ops)\n"
         "idx, p = sim.get_top_k_probable_states(" + str(k) + ")\n"
         "dt = time.time() - t0\n"
-        "json.dumps({'seconds': dt,"
-        " 'idx': [int(i) for i in idx],"
-        " 'p': [float(x) for x in p]})\n"
+        "json.dumps({'seconds': dt, 'bond': sim.max_bond_used(),"
+        " 'idx': [int(i) for i in idx], 'p': [float(x) for x in p]})\n"
     )
     out = _run_in_pyodide(code)
     res = out["result"]
-    pyodide_dict = {int(i): float(x) for i, x in zip(res["idx"], res["p"])}
 
     print(
-        f"PYODIDE QFT-20: seconds={res['seconds']:.2f}  "
+        f"PYODIDE random-12: seconds={res['seconds']:.2f}  bond={res['bond']}  "
         f"load_seconds={out['load_seconds']:.1f}  js_heap_mb={out['js_heap_mb']}"
     )
     print(f"jax_in_pyodide: {out['jax_in_pyodide']}")
 
-    shared = set(cp_dict) & set(pyodide_dict)
-    assert len(shared) >= 4, (
-        f"CPython top-{k} = {sorted(cp_dict)}; " f"Pyodide top-{k} = {sorted(pyodide_dict)}"
-    )
-    for i in shared:
-        diff = abs(cp_dict[i] - pyodide_dict[i])
-        assert diff < 1e-9, (i, cp_dict[i], pyodide_dict[i], diff)
+    assert res["bond"] == sim_cp.max_bond_used()
+    assert np.allclose(np.sort(res["p"]), np.sort(p_cp), atol=1e-9)
+    assert len(set(res["idx"]) & {int(i) for i in idx_cp}) >= k - 2
