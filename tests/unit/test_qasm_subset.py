@@ -49,6 +49,8 @@ def test_the_text_of_gate_tuples_parses_back_to_the_same_tuples(label, ops, n):
         ("pi/2*(1+1)", math.pi),
         ("2*(pi/4)+0.1", 2 * (math.pi / 4) + 0.1),
         ("1e-3", 1e-3),
+        ("+0.5", 0.5),
+        ("1 ", 1.0),
         (".5", 0.5),
         ("-.5", -0.5),
         ("0.3", 0.3),
@@ -138,6 +140,13 @@ def test_header_register_and_order_errors():
         ("rx(1)) q[0];\n", 5, "bad qubit argument"),
         ("h q[0] q[1];\n", 5, "bad qubit argument"),
         ("rz(1) q;\n", 5, "bad qubit argument"),
+        ("h q[0],q[1];\n", 5, "h takes 1 qubit"),
+        ("rx(1) q[0],q[1];\n", 5, "rx takes 1 qubit"),
+        ("cx(0.1) q[0],q[1];\n", 5, "cx takes no angle"),
+        ("cp q[0],q[1];\n", 5, "cp needs an angle"),
+        ("cp(0.1) q[0];\n", 5, "cp takes 2 qubits"),
+        ("ccx(0.1) q[0],q[1],q[2];\n", 5, "ccx takes no angle"),
+        ("ccx q[0],q[1];\n", 5, "ccx takes 3 qubits"),
     ],
 )
 def test_more_malformed_statements_name_their_line(body, line, words):
@@ -150,3 +159,17 @@ def test_bad_register_declarations():
         parse_qasm_subset("OPENQASM 2.0;\nqreg q;\n")
     with pytest.raises(ValueError, match=r"^line 3: bad creg declaration"):
         parse_qasm_subset("OPENQASM 2.0;\nqreg q[2];\ncreg c;\n")
+
+
+def test_the_angle_evaluator_rejects_what_the_statement_splitter_never_passes():
+    from dense_evolution.backends.qasm_subset import _eval_angle
+
+    with pytest.raises(ValueError, match="unexpected end"):
+        _eval_angle("(1")
+    with pytest.raises(ValueError, match=r"expected '\)'"):
+        _eval_angle("(1 2")
+
+
+def test_an_empty_statement_is_skipped():
+    _, ops = parse_qasm_subset(HEAD + "h q[0];;\n;\n")
+    assert ops == [("h", 0)]

@@ -311,8 +311,16 @@ def test_n_pauli_errors_and_the_warning_of_a_capped_bond() -> None:
     with pytest.raises(ValueError, match="unknown Pauli"):
         mn.pauli_expectation(mps, "ZQZ")
     assert abs(mn.pauli_expectation(mps, "zzz") - 1.0) < 1e-12
-    sim = mn.MPSSimulatorNumpy(8, max_bond=2)
-    with pytest.warns(UserWarning, match="bond dimension capped"):
-        sim.run_circuit(de.random_circuit(8, 20, seed=2))
+    n = 8
+    layered = []
+    for k in range(6):
+        layered += [("h", q) for q in range(n)]
+        layered += [("rx", q, 0.3 + 0.17 * k + 0.05 * q) for q in range(n)]
+        layered += [("cx", q, q + 1) for q in range(k % 2, n - 1, 2)]
+        layered += [("cp", q, (q + 3) % n, 0.4 + 0.1 * k) for q in range(0, n, 2)]
+    sim = mn.MPSSimulatorNumpy(n, max_bond=2)
+    with pytest.warns(UserWarning, match="bond dimension capped") as caught:
+        sim.run_circuit(layered)
+    assert len(caught) == 1
     assert sim.budget_violations >= 1
     assert sim.total_truncation_error() > 0.0
