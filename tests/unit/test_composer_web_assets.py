@@ -51,3 +51,30 @@ def test_the_default_preset_of_the_composer_exists_in_web_mode():
     web = _text(COMPOSER / "web_kernel.js")
     key = re.search(r'presets\["(Bell state[^"]+)"\]', app).group(1)
     assert f'"{key}"' in web
+
+
+def test_every_element_the_composer_reads_is_in_the_page():
+    app = _text(COMPOSER / "app.js")
+    page = _text(REPO_ROOT / "docs" / "composer.md")
+    wanted = set(re.findall(r'\$\("([\w-]+)"\)', app))
+    present = set(re.findall(r'id="([\w-]+)"', page))
+    assert wanted - present == set()
+
+
+def test_the_page_has_the_settings_on_the_left_and_the_results_on_the_right():
+    page = _text(REPO_ROOT / "docs" / "composer.md")
+    side, main = page.index('<aside class="de-side">'), page.index('<div class="de-main">')
+    assert side < main
+    assert page.index('id="run-btn"') < main
+    assert page.index('id="qasm"') < main
+    assert page.index('id="statevector-table"') > main
+    assert page.index('id="histogram-img"') > main
+
+
+def test_every_view_and_tab_button_has_its_panel():
+    page = _text(REPO_ROOT / "docs" / "composer.md")
+    for view in re.findall(r'data-view="(\w+)"', page):
+        assert f'id="de-view-{view}"' in page
+    tabs = re.findall(r'class="de-tab(?: active)?" data-tab="(\w+)"', page)
+    panels = re.findall(r'class="de-tabpanel" data-tab="(\w+)"', page)
+    assert tabs and tabs == panels
