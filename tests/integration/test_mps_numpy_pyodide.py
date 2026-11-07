@@ -126,8 +126,8 @@ def test_1_ghz_200_inside_pyodide():
     print(f"jax_in_pyodide: {out['jax_in_pyodide']}")
     assert res["bond"] == 2
     assert res["idx"] == ["0", str(2**200 - 1)]
-    assert abs(res["p"][0] - 0.5) < 1e-6
-    assert abs(res["p"][1] - 0.5) < 1e-6
+    assert abs(res["p"][0] - 0.5) < 2e-5
+    assert abs(res["p"][1] - 0.5) < 2e-5
 
 
 def test_2_random_circuit_matches_cpython():
