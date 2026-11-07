@@ -26,6 +26,13 @@ let maxQubitsDense = 20;  // the dense-backend (RAM-based) figure loadSystemLimi
 // even at 100 qubits"), so it's what's honestly claimable as tested rather than a guess.
 const MAX_QUBITS_MPS_LARGE_SCALE = 100;
 
+// "local" talks to the local kernel (server.py). "web" runs the NumPy MPS
+// simulator inside the page (web_kernel.js, Pyodide): no server, no install,
+// but only the circuit run -- see webApi() below for what answers.
+let mode = "local";
+// In web mode up to 1500 qubits are allowed; the grid draws only the first rows.
+const GRID_MAX_ROWS_WEB = 64;
+
 const $ = (id) => document.getElementById(id);
 
 const COLOR_BY_GATE = {
@@ -107,6 +114,7 @@ const API_BASE = "http://127.0.0.1:8800";
 // to tell a genuine hang apart from "still working" -- AbortController
 // turns that into a clear, actionable error instead.
 async function api(path, opts, timeoutMs = 30000) {
+  if (mode === "web") return webApi(path, opts);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -129,6 +137,19 @@ async function api(path, opts, timeoutMs = 30000) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+// The calls the page makes in web mode, answered by web_kernel.js. Anything
+// else needs the local kernel (JAX, PennyLane, ...) and says so.
+async function webApi(path, opts) {
+  const body = opts && opts.body ? JSON.parse(opts.body) : {};
+  if (path === "/api/palette") return window.DEWebKernel.PALETTE;
+  if (path === "/api/presets") return window.DEWebKernel.presets();
+  if (path === "/api/build_from_ops") {
+    return { qasm: window.DEWebKernel.opsToQasm(body.n_qubits, body.ops) };
+  }
+  if (path === "/api/run") return window.DEWebKernel.run(body.qasm, 32);
+  throw new Error("non disponibile in modalita browser: serve il kernel locale");
 }
 
 // Presence probe for the local kernel (server.py running on this machine).
@@ -164,10 +185,62 @@ async function checkKernel() {
       `Oppure a mano, in un terminale:<br>` +
       `<code>pip install dense-evolution[composer]</code><br>` +
       `<code>dense-evolution serve</code><br>` +
-      `<button id="de-kernel-retry" class="btn btn-primary">Riprova</button>`;
+      `<button id="de-kernel-retry" class="btn btn-primary">Riprova</button> ` +
+      `<button id="de-web-mode" class="btn btn-ghost">Prova nel browser (NumPy, senza installare)</button>`;
     document.getElementById("de-kernel-retry").addEventListener("click", () => { void loadEverything(); });
+    document.getElementById("de-web-mode").addEventListener("click", () => { void enterWebMode(); });
     return false;
   }
+}
+
+// Browser mode: the NumPy MPS simulator runs in this page (Pyodide). Only the
+// circuit run is available, with the top most probable states, up to
+// DEWebKernel.MAX_QUBITS qubits; everything that needs JAX stays on the local kernel.
+async function enterWebMode() {
+  const root = $("de-composer-root");
+  const banner = document.getElementById("de-kernel-banner");
+  if (!window.DEWebKernel) {
+    banner.innerHTML = "<strong>Modalita browser non disponibile:</strong> web_kernel.js non e' stato caricato.";
+    return;
+  }
+  banner.className = "de-kernel-banner de-kernel-ok";
+  banner.innerHTML = "<strong>Modalita browser.</strong> Caricamento del motore NumPy (Pyodide), la prima volta ci vuole qualche secondo...";
+  mode = "web";
+  root.classList.remove("locked");
+  root.classList.add("web-mode");
+  try {
+    await window.DEWebKernel.ready();
+  } catch (err) {
+    mode = "local";
+    root.classList.remove("web-mode");
+    root.classList.add("locked");
+    banner.className = "de-kernel-banner de-kernel-locked";
+    banner.innerHTML =
+      `<strong>Motore browser non caricato:</strong> ${err.message}. ` +
+      `Serve la rete (Pyodide viene scaricato da jsDelivr). ` +
+      `<button id="de-kernel-retry" class="btn btn-primary">Riprova</button>`;
+    document.getElementById("de-kernel-retry").addEventListener("click", () => { void loadEverything(); });
+    return;
+  }
+  banner.innerHTML =
+    "<strong>Modalita browser</strong> &mdash; motore MPS NumPy (precisione singola, complex64) in questa pagina, " +
+    `fino a ${window.DEWebKernel.MAX_QUBITS} qubit. Si vedono gli stati piu probabili, non lo statevector. ` +
+    "VQE, Hamiltoniane, rumore e mitigazione richiedono il kernel locale. " +
+    `<button id="de-local-mode" class="btn btn-ghost">Usa il kernel locale</button>`;
+  document.getElementById("de-local-mode").addEventListener("click", () => {
+    mode = "local";
+    root.classList.remove("web-mode");
+    document.querySelectorAll(".web-hidden").forEach((el) => el.classList.remove("web-hidden"));
+    void loadEverything();
+  });
+  ["noise-model-select", "noise-p", "backend-select", "shots", "seed"].forEach((id) => {
+    const label = $(id).closest("label");
+    if (label) label.classList.add("web-hidden");
+  });
+  $("backend-select").value = "mps";
+  $("qubits-limit-info").textContent = `max ${window.DEWebKernel.MAX_QUBITS} qubit (MPS NumPy nel browser).`;
+  applyQubitLimitForBackend();
+  await loadPresetsAndPalette();
 }
 
 function setStatus(text, isError) {
@@ -177,7 +250,8 @@ function setStatus(text, isError) {
 }
 
 function buildEmptyGrid() {
-  grid = Array.from({ length: nQubits }, () => Array(N_COLS).fill(null));
+  const rows = mode === "web" ? Math.min(nQubits, GRID_MAX_ROWS_WEB) : nQubits;
+  grid = Array.from({ length: rows }, () => Array(N_COLS).fill(null));
 }
 
 const SHORT_LABEL = { "rx": "Rx", "ry": "Ry", "rz": "Rz" };
@@ -203,7 +277,7 @@ function renderGrid() {
   const el = $("grid");
   el.innerHTML = "";
   el.style.gridTemplateColumns = `34px repeat(${N_COLS}, 38px)`;
-  for (let r = 0; r < nQubits; r++) {
+  for (let r = 0; r < grid.length; r++) {
     const label = document.createElement("div");
     label.className = "qlabel";
     label.textContent = `q${r}`;
@@ -281,7 +355,7 @@ function renderConnectors() {
   const topPad = 8; // .grid { padding: 0.5rem 0 } top padding
   for (let c = 0; c < N_COLS; c++) {
     const rowsInColumn = [];
-    for (let r = 0; r < nQubits; r++) {
+    for (let r = 0; r < grid.length; r++) {
       if (grid[r][c] && grid[r][c].kind !== "single") rowsInColumn.push(r);
     }
     if (rowsInColumn.length < 2) continue;
@@ -303,7 +377,7 @@ function gridToOps() {
     const controls = [];
     const targets = [];
     const swaps = [];
-    for (let r = 0; r < nQubits; r++) {
+    for (let r = 0; r < grid.length; r++) {
       const v = grid[r][c];
       if (!v) continue;
       if (v.kind === "single") single = { row: r, gate: v.gate };
@@ -371,7 +445,7 @@ async function loadPresetsAndPalette() {
     });
     sel.appendChild(moleculeGroup);
   } catch (err) {
-    setStatus(`Errore caricamento molecole: ${err.message}`, true);
+    if (mode !== "web") setStatus(`Errore caricamento molecole: ${err.message}`, true);
   }
 
   const circuitGroup = document.createElement("optgroup");
@@ -435,7 +509,13 @@ function renderLargeScaleResult(result) {
   // Beyond MPS's dense-contraction ceiling there is no full statevector/
   // histogram/Q-sphere to show -- only the real top-k most probable
   // states (exact beam search, see dashboard_core.engine.run_large_circuit_mps).
-  $("circuit-img").src = `data:image/png;base64,${result.circuit_png}`;
+  if (result.circuit_png) {
+    $("circuit-img").style.display = "";
+    $("circuit-img").src = `data:image/png;base64,${result.circuit_png}`;
+  } else {
+    $("circuit-img").style.display = "none";
+    $("circuit-img").removeAttribute("src");
+  }
   $("qsphere-img").style.display = "none";
   $("qsphere-skip-msg").textContent =
     "Nessuno statevector denso a questa scala -- vedi gli stati piu probabili nella tabella Statevector qui sotto.";
@@ -450,7 +530,12 @@ function renderLargeScaleResult(result) {
   $("fidelity-info").textContent = "";
 
   const backendInfo = $("backend-info");
-  backendInfo.textContent =
+  backendInfo.textContent = result.engine === "numpy-web"
+    ? `Backend: MPS NumPy nel browser (Pyodide, complex64) -- ${result.n_gates} gate in ${result.elapsed_s.toFixed(2)} s, ` +
+      `bond massimo usato=${result.mps_max_bond_used}, memoria stimata=${result.mps_memory_mb.toFixed(4)} MB, ` +
+      `JSD medio=${result.mps_avg_jsd.toExponential(2)}. Top-${result.k_requested} stati via ricerca a fascio ` +
+      `(dense_evolution.backends.mps_numpy.MPSSimulatorNumpy.get_top_k_probable_states).`
+    :
     `Backend: MPS, modalita large-scale (>${24} qubit, nessuno statevector denso) -- ` +
     `bond massimo usato=${result.mps_max_bond_used}, memoria stimata=${result.mps_memory_mb.toFixed(4)} MB, ` +
     `JSD medio=${result.mps_avg_jsd.toExponential(2)}. Top-${result.k_requested} stati via ricerca a fascio esatta ` +
@@ -1097,9 +1182,11 @@ async function loadSystemLimits() {
 // changes.
 function applyQubitLimitForBackend() {
   const backend = $("backend-select").value || "dense";
-  maxQubits = backend === "mps"
-    ? Math.max(maxQubitsDense, MAX_QUBITS_MPS_LARGE_SCALE)
-    : maxQubitsDense;
+  maxQubits = mode === "web"
+    ? window.DEWebKernel.MAX_QUBITS
+    : backend === "mps"
+      ? Math.max(maxQubitsDense, MAX_QUBITS_MPS_LARGE_SCALE)
+      : maxQubitsDense;
   const input = $("n-qubits");
   input.max = String(maxQubits);
   // Clamping the displayed field without also updating nQubits/the grid
