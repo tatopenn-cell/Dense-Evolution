@@ -484,6 +484,7 @@ class TestBeastModeDonateArgnums:
         sim.run_circuit_with_chunking(circuit, chunk_size=7)
         assert abs(float(np.sum(probs(sim))) - 1.0) < 1e-9
 
+    @pytest.mark.slow
     def test_memory_rss_donated_vs_non_donated(self, capsys):
         # Not a strict pass/fail bound (RSS is noisy and platform/allocator
         # dependent) -- reports the real measured numbers so the claim

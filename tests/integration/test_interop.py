@@ -296,6 +296,7 @@ class TestPennyLaneInterop:
             _, ours = run_pennylane_circuit(qnode, use_float32=False)
             assert np.allclose(ref, ours, atol=1e-6), f"trial {trial} mismatch, piano={piano}"
 
+    @pytest.mark.slow
     def test_elaborate_circuit_fuzz(self):
         # The fuzz test above (test_non_monotonic_wire_order_fuzz) is
         # deliberately small -- 4 qubits, 5-12 gates, a 4-gate alphabet

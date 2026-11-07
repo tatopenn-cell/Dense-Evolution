@@ -103,6 +103,7 @@ class TestScfEnergies:
         assert result.converged is True
         assert result.total_energy == pytest.approx(-1.116999, abs=1e-6)
 
+    @pytest.mark.slow
     def test_scf_h2o_sto3g(self):
         geometry_bohr = _water_geometry_bohr(0.9584, 104.5)
         shells = build_molecule_shells([8, 1, 1], geometry_bohr, "sto-3g")
@@ -114,6 +115,7 @@ class TestScfEnergies:
         assert result.converged is True
         assert result.total_energy == pytest.approx(-74.96310432637894, abs=1e-6)
 
+    @pytest.mark.slow
     def test_scf_converges_on_near_degenerate(self):
         # The real Si2/STO-3G near-degenerate-orbital case that motivated
         # DIIS (dense_evolution/native_hf/scf.py's own module docstring):
@@ -169,6 +171,7 @@ class TestEnergyHistory:
         assert np.all(np.isfinite(np.asarray(result.energy_history[:result.n_iterations])))
         assert np.all(np.isnan(np.asarray(result.energy_history[result.n_iterations:])))
 
+    @pytest.mark.slow
     def test_diagnose_convergence_shape_on_a_real_converged_run(self):
         # Real regression guard for the Dense-Evolution <-> Dense-Armor
         # integration point (native_hf.scf.diagnose_convergence): on Si2's
@@ -386,6 +389,7 @@ class TestDShellBasisLoading:
         assert 2 in degrees
         assert n_cartesian_functions(shells) == sum(len(cartesian_powers(s.degree)) for s in shells)
 
+    @pytest.mark.slow
     def test_core_hamiltonian_symmetric_with_a_real_d_shell(self):
         # Fast (no ERI): overlap + core Hamiltonian only, on the smallest
         # real d-containing basis available -- the full electron-repulsion

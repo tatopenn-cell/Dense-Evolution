@@ -80,6 +80,7 @@ def test_zne_runs_with_the_main_circuit(app):
     assert app.session_state["zne_result"] is not None
 
 
+@pytest.mark.slow
 def test_bond_convergence_runs_with_the_main_circuit(app):
     app.sidebar.toggle(key="bc_on").set_value(True)
     app.sidebar.text_input(key="bc_bonds").set_value("2,4,8")
@@ -90,6 +91,7 @@ def test_bond_convergence_runs_with_the_main_circuit(app):
     assert app.session_state["bond_convergence_result"] is not None
 
 
+@pytest.mark.slow
 def test_mps_beyond_the_dense_limit_lists_the_top_states(app):
     ghz = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[30];\nh q[0];\n' + "".join(
         f"cx q[{i}],q[{i + 1}];\n" for i in range(29)
@@ -103,6 +105,7 @@ def test_mps_beyond_the_dense_limit_lists_the_top_states(app):
     assert app.session_state["large_mps_result"].n_qubits == 30
 
 
+@pytest.mark.slow
 def test_cosmic_ray_burst_runs_the_main_circuit_under_the_burst_profile(app):
     app.sidebar.toggle(key="burst_on").set_value(True)
     _run(app)
@@ -114,6 +117,7 @@ def test_cosmic_ray_burst_runs_the_main_circuit_under_the_burst_profile(app):
     assert "Cosmic-ray burst" in _results_tabs(app)
 
 
+@pytest.mark.slow
 def test_oscillating_noise_uses_the_zne_strength(app):
     app.sidebar.toggle(key="osc_on").set_value(True)
     _run(app)

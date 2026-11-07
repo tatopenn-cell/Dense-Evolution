@@ -176,67 +176,6 @@ jobs:
         run: |
           pytest tests/ -n auto -p no:randomly -v --tb=short --junitxml=pytest-results.xml --cov=. --cov-report=term-missing
 
-      - name: Run distributed-chunk tests (simulated multi-device)
-        if: needs.changes.outputs.code == 'true'
-        # TestChunkDistributed (issue #1) needs >= 8 JAX devices to exercise
-        # anything beyond a skip -- JAX's device count is fixed at process
-        # start, so this needs its own pytest invocation with the env var
-        # set beforehand, not just a flag inside the test run above.
-        #
-        # --cov-append is the point: without it, this step's coverage data
-        # would just overwrite the main suite's instead of merging into it,
-        # and the multi-device-only code paths in chunk.py (the whole
-        # reason this step exists as a separate process) would go right
-        # back to looking untested in the report -- confirmed this was
-        # actually happening: chunk.py showed 95.9% in an earlier full
-        # local run that covered both, but only 69.2% from CI's coverage.xml
-        # once the 0%-coverage bug above was fixed and the real number
-        # could finally be read, because this step wasn't feeding into it.
-        env:
-          XLA_FLAGS: "--xla_force_host_platform_device_count=8"
-        run: |
-          pytest tests/unit/test_chunk.py -k TestChunkDistributed -m slow -p no:randomly -v --tb=short --junitxml=pytest-results-distributed.xml --cov=. --cov-append --cov-report=term-missing
-        # -m slow: TestChunkDistributed is marked @pytest.mark.slow (prog.txt
-        # test-suite audit, issue #269 point 8) -- pyproject.toml's own
-        # addopts now defaults every pytest invocation to `-m "not slow"`,
-        # which would otherwise silently exclude this class from this
-        # already-dedicated step too. Passing -m slow here overrides that
-        # default (standard pytest last-`-m`-wins behavior). -p no:randomly:
-        # same reasoning as the main suite step above (point 9) -- keep this
-        # step's ordering unchanged until the dedicated diagnostic step below
-        # has surfaced and this audit has addressed any collection-order
-        # dependencies.
-
-      - name: Run slow tests (excluded by default -- see pyproject.toml addopts)
-        if: needs.changes.outputs.code == 'true'
-        # Everything ELSE marked @pytest.mark.slow (30k+-shot statistical
-        # tests, dense-matrix Majorana sweeps, real multi-Chunk construction,
-        # subprocess-isolated interpreters) -- run as its own step so a
-        # failure here is diagnosable separately from the main suite, per
-        # prog.txt's own suggestion. -k "not TestChunkDistributed" excludes
-        # the one slow class that already has its own dedicated step above
-        # (with the XLA_FLAGS env it actually needs) -- running it again
-        # here without that env would just hit its own internal
-        # device-count skip, harmless but redundant.
-        run: |
-          pytest tests/ -m slow -k "not TestChunkDistributed" -p no:randomly -v --tb=short --junitxml=pytest-results-slow.xml --cov=. --cov-append --cov-report=term-missing
-
-      - name: Run test suite with randomized collection order (diagnostic)
-        # prog.txt test-suite audit (issue #269 point 9): pytest-xdist was
-        # already active above (added in #255) -- only pytest-randomly was
-        # genuinely missing. Kept as its own non-blocking step (continue-on-error)
-        # rather than folded into the main run above: this is meant to
-        # actively surface latent collection-order dependencies (the class
-        # points 3/6/7 of this same audit already fixed some of), not to
-        # gate every PR red while any remaining ones are still being found.
-        # Once this step has run clean for a while, fold pytest-randomly's
-        # default (no -p no:randomly) into the main step instead of keeping
-        # this one separate.
-        continue-on-error: true
-        if: needs.changes.outputs.code == 'true' && (matrix.python-version == '3.12' && matrix.os == 'ubuntu-latest')
-        run: |
-          pytest tests/ -v --tb=short
-
       - name: Generate combined coverage report
         if: needs.changes.outputs.code == 'true'
         # Runs after both pytest invocations above so coverage.xml reflects
@@ -281,4 +220,76 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pytest-results-${{ matrix.os }}-${{ matrix.python-version }}
+          path: pytest-results*.xml
+
+  slow:
+    name: Slow tests (Python 3.12, ubuntu-latest, own job)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # The tests marked @pytest.mark.slow run here, in parallel with the matrix, so the
+    # matrix itself runs only "not slow" (pyproject.toml addopts) and each check stays
+    # under 20 minutes. The coverage of this job is uploaded to Codecov next to the one
+    # of the matrix; Codecov merges the two reports of the same commit.
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-cov pytest-env pytest-xdist pytest-randomly numpy scipy pandas matplotlib psutil ipython seaborn plotly
+          pip install setuptools pytest pytest-cov pytest-env pytest-xdist pytest-randomly numpy scipy pandas matplotlib psutil ipython jax jaxlib seaborn plotly
+          pip install qiskit pennylane pylatexenc
+          pip install basis_set_exchange
+          pip install qiskit-ibm-runtime
+          pip install stim
+          pip install pymatching
+          pip install rdkit
+          pip install ase
+          pip install scikit-learn
+          pip install dense-armor
+          pip install "streamlit>=1.30.0" "ipywidgets>=8.0.0"
+          pip install fastapi uvicorn pydantic httpx2
+          pip install mcp httpx
+          pip install -e . --no-deps
+
+
+      - name: Run distributed-chunk tests (simulated multi-device)
+        # TestChunkDistributed needs >= 8 JAX devices; the count is fixed at process
+        # start, so this step has its own pytest process with XLA_FLAGS, serial.
+        env:
+          XLA_FLAGS: "--xla_force_host_platform_device_count=8"
+        run: |
+          pytest tests/unit/test_chunk.py -k TestChunkDistributed -m slow -p no:randomly -v --tb=short --junitxml=pytest-results-distributed.xml --cov=. --cov-report=term-missing
+
+      - name: Run slow tests (excluded by default -- see pyproject.toml addopts)
+        # -n auto: the slow tests are spread over the cores of the runner, as the main
+        # suite is. -k excludes the class that already has its own step above.
+        run: |
+          pytest tests/ -m slow -k "not TestChunkDistributed" -n auto -p no:randomly -v --tb=short --junitxml=pytest-results-slow.xml --cov=. --cov-append --cov-report=term-missing
+
+      - name: Generate coverage report
+        run: |
+          coverage xml --ignore-errors
+
+      - name: Upload slow-test coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          flags: slow
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-results-slow
           path: pytest-results*.xml

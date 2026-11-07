@@ -595,6 +595,7 @@ def test_wormhole_select_instance_finds_the_known_seed_61():
     assert data["anticommuting"] == 11
 
 
+@pytest.mark.slow
 def test_wormhole_teleportation_exact_backend_matches_known_reference_values():
     """seed=61, t0=0.3, t1=0.60 known peak: I(mu=+12)=0.01326, I(mu=-12)=0.01793
     (exact backend) -- same values pinned in tests/test_local_site_server.py,
@@ -1022,6 +1023,7 @@ def test_crypto_bb84_perfect_channel_has_zero_qber():
     assert result["sifted_key_length"] > 0
 
 
+@pytest.mark.slow
 def test_crypto_di_qkd_ghz_near_quantum_max_on_ideal_channel():
     result = json.loads(run(mcp_adapter.dense_evolution_crypto_di_qkd_ghz(
         mcp_models.DiQkdGhzInput(n_rounds=500, p_dep=0.0, seed=0)

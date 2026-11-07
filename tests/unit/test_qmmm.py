@@ -134,6 +134,7 @@ class TestAseBridge:
         energy_ev = h2.get_potential_energy()
         assert energy_ev == pytest.approx(-30.39, abs=0.01)
 
+    @pytest.mark.slow
     def test_richer_basis_gives_a_lower_variational_energy(self):
         """6-31G has more variational freedom than STO-3G, so its energy
         must be lower (more negative) for the same real geometry -- the

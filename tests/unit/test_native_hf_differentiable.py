@@ -23,6 +23,7 @@ def _h2_geometry(bond_length_bohr):
     return jnp.array([[0.0, 0.0, 0.0], [0.0, 0.0, bond_length_bohr]])
 
 
+@pytest.mark.slow
 def test_h2_sto3g_gradient_matches_central_finite_difference():
     d0 = 0.735 * _BOHR_PER_ANGSTROM
     energy_fn = build_energy_fn(

@@ -24,6 +24,7 @@ class TestComputeHellmannFeynmanForces:
         with pytest.raises(ValueError):
             compute_hellmann_feynman_forces("not a real molecule")
 
+    @pytest.mark.slow
     def test_h2_force_small_at_real_equilibrium_geometry(self):
         # Recorded 2026-08-05: 0.0154 Hartree/Angstrom (small, clamped-
         # nucleus residual -- the electronic state is evaluated at fixed
@@ -32,6 +33,7 @@ class TestComputeHellmannFeynmanForces:
         assert result["force_norm"] == pytest.approx(0.0154, abs=2e-3)
         assert result["energy_hartree"] == pytest.approx(-1.137270, abs=1e-5)
 
+    @pytest.mark.slow
     def test_h2_force_much_larger_when_stretched(self):
         eq = compute_hellmann_feynman_forces(H2_EQUILIBRIUM)
         stretched_geometry = [[0.0, 0.0, 0.0], [0.0, 0.0, 1.2]]
@@ -47,6 +49,7 @@ class TestComputeHellmannFeynmanForces:
         assert forces[1, 2] < 0
         assert forces[0, 2] > 0
 
+    @pytest.mark.slow
     def test_explicit_geometry_overrides_catalog_default(self):
         default_result = compute_hellmann_feynman_forces(H2_EQUILIBRIUM)
         moved_result = compute_hellmann_feynman_forces(
@@ -91,6 +94,7 @@ class TestRunMdTrajectory:
         with pytest.raises(ValueError):
             run_md_trajectory("not a real molecule", n_steps=1)
 
+    @pytest.mark.slow
     def test_forces_and_energy_change_across_real_steps(self):
         # Regression check for a real bug found 2026-08-05: an earlier
         # version never passed the trajectory's updated positions back
@@ -109,6 +113,7 @@ class TestRunMdTrajectory:
         first_positions = np.array(trajectory["positions_angstrom"][0])
         assert first_positions[1, 2] == pytest.approx(0.7414, abs=1e-6)
 
+    @pytest.mark.slow
     def test_time_axis_matches_dt(self):
         trajectory = run_md_trajectory(H2_EQUILIBRIUM, n_steps=4, dt_fs=0.25)
         assert trajectory["time_fs"] == [0.0, 0.25, 0.5, 0.75]

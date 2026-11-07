@@ -62,6 +62,7 @@ def test_oh_doublet_uhf_is_contaminated_cuhf_is_not(oh):
     assert uhf.total_energy < cuhf.total_energy
 
 
+@pytest.mark.slow
 def test_o2_triplet_cuhf_energy_and_spin():
     S, H, V, q, g = _molecule([8, 8], [[0, 0, 0], [0, 0, 2.28]])
     cuhf = run_cuhf(S, H, V, 16, q, g, n_unpaired=2)

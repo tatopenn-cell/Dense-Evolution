@@ -64,6 +64,7 @@ def test_a_ghz_preset_scales_and_stays_a_ghz_state(app):
     assert set(result.counts) <= {"000000", "111111"}
 
 
+@pytest.mark.slow
 def test_bell_goes_up_and_runs_on_mps_beyond_the_dense_limit(app):
     _preset(app, "Bell state (2 qubit)")
     app.sidebar.select_slider(key="qubits_select").set_value(40).run()

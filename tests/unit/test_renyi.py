@@ -108,6 +108,7 @@ def test_jit_matches_eager():
             assert eager == pytest.approx(jitted, abs=1e-9)
 
 
+@pytest.mark.slow
 def test_no_nan_across_noise_sweep():
     rho = _bell_state_rho()
     for p in (0.0, 0.2, 0.5, 0.8, 0.99):

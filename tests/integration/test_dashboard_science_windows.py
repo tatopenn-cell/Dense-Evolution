@@ -37,6 +37,7 @@ def test_windows_exist_and_are_off_by_default(app):
         assert app.sidebar.toggle(key=key).value is False
 
 
+@pytest.mark.slow
 def test_chemistry_on_loads_the_ansatz_and_off_restores_the_circuit(app):
     before = app.sidebar.text_area(key="qasm_text__Custom").value
     app.sidebar.slider(key="vqe_maxiter").set_value(3)
@@ -53,6 +54,7 @@ def test_chemistry_on_loads_the_ansatz_and_off_restores_the_circuit(app):
     assert app.sidebar.text_area(key="qasm_text__Custom").value == before
 
 
+@pytest.mark.slow
 def test_wormhole_runs_with_the_run_button(app):
     app.sidebar.toggle(key="wh_on").set_value(True)
     _run(app)

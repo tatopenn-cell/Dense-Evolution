@@ -244,6 +244,7 @@ def test_toffoli_non_adjacent_unordered_controls():
 
 # ── the actual regression check: cross-validation vs DenseSVSimulator ────
 
+@pytest.mark.slow
 def test_matches_dense_simulator_on_entangling_circuit():
     n = 8
     prob_dense = _entangling_circuit_probs_dense(n)
@@ -298,6 +299,7 @@ def test_budget_violations_zero_when_max_bond_is_adequate():
 
 # ── large-n sampling path (no full statevector ever materialized) ────────
 
+@pytest.mark.slow
 def test_sampled_probabilities_low_entanglement_large_n():
     # GHZ-chain at 40 qubits: bond dimension stays 2 throughout regardless
     # of n, so this must run instantly and never touch a 2**40 array.
@@ -519,6 +521,7 @@ def _capture_real_svd_truncate_calls(n_qubits, max_bond, jsd_budget, seed, layer
     (20, 64, 1e-6, 2, 5),   # larger, tighter budget
     (6,  4,  1e-2, 3, 8),   # tiny bond, many layers -- stresses the violation fallback
 ])
+@pytest.mark.slow
 def test_vectorized_chi_search_matches_real_while_loop(n_qubits, max_bond, jsd_budget, seed, layers):
     captured = _capture_real_svd_truncate_calls(n_qubits, max_bond, jsd_budget, seed, layers)
     assert len(captured) > 0, "expected at least one real _svd_truncate call"
@@ -535,6 +538,7 @@ def test_vectorized_chi_search_matches_real_while_loop(n_qubits, max_bond, jsd_b
 # inside the traced region.
 
 @pytest.mark.parametrize("n_qubits", [6, 10, 15])
+@pytest.mark.slow
 def test_expand_nonlocal_2q_positions_matches_real_dispatch_sequence(n_qubits):
     """Exhaustive: every (q1, q2) pair for this n_qubits must produce the
     exact same sequence of adjacent-pair apply_gate_2q calls the real
@@ -1154,6 +1158,7 @@ def _run_x64(value, fn):
         jax.config.update("jax_enable_x64", previous)
 
 
+@pytest.mark.slow
 def test_default_svd_cutoff_shrinks_chi_in_complex64():
     def run():
         ops = _brick_wall_ry_ops(12, seed=0, layers=1)
@@ -1168,6 +1173,7 @@ def test_default_svd_cutoff_shrinks_chi_in_complex64():
     _run_x64(False, run)
 
 
+@pytest.mark.slow
 def test_default_svd_cutoff_preserves_fidelity_within_the_old_fixed_cutoff():
     def run():
         ops = _brick_wall_ry_ops(12, seed=0, layers=1)
@@ -1298,6 +1304,7 @@ def test_bond_convergence_ghz_converges_at_small_bonds():
     assert result.verdicts == ["converged"]
 
 
+@pytest.mark.slow
 def test_bond_convergence_deep_brickwall_not_converged():
     # chi_used=[4, 8, 16] here -- below the bonds=(4, 8, 32) cap at every
     # step, so this is a genuine not_converged (not undecidable): the

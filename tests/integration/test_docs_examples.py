@@ -74,6 +74,7 @@ class TestGettingStartedExamples:
         assert sim.n == 27
         assert sim.num_chunks >= 1
 
+    @pytest.mark.slow
     def test_zero_noise_extrapolation(self):
         ns = _run_section('docs/getting-started.md', '## Zero-Noise Extrapolation')
         raw_fidelity = float(ns['raw_fidelity'])
