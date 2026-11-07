@@ -51,6 +51,12 @@ Run up to 28 qubits in about 3 seconds, without crashing. **Dense Evolution** JI
 
 A local Streamlit dashboard and web-based Composer editor are also included — see [Composer & MCP Server](#-composer--mcp-server) below.
 
+
+
+https://github.com/user-attachments/assets/bcab87a1-9cc6-4e9e-818e-665a7c028c73
+
+
+
 ---
 
 ## ▍ Install
