@@ -311,6 +311,7 @@ def test_qmmm_forces_unknown_molecule_returns_400():
     assert resp.status_code == 400
 
 
+@pytest.mark.slow
 def test_md_trajectory_on_catalog_molecule():
     resp = client.post("/api/md_trajectory", json={
         "name": SMALL_MOLECULE, "n_steps": 3, "dt_fs": 0.5,
@@ -468,6 +469,7 @@ def test_wormhole_select_instance_rejects_too_many_k_terms():
     assert resp.status_code == 400
 
 
+@pytest.mark.slow
 def test_wormhole_teleportation_exact_backend_matches_known_reference_values():
     """seed=61, t0=0.3, t1=0.60 is the known signal peak, verified
     repeatedly during the research reproduction: I(mu=+12)=0.01326,
@@ -573,6 +575,7 @@ def test_mitigate_coherence_rejects_unknown_noise_model():
     assert resp.status_code == 400
 
 
+@pytest.mark.slow
 def test_crypto_di_qkd_ghz_perfect_channel_hits_quantum_max():
     resp = client.post("/api/crypto/di_qkd_ghz", json={"n_rounds": 500, "p_dep": 0.0, "seed": 0})
     assert resp.status_code == 200
@@ -674,6 +677,7 @@ def test_rag_search_tfidf_without_rerank_returns_ranked_results():
     assert results[0]["source"] == "gao.pdf"
 
 
+@pytest.mark.slow
 def test_rag_search_semantic_returns_ranked_results():
     pytest.importorskip("sklearn")
     pytest.importorskip("sentence_transformers")

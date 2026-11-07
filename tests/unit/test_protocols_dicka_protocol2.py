@@ -1,3 +1,5 @@
+import pytest
+
 from dense_evolution.protocols.dicka_protocol2 import run_protocol, CLASSICAL_BOUND, QUANTUM_MAX
 
 BETA = (CLASSICAL_BOUND + QUANTUM_MAX) / 2
@@ -15,12 +17,14 @@ def test_noisy_channel_aborts():
     assert result["aborted"]
 
 
+@pytest.mark.slow
 def test_qber_rises_with_noise():
     low = run_protocol(400, gamma=0.7, beta=BETA, p_dep=0.02, seed=2)
     high = run_protocol(400, gamma=0.7, beta=BETA, p_dep=0.15, seed=2)
     assert high["qber_b1"] > low["qber_b1"]
 
 
+@pytest.mark.slow
 def test_round_counts_match_gamma_roughly():
     result = run_protocol(1000, gamma=0.7, beta=BETA, p_dep=0.0, seed=3)
     assert result["n_test"] + result["n_key"] == 1000

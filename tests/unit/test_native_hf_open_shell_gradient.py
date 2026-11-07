@@ -41,6 +41,7 @@ def _fd_dz(energy_fn, geom, h=1e-4):
     return (e_of_z(z0 + h) - e_of_z(z0 - h)) / (2 * h)
 
 
+@pytest.mark.slow
 def test_closed_shell_uhf_equals_rhf_energy_and_gradient():
     fn_rhf = build_energy_fn([8, 1, 1], [8., 1., 1.], 10, "sto-3g", GEOM_H2O, method="rhf")
     fn_uhf = build_energy_fn([8, 1, 1], [8., 1., 1.], 10, "sto-3g", GEOM_H2O, method="uhf", n_unpaired=0)
@@ -51,6 +52,7 @@ def test_closed_shell_uhf_equals_rhf_energy_and_gradient():
     assert float(jnp.max(jnp.abs(gr - gu))) < 1e-6
 
 
+@pytest.mark.slow
 def test_closed_shell_cuhf_equals_rhf_energy_and_gradient():
     fn_rhf  = build_energy_fn([8, 1, 1], [8., 1., 1.], 10, "sto-3g", GEOM_H2O, method="rhf")
     fn_cuhf = build_energy_fn([8, 1, 1], [8., 1., 1.], 10, "sto-3g", GEOM_H2O, method="cuhf", n_unpaired=0)
@@ -60,6 +62,7 @@ def test_closed_shell_cuhf_equals_rhf_energy_and_gradient():
     assert float(jnp.max(jnp.abs(gr - gc))) < 1e-6
 
 
+@pytest.mark.slow
 def test_oh_doublet_uhf_gradient_matches_finite_difference():
     fn = build_energy_fn([8, 1], [8., 1.], 9, "sto-3g", GEOM_OH, method="uhf", n_unpaired=1)
     g = jnp.asarray(GEOM_OH)
@@ -76,6 +79,7 @@ def test_oh_doublet_cuhf_gradient_matches_finite_difference():
     assert an == pytest.approx(fd, abs=1e-5)
 
 
+@pytest.mark.slow
 def test_o2_triplet_uhf_gradient_matches_finite_difference():
     fn = build_energy_fn([8, 8], [8., 8.], 16, "sto-3g", GEOM_O2, method="uhf", n_unpaired=2)
     g = jnp.asarray(GEOM_O2)
@@ -84,6 +88,7 @@ def test_o2_triplet_uhf_gradient_matches_finite_difference():
     assert an == pytest.approx(fd, abs=1e-5)
 
 
+@pytest.mark.slow
 def test_o2_triplet_cuhf_gradient_matches_finite_difference():
     fn = build_energy_fn([8, 8], [8., 8.], 16, "sto-3g", GEOM_O2, method="cuhf", n_unpaired=2)
     g = jnp.asarray(GEOM_O2)

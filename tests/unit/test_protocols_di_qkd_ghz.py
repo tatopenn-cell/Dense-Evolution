@@ -1,3 +1,5 @@
+import pytest
+
 from dense_evolution.protocols.di_qkd_ghz import parity_chsh_win_rate, expected_win_rate, key_qber
 
 
@@ -11,6 +13,7 @@ def test_ideal_channel_matches_quantum_maximum():
     assert abs(p_win - expected_win_rate(0.0)) < 0.05
 
 
+@pytest.mark.slow
 def test_depolarizing_sweep_matches_closed_form():
     for p in [0.05, 0.10]:
         p_win = parity_chsh_win_rate(500, p_dep=p, seed=1)
@@ -23,6 +26,7 @@ def test_key_generation_zero_qber_on_ideal_channel():
     assert qber_b2 == 0.0
 
 
+@pytest.mark.slow
 def test_key_generation_qber_rises_with_noise():
     _, qber_ideal = key_qber(500, p_dep=0.0, seed=3)
     _, qber_noisy = key_qber(500, p_dep=0.10, seed=3)

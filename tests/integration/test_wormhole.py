@@ -84,6 +84,7 @@ class TestBuildSparseSykTerms:
 
 class TestRunWormholeProtocolFiniteBeta:
 
+    @pytest.mark.slow
     def test_beta_zero_matches_existing_beta_zero_backend(self):
         # exp(-0*H/4) = identity, so beta=0 must reproduce
         # run_wormhole_protocol's plain Bell-pair TFD exactly, not just
@@ -104,6 +105,7 @@ class TestRunWormholeProtocolFiniteBeta:
         assert beta3 != pytest.approx(beta0, abs=1e-6)
         assert beta3 == pytest.approx(0.04166, abs=2e-4)
 
+    @pytest.mark.slow
     def test_precomputed_layout_matches_one_shot_wrapper_exactly(self):
         # The precompute-once path (_finite_beta_layout_precomputed +
         # _run_finite_beta_precomputed) exists purely as a speed
@@ -117,6 +119,7 @@ class TestRunWormholeProtocolFiniteBeta:
 
         assert precomputed_result == pytest.approx(wrapper_result, abs=1e-12)
 
+    @pytest.mark.slow
     def test_precomputed_layout_reused_across_multiple_beta_values(self):
         # The whole point of the precomputed layout: reuse the same
         # eigendecomposition across several beta values for one seed,
@@ -153,6 +156,7 @@ class TestFindDeltaBetaBands:
             assert prev_band["beta_hi"] == next_band["beta_lo"]
         assert all(b["max_abs_delta"] > 0 for b in bands)
 
+    @pytest.mark.slow
     def test_seed_that_never_flips_gives_a_single_band(self):
         # seed=1944: delta_beta0=+0.03690, and independently verified
         # (n=30 stability run, fine-grid scan over the full [0, 6]) to

@@ -234,6 +234,7 @@ class TestNativeHfFallback:
             active_electrons=spec["active_electrons"], active_orbitals=spec["active_orbitals"],
         )
 
+    @pytest.mark.slow
     def test_si2_ground_state_matches_independent_verification(self):
         # BUG FOUND AND FIXED (see dense_evolution/native_hf/scf.py's
         # module docstring): plain (undamped) SCF never converged for
