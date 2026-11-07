@@ -233,7 +233,7 @@ async function enterWebMode() {
     document.querySelectorAll(".web-hidden").forEach((el) => el.classList.remove("web-hidden"));
     void loadEverything();
   });
-  ["noise-model-select", "noise-p", "backend-select"].forEach((id) => {
+  ["noise-model-select", "noise-p", "backend-select", "shots", "seed"].forEach((id) => {
     const label = $(id).closest("label");
     if (label) label.classList.add("web-hidden");
   });
