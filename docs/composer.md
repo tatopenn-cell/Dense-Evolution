@@ -8,6 +8,8 @@ throughout the [API Reference](api/index.md), not a separate demo.
 <link rel="stylesheet" href="../assets/composer/style.css" />
 
 <div id="de-composer-root">
+  <div class="de-layout">
+  <aside class="de-side">
   <section class="toolbar">
     <label>Preset
       <select id="preset-select"></select>
@@ -38,59 +40,65 @@ throughout the [API Reference](api/index.md), not a separate demo.
     <span id="status" class="status"></span>
   </section>
 
-  <section class="row row-top">
-    <div class="panel panel-palette">
-      <h3>Operations</h3>
-      <div id="palette" class="palette"></div>
-    </div>
-
-    <div class="panel panel-canvas">
-      <div class="panel-head">
-        <h3>Circuit</h3>
-        <button id="clear-btn" class="btn btn-ghost">Clear grid</button>
-      </div>
-      <div id="grid" class="grid"></div>
-    </div>
-
     <div class="panel panel-code">
       <h3>OpenQASM 2.0</h3>
       <textarea id="qasm" class="code" spellcheck="false"></textarea>
     </div>
-  </section>
+  </aside>
 
-  <section class="row row-bottom">
-    <div class="panel panel-probabilities">
-      <h3>Probabilities</h3>
-      <img id="histogram-img" class="figure" alt="Probabilities histogram" />
-      <div id="histogram-skip-msg" class="hint"></div>
+  <div class="de-main">
+    <div class="de-viewbar" role="tablist">
+      <button class="de-tab active" data-view="build" role="tab">Build</button>
+      <button class="de-tab" data-view="results" role="tab">Results</button>
     </div>
-    <div class="panel panel-qsphere">
-      <h3>Q-sphere</h3>
-      <img id="qsphere-img" class="figure" alt="Q-sphere" />
-      <div id="qsphere-skip-msg" class="hint"></div>
-    </div>
-    <div class="panel panel-bloch">
-      <h3>Bloch spheres</h3>
-      <img id="bloch-img" class="figure" alt="Bloch spheres" />
-      <div id="bloch-skip-msg" class="hint"></div>
-    </div>
-  </section>
 
-  <section class="row row-extra">
-    <div class="panel panel-circuit-diagram">
-      <h3>Circuit diagram</h3>
-      <img id="circuit-img" class="figure" alt="Circuit diagram" />
-    </div>
-    <div class="panel panel-statevector">
-      <h3>Statevector</h3>
+    <section id="de-view-build" class="de-view">
+      <div class="row row-build">
+        <div class="panel panel-palette">
+          <h3>Operations</h3>
+          <div id="palette" class="palette"></div>
+        </div>
+        <div class="panel panel-canvas">
+          <div class="panel-head">
+            <h3>Circuit</h3>
+            <button id="clear-btn" class="btn btn-ghost">Clear grid</button>
+          </div>
+          <div id="grid" class="grid"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="de-view-results" class="de-view" hidden>
       <div id="backend-info" class="hint"></div>
       <div id="fidelity-info" class="hint"></div>
-      <table id="statevector-table" class="sv-table">
-        <thead><tr><th>state</th><th>re</th><th>im</th><th>|amp|</th><th>phase</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-  </section>
+      <div class="de-tabs" role="tablist">
+        <button class="de-tab active" data-tab="circuit" role="tab">Circuit</button>
+        <button class="de-tab" data-tab="statevector" role="tab">Statevector</button>
+        <button class="de-tab" data-tab="prob" role="tab">Probabilities &amp; Q-sphere</button>
+        <button class="de-tab" data-tab="qubits" role="tab">Qubits</button>
+      </div>
+      <div class="de-tabpanel" data-tab="circuit">
+        <img id="circuit-img" class="figure" alt="Circuit diagram" />
+      </div>
+      <div class="de-tabpanel" data-tab="statevector" hidden>
+        <table id="statevector-table" class="sv-table">
+          <thead><tr><th>state</th><th>re</th><th>im</th><th>|amp|</th><th>phase</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="de-tabpanel" data-tab="prob" hidden>
+        <img id="histogram-img" class="figure" alt="Probabilities histogram" />
+        <div id="histogram-skip-msg" class="hint"></div>
+        <img id="qsphere-img" class="figure" alt="Q-sphere" />
+        <div id="qsphere-skip-msg" class="hint"></div>
+      </div>
+      <div class="de-tabpanel" data-tab="qubits" hidden>
+        <img id="bloch-img" class="figure" alt="Bloch spheres" />
+        <div id="bloch-skip-msg" class="hint"></div>
+      </div>
+    </section>
+  </div>
+  </div>
 
 
   <details class="de-collapsible">

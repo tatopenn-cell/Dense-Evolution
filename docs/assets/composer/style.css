@@ -386,3 +386,90 @@ body {
 #statevector-table td:first-child {
   word-break: break-all;
 }
+
+/* Two columns, as in the Streamlit dashboard: the settings and the OpenQASM
+   text on the left (they stay in view while the page scrolls), the circuit
+   and the results on the right. */
+.de-layout {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+  margin-bottom: 1rem;
+}
+.de-side {
+  position: sticky;
+  top: 4.5rem;
+  max-height: calc(100vh - 5.5rem);
+  overflow-y: auto;
+  min-width: 0;
+}
+.de-main {
+  min-width: 0;
+}
+.de-side .toolbar {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.7rem;
+}
+.de-side .toolbar label,
+.de-side .toolbar input,
+.de-side .toolbar select,
+.de-side .toolbar .btn {
+  width: 100%;
+  box-sizing: border-box;
+}
+.de-side .toolbar #noise-p {
+  width: 100% !important;
+}
+.de-side .panel-code textarea.code {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 16rem;
+}
+.row-build {
+  grid-template-columns: 200px minmax(0, 1fr);
+}
+@media (max-width: 1000px) {
+  .de-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .de-side {
+    position: static;
+    max-height: none;
+  }
+  .row-build {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Build / Results, and the tabs of the results. */
+.de-viewbar,
+.de-tabs {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--de-border);
+  margin-bottom: 0.8rem;
+}
+.de-tab {
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  padding: 0.5rem 0.9rem;
+  font: inherit;
+  font-weight: 600;
+  color: var(--de-text-dim);
+  cursor: pointer;
+}
+.de-tab:hover {
+  color: var(--de-text);
+}
+.de-tab.active {
+  color: var(--de-text);
+  border-bottom-color: var(--de-accent);
+}
+.de-view[hidden],
+.de-tabpanel[hidden] {
+  display: none;
+}
