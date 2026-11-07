@@ -17,7 +17,7 @@ def app(monkeypatch):
     for name in ("dashboard_core", "sota_views", "engine_explorer", "circuit_editor"):
         sys.modules.pop(name, None)
     at = AppTest.from_file(str(DASHBOARD / "app.py"), default_timeout=180).run()
-    at.sidebar.text_area(key="qasm_text__Custom").set_value(NO_GATE).run()
+    at.sidebar.text_area(key="qasm_text__Custom").set_value(NO_GATE)
     return at
 
 
@@ -28,7 +28,7 @@ def _run(at):
 
 
 def test_qubit_one_chosen_gives_the_outcome_10(app):
-    app.sidebar.multiselect(key="input_ones").set_value([1]).run()
+    app.sidebar.multiselect(key="input_ones").set_value([1])
     assert set(_run(app)) == {"10"}
 
 

@@ -126,3 +126,59 @@ def test_the_gate_is_written_on_every_edge():
 def test_wrong_arguments_are_refused(kwargs, message):
     with pytest.raises(ValueError, match=message):
         ct.topology_qasm(**kwargs)
+
+
+def test_measurements_keep_every_count_and_the_input_string():
+    rows = ct.measurement_rows({"11": 3, "00": 2}, [1], 2, seed=5)
+    assert len(rows) == 5
+    assert sorted(r["output"] for r in rows) == ["00", "00", "11", "11", "11"]
+    assert {r["input"] for r in rows} == {"10"}
+    assert [r["measurement"] for r in rows] == [1, 2, 3, 4, 5]
+
+
+def test_measurements_have_a_fixed_order_for_a_seed_and_a_limit():
+    counts = {"01": 50, "10": 50}
+    assert ct.measurement_rows(counts, [], 2, seed=3) == ct.measurement_rows(counts, [], 2, seed=3)
+    assert len(ct.measurement_rows(counts, [], 2, limit=7)) == 7
+
+
+def test_qiskit_code_of_a_circuit_with_angles_and_three_qubit_gate():
+    code = ct.qiskit_code([("h", 0), ("rx", 1, 0.3), ("cp", 0, 1, 0.5), ("ccx", 0, 1, 2)], 3)
+    assert code.splitlines() == [
+        "from qiskit import QuantumCircuit",
+        "",
+        "qc = QuantumCircuit(3, 3)",
+        "qc.h(0)",
+        "qc.rx(0.3, 1)",
+        "qc.cp(0.5, 0, 1)",
+        "qc.ccx(0, 1, 2)",
+        "qc.measure(range(3), range(3))",
+    ]
+
+
+def test_qiskit_code_rejects_a_gate_without_a_qiskit_method():
+    with pytest.raises(ValueError):
+        ct.qiskit_code([("zz", 0, 1)], 2)
+
+
+def test_state_csv_of_a_bell_pair():
+    lines = ct.state_csv([2**-0.5, 0, 0, 2**-0.5], 2).splitlines()
+    assert lines[0] == "state,re,im,probability"
+    assert [line.split(",")[0] for line in lines[1:]] == ["00", "01", "10", "11"]
+    assert float(lines[1].split(",")[3]) == pytest.approx(0.5)
+
+
+def test_the_smallest_register_is_the_highest_qubit_used_plus_one():
+    assert ct.min_qubits("qreg q[5];\ncreg c[5];\nh q[0];\ncx q[0],q[2];\n") == 3
+    assert ct.min_qubits("qreg q[4];\n") == 1
+
+
+def test_the_register_size_changes_in_both_declarations_and_nothing_else():
+    text = "qreg q[2];\ncreg c[2];\nh q[0];\n"
+    assert ct.with_qubit_count(text, 4) == "qreg q[4];\ncreg c[4];\nh q[0];\n"
+
+
+def test_dense_cap_keeps_fifteen_percent_of_the_ram_free():
+    assert ct.dense_qubit_cap(8000, 16000) == 28
+    assert ct.dense_qubit_cap(300, 300) == 23
+    assert ct.dense_qubit_cap(16000, 16000, ceiling=20) == 20

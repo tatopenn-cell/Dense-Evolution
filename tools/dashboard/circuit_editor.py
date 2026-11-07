@@ -5,6 +5,7 @@ cells), with undo/redo (a history list and an index) and the gate matrix
 shown on hover.
 """
 import json
+import math
 
 import streamlit as st
 
@@ -20,13 +21,18 @@ MATRICES = {
     "t": "T = [[1, 0], [0, e^(iπ/4)]]",
     "tdg": "T† = [[1, 0], [0, e^(−iπ/4)]]",
     "sx": "√X = ½ · [[1+i, 1−i], [1−i, 1+i]]",
-    "rx": "Rx(π/2) = 1/√2 · [[1, −i], [−i, 1]]",
-    "ry": "Ry(π/2) = 1/√2 · [[1, −1], [1, 1]]",
-    "rz": "Rz(π/2) = [[e^(−iπ/4), 0], [0, e^(iπ/4)]]",
-    "ctrl": "Control ●: the column's gate acts when this qubit is |1⟩",
+    "rx": "Rx(θ) = [[cos θ/2, −i sin θ/2], [−i sin θ/2, cos θ/2]]",
+    "ry": "Ry(θ) = [[cos θ/2, −sin θ/2], [sin θ/2, cos θ/2]]",
+    "rz": "Rz(θ) = [[e^(−iθ/2), 0], [0, e^(iθ/2)]]",
+    "p": "P(θ) = [[1, 0], [0, e^(iθ)]]",
+    "actrl": "Anti-control ○: the gate acts when this qubit is |0⟩ (an X before and after)",
+    "ctrl": "Control ●: drag it into the column of a gate and the gate acts when this qubit is |1⟩ "
+    "(two ● on an X make a Toffoli)",
     "tgt_x": "Target of CX: X = [[0, 1], [1, 0]] when the control is |1⟩",
     "tgt_y": "Target of CY: Y = [[0, −i], [i, 0]] when the control is |1⟩",
     "tgt_z": "Target of CZ: Z = [[1, 0], [0, −1]] when the control is |1⟩",
+    "tgt_p": "Target of CP: P(θ) = [[1, 0], [0, e^(iθ)]] when the control is |1⟩",
+    "tgt_rz": "Target of CRz: Rz(θ) = [[e^(−iθ/2), 0], [0, e^(iθ/2)]] when the control is |1⟩",
     "swap": "SWAP = [[1, 0, 0, 0], [0, 0, 1, 0], [0, 1, 0, 0], [0, 0, 0, 1]] (two × in one column)",
 }
 
@@ -45,12 +51,22 @@ _CSS = """
 .ce-qlabel { font-size: 12px; opacity: 0.75; text-align: right; padding-right: 6px; }
 .ce-cell {
   width: 40px; height: 32px; border: 1px solid var(--st-border-color, #444); border-radius: 4px;
-  display: flex; align-items: center; justify-content: center; font-size: 13px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 13px; cursor: pointer;
   background: var(--st-background-color, #0e1117); color: var(--st-text-color, #fafafa);
 }
 .ce-cell.ce-filled { background: var(--st-secondary-background-color, #262730); font-weight: bold; }
 .ce-cell.ce-over { outline: 2px dashed #4af; }
 .ce-hint { font-size: 12px; opacity: 0.75; }
+.ce-cell { position: relative; z-index: 0; }
+.ce-cell.ce-wire-up::before, .ce-cell.ce-wire-down::after {
+  content: ''; position: absolute; left: 50%; width: 2px; margin-left: -1px; background: #4af; z-index: -1;
+}
+.ce-cell.ce-wire-up::before { top: -2px; height: calc(50% + 2px); }
+.ce-cell.ce-wire-down::after { bottom: -2px; height: calc(50% + 2px); }
+.ce-cell small { display: block; font-size: 9px; opacity: 0.85; line-height: 1; }
+.ce-angle { font-size: 13px; display: flex; align-items: center; gap: 6px; margin-left: 8px; }
+.ce-angle input { width: 90px; font-family: monospace; }
+.ce-angle input.ce-bad { outline: 2px solid #e55; }
 """
 
 _JS = r"""
@@ -77,11 +93,28 @@ export default function(component) {
     chip.dataset.kind = g.kind;
     chip.title = g.matrix;
     chip.addEventListener('dragstart', (e) => {
-      e.dataTransfer.setData('text/plain', g.id);
+      let id = g.id;
+      if (g.param) {
+        const a = parseAngle(angleInput.value);
+        id = `${g.id}:${(a === null ? Math.PI / 2 : a).toPrecision(12)}`;
+      }
+      e.dataTransfer.setData('text/plain', id);
       e.dataTransfer.effectAllowed = 'copy';
     });
     paletteEl.appendChild(chip);
   });
+  const angleWrap = document.createElement('label');
+  angleWrap.className = 'ce-angle';
+  angleWrap.textContent = 'θ for Rx Ry Rz P ● P ● Rz:';
+  const angleInput = document.createElement('input');
+  angleInput.type = 'text';
+  angleInput.value = 'pi/2';
+  angleInput.title = 'Radians: a number or an expression such as pi/4, 3*pi/8, 0.5';
+  angleInput.addEventListener('input', () => {
+    angleInput.classList.toggle('ce-bad', parseAngle(angleInput.value) === null);
+  });
+  angleWrap.appendChild(angleInput);
+  paletteEl.appendChild(angleWrap);
   root.appendChild(paletteEl);
 
   const gridEl = document.createElement('div');
@@ -101,7 +134,7 @@ export default function(component) {
         e.preventDefault();
         cell.classList.remove('ce-over');
         const id = e.dataTransfer.getData('text/plain');
-        if (!byId[id]) return;
+        if (!byId[id.split(':')[0]]) return;
         grid[r][c] = id;
         renderCell(r, c);
         emit();
@@ -116,16 +149,98 @@ export default function(component) {
   root.appendChild(gridEl);
   const hint = document.createElement('div');
   hint.className = 'ce-hint';
-  hint.textContent = 'Hover a gate for its matrix · click a cell to remove · Ctrl+Z undo · Ctrl+Y redo';
+  hint.textContent = 'Drag a ● (acts on 1) or ○ (acts on 0) into the column of a gate to control it · hover a gate for its matrix · click a cell to remove · Ctrl+Z undo · Ctrl+Y redo';
   root.appendChild(hint);
   parentElement.appendChild(root);
 
   function renderCell(r, c) {
     const cell = cellEls[r][c];
-    const g = byId[grid[r][c]];
+    const raw = grid[r][c];
+    const parts = raw ? raw.split(':') : [null];
+    const g = byId[parts[0]];
     cell.classList.toggle('ce-filled', !!g);
     cell.textContent = g ? g.label : '';
-    cell.title = g ? g.matrix : '';
+    if (g && parts.length > 1) {
+      const small = document.createElement('small');
+      small.textContent = fmtAngle(Number(parts[1]));
+      cell.appendChild(small);
+    }
+    cell.title = g ? g.matrix + (parts.length > 1 ? ` · θ = ${Number(parts[1])} rad` : '') : '';
+    renderWires(c);
+  }
+
+  function renderWires(c) {
+    const base = (r) => (grid[r][c] ? grid[r][c].split(':')[0] : null);
+    const filled = [];
+    let linked = false;
+    for (let r = 0; r < nQubits; r++) {
+      if (!grid[r][c]) continue;
+      filled.push(r);
+      if (base(r) === 'ctrl' || base(r) === 'actrl' || base(r) === 'swap') linked = true;
+    }
+    const lo = filled[0];
+    const hi = filled[filled.length - 1];
+    for (let r = 0; r < nQubits; r++) {
+      const on = linked && filled.length > 1 && r >= lo && r <= hi;
+      cellEls[r][c].classList.toggle('ce-wire-up', on && r > lo);
+      cellEls[r][c].classList.toggle('ce-wire-down', on && r < hi);
+    }
+  }
+
+  function fmtAngle(x) {
+    for (let d = 1; d <= 8; d++) {
+      const k = Math.round((x * d) / Math.PI);
+      if (Math.abs(x - (k * Math.PI) / d) < 1e-6) {
+        if (k === 0) return '0';
+        const top = Math.abs(k) === 1 ? (k < 0 ? '-π' : 'π') : `${k}π`;
+        return d === 1 ? top : `${top}/${d}`;
+      }
+    }
+    return x.toFixed(2);
+  }
+
+  function parseAngle(text) {
+    const src = String(text).toLowerCase().replace(/π/g, 'pi').replace(/\s+/g, '');
+    let pos = 0;
+    function number() {
+      const m = /^(\d+\.?\d*|\.\d+)/.exec(src.slice(pos));
+      if (m) { pos += m[0].length; return parseFloat(m[0]); }
+      if (src.startsWith('pi', pos)) { pos += 2; return Math.PI; }
+      if (src[pos] === '(') {
+        pos++;
+        const v = sum();
+        if (src[pos] !== ')') return NaN;
+        pos++;
+        return v;
+      }
+      return NaN;
+    }
+    function unary() {
+      if (src[pos] === '-') { pos++; return -unary(); }
+      if (src[pos] === '+') { pos++; return unary(); }
+      return number();
+    }
+    function product() {
+      let v = unary();
+      while (src[pos] === '*' || src[pos] === '/') {
+        const op = src[pos++];
+        const w = unary();
+        v = op === '*' ? v * w : v / w;
+      }
+      return v;
+    }
+    function sum() {
+      let v = product();
+      while (src[pos] === '+' || src[pos] === '-') {
+        const op = src[pos++];
+        const w = product();
+        v = op === '+' ? v + w : v - w;
+      }
+      return v;
+    }
+    if (src === '') return null;
+    const v = sum();
+    return pos === src.length && Number.isFinite(v) ? v : null;
   }
 
   function emit() { setStateValue('grid', grid.map((row) => row.slice())); }
@@ -148,41 +263,142 @@ def encode_grid(grid):
     return json.dumps({"n": len(grid), "cells": cells}, separators=(",", ":"))
 
 
+def _split(cell):
+    base, _, angle = cell.partition(":")
+    return base, (float(angle) if angle else math.pi / 2)
+
+
 def decode_grid(text, n_qubits, n_columns=12):
     grid = [[None] * n_columns for _ in range(n_qubits)]
     for r, c, g in json.loads(text).get("cells", []):
-        if g not in MATRICES:
+        if _split(g)[0] not in MATRICES:
             raise ValueError(f"unknown gate {g!r}")
         if r < n_qubits and c < n_columns:
             grid[r][c] = g
     return grid
 
 
+_PARAM_SINGLES = {"rx", "ry", "rz", "p"}
+_CONTROLLED = {"y": "cy", "z": "cz", "p": "cp", "rz": "crz"}
+
+
+def _unify(base):
+    """Cells written with a separate target (``tgt_x``, saved links) are the plain gate."""
+    return base[4:] if base.startswith("tgt_") else base
+
+
 def grid_to_ops(grid):
+    """Op list of the grid. A column with ● control dots and one other gate is that gate
+    controlled by them (one dot: cx cy cz cp crz; two dots on X: ccx). An anti-control ○
+    is a control that acts on |0⟩: an X on that qubit before and after the gate."""
     ops = []
     for c in range(len(grid[0]) if grid else 0):
-        cells = [(r, grid[r][c]) for r in range(len(grid)) if grid[r][c]]
-        singles = [(r, g) for r, g in cells if g in MATRICES and not g.startswith(("tgt_", "ctrl", "swap"))]
-        ctrls = [r for r, g in cells if g == "ctrl"]
-        tgts = [(r, g[4:]) for r, g in cells if g.startswith("tgt_")]
-        swaps = [r for r, g in cells if g == "swap"]
-        if len(singles) == len(cells):
-            ops += [{"gate": g, "qubits": [r]} for r, g in singles]
-        elif len(ctrls) == 1 and len(tgts) == 1 and len(cells) == 2:
-            ops.append({"gate": "c" + tgts[0][1], "qubits": [ctrls[0], tgts[0][0]]})
+        cells = [
+            (r, _unify(g), a)
+            for r in range(len(grid))
+            if grid[r][c]
+            for g, a in [_split(grid[r][c])]
+        ]
+        ctrls = [r for r, g, _ in cells if g in ("ctrl", "actrl")]
+        flips = [{"gate": "x", "qubits": [r]} for r, g, _ in cells if g == "actrl"]
+        swaps = [r for r, g, _ in cells if g == "swap"]
+        gates = [(r, g, a) for r, g, a in cells if g not in ("ctrl", "actrl", "swap")]
+        if not ctrls and not swaps:
+            for r, g, a in gates:
+                ops.append(
+                    {"gate": g, "qubits": [r], **({"angle": a} if g in _PARAM_SINGLES else {})}
+                )
+        elif ctrls and len(gates) == 1 and len(cells) == len(ctrls) + 1:
+            r, g, a = gates[0]
+            op = None
+            if g == "x" and len(ctrls) == 1:
+                op = {"gate": "cx", "qubits": [ctrls[0], r]}
+            elif g == "x" and len(ctrls) == 2:
+                op = {"gate": "ccx", "qubits": [*ctrls, r]}
+            elif g in _CONTROLLED and len(ctrls) == 1:
+                op = {"gate": _CONTROLLED[g], "qubits": [ctrls[0], r]}
+                if g in _PARAM_SINGLES:
+                    op["angle"] = a
+            if op:
+                ops += flips + [op] + flips
         elif len(swaps) == 2 and len(cells) == 2:
             ops.append({"gate": "swap", "qubits": swaps})
     return ops
 
 
+def ops_to_tuples(ops):
+    """The gate tuples of dense_evolution for the op list of ``grid_to_ops``."""
+    return [(op["gate"], *op["qubits"], *([op["angle"]] if "angle" in op else [])) for op in ops]
+
+
+_SINGLE_GATES = {"h", "x", "y", "z", "s", "sdg", "t", "tdg", "sx"}
+_ROTATIONS = {"rx": "rx", "ry": "ry", "rz": "rz", "p": "p", "u1": "p", "phase": "p"}
+_TARGETS = {"cx": "x", "cy": "y", "cz": "z"}
+_ANGLED_TARGETS = {"cp": "p", "crz": "rz"}
+
+
+def grid_from_ops(ops, n_qubits):
+    """Draw a gate-tuple circuit on the editor grid.
+
+    Returns ``(grid, skipped)``: ``grid`` has ``n_qubits`` rows and at least twelve columns,
+    ``skipped`` counts the gates the grid cannot show (``id``, ``u3``, ...). Single-qubit gates
+    on different qubits share a column; a gate on two or three qubits has a column of its own,
+    as the editor requires. Angles are kept to 12 significant digits.
+    """
+    columns = []
+    singles_open = False
+    skipped = 0
+    for op in ops:
+        name, args = op[0], op[1:]
+        single = False
+        if name in _SINGLE_GATES:
+            cells, single = {args[0]: name}, True
+        elif name in _ROTATIONS:
+            cells, single = {args[0]: f"{_ROTATIONS[name]}:{format(args[1], '.12g')}"}, True
+        elif name in _TARGETS:
+            cells = {args[0]: "ctrl", args[1]: _TARGETS[name]}
+        elif name in _ANGLED_TARGETS:
+            cells = {args[0]: "ctrl", args[1]: f"{_ANGLED_TARGETS[name]}:{format(args[2], '.12g')}"}
+        elif name == "ccx":
+            cells = {args[0]: "ctrl", args[1]: "ctrl", args[2]: "x"}
+        elif name == "swap":
+            cells = {args[0]: "swap", args[1]: "swap"}
+        else:
+            skipped += 1
+            continue
+        if single and singles_open and not set(cells) & set(columns[-1]):
+            columns[-1].update(cells)
+        else:
+            columns.append(dict(cells))
+            singles_open = single
+    n_columns = max(len(columns), 12)
+    grid = [[None] * n_columns for _ in range(n_qubits)]
+    for c, cells in enumerate(columns):
+        for r, g in cells.items():
+            grid[r][c] = g
+    return grid, skipped
+
+
+_ANTI_CONTROL = {"id": "actrl", "label": "○", "kind": "control"}
+_ANGLE_CHIPS = [
+    {"id": "rx", "label": "Rx", "kind": "single", "param": True},
+    {"id": "ry", "label": "Ry", "kind": "single", "param": True},
+    {"id": "rz", "label": "Rz", "kind": "single", "param": True},
+    {"id": "p", "label": "P", "kind": "single", "param": True},
+]
+
+
 def _palette():
-    return [dict(g, matrix=MATRICES[g["id"]]) for g in GATE_PALETTE]
+    skip = ("rx", "ry", "rz", "tgt_x", "tgt_y", "tgt_z")
+    chips = [g for g in GATE_PALETTE if g["id"] not in skip] + _ANGLE_CHIPS
+    chips.insert([g["id"] for g in chips].index("ctrl") + 1, _ANTI_CONTROL)
+    return [dict(g, matrix=MATRICES[g["id"]]) for g in chips]
 
 
 def _push(grid):
     h, i = st.session_state["ce_hist"], st.session_state["ce_idx"]
     if grid != h[i]:
-        del h[i + 1:]
+        del h[i + 1 :]
         h.append(grid)
         st.session_state["ce_idx"] = len(h) - 1
 
@@ -208,12 +424,16 @@ def circuit_editor(n_qubits, n_columns=12):
                 start = decode_grid(link, n_qubits, n_columns)
             except (ValueError, KeyError, TypeError):
                 pass
-        st.session_state.update(ce_n=n_qubits, ce_hist=[start], ce_idx=0, ce_version=0, ce_start_version=None)
+        st.session_state.update(
+            ce_n=n_qubits, ce_hist=[start], ce_idx=0, ce_version=0, ce_start_version=None
+        )
     elif len(st.session_state["ce_hist"][st.session_state["ce_idx"]][0]) != n_columns:
         grid = st.session_state["ce_hist"][st.session_state["ce_idx"]]
         resized = [list(row[:n_columns]) + [None] * (n_columns - len(row)) for row in grid]
         st.session_state.update(
-            ce_hist=[resized], ce_idx=0, ce_version=st.session_state["ce_version"] + 1,
+            ce_hist=[resized],
+            ce_idx=0,
+            ce_version=st.session_state["ce_version"] + 1,
             ce_start_version=None,
         )
 
@@ -224,7 +444,12 @@ def circuit_editor(n_qubits, n_columns=12):
     comp = st.components.v2.component("dense_evolution_circuit_editor", css=_CSS, js=_JS)
     res = comp(
         key=f"ce_{n_qubits}_{st.session_state['ce_version']}",
-        data={"n_qubits": n_qubits, "n_columns": len(start[0]), "palette": _palette(), "initial": start},
+        data={
+            "n_qubits": n_qubits,
+            "n_columns": len(start[0]),
+            "palette": _palette(),
+            "initial": start,
+        },
         default={"grid": start},
         on_grid_change=lambda: None,
         on_history_change=lambda: None,
@@ -239,7 +464,11 @@ def circuit_editor(n_qubits, n_columns=12):
     if b1.button("↶ Undo", disabled=st.session_state["ce_idx"] == 0, key="ce_undo"):
         _move(-1)
         st.rerun()
-    if b2.button("↷ Redo", disabled=st.session_state["ce_idx"] >= len(st.session_state["ce_hist"]) - 1, key="ce_redo"):
+    if b2.button(
+        "↷ Redo",
+        disabled=st.session_state["ce_idx"] >= len(st.session_state["ce_hist"]) - 1,
+        key="ce_redo",
+    ):
         _move(1)
         st.rerun()
 
