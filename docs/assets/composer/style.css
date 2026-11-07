@@ -408,9 +408,19 @@ body {
   min-width: 0;
 }
 .de-side .toolbar {
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   align-items: stretch;
   gap: 0.7rem;
+}
+.de-side .toolbar > * {
+  grid-column: 1 / -1;
+}
+.de-side .toolbar > label:has(#shots),
+.de-side .toolbar > label:has(#seed),
+.de-side .toolbar > label:has(#noise-model-select),
+.de-side .toolbar > label:has(#noise-p) {
+  grid-column: auto;
 }
 .de-side .toolbar label,
 .de-side .toolbar input,
