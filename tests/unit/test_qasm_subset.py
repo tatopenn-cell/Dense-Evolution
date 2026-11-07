@@ -123,3 +123,30 @@ def test_header_register_and_order_errors():
         parse_qasm_subset("OPENQASM 2.0;\n")
     with pytest.raises(ValueError, match=r"^line 2: qreg size"):
         parse_qasm_subset("OPENQASM 2.0;\nqreg q[0];\n")
+
+
+@pytest.mark.parametrize(
+    "body, line, words",
+    [
+        ("1 q[0];\n", 5, "cannot parse"),
+        ("h;\n", 5, "cannot parse"),
+        ("rx(1 2) q[0];\n", 5, "trailing"),
+        ("rx(pi pi) q[0];\n", 5, "trailing"),
+        ("rx() q[0];\n", 5, "unexpected end"),
+        ("rx(-) q[0];\n", 5, "unexpected end"),
+        ("rx(*2) q[0];\n", 5, "unexpected token"),
+        ("rx(1)) q[0];\n", 5, "bad qubit argument"),
+        ("h q[0] q[1];\n", 5, "bad qubit argument"),
+        ("rz(1) q;\n", 5, "bad qubit argument"),
+    ],
+)
+def test_more_malformed_statements_name_their_line(body, line, words):
+    with pytest.raises(ValueError, match=rf"^line {line}: .*{words}"):
+        parse_qasm_subset(HEAD + body)
+
+
+def test_bad_register_declarations():
+    with pytest.raises(ValueError, match=r"^line 2: bad qreg declaration"):
+        parse_qasm_subset("OPENQASM 2.0;\nqreg q;\n")
+    with pytest.raises(ValueError, match=r"^line 3: bad creg declaration"):
+        parse_qasm_subset("OPENQASM 2.0;\nqreg q[2];\ncreg c;\n")

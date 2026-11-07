@@ -258,3 +258,61 @@ def test_j_gate_matrices_are_the_ones_of_the_jax_simulator() -> None:
     for name, gate_id in two_qubit.items():
         ref = np.asarray(_mps_2q_matrix(jnp.asarray(gate_id), jnp.asarray(angle), jnp.complex128))
         assert np.allclose(mn.gate_2q(name, angle), ref.reshape(4, 4), atol=1e-12), name
+
+
+def test_k_gate_errors_and_case_insensitive_names() -> None:
+    with pytest.raises(ValueError, match="unknown gate"):
+        mn.gate_1q("nope")
+    with pytest.raises(ValueError, match="needs an angle"):
+        mn.gate_1q("rx")
+    with pytest.raises(ValueError, match="unknown gate"):
+        mn.gate_2q("nope")
+    with pytest.raises(ValueError, match="needs an angle"):
+        mn.gate_2q("cp")
+    assert np.allclose(mn.gate_1q("H"), mn.gate_1q("h"))
+    assert mn.jsd_vectors(np.array([1.0]), np.array([1.0])) == 0.0
+
+
+def test_l_named_two_qubit_methods_equal_the_gate_tuples() -> None:
+    n = 4
+    base = [("h", q) for q in range(n)]
+    tail = [("cy", 0, 2), ("cz", 1, 3), ("swap", 0, 3), ("cp", 2, 1, 0.4), ("crz", 3, 0, 0.9)]
+    by_method = _run_mps_numpy(base, n, max_bond=16)
+    by_method.apply_cy(0, 2)
+    by_method.apply_cz(1, 3)
+    by_method.apply_swap(0, 3)
+    by_method.apply_cp(2, 1, 0.4)
+    by_method.apply_crz(3, 0, 0.9)
+    by_tuples = _run_mps_numpy(base + tail, n, max_bond=16)
+    psi_dense = _run_dense(base + tail, n)
+    assert np.allclose(by_method.contract_to_statevector(), by_tuples.contract_to_statevector())
+    assert _phase_invariant_max_abs(psi_dense, by_tuples.contract_to_statevector()) < 1e-9
+
+
+def test_m_metrics_of_an_empty_and_of_an_entangled_state() -> None:
+    sim = mn.MPSSimulatorNumpy(3)
+    assert sim.bond_dimensions() == [1, 1, 1, 1]
+    assert sim.max_bond_used() == 1
+    assert sim.total_truncation_error() == 0.0
+    assert sim.avg_jsd() == 0.0
+    assert sim.memory_bytes() > 0
+    assert sim.memory_mb() == sim.memory_bytes() / (1024 * 1024)
+    assert mn.MPSSimulatorNumpy(0).bond_dimensions() == [1]
+    sim.run_circuit([("h", 0), ("cx", 0, 1), ("cx", 1, 2)])
+    assert sim.max_bond_used() == 2
+    assert 0.0 <= sim.avg_jsd() < 1e-5
+    assert sim.total_truncation_error() < 1e-9
+
+
+def test_n_pauli_errors_and_the_warning_of_a_capped_bond() -> None:
+    mps = mn.MPSSimulatorNumpy(3)
+    with pytest.raises(ValueError, match="characters for"):
+        mn.pauli_expectation(mps, "ZZ")
+    with pytest.raises(ValueError, match="unknown Pauli"):
+        mn.pauli_expectation(mps, "ZQZ")
+    assert abs(mn.pauli_expectation(mps, "zzz") - 1.0) < 1e-12
+    sim = mn.MPSSimulatorNumpy(8, max_bond=2)
+    with pytest.warns(UserWarning, match="bond dimension capped"):
+        sim.run_circuit(de.random_circuit(8, 20, seed=2))
+    assert sim.budget_violations >= 1
+    assert sim.total_truncation_error() > 0.0
