@@ -160,3 +160,15 @@ def test_the_ansatz_has_n_times_layers_parameters_and_the_dtype_is_checked():
         vn.hardware_efficient_ops(np.zeros(5), 3, 2)
     with pytest.raises(ValueError, match="complex64"):
         vn.energy([], 1, [(1.0, "Z")], dtype=np.float32)
+
+
+def test_max_bond_is_tested_beyond_its_bound():
+    n = 10
+    gammas, betas = [0.9, 1.7], [0.4, 0.8]
+    want = _paper_expectation(n, _ring(n), gammas, betas)
+    wide = vn.qaoa_expectation(n, _ring(n), gammas, betas, np.complex128, max_bond=64)
+    assert wide == pytest.approx(want, abs=1e-6)
+    with pytest.warns(UserWarning, match="bond dimension capped"):
+        capped = vn.qaoa_expectation(n, _ring(n), gammas, betas, np.complex128, max_bond=2)
+    print(f"max_bond: dense formula {want:.9f}  max_bond=64 {wide:.9f}  max_bond=2 {capped:.9f}")
+    assert abs(capped - want) > 1e-3
