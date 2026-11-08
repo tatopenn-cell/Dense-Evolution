@@ -31,6 +31,15 @@ def test_the_figure_files_of_the_page_are_the_ones_of_the_dashboard(name):
     assert _text(COMPOSER / "py" / "dashboard_core" / name) == _text(source)
 
 
+def test_the_presets_of_the_page_are_the_library_of_the_dashboard():
+    import json
+
+    from dashboard_core.qasm_library import QASM_LIBRARY
+
+    path = COMPOSER / "qasm_library.json"
+    assert json.loads(path.read_text(encoding="utf-8")) == QASM_LIBRARY
+
+
 def test_the_palette_of_the_page_is_the_one_of_the_graphical_builder():
     from dashboard_core.graphical_builder import GATE_PALETTE
 
