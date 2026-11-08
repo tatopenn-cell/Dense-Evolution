@@ -243,6 +243,37 @@ async function enterWebMode() {
   await loadPresetsAndPalette();
 }
 
+// The right column has two views (Build: the grid; Results: what a run gave)
+// and the results have tabs. Both are plain show/hide of panels that are
+// always in the page, so the code that fills the figures and the table does
+// not change.
+function showView(name) {
+  document.querySelectorAll(".de-viewbar .de-tab").forEach((b) => {
+    b.classList.toggle("active", b.dataset.view === name);
+  });
+  document.querySelectorAll(".de-view").forEach((v) => {
+    v.hidden = v.id !== `de-view-${name}`;
+  });
+}
+
+function showTab(name) {
+  document.querySelectorAll(".de-tabs .de-tab").forEach((b) => {
+    b.classList.toggle("active", b.dataset.tab === name);
+  });
+  document.querySelectorAll(".de-tabpanel").forEach((p) => {
+    p.hidden = p.dataset.tab !== name;
+  });
+}
+
+function setupTabs() {
+  document.querySelectorAll(".de-viewbar .de-tab").forEach((b) => {
+    b.addEventListener("click", () => showView(b.dataset.view));
+  });
+  document.querySelectorAll(".de-tabs .de-tab").forEach((b) => {
+    b.addEventListener("click", () => showTab(b.dataset.tab));
+  });
+}
+
 function setStatus(text, isError) {
   const el = $("status");
   el.textContent = text;
@@ -468,6 +499,7 @@ async function loadPresetsAndPalette() {
     syncQubitCountFromQasm(presets[sel.value]);
   });
   $("qasm").value = presets["Bell state (2 qubit)"] || "";
+  if (presets["Bell state (2 qubit)"]) sel.value = "Bell state (2 qubit)";
   syncQubitCountFromQasm($("qasm").value);
 }
 
@@ -569,10 +601,13 @@ async function runCircuit() {
       }),
     });
 
+    showView("results");
     if (result.large_scale) {
+      showTab("statevector");
       renderLargeScaleResult(result);
       return;
     }
+    showTab("prob");
 
     $("histogram-img").style.display = "";
     $("histogram-img").src = `data:image/png;base64,${result.histogram_png}`;
@@ -1233,6 +1268,7 @@ async function loadEverything() {
 }
 
 async function init() {
+  setupTabs();
   buildEmptyGrid();
   renderGrid();
   renderElementPalette();
