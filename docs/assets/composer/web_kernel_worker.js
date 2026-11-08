@@ -119,9 +119,9 @@ def _top_states(n, ops, k):
     }
 
 
-def run(qasm, shots, seed, k, noise_model="ideal", noise_p=0.0):
+def run(qasm, shots, seed, k, noise_model="ideal", noise_p=0.0, limit=CONTRACT_LIMIT):
     n, ops = qs.parse_qasm_subset(qasm)
-    if n > CONTRACT_LIMIT:
+    if n > int(limit):
         return json.dumps(_top_states(n, ops, k))
     sim = mn.MPSSimulatorNumpy(n, max_bond=2 ** (n // 2))
     sim.run_circuit(ops)
@@ -201,6 +201,16 @@ async function init(base) {
   py.runPython(GLUE);
 }
 
+// The size of the WebAssembly memory of Pyodide. It only grows, so after a run it is the peak of
+// all the runs so far.
+function heapMb() {
+  try {
+    return py._module.HEAPU8.length / 1048576;
+  } catch (err) {
+    return null;
+  }
+}
+
 self.onmessage = async (event) => {
   const { id, type } = event.data;
   try {
@@ -212,7 +222,20 @@ self.onmessage = async (event) => {
       const fn = py.globals.get("run");
       let text;
       try {
-        text = fn(event.data.qasm, event.data.shots, event.data.seed, event.data.k, event.data.noiseModel || "ideal", event.data.noiseP || 0);
+        text = fn(event.data.qasm, event.data.shots, event.data.seed, event.data.k, event.data.noiseModel || "ideal", event.data.noiseP || 0, event.data.contractLimit || CONTRACT_LIMIT);
+      } finally {
+        fn.destroy();
+      }
+      const result = JSON.parse(text);
+      result.elapsed_s = (performance.now() - t0) / 1000;
+      result.wasm_heap_mb = heapMb();
+      self.postMessage({ id, ok: true, result });
+    } else if (type === "vqe" || type === "qaoa") {
+      const t0 = performance.now();
+      const fn = py.globals.get(type + "_run");
+      let text;
+      try {
+        text = fn(JSON.stringify(event.data.payload));
       } finally {
         fn.destroy();
       }

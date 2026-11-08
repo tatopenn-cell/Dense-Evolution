@@ -19,7 +19,9 @@ const BASE = new URL(".", SCRIPT_SRC).href;
 const MAX_QUBITS = 1500;
 // Up to this many qubits the state is contracted to 2^n amplitudes, to sample the shots and draw
 // the figures (the same constant as in web_kernel_worker.js).
-const CONTRACT_LIMIT = 20;
+// from the memory of this browser (browser_memory.js), at least 16 and at most 24 qubits.
+const MEMORY = window.DEBrowserMemory.browserQubitLimit(navigator.deviceMemory);
+const CONTRACT_LIMIT = MEMORY.limit;
 
 // Same gates as the palette of tools/dashboard/core/graphical_builder.py.
 const PALETTE = [
@@ -199,6 +201,7 @@ async function run(qasm, options) {
     shots: o.shots || 1000,
     seed: o.seed === undefined ? 42 : o.seed,
     k: o.k || 32,
+    contractLimit: o.contractLimit || CONTRACT_LIMIT,
     noiseModel: o.noiseModel || "ideal",
     noiseP: o.noiseP || 0,
   });
@@ -207,6 +210,6 @@ async function run(qasm, options) {
 // The models of NoiseModel.MODELS; a test compares the list with the package.
 const NOISE_MODELS = ["ideal", "depolarizing", "bitflip", "phaseflip", "amplitude_damping", "combined"];
 
-window.DEWebKernel = { MAX_QUBITS, CONTRACT_LIMIT, PALETTE, NOISE_MODELS, opsToQasm, presets, ready, run, molecules, vqe, qaoa };
+window.DEWebKernel = { MAX_QUBITS, CONTRACT_LIMIT, MEMORY, PALETTE, NOISE_MODELS, opsToQasm, presets, ready, run, molecules, vqe, qaoa };
 
 })();

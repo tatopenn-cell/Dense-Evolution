@@ -497,6 +497,7 @@ on a local kernel too).
   </details>
 </div>
 
+<script src="../assets/composer/browser_memory.js"></script>
 <script src="../assets/composer/web_kernel.js"></script>
 <script src="../assets/composer/quirk_bridge.js"></script>
 <script src="../assets/composer/circuit_tools.js"></script>
