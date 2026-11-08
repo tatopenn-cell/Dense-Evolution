@@ -483,3 +483,23 @@ body {
 .de-tabpanel[hidden] {
   display: none;
 }
+
+/* The Quirk editor, in its own frame. */
+.de-quirk {
+  width: 100%;
+  height: 760px;
+  border: 1px solid var(--de-border);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+/* Quirk needs about 900 px: the page of the Composer has no navigation columns. */
+@media (min-width: 76.25em) {
+  .md-main__inner:has(#de-composer-root) > .md-sidebar {
+    display: none;
+  }
+}
+
+.de-h {
+  margin: 1.2rem 0 0.6rem;
+}

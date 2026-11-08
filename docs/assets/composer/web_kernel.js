@@ -17,6 +17,9 @@ const BASE = new URL(".", SCRIPT_SRC).href;
 
 // Largest qubit count tried with this engine (GHZ state, in Pyodide).
 const MAX_QUBITS = 1500;
+// Up to this many qubits the state is contracted to 2^n amplitudes, to sample the shots and draw
+// the figures (the same constant as in web_kernel_worker.js).
+const CONTRACT_LIMIT = 20;
 
 // Same gates as the palette of tools/dashboard/core/graphical_builder.py.
 const PALETTE = [
@@ -148,12 +151,20 @@ function ready() {
   return readyPromise;
 }
 
-// OpenQASM text -> the "large_scale" result the Composer already draws.
-async function run(qasm, k) {
+// OpenQASM text -> the result /api/run of the local kernel gives (up to CONTRACT_LIMIT qubits),
+// or the "large_scale" one with the most probable states.
+async function run(qasm, options) {
+  const o = options || {};
   await ready();
-  return call({ type: "run", qasm, k: k || 32 });
+  return call({
+    type: "run",
+    qasm,
+    shots: o.shots || 1000,
+    seed: o.seed === undefined ? 42 : o.seed,
+    k: o.k || 32,
+  });
 }
 
-window.DEWebKernel = { MAX_QUBITS, PALETTE, opsToQasm, presets, ready, run };
+window.DEWebKernel = { MAX_QUBITS, CONTRACT_LIMIT, PALETTE, opsToQasm, presets, ready, run };
 
 })();
