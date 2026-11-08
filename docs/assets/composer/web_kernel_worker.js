@@ -74,7 +74,11 @@ def run(qasm, shots, seed, k):
     probs = np.abs(native) ** 2
     probs = probs / probs.sum()
     rng = np.random.default_rng(int(seed))
-    outcomes = rng.choice(len(probs), size=int(shots), p=probs)
+    # Generator.choice(p=...) written out: the same cdf and the same uniform draws, so the same
+    # counts, but without its cast to int64, which WebAssembly's 32-bit NumPy refuses
+    cdf = np.cumsum(probs)
+    cdf /= cdf[-1]
+    outcomes = np.searchsorted(cdf, rng.random(int(shots)), side="right")
     values, freqs = np.unique(outcomes, return_counts=True)
     width = "0%db" % n
     counts = {format(int(v), width)[::-1]: int(f) for v, f in zip(values, freqs)}
