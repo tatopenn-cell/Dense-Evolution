@@ -47,6 +47,7 @@ graph TD
         MPSB["mps.py<br/>MPSSimulator"]
         MPSNP["mps_numpy.py<br/>MPSSimulatorNumpy"]
         QSUBSET["qasm_subset.py<br/>parse_qasm_subset"]
+        VARNP["variational_numpy.py<br/>qaoa, vqe"]
         CHUNK["chunk/ (subpackage)<br/>core, kernels, disk_overflow,<br/>circuit_chunker, geometry, guard"]
         CIRCUITS["circuits/"]
         PARSER["parser.py — QASMParser"]
@@ -67,6 +68,7 @@ graph TD
         BACKENDS --> MPSB
         BACKENDS --> MPSNP
         BACKENDS --> QSUBSET
+        BACKENDS --> VARNP
         BACKENDS --> CHUNK
         CIRCUITS --> PARSER
         CIRCUITS --> COMPILER
