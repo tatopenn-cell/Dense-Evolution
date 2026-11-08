@@ -189,6 +189,7 @@ async function variational(type, payload) {
 }
 const vqe = (payload) => variational("vqe", payload);
 const qaoa = (payload) => variational("qaoa", payload);
+const zne = (payload) => variational("zne", { ...payload, limit: CONTRACT_LIMIT });
 
 // OpenQASM text -> the result /api/run of the local kernel gives (up to CONTRACT_LIMIT qubits),
 // or the "large_scale" one with the most probable states.
@@ -210,6 +211,6 @@ async function run(qasm, options) {
 // The models of NoiseModel.MODELS; a test compares the list with the package.
 const NOISE_MODELS = ["ideal", "depolarizing", "bitflip", "phaseflip", "amplitude_damping", "combined"];
 
-window.DEWebKernel = { MAX_QUBITS, CONTRACT_LIMIT, MEMORY, PALETTE, NOISE_MODELS, opsToQasm, presets, ready, run, molecules, vqe, qaoa };
+window.DEWebKernel = { MAX_QUBITS, CONTRACT_LIMIT, MEMORY, PALETTE, NOISE_MODELS, opsToQasm, presets, ready, run, molecules, vqe, qaoa, zne };
 
 })();

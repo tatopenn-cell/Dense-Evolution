@@ -146,6 +146,7 @@ async function webApi(path, opts) {
   if (path === "/api/palette") return window.DEWebKernel.PALETTE;
   if (path === "/api/presets") return window.DEWebKernel.presets();
   if (path === "/api/noise_models") return window.DEWebKernel.NOISE_MODELS;
+  if (path === "/api/mitigate") return window.DEWebKernel.zne(body);
   if (path === "/api/build_from_ops") {
     return { qasm: window.DEWebKernel.opsToQasm(body.n_qubits, body.ops) };
   }

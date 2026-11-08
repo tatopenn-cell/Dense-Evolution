@@ -441,7 +441,7 @@ engine below: the matrix product state (MPS) simulator takes the circuit as Open
   </section>
   </details>
 
-  <details class="de-collapsible">
+  <details class="de-collapsible de-web-ok">
   <summary>Mitigation — Zero-Noise Extrapolation (real, dense_evolution.zero_noise_extrapolation)</summary>
   <section class="row row-mitigation">
     <div class="panel panel-mitigation">
