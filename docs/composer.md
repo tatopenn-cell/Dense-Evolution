@@ -1,13 +1,21 @@
 # Composer
 
-Build a circuit graphically or in OpenQASM, run it on the real
-`dense_evolution.DenseSVSimulator`, and see the real statevector,
-probabilities, Q-sphere and circuit diagram — the same engine documented
-throughout the [API Reference](api/index.md), not a separate demo.
+Draw a circuit in [Quirk](https://algassert.com/quirk), which simulates it itself up to
+16 qubits. Beyond 16 qubits, with noise, or on a local kernel, use the Dense-Evolution
+engine below: the matrix product state (MPS) simulator takes the circuit as OpenQASM.
 
 <link rel="stylesheet" href="../assets/composer/style.css" />
 
 <div id="de-composer-root">
+  <h2 class="de-h">Quirk: up to 16 qubits</h2>
+  <iframe id="de-quirk" class="de-quirk" title="Quirk circuit editor"
+    src="../assets/composer/quirk/quirk.html#circuit=%7B%22cols%22%3A%5B%5B%22H%22%5D%2C%5B%22%E2%80%A2%22%2C%22X%22%5D%5D%7D"></iframe>
+  <p class="hint">
+    The editor and its simulator are Quirk by Craig Gidney (Apache-2.0), unchanged.
+  </p>
+  <div id="de-quirk-note" class="hint"></div>
+
+  <h2 class="de-h">Dense-Evolution engine: beyond 16 qubits, noise, VQE</h2>
   <div class="de-layout">
   <aside class="de-side">
   <section class="toolbar">
@@ -47,20 +55,12 @@ throughout the [API Reference](api/index.md), not a separate demo.
   </aside>
 
   <div class="de-main">
-    <div class="de-viewbar" role="tablist">
-      <button class="de-tab active" data-view="build" role="tab">Build</button>
-      <button class="de-tab" data-view="results" role="tab">Results</button>
-    </div>
-
     <section id="de-view-build" class="de-view">
-      <iframe id="de-quirk" class="de-quirk" title="Quirk circuit editor"
-        src="../assets/composer/quirk/quirk.html#circuit=%7B%22cols%22%3A%5B%5B%22H%22%5D%2C%5B%22%E2%80%A2%22%2C%22X%22%5D%5D%7D"></iframe>
       <p class="hint">
-        The editor is <a href="https://algassert.com/quirk">Quirk</a> by Craig Gidney (Apache-2.0),
-        unchanged. Its circuit is copied to the OpenQASM box on the left at every edit, and Run
-        sends that text to the engine you chose.
+        Run sends the OpenQASM on the left to the engine chosen. Use it beyond 16 qubits (the
+        presets go up to 1500), with noise, or on the local kernel. A circuit drawn in Quirk is
+        copied to the box at every edit.
       </p>
-      <div id="de-quirk-note" class="hint"></div>
     </section>
 
     <section id="de-view-results" class="de-view" hidden>
