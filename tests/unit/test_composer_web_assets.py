@@ -19,6 +19,32 @@ def _text(path: Path) -> str:
     return path.read_text(encoding="utf-8").replace("\r\n", "\n")
 
 
+def test_the_noise_of_the_page_is_the_numpy_path_of_the_package():
+    import importlib.util
+
+    import numpy as np
+
+    from dense_evolution import NoiseModel
+
+    spec = importlib.util.spec_from_file_location("noise_numpy", COMPOSER / "py" / "noise_numpy.py")
+    nz = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(nz)
+    assert nz.MODELS == NoiseModel.MODELS
+    js = _text(COMPOSER / "web_kernel.js")
+    listed = re.search(r"const NOISE_MODELS = \[([^\]]*)\]", js).group(1)
+    assert re.findall(r'"(\w+)"', listed) == NoiseModel.MODELS
+    n = 4
+    rng0 = np.random.default_rng(3)
+    sv = rng0.normal(size=2**n) + 1j * rng0.normal(size=2**n)
+    sv = (sv / np.linalg.norm(sv)).astype(np.complex128)
+    for model in NoiseModel.MODELS:
+        for p in (0.05, 0.4):
+            for seed in range(5):
+                want = NoiseModel.apply_to_sv(sv.copy(), n, model, p, rng=np.random.default_rng(seed))
+                got = nz.apply_to_sv(sv, n, model, p, np.random.default_rng(seed))
+                np.testing.assert_allclose(got, np.asarray(want), atol=1e-12, err_msg=f"{model} p={p} seed={seed}")
+
+
 @pytest.mark.parametrize("name", ["mps_numpy.py", "qasm_subset.py"])
 def test_the_python_files_of_the_page_are_the_ones_of_the_package(name):
     source = REPO_ROOT / "dense_evolution" / "backends" / name
