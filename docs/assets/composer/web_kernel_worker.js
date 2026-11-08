@@ -8,7 +8,7 @@
 // page.
 
 const PYODIDE_URL = "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js";
-const PY_FILES = ["mps_numpy.py", "qasm_subset.py"];
+const PY_FILES = ["mps_numpy.py", "qasm_subset.py", "noise_numpy.py"];
 // The figure modules of the dashboard (copies of tools/dashboard/core), which need matplotlib.
 const FIGURE_FILES = ["state_visuals.py", "circuit_diagram.py", "_gate_tables.py"];
 // Up to this many qubits the MPS is contracted to 2**n amplitudes, to sample the shots and draw
@@ -23,6 +23,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import mps_numpy as mn
 import qasm_subset as qs
+import noise_numpy as nz
 from dashboard_core import circuit_diagram as cd
 from dashboard_core import state_visuals as sv
 
@@ -64,16 +65,21 @@ def _top_states(n, ops, k):
     }
 
 
-def run(qasm, shots, seed, k):
+def run(qasm, shots, seed, k, noise_model="ideal", noise_p=0.0):
     n, ops = qs.parse_qasm_subset(qasm)
     if n > CONTRACT_LIMIT:
         return json.dumps(_top_states(n, ops, k))
     sim = mn.MPSSimulatorNumpy(n, max_bond=2 ** (n // 2))
     sim.run_circuit(ops)
     native = np.asarray(sim.contract_to_statevector(), dtype=np.complex128)
+    rng = np.random.default_rng(int(seed))
+    fidelity = None
+    if noise_model != "ideal" and float(noise_p) > 0:
+        ideal = native.copy()
+        native = nz.apply_to_sv(native, n, noise_model, float(noise_p), rng)
+        fidelity = float(abs(np.vdot(ideal, native)) ** 2)
     probs = np.abs(native) ** 2
     probs = probs / probs.sum()
-    rng = np.random.default_rng(int(seed))
     # Generator.choice(p=...) written out: the same cdf and the same uniform draws, so the same
     # counts, but without its cast to int64, which WebAssembly's 32-bit NumPy refuses
     cdf = np.cumsum(probs)
@@ -102,7 +108,9 @@ def run(qasm, shots, seed, k):
             "counts": counts,
             "statevector": rows,
             "statevector_truncated": truncated,
-            "fidelity_vs_ideal": None,
+            "fidelity_vs_ideal": fidelity,
+            "noise_model": noise_model,
+            "noise_p": float(noise_p),
             "circuit_png": _png(cd.draw_native_circuit_diagram(ops, n)),
             "histogram_png": _png(sv.native_histogram_figure(counts)),
             "qsphere_png": _png(sv.native_qsphere_figure(state)),
@@ -150,7 +158,7 @@ self.onmessage = async (event) => {
       const fn = py.globals.get("run");
       let text;
       try {
-        text = fn(event.data.qasm, event.data.shots, event.data.seed, event.data.k);
+        text = fn(event.data.qasm, event.data.shots, event.data.seed, event.data.k, event.data.noiseModel || "ideal", event.data.noiseP || 0);
       } finally {
         fn.destroy();
       }

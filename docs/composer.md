@@ -55,6 +55,40 @@ on a local kernel too).
     <span id="status" class="status"></span>
   </section>
 
+    <div class="panel de-topology">
+      <h3>Topology</h3>
+      <label>Pattern
+        <select id="topo-pattern">
+          <option value="linear">linear (chain)</option>
+          <option value="circular">circular (ring)</option>
+          <option value="full">full (all-to-all)</option>
+          <option value="star">star (hub)</option>
+          <option value="brick">brick (brickwork)</option>
+        </select>
+      </label>
+      <label>Qubits
+        <input id="topo-n" type="number" min="2" max="64" value="5" />
+      </label>
+      <label>Gate
+        <select id="topo-gate"><option value="cx">cx</option><option value="cz">cz</option><option value="cy">cy</option></select>
+      </label>
+      <label><input id="topo-reverse" type="checkbox" /> Reverse direction</label>
+      <label id="topo-hub-label" hidden>Hub qubit
+        <input id="topo-hub" type="number" min="0" value="0" />
+      </label>
+      <label><input id="topo-h" type="checkbox" checked /> Hadamard on every qubit first</label>
+      <div id="topo-edges" class="hint"></div>
+      <button id="topo-load" class="btn btn-primary">&rarr; Carica nel box OpenQASM</button>
+    </div>
+
+    <div class="panel de-inputs">
+      <h3>Qubit che partono da |1&#x27E9;</h3>
+      <label>Indici, separati da virgola
+        <input id="input-ones" type="text" placeholder="per esempio 0,2" />
+      </label>
+      <div class="hint">Run aggiunge una riga x per ognuno, dopo le dichiarazioni, senza cambiare il testo del box.</div>
+    </div>
+
     <div class="panel panel-code">
       <h3>OpenQASM 2.0</h3>
       <textarea id="qasm" class="code" spellcheck="false"></textarea>
@@ -79,6 +113,8 @@ on a local kernel too).
         <button class="de-tab" data-tab="statevector" role="tab">Statevector</button>
         <button class="de-tab" data-tab="prob" role="tab">Probabilities &amp; Q-sphere</button>
         <button class="de-tab" data-tab="qubits" role="tab">Qubits</button>
+        <button class="de-tab" data-tab="perqubit" role="tab">Per qubit</button>
+        <button class="de-tab" data-tab="outcomes" role="tab">Outcomes</button>
       </div>
       <div class="de-tabpanel" data-tab="circuit">
         <img id="circuit-img" class="figure" alt="Circuit diagram" />
@@ -98,6 +134,18 @@ on a local kernel too).
       <div class="de-tabpanel" data-tab="qubits" hidden>
         <img id="bloch-img" class="figure" alt="Bloch spheres" />
         <div id="bloch-skip-msg" class="hint"></div>
+      </div>
+      <div class="de-tabpanel" data-tab="perqubit" hidden>
+        <table id="perqubit-table" class="sv-table">
+          <thead><tr><th>qubit</th><th>P(1)</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="de-tabpanel" data-tab="outcomes" hidden>
+        <table id="outcome-table" class="sv-table">
+          <thead><tr><th>outcome</th><th>shots</th><th>probability</th></tr></thead>
+          <tbody></tbody>
+        </table>
       </div>
     </section>
   </div>
@@ -389,6 +437,7 @@ on a local kernel too).
 
 <script src="../assets/composer/web_kernel.js"></script>
 <script src="../assets/composer/quirk_bridge.js"></script>
+<script src="../assets/composer/circuit_tools.js"></script>
 <script src="../assets/composer/app.js"></script>
 
 !!! tip "No kernel? Run the circuit in your browser"
