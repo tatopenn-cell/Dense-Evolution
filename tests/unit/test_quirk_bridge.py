@@ -175,14 +175,14 @@ def test_displays_change_nothing_and_initial_states_are_prepared():
 _SCRIPT_BACK = (
     "global.window = {};"
     "eval(require('fs').readFileSync(process.argv[1], 'utf8'));"
-    "process.stdout.write(JSON.stringify(window.DEQuirkBridge.qasmToQuirk(process.argv[2])));"
+    "process.stdout.write(JSON.stringify(window.DEQuirkBridge.qasmToQuirk(process.argv[2], Number(process.argv[3]) || undefined)));"
 )
 NL = chr(10)
 
 
-def _to_quirk(qasm: str) -> dict:
+def _to_quirk(qasm: str, wires: int = 0) -> dict:
     done = subprocess.run(
-        [_node(), "-e", _SCRIPT_BACK, str(BRIDGE), qasm],
+        [_node(), "-e", _SCRIPT_BACK, str(BRIDGE), qasm, str(wires)],
         capture_output=True,
         text=True,
         check=True,
@@ -222,3 +222,12 @@ def test_what_quirk_has_no_gate_for_is_named_and_a_big_circuit_says_its_size():
     assert any("crz" in line for line in out["skipped"])
     assert len(out["circuit"]["cols"]) == 1
     assert _to_quirk(_qasm("h q[0];", n=20))["n"] == 20
+
+
+def test_a_circuit_over_the_wires_of_quirk_draws_the_first_wires_and_keeps_the_rest_in_the_text():
+    text = _qasm("h q[0];", "cx q[0],q[1];", "cx q[1],q[18];", "h q[19];", n=20)
+    out = _to_quirk(text, 16)
+    assert out["n"] == 20
+    assert all(len(col) == 16 for col in out["circuit"]["cols"])
+    assert len(out["circuit"]["cols"]) == 2
+    assert len(out["skipped"]) == 2 and all("beyond" in line for line in out["skipped"])
