@@ -312,11 +312,9 @@ function fitQuirkFrame() {
   }
 }
 
-// What the page itself wrote into the address of Quirk is not copied back: Quirk rewrites the
-// address in its own form, and the OpenQASM the user typed must not be replaced by a translation.
-let quirkIgnoreUntil = 0;
-
-// The other way: the OpenQASM of the box (typed, or from a preset) is drawn in Quirk.
+// The two buttons are the only way across: "Compila verso Dense" copies the circuit of Quirk
+// into the OpenQASM box, "Compila verso Quirk" draws the OpenQASM of the box in Quirk. Nothing is
+// copied by itself, so a circuit is never replaced while it is being written.
 function pushQasmToQuirk() {
   const frame = $("de-quirk");
   if (!frame || !window.DEQuirkBridge) return;
@@ -326,7 +324,6 @@ function pushQasmToQuirk() {
     note.textContent = `Quirk mostra fino a ${window.DEQuirkBridge.QUIRK_MAX_WIRES} qubit: questo circuito (${n} qubit) va solo al motore.`;
     return;
   }
-  quirkIgnoreUntil = Date.now() + 1500;
   try {
     frame.contentWindow.location.hash = "#circuit=" + encodeURIComponent(JSON.stringify(circuit));
   } catch (err) {
@@ -337,10 +334,10 @@ function pushQasmToQuirk() {
     : `OpenQASM disegnato in Quirk (${n} qubit).`;
 }
 
+// The box is filled once, from the circuit that Quirk loaded with; the frame follows the height of Quirk.
 function startQuirkSync() {
   if (!$("de-quirk") || !window.DEQuirkBridge) return;
-  let last = null;
-  let typing = null;
+  let filled = false;
   $("de-quirk-compile").addEventListener("click", () => {
     const hash = quirkHash();
     if (hash === null || !applyQuirkCircuit(hash)) {
@@ -348,23 +345,11 @@ function startQuirkSync() {
     }
   });
   $("de-quirk-draw").addEventListener("click", pushQasmToQuirk);
-  $("qasm").addEventListener("input", () => {
-    clearTimeout(typing);
-    typing = setTimeout(pushQasmToQuirk, 600);
-  });
   setInterval(() => {
     fitQuirkFrame();
+    if (filled) return;
     const hash = quirkHash();
-    if (hash === null) return;
-    if (last === null) {
-      last = hash;
-      if (!$("qasm").value.trim()) applyQuirkCircuit(hash);
-      return;
-    }
-    if (hash === last) return;
-    last = hash;
-    if (Date.now() < quirkIgnoreUntil) return;
-    applyQuirkCircuit(hash);
+    if (hash !== null && !$("qasm").value.trim() && applyQuirkCircuit(hash)) filled = true;
   }, 400);
 }
 
@@ -602,7 +587,6 @@ async function loadPresetsAndPalette() {
     }
     $("qasm").value = presets[sel.value];
     syncQubitCountFromQasm(presets[sel.value]);
-    pushQasmToQuirk();
   });
   if (applyQuirkCircuit(quirkHash())) return;
   $("qasm").value = presets["Bell state (2 qubit)"] || "";
