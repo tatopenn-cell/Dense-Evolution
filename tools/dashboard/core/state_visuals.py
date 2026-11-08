@@ -218,7 +218,7 @@ def native_qsphere_figure(statevector: np.ndarray, prob_threshold: float = 1e-3)
     # Python-level dict-of-lists pass.
     order = np.argsort(weights, kind="stable")
     sorted_idx, sorted_w = indices[order], weights[order]
-    group_sizes = np.bincount(sorted_w, minlength=n_qubits + 1)
+    group_sizes = np.bincount(sorted_w.astype(np.intp), minlength=n_qubits + 1)
     # rank-within-group for each entry in sorted order: 0,1,2,... resets
     # to 0 at each group boundary. offsets[w] is where weight-w's group
     # starts in the sorted array (sum of every smaller group's size);
