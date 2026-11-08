@@ -182,8 +182,8 @@ async function checkKernel() {
       `<strong>Kernel locale non rilevato.</strong> Serve dense_evolution + JAX in esecuzione ` +
       `sul tuo PC. Scarica lo script di installazione (va eseguito da te: nessun sito puo' ` +
       `installare o avviare programmi sul tuo PC da solo):<br>` +
-      `<a href="assets/installer/install-composer.bat" download class="btn btn-ghost">Windows (.bat)</a> ` +
-      `<a href="assets/installer/install-composer.sh" download class="btn btn-ghost">macOS / Linux (.sh)</a><br><br>` +
+      `<a href="../assets/installer/install-composer.bat" download class="btn btn-ghost">Windows (.bat)</a> ` +
+      `<a href="../assets/installer/install-composer.sh" download class="btn btn-ghost">macOS / Linux (.sh)</a><br><br>` +
       `Oppure a mano, in un terminale:<br>` +
       `<code>pip install dense-evolution[composer]</code><br>` +
       `<code>dense-evolution serve</code><br>` +

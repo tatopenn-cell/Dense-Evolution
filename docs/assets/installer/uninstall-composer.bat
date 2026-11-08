@@ -1,6 +1,8 @@
 @echo off
 setlocal enabledelayedexpansion
-chcp 65001 >nul
+rem No chcp 65001 -- it breaks "set /p" input reading (see
+rem install-composer.bat's comment on this); this script's text is
+rem plain ASCII on purpose so it doesn't need it.
 rem Dense-Evolution Composer -- uninstaller (Windows). Removes every icon
 rem install-composer.bat could have created (Desktop, Start Menu, Startup,
 rem both Online/Offline variants), the offline copy, and the launcher

@@ -121,6 +121,9 @@ def _cmd_offline_composer(dest: str):
                 self.assets.append(attrs["src"])
             elif tag == "img" and attrs.get("src"):
                 self.assets.append(attrs["src"])
+            elif tag == "iframe" and attrs.get("src"):
+                # the Quirk editor of the Composer is a page of its own in a frame
+                self.assets.append(attrs["src"])
 
     print(f"Scarico {COMPOSER_PAGE_URL} ...")
     with urllib.request.urlopen(COMPOSER_PAGE_URL, timeout=30) as resp:

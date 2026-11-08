@@ -103,3 +103,24 @@ def test_every_gate_id_the_bridge_reads_exists_in_the_source_of_quirk():
     ids += ["Bloch", "Amps", "Chance", "Density", "Sample", "…"]
     missing = [i for i in ids if f'"{i}"' not in source and f"'{i}'" not in source]
     assert missing == []
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "install-composer.bat",
+        "install-composer.sh",
+        "uninstall-composer.bat",
+        "uninstall-composer.sh",
+    ],
+)
+def test_the_installers_of_the_site_are_the_ones_of_tools(name):
+    site = REPO_ROOT / "docs" / "assets" / "installer" / name
+    assert _text(site) == _text(REPO_ROOT / "tools" / "installer" / name)
+
+
+def test_the_download_links_of_the_kernel_banner_work_from_the_page_of_the_composer():
+    app = _text(COMPOSER / "app.js")
+    assert 'href="assets/installer/' not in app
+    assert 'href="../assets/installer/install-composer.bat"' in app
+    assert 'href="../assets/installer/install-composer.sh"' in app

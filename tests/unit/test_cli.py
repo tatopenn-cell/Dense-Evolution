@@ -99,6 +99,7 @@ _FAKE_PAGE_HTML = """<!doctype html><html><head>
 <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 </head><body>
 <img src="../assets/logo.png">
+<iframe src="../assets/composer/quirk/quirk.html#circuit=%7B%7D"></iframe>
 </body></html>"""
 
 
@@ -141,6 +142,9 @@ def test_cmd_offline_composer_mirrors_the_page_and_same_origin_assets(tmp_path, 
     assert (tmp_path / "offline" / "assets" / "favicon.svg").exists()
     assert (tmp_path / "offline" / "assets" / "javascripts" / "bundle.js").exists()
     assert (tmp_path / "offline" / "assets" / "logo.png").exists()
+
+    # the Quirk editor is a frame: its page is mirrored too, without the fragment.
+    assert (tmp_path / "offline" / "assets" / "composer" / "quirk" / "quirk.html").exists()
 
     # canonical/prev <link> tags are not assets and must never be fetched.
     assert "https://tatopenn-cell.github.io/Dense-Evolution/getting-started/" not in requested
