@@ -255,6 +255,18 @@ self.onmessage = async (event) => {
       const result = JSON.parse(text);
       result.elapsed_s = (performance.now() - t0) / 1000;
       self.postMessage({ id, ok: true, result });
+    } else if (type === "vqe" || type === "qaoa") {
+      const t0 = performance.now();
+      const fn = py.globals.get(type + "_run");
+      let text;
+      try {
+        text = fn(JSON.stringify(event.data.payload));
+      } finally {
+        fn.destroy();
+      }
+      const result = JSON.parse(text);
+      result.elapsed_s = (performance.now() - t0) / 1000;
+      self.postMessage({ id, ok: true, result });
     } else {
       throw new Error("messaggio sconosciuto: " + type);
     }
