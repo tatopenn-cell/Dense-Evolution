@@ -351,7 +351,11 @@ body {
   color: var(--de-text-dim);
 }
 
-#de-composer-root.locked {
+/* Locked: the engine is dimmed and disabled, the OpenQASM box stays usable (it is where the
+   circuit of Quirk is compiled to, and it can be typed and sent back to Quirk). */
+#de-composer-root.locked > *:not(.de-layout),
+#de-composer-root.locked .de-layout > .de-main,
+#de-composer-root.locked .de-side > .toolbar {
   opacity: 0.4;
   pointer-events: none;
   filter: grayscale(0.3);
@@ -502,4 +506,11 @@ body {
 
 .de-h {
   margin: 1.2rem 0 0.6rem;
+}
+
+.de-quirk-actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin: 0.6rem 0;
 }

@@ -295,7 +295,7 @@ function applyQuirkCircuit(hash) {
   $("n-qubits").value = String(n);
   $("de-quirk-note").textContent = skipped.length
     ? `Non eseguito (traduzione non ancora disponibile): ${skipped.join("; ")}`
-    : "";
+    : `OpenQASM compilato dal circuito di Quirk (${n} qubit).`;
   return true;
 }
 
@@ -312,19 +312,87 @@ function fitQuirkFrame() {
   }
 }
 
+// The two buttons carry the circuit across: "Compila verso Dense" copies the circuit of Quirk
+// into the OpenQASM box, "Compila verso Quirk" draws the OpenQASM of the box in Quirk. With the
+// "Auto" switch on they also do it by themselves: at every edit of Quirk, and 600 ms after the
+// last key typed in the box. Off, which is the start, nothing is copied until a button is pressed.
+// What the page wrote into the address of Quirk is not copied back (Quirk rewrites the address in
+// its own form, and the text of the user must not be replaced by a translation of it).
+let quirkIgnoreUntil = 0;
+
+function pushQasmToQuirk() {
+  const frame = $("de-quirk");
+  if (!frame || !window.DEQuirkBridge) return;
+  const note = $("de-quirk-note");
+  const { n, circuit, skipped } = window.DEQuirkBridge.qasmToQuirk($("qasm").value);
+  if (n > window.DEQuirkBridge.QUIRK_MAX_WIRES) {
+    note.textContent = `Quirk mostra fino a ${window.DEQuirkBridge.QUIRK_MAX_WIRES} qubit: questo circuito (${n} qubit) va solo al motore.`;
+    return;
+  }
+  quirkIgnoreUntil = Date.now() + 1500;
+  try {
+    frame.contentWindow.location.hash = "#circuit=" + encodeURIComponent(JSON.stringify(circuit));
+  } catch (err) {
+    return;
+  }
+  note.textContent = skipped.length
+    ? `Non disegnato in Quirk (nessun gate equivalente): ${skipped.join("; ")}`
+    : `OpenQASM disegnato in Quirk (${n} qubit).`;
+}
+
+// The box is filled once, from the circuit that Quirk loaded with; the frame follows the height of
+// Quirk; with Auto on, a change of the address of Quirk is copied into the box.
 function startQuirkSync() {
   if (!$("de-quirk") || !window.DEQuirkBridge) return;
+  let filled = false;
+  let auto = false;
   let last = null;
+  let typing = null;
+  const autoButton = $("de-quirk-auto");
+  const setAuto = (on) => {
+    auto = on;
+    autoButton.textContent = on ? "Auto: acceso" : "Auto: spento";
+    autoButton.setAttribute("aria-pressed", String(on));
+    autoButton.classList.toggle("btn-primary", on);
+    autoButton.classList.toggle("btn-ghost", !on);
+    last = quirkHash();
+    try {
+      localStorage.setItem("de-quirk-auto", on ? "1" : "0");
+    } catch (err) {
+      // the choice is only a convenience: without storage it starts off again
+    }
+  };
+  $("de-quirk-compile").addEventListener("click", () => {
+    const hash = quirkHash();
+    if (hash === null || !applyQuirkCircuit(hash)) {
+      $("de-quirk-note").textContent = "Nessun circuito da compilare: Quirk non ha ancora un circuito.";
+    }
+  });
+  $("de-quirk-draw").addEventListener("click", pushQasmToQuirk);
+  autoButton.addEventListener("click", () => setAuto(!auto));
+  $("qasm").addEventListener("input", () => {
+    if (!auto) return;
+    clearTimeout(typing);
+    typing = setTimeout(pushQasmToQuirk, 600);
+  });
+  try {
+    if (localStorage.getItem("de-quirk-auto") === "1") setAuto(true);
+  } catch (err) {
+    // no storage: it starts off
+  }
   setInterval(() => {
     fitQuirkFrame();
     const hash = quirkHash();
     if (hash === null) return;
+    if (!filled && !$("qasm").value.trim() && applyQuirkCircuit(hash)) filled = true;
+    if (!auto) return;
     if (last === null) {
       last = hash;
       return;
     }
     if (hash === last) return;
     last = hash;
+    if (Date.now() < quirkIgnoreUntil) return;
     applyQuirkCircuit(hash);
   }, 400);
 }
@@ -563,6 +631,7 @@ async function loadPresetsAndPalette() {
     }
     $("qasm").value = presets[sel.value];
     syncQubitCountFromQasm(presets[sel.value]);
+    if ($("de-quirk-auto") && $("de-quirk-auto").getAttribute("aria-pressed") === "true") pushQasmToQuirk();
   });
   if (applyQuirkCircuit(quirkHash())) return;
   $("qasm").value = presets["Bell state (2 qubit)"] || "";

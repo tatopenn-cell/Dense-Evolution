@@ -9,6 +9,11 @@ engine below: the matrix product state (MPS) simulator takes the circuit as Open
 <h2 class="de-h">Quirk: up to 16 qubits</h2>
 <iframe id="de-quirk" class="de-quirk" title="Quirk circuit editor"
   src="../assets/composer/quirk/quirk.html#circuit=%7B%22cols%22%3A%5B%5B%22H%22%5D%2C%5B%22%E2%80%A2%22%2C%22X%22%5D%5D%7D"></iframe>
+<div class="de-quirk-actions">
+  <button id="de-quirk-compile" class="btn btn-primary">Compila verso Dense</button>
+  <button id="de-quirk-auto" class="btn btn-ghost" aria-pressed="false"
+    title="Con Auto acceso il circuito passa da solo, in tutti e due i versi, a ogni modifica">Auto: spento</button>
+</div>
 <p class="hint">
   The editor and its simulator are Quirk by Craig Gidney (Apache-2.0), unchanged.
 </p>
@@ -52,6 +57,7 @@ engine below: the matrix product state (MPS) simulator takes the circuit as Open
     <div class="panel panel-code">
       <h3>OpenQASM 2.0</h3>
       <textarea id="qasm" class="code" spellcheck="false"></textarea>
+      <button id="de-quirk-draw" class="btn btn-primary">Compila verso Quirk</button>
     </div>
   </aside>
 

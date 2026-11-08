@@ -170,3 +170,55 @@ def test_displays_change_nothing_and_initial_states_are_prepared():
     out = _translate({"cols": [["Bloch"], ["Amps"], ["Chance"]], "init": ["1", "+"]})
     assert out["skipped"] == []
     assert _fidelity(_run(out["qasm"]), np.kron([0, 1], [1, 1]) / math.sqrt(2)) > 1 - 1e-9
+
+
+_SCRIPT_BACK = (
+    "global.window = {};"
+    "eval(require('fs').readFileSync(process.argv[1], 'utf8'));"
+    "process.stdout.write(JSON.stringify(window.DEQuirkBridge.qasmToQuirk(process.argv[2])));"
+)
+NL = chr(10)
+
+
+def _to_quirk(qasm: str) -> dict:
+    done = subprocess.run(
+        [_node(), "-e", _SCRIPT_BACK, str(BRIDGE), qasm],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return json.loads(done.stdout)
+
+
+def _qasm(*lines: str, n: int = 3) -> str:
+    head = ["OPENQASM 2.0;", 'include "qelib1.inc";', f"qreg q[{n}];", f"creg c[{n}];"]
+    return NL.join(head + list(lines) + ["measure q -> c;"]) + NL
+
+
+def test_a_circuit_written_in_openqasm_goes_to_quirk_and_back_with_the_same_state():
+    text = _qasm(
+        "h q[0]; x q[1]; y q[2]; z q[0]; s q[1]; sdg q[2]; t q[0]; tdg q[1]; sx q[2];",
+        "rx(0.3) q[0]; ry(pi/3) q[1]; rz(pi/2*(1+1)) q[2];",
+        "cx q[0],q[1]; cy q[1],q[2]; cz q[2],q[0]; swap q[0],q[2];",
+        "cp(pi/2) q[0],q[1]; ccx q[0],q[1],q[2];",
+    )
+    drawn = _to_quirk(text)
+    assert drawn["skipped"] == []
+    assert drawn["n"] == 3
+    assert all(len(col) == 3 for col in drawn["circuit"]["cols"])
+    back = _translate(drawn["circuit"])
+    assert back["skipped"] == []
+    assert _fidelity(_run(back["qasm"]), _run(text)) > 1 - 1e-9
+
+
+def test_a_preset_of_the_page_goes_to_quirk_and_back_with_the_same_state():
+    qasm = _qasm("h q[0];", "cx q[0],q[1];", "cx q[1],q[2];")
+    back = _translate(_to_quirk(qasm)["circuit"])
+    assert _fidelity(_run(back["qasm"]), _run(qasm)) > 1 - 1e-9
+
+
+def test_what_quirk_has_no_gate_for_is_named_and_a_big_circuit_says_its_size():
+    out = _to_quirk(_qasm("crz(0.5) q[0],q[1];", "h q[2];"))
+    assert any("crz" in line for line in out["skipped"])
+    assert len(out["circuit"]["cols"]) == 1
+    assert _to_quirk(_qasm("h q[0];", n=20))["n"] == 20
