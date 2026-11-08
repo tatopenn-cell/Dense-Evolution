@@ -134,7 +134,6 @@ function circuitFromHash(hash) {
 
 // ---- the other way: OpenQASM -> the circuit of Quirk ----------------------------------------
 
-const QUIRK_MAX_WIRES = 16;
 const SINGLE = {
   h: "H", x: "X", y: "Y", z: "Z", s: "Z^½", sdg: "Z^-½", t: "Z^¼", tdg: "Z^-¼", sx: "X^½",
 };
@@ -225,6 +224,6 @@ function qasmToQuirk(text) {
   return { n: Math.max(n, 1), circuit: { cols }, skipped };
 }
 
-window.DEQuirkBridge = { quirkToQasm, circuitFromHash, qasmToQuirk, QUIRK_MAX_WIRES };
+window.DEQuirkBridge = { quirkToQasm, circuitFromHash, qasmToQuirk };
 
 })();
