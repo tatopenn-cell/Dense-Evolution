@@ -721,6 +721,71 @@ function renderLargeScaleResult(result) {
   setStatus(`Fatto — ${result.n_qubits} qubit (large-scale MPS), top-${result.k_requested} stati trovati.`);
 }
 
+// The box with an x line for each qubit written in "Qubit che partono da |1>"; the box itself is not changed.
+function qasmWithInputs() {
+  const text = $("qasm").value;
+  const ones = $("input-ones").value.split(",").map((s) => s.trim()).filter(Boolean).map(Number);
+  if (ones.some((v) => !Number.isInteger(v) || v < 0)) throw new Error("Qubit in |1>: indici interi non negativi, separati da virgola");
+  return window.DECircuitTools.withInputValues(text, ones);
+}
+
+// The tables "Per qubit" (P(1) of each qubit) and "Outcomes" (the shots of each outcome) of a run.
+function fillResultTables(result) {
+  const tools = window.DECircuitTools;
+  const pq = document.querySelector("#perqubit-table tbody");
+  pq.innerHTML = "";
+  tools.qubitP1(result.statevector, result.n_qubits).forEach((p, q) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${q}</td><td>${p.toFixed(6)}</td>`;
+    pq.appendChild(tr);
+  });
+  const oc = document.querySelector("#outcome-table tbody");
+  oc.innerHTML = "";
+  tools.outcomeRows(result.counts).forEach((row) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${row.outcome}</td><td>${row.shots}</td><td>${row.probability.toFixed(6)}</td>`;
+    oc.appendChild(tr);
+  });
+}
+
+// The panel Topology: the pairs of the chosen layer, and the button that writes it in the box.
+function topologyArgs() {
+  const hub = parseInt($("topo-hub").value, 10) || 0;
+  return [
+    parseInt($("topo-n").value, 10), $("topo-pattern").value, $("topo-gate").value,
+    $("topo-reverse").checked, hub, $("topo-h").checked,
+  ];
+}
+
+function refreshTopology() {
+  const star = $("topo-pattern").value === "star";
+  $("topo-hub-label").hidden = !star;
+  const [n, pattern, , reverse, hub] = topologyArgs();
+  try {
+    const edges = window.DECircuitTools.topologyEdges(n, pattern, reverse, hub);
+    $("topo-edges").textContent = `${edges.length} coppie: ${edges.map(([a, b]) => `(${a},${b})`).join(" ")}`;
+    $("topo-load").disabled = false;
+  } catch (err) {
+    $("topo-edges").textContent = err.message;
+    $("topo-load").disabled = true;
+  }
+}
+
+function startTopology() {
+  ["topo-pattern", "topo-n", "topo-gate", "topo-reverse", "topo-hub", "topo-h"].forEach((id) => {
+    $(id).addEventListener("input", refreshTopology);
+    $(id).addEventListener("change", refreshTopology);
+  });
+  $("topo-load").addEventListener("click", () => {
+    const text = window.DECircuitTools.topologyQasm(...topologyArgs());
+    $("qasm").value = text;
+    if ($("preset-select").value !== "__custom__") $("preset-select").value = "__custom__";
+    syncQubitCountFromQasm(text);
+    pushQasmToQuirk();
+  });
+  refreshTopology();
+}
+
 async function runCircuit() {
   setStatus("Esecuzione sul motore dense_evolution...");
   try {
@@ -728,7 +793,7 @@ async function runCircuit() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        qasm: $("qasm").value,
+        qasm: qasmWithInputs(),
         shots: parseInt($("shots").value, 10),
         seed: parseInt($("seed").value, 10),
         noise_model: $("noise-model-select").value || "ideal",
@@ -793,6 +858,7 @@ async function runCircuit() {
       tbody.appendChild(tr);
     });
 
+    fillResultTables(result);
     setStatus(`Fatto — ${result.n_qubits} qubit, ${Object.values(result.counts).reduce((a, b) => a + b, 0)} shot reali.`);
   } catch (err) {
     setStatus(`Errore: ${err.message}`, true);
@@ -1406,6 +1472,7 @@ async function loadEverything() {
 async function init() {
   setupTabs();
   startQuirkSync();
+  startTopology();
   buildEmptyGrid();
   renderGrid();
   renderElementPalette();
