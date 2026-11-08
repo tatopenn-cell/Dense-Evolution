@@ -132,6 +132,99 @@ function circuitFromHash(hash) {
   }
 }
 
-window.DEQuirkBridge = { quirkToQasm, circuitFromHash };
+// ---- the other way: OpenQASM -> the circuit of Quirk ----------------------------------------
+
+const QUIRK_MAX_WIRES = 16;
+const SINGLE = {
+  h: "H", x: "X", y: "Y", z: "Z", s: "Z^½", sdg: "Z^-½", t: "Z^¼", tdg: "Z^-¼", sx: "X^½",
+};
+const CONTROLLED_TARGET = { cx: "X", cy: "Y", cz: "Z" };
+// Quirk's ids of Z^t for the exponents t that it has, found from t = angle / pi.
+const Z_POWERS = [[1, "Z"], [0.5, "Z^½"], [-0.5, "Z^-½"], [0.25, "Z^¼"], [-0.25, "Z^-¼"], [1 / 3, "Z^⅓"], [-1 / 3, "Z^-⅓"]];
+
+function zPowerId(angle) {
+  const t = angle / Math.PI;
+  const hit = Z_POWERS.find(([e]) => Math.abs(e - t) < 1e-9);
+  return hit ? hit[1] : null;
+}
+
+// "name(angle) q[0],q[1]" -> {name, angle (the text inside the parentheses, or null), qubits}
+function splitStatement(statement) {
+  const m = /^([A-Za-z_][A-Za-z0-9_]*)\s*/.exec(statement);
+  if (!m) return null;
+  let rest = statement.slice(m[0].length);
+  let angle = null;
+  if (rest.startsWith("(")) {
+    let depth = 0;
+    let end = -1;
+    for (let i = 0; i < rest.length; i++) {
+      if (rest[i] === "(") depth++;
+      else if (rest[i] === ")" && --depth === 0) {
+        end = i;
+        break;
+      }
+    }
+    if (end < 0) return null;
+    angle = rest.slice(1, end);
+    rest = rest.slice(end + 1);
+  }
+  const qubits = [];
+  for (const part of rest.split(",")) {
+    const q = /\[\s*(\d+)\s*\]/.exec(part);
+    if (!q) return null;
+    qubits.push(parseInt(q[1], 10));
+  }
+  return { name: m[1].toLowerCase(), angle, qubits };
+}
+
+// Returns {n, circuit, skipped}: the number of qubits, the circuit of Quirk ({cols: [...]}, one
+// gate in each column, in the order of the text) and one text for each gate with no Quirk gate.
+function qasmToQuirk(text) {
+  const skipped = [];
+  const gates = [];
+  let n = 0;
+  const statements = String(text).replace(/\/\/[^\n]*/g, "").split(";").map((s) => s.trim()).filter(Boolean);
+  statements.forEach((statement, index) => {
+    const head = statement.split(/[\s(]/)[0].toLowerCase();
+    if (["openqasm", "include", "creg", "barrier", "measure", "id", "i"].includes(head)) return;
+    if (head === "qreg") {
+      const q = /\[\s*(\d+)\s*\]/.exec(statement);
+      if (q) n = parseInt(q[1], 10);
+      return;
+    }
+    const g = splitStatement(statement);
+    if (!g) {
+      skipped.push(`statement ${index + 1} not understood`);
+      return;
+    }
+    gates.push({ ...g, index });
+  });
+  for (const g of gates) n = Math.max(n, ...g.qubits.map((q) => q + 1));
+  const cols = [];
+  const place = (cells) => {
+    const col = Array(n).fill(1);
+    Object.entries(cells).forEach(([wire, id]) => { col[wire] = id; });
+    cols.push(col);
+  };
+  for (const { name, angle, qubits, index } of gates) {
+    const q = qubits;
+    const theta = angle === null ? null : constantAngle(angle);
+    if (name in SINGLE && q.length === 1) place({ [q[0]]: SINGLE[name] });
+    else if (["rx", "ry", "rz"].includes(name) && q.length === 1 && theta !== null) {
+      place({ [q[0]]: { id: `R${name[1]}ft`, arg: String(theta) } });
+    } else if (["p", "u1", "phase"].includes(name) && q.length === 1 && theta !== null) {
+      const id = zPowerId(theta);
+      place({ [q[0]]: id || { id: "Rzft", arg: String(theta) } });
+    } else if (name in CONTROLLED_TARGET && q.length === 2) place({ [q[0]]: "•", [q[1]]: CONTROLLED_TARGET[name] });
+    else if (name === "swap" && q.length === 2) place({ [q[0]]: "Swap", [q[1]]: "Swap" });
+    else if (name === "ccx" && q.length === 3) place({ [q[0]]: "•", [q[1]]: "•", [q[2]]: "X" });
+    else if (name === "cp" && q.length === 2 && theta !== null && zPowerId(theta)) {
+      place({ [q[0]]: "•", [q[1]]: zPowerId(theta) });
+    } else skipped.push(`${name} (statement ${index + 1}) has no gate in Quirk`);
+  }
+  return { n: Math.max(n, 1), circuit: { cols }, skipped };
+}
+
+window.DEQuirkBridge = { quirkToQasm, circuitFromHash, qasmToQuirk, QUIRK_MAX_WIRES };
 
 })();

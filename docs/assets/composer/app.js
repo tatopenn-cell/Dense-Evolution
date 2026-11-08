@@ -295,7 +295,7 @@ function applyQuirkCircuit(hash) {
   $("n-qubits").value = String(n);
   $("de-quirk-note").textContent = skipped.length
     ? `Non eseguito (traduzione non ancora disponibile): ${skipped.join("; ")}`
-    : "";
+    : `OpenQASM compilato dal circuito di Quirk (${n} qubit).`;
   return true;
 }
 
@@ -312,19 +312,58 @@ function fitQuirkFrame() {
   }
 }
 
+// What the page itself wrote into the address of Quirk is not copied back: Quirk rewrites the
+// address in its own form, and the OpenQASM the user typed must not be replaced by a translation.
+let quirkIgnoreUntil = 0;
+
+// The other way: the OpenQASM of the box (typed, or from a preset) is drawn in Quirk.
+function pushQasmToQuirk() {
+  const frame = $("de-quirk");
+  if (!frame || !window.DEQuirkBridge) return;
+  const note = $("de-quirk-note");
+  const { n, circuit, skipped } = window.DEQuirkBridge.qasmToQuirk($("qasm").value);
+  if (n > window.DEQuirkBridge.QUIRK_MAX_WIRES) {
+    note.textContent = `Quirk mostra fino a ${window.DEQuirkBridge.QUIRK_MAX_WIRES} qubit: questo circuito (${n} qubit) va solo al motore.`;
+    return;
+  }
+  quirkIgnoreUntil = Date.now() + 1500;
+  try {
+    frame.contentWindow.location.hash = "#circuit=" + encodeURIComponent(JSON.stringify(circuit));
+  } catch (err) {
+    return;
+  }
+  note.textContent = skipped.length
+    ? `Non disegnato in Quirk (nessun gate equivalente): ${skipped.join("; ")}`
+    : `OpenQASM disegnato in Quirk (${n} qubit).`;
+}
+
 function startQuirkSync() {
   if (!$("de-quirk") || !window.DEQuirkBridge) return;
   let last = null;
+  let typing = null;
+  $("de-quirk-compile").addEventListener("click", () => {
+    const hash = quirkHash();
+    if (hash === null || !applyQuirkCircuit(hash)) {
+      $("de-quirk-note").textContent = "Nessun circuito da compilare: Quirk non ha ancora un circuito.";
+    }
+  });
+  $("de-quirk-draw").addEventListener("click", pushQasmToQuirk);
+  $("qasm").addEventListener("input", () => {
+    clearTimeout(typing);
+    typing = setTimeout(pushQasmToQuirk, 600);
+  });
   setInterval(() => {
     fitQuirkFrame();
     const hash = quirkHash();
     if (hash === null) return;
     if (last === null) {
       last = hash;
+      if (!$("qasm").value.trim()) applyQuirkCircuit(hash);
       return;
     }
     if (hash === last) return;
     last = hash;
+    if (Date.now() < quirkIgnoreUntil) return;
     applyQuirkCircuit(hash);
   }, 400);
 }
@@ -563,6 +602,7 @@ async function loadPresetsAndPalette() {
     }
     $("qasm").value = presets[sel.value];
     syncQubitCountFromQasm(presets[sel.value]);
+    pushQasmToQuirk();
   });
   if (applyQuirkCircuit(quirkHash())) return;
   $("qasm").value = presets["Bell state (2 qubit)"] || "";
