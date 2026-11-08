@@ -151,7 +151,7 @@ engine below: the matrix product state (MPS) simulator takes the circuit as Open
   </div>
 
 
-  <details class="de-collapsible" open>
+  <details class="de-collapsible de-web-ok" open>
   <summary>VQE e QAOA nel browser (NumPy, nessun kernel)</summary>
   <section class="row row-hamiltonian">
     <div class="panel panel-hamiltonian">
