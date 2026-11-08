@@ -269,33 +269,44 @@ function showTab(name) {
 // OpenQASM box follows it: the address is read twice a second and, when it changes, the
 // circuit is translated (quirk_bridge.js). The first reading only records the address, so
 // that the circuit the page loaded is not overwritten before the user edits.
-function startQuirkSync() {
+function quirkHash() {
   const frame = $("de-quirk");
-  if (!frame || !window.DEQuirkBridge) return;
+  if (!frame) return null;
+  try {
+    return frame.contentWindow.location.hash;
+  } catch (err) {
+    return null;
+  }
+}
+
+// Copies the circuit of Quirk into the OpenQASM box. False when there is nothing to copy.
+function applyQuirkCircuit(hash) {
+  const circuit = window.DEQuirkBridge && window.DEQuirkBridge.circuitFromHash(hash);
+  if (!circuit) return false;
+  const { n, qasm, skipped } = window.DEQuirkBridge.quirkToQasm(circuit);
+  $("qasm").value = qasm;
+  if ($("preset-select").value !== "__custom__") $("preset-select").value = "__custom__";
+  nQubits = n;
+  $("n-qubits").value = String(n);
+  $("de-quirk-note").textContent = skipped.length
+    ? `Non eseguito (traduzione non ancora disponibile): ${skipped.join("; ")}`
+    : "";
+  return true;
+}
+
+function startQuirkSync() {
+  if (!$("de-quirk") || !window.DEQuirkBridge) return;
   let last = null;
   setInterval(() => {
-    let hash;
-    try {
-      hash = frame.contentWindow.location.hash;
-    } catch (err) {
-      return;
-    }
+    const hash = quirkHash();
+    if (hash === null) return;
     if (last === null) {
       last = hash;
       return;
     }
     if (hash === last) return;
     last = hash;
-    const circuit = window.DEQuirkBridge.circuitFromHash(hash);
-    if (!circuit) return;
-    const { n, qasm, skipped } = window.DEQuirkBridge.quirkToQasm(circuit);
-    $("qasm").value = qasm;
-    if ($("preset-select").value !== "__custom__") $("preset-select").value = "__custom__";
-    nQubits = n;
-    $("n-qubits").value = String(n);
-    $("de-quirk-note").textContent = skipped.length
-      ? `Non eseguito (traduzione non ancora disponibile): ${skipped.join("; ")}`
-      : "";
+    applyQuirkCircuit(hash);
   }, 400);
 }
 
@@ -534,6 +545,7 @@ async function loadPresetsAndPalette() {
     $("qasm").value = presets[sel.value];
     syncQubitCountFromQasm(presets[sel.value]);
   });
+  if (applyQuirkCircuit(quirkHash())) return;
   $("qasm").value = presets["Bell state (2 qubit)"] || "";
   if (presets["Bell state (2 qubit)"]) sel.value = "Bell state (2 qubit)";
   syncQubitCountFromQasm($("qasm").value);

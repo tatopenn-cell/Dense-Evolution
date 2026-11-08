@@ -492,3 +492,10 @@ body {
   border-radius: 8px;
   background: #ffffff;
 }
+
+/* Quirk needs about 900 px: the page of the Composer has no navigation columns. */
+@media (min-width: 76.25em) {
+  .md-main__inner:has(#de-composer-root) > .md-sidebar {
+    display: none;
+  }
+}
