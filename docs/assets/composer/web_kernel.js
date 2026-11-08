@@ -168,6 +168,26 @@ function ready() {
   return readyPromise;
 }
 
+// The molecules of the catalog of the dashboard with their qubit Hamiltonians, written from the real
+// code (molecules.json); and the two variational algorithms, run in the worker.
+let moleculesPromise = null;
+function molecules() {
+  if (!moleculesPromise) {
+    moleculesPromise = fetch(new URL("molecules.json", BASE).href).then((res) => {
+      if (!res.ok) throw new Error(`Impossibile scaricare molecules.json (${res.status})`);
+      return res.json();
+    });
+  }
+  return moleculesPromise;
+}
+
+async function variational(type, payload) {
+  await ready();
+  return call({ type, payload });
+}
+const vqe = (payload) => variational("vqe", payload);
+const qaoa = (payload) => variational("qaoa", payload);
+
 // OpenQASM text -> the result /api/run of the local kernel gives (up to CONTRACT_LIMIT qubits),
 // or the "large_scale" one with the most probable states.
 async function run(qasm, options) {
@@ -187,6 +207,6 @@ async function run(qasm, options) {
 // The models of NoiseModel.MODELS; a test compares the list with the package.
 const NOISE_MODELS = ["ideal", "depolarizing", "bitflip", "phaseflip", "amplitude_damping", "combined"];
 
-window.DEWebKernel = { MAX_QUBITS, CONTRACT_LIMIT, PALETTE, NOISE_MODELS, opsToQasm, presets, ready, run };
+window.DEWebKernel = { MAX_QUBITS, CONTRACT_LIMIT, PALETTE, NOISE_MODELS, opsToQasm, presets, ready, run, molecules, vqe, qaoa };
 
 })();
