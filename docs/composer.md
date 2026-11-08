@@ -151,6 +151,68 @@ engine below: the matrix product state (MPS) simulator takes the circuit as Open
   </div>
 
 
+  <details class="de-collapsible" open>
+  <summary>VQE e QAOA nel browser (NumPy, nessun kernel)</summary>
+  <section class="row row-hamiltonian">
+    <div class="panel panel-hamiltonian">
+      <h3>VQE &mdash; ansatz hardware-efficient su una molecola del catalogo</h3>
+      <p class="hint">
+        Un RY su ogni qubit, poi l'entangler scelto (gli stessi cinque schemi della scheda Topology), per i layer
+        indicati; parametri trovati da Adam con la regola parameter-shift. Gli Hamiltoniani sono quelli del
+        catalogo del dashboard, scritti dal codice vero (Hartree-Fock e mappa di Jordan-Wigner).
+      </p>
+      <div class="ham-row">
+        <label>Molecola <select id="vqe-w-mol"></select></label>
+        <label>Layer <input id="vqe-w-layers" type="number" min="1" max="12" value="2" style="width: 4rem;" /></label>
+        <label>Entangler
+          <select id="vqe-w-pattern">
+            <option value="linear">linear (chain)</option>
+            <option value="circular">circular (ring)</option>
+            <option value="full">full (all-to-all)</option>
+            <option value="star">star (hub)</option>
+            <option value="brick">brick (brickwork)</option>
+          </select>
+        </label>
+        <label>Iterazioni <input id="vqe-w-iter" type="number" min="1" value="200" style="width: 5rem;" /></label>
+        <label>Seed <input id="vqe-w-seed" type="number" min="0" value="0" style="width: 4rem;" /></label>
+        <label>Precisione
+          <select id="vqe-w-dtype"><option value="complex64">complex64</option><option value="complex128">complex128</option></select>
+        </label>
+        <button id="vqe-w-run" class="btn btn-primary">Esegui VQE</button>
+      </div>
+      <div id="vqe-w-result" class="ham-result"></div>
+    </div>
+    <div class="panel panel-hamiltonian">
+      <h3>QAOA &mdash; MaxCut sul grafo di uno schema</h3>
+      <p class="hint">
+        Il grafo ha i lati dello schema scelto, con peso 1. Angoli di partenza gamma in [0, 2 pi] e beta in [0, pi]
+        (Farhi, Goldstone, Gutmann), ottimizzati da Adam con la regola parameter-shift. Il taglio massimo esatto
+        si prova fino a 20 qubit.
+      </p>
+      <div class="ham-row">
+        <label>Qubit <input id="qaoa-w-n" type="number" min="2" max="20" value="6" style="width: 4rem;" /></label>
+        <label>Grafo
+          <select id="qaoa-w-pattern">
+            <option value="linear">linear (chain)</option>
+            <option value="circular" selected>circular (ring)</option>
+            <option value="full">full (all-to-all)</option>
+            <option value="star">star (hub)</option>
+            <option value="brick">brick (brickwork)</option>
+          </select>
+        </label>
+        <label>p <input id="qaoa-w-p" type="number" min="1" max="8" value="2" style="width: 4rem;" /></label>
+        <label>Iterazioni <input id="qaoa-w-iter" type="number" min="1" value="100" style="width: 5rem;" /></label>
+        <label>Seed <input id="qaoa-w-seed" type="number" min="0" value="0" style="width: 4rem;" /></label>
+        <label>Precisione
+          <select id="qaoa-w-dtype"><option value="complex64">complex64</option><option value="complex128">complex128</option></select>
+        </label>
+        <button id="qaoa-w-run" class="btn btn-primary">Esegui QAOA</button>
+      </div>
+      <div id="qaoa-w-result" class="ham-result"></div>
+    </div>
+  </section>
+  </details>
+
   <details class="de-collapsible">
   <summary>Materiali (tavola periodica, elementi reali Z=1..54 + Au, Pb)</summary>
   <section class="row row-hamiltonian">
@@ -437,6 +499,7 @@ engine below: the matrix product state (MPS) simulator takes the circuit as Open
 <script src="../assets/composer/web_kernel.js"></script>
 <script src="../assets/composer/quirk_bridge.js"></script>
 <script src="../assets/composer/circuit_tools.js"></script>
+<script src="../assets/composer/variational_panel.js"></script>
 <script src="../assets/composer/app.js"></script>
 
 !!! tip "No kernel? Run the circuit in your browser"

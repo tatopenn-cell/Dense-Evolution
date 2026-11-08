@@ -95,17 +95,24 @@ def _adam(objective, gradient, theta0, maxiter, step_size, beta1, beta2, real):
     return theta, history
 
 
-def hardware_efficient_ops(params, n: int, layers: int, occupation=()) -> list:
-    """The ansatz of ``tools/dashboard/core/vqe.py`` as gate tuples (``n * layers`` parameters)."""
+def hardware_efficient_ops(params, n: int, layers: int, occupation=(), edges=None) -> list:
+    """The ansatz of ``tools/dashboard/core/vqe.py`` as gate tuples (``n * layers`` parameters).
+
+    ``edges`` is the list of ``(control, target)`` pairs of the entangler, written as ``cx`` after
+    each layer of ``ry``; the default, ``None``, is the ladder ``(q, q + 1)`` of that file. Any
+    entangler is an instance of the family of Kandala et al. (``U_ENT`` "any ... that generates
+    sufficient entanglement", PDF page 3).
+    """
     if len(params) != n * layers:
         raise ValueError(f"expected {n * layers} parameters, got {len(params)}")
     ops: list = [("x", q) for q, occupied in enumerate(occupation) if occupied]
+    ladder = [(q, q + 1) for q in range(n - 1)]
     k = 0
     for _ in range(layers):
         for q in range(n):
             ops.append(("ry", q, float(params[k])))
             k += 1
-        ops.extend(("cx", q, q + 1) for q in range(n - 1))
+        ops.extend(("cx", a, b) for a, b in (ladder if edges is None else edges))
     return ops
 
 
@@ -121,8 +128,11 @@ def vqe(
     dtype=np.complex64,
     occupation=(),
     max_bond: int = 64,
+    edges=None,
 ) -> dict:
     """Minimise ``sum_t c_t <P_t>`` over the hardware-efficient ansatz with Adam.
+
+    ``edges`` is the entangler of :func:`hardware_efficient_ops` (``None``: the ladder).
 
     Returns:
         A dict with ``energy`` (the last), ``params``, ``history`` (the energy before each
@@ -133,7 +143,7 @@ def vqe(
 
     def objective(theta):
         return energy(
-            hardware_efficient_ops(theta, n, layers, occupation), n, terms, dtype, max_bond
+            hardware_efficient_ops(theta, n, layers, occupation, edges), n, terms, dtype, max_bond
         )
 
     def gradient(theta):

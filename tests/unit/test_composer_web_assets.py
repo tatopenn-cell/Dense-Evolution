@@ -45,7 +45,7 @@ def test_the_noise_of_the_page_is_the_numpy_path_of_the_package():
                 np.testing.assert_allclose(got, np.asarray(want), atol=1e-12, err_msg=f"{model} p={p} seed={seed}")
 
 
-@pytest.mark.parametrize("name", ["mps_numpy.py", "qasm_subset.py"])
+@pytest.mark.parametrize("name", ["mps_numpy.py", "qasm_subset.py", "variational_numpy.py"])
 def test_the_python_files_of_the_page_are_the_ones_of_the_package(name):
     source = REPO_ROOT / "dense_evolution" / "backends" / name
     assert _text(COMPOSER / "py" / name) == _text(source)
@@ -159,3 +159,34 @@ def test_the_download_links_of_the_kernel_banner_work_from_the_page_of_the_compo
     assert 'href="assets/installer/' not in app
     assert 'href="../assets/installer/install-composer.bat"' in app
     assert 'href="../assets/installer/install-composer.sh"' in app
+
+
+def test_the_molecules_of_the_page_give_the_energy_that_the_dense_matrix_gave():
+    import json
+
+    import numpy as np
+
+    from dense_evolution.backends import variational_numpy as vn
+
+    molecules = json.loads((COMPOSER / "molecules.json").read_text(encoding="utf-8"))
+    assert len(molecules) == 6
+    for name, mol in molecules.items():
+        ref = mol["reference"]
+        n = mol["n_qubits"]
+        ops = vn.hardware_efficient_ops(np.array(ref["theta"]), n, ref["layers"], mol["hf_occupation"])
+        got = vn.energy(ops, n, [(c, p) for c, p in mol["terms"]], np.complex128)
+        assert got == pytest.approx(ref["energy"], abs=1e-9), name
+        assert all(len(p) == n for _, p in mol["terms"]), name
+        assert mol["exact_energy"] <= ref["energy"] + 1e-9, name
+
+
+def test_an_entangler_of_the_ansatz_changes_the_state_and_the_default_is_the_ladder():
+    import numpy as np
+
+    from dense_evolution.backends import variational_numpy as vn
+
+    theta = np.linspace(0.2, 0.9, 6)
+    ladder = [(0, 1), (1, 2)]
+    assert vn.hardware_efficient_ops(theta, 3, 2) == vn.hardware_efficient_ops(theta, 3, 2, (), ladder)
+    ring = [(0, 1), (1, 2), (2, 0)]
+    assert vn.hardware_efficient_ops(theta, 3, 2, (), ring) != vn.hardware_efficient_ops(theta, 3, 2)

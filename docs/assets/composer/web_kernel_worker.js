@@ -8,7 +8,7 @@
 // page.
 
 const PYODIDE_URL = "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js";
-const PY_FILES = ["mps_numpy.py", "qasm_subset.py", "noise_numpy.py"];
+const PY_FILES = ["mps_numpy.py", "qasm_subset.py", "noise_numpy.py", "variational_numpy.py"];
 // The figure modules of the dashboard (copies of tools/dashboard/core), which need matplotlib.
 const FIGURE_FILES = ["state_visuals.py", "circuit_diagram.py", "_gate_tables.py"];
 // Up to this many qubits the MPS is contracted to 2**n amplitudes, to sample the shots and draw
@@ -24,10 +24,64 @@ import matplotlib.pyplot as plt
 import mps_numpy as mn
 import qasm_subset as qs
 import noise_numpy as nz
+import variational_numpy as vn
 from dashboard_core import circuit_diagram as cd
 from dashboard_core import state_visuals as sv
 
 CONTRACT_LIMIT = ${CONTRACT_LIMIT}
+
+
+def _dtype(name):
+    return np.complex128 if name == "complex128" else np.complex64
+
+
+def _qasm_of(ops, n):
+    lines = ["OPENQASM 2.0;", 'include "qelib1.inc";', "qreg q[%d];" % n, "creg c[%d];" % n]
+    for op in ops:
+        if op[0] == "ry":
+            lines.append("ry(%.10f) q[%d];" % (op[2], op[1]))
+        elif op[0] == "cx":
+            lines.append("cx q[%d],q[%d];" % (op[1], op[2]))
+        else:
+            lines.append("%s q[%d];" % (op[0], op[1]))
+    lines.append("measure q -> c;")
+    return chr(10).join(lines) + chr(10)
+
+
+def vqe_run(payload):
+    a = json.loads(payload)
+    n = int(a["n_qubits"])
+    terms = [(float(c), p) for c, p in a["terms"]]
+    layers = int(a["layers"])
+    edges = [tuple(e) for e in a["edges"]] if a.get("edges") is not None else None
+    dtype = _dtype(a.get("dtype"))
+    occ = [bool(x) for x in a["occupation"]]
+    res = vn.vqe(terms, n, layers=layers, maxiter=int(a["maxiter"]), seed=int(a["seed"]), dtype=dtype, occupation=occ, edges=edges)
+    theta = res["params"]
+    ops = vn.hardware_efficient_ops(theta, n, layers, occ, edges)
+    hf = vn.energy([("x", q) for q, o in enumerate(occ) if o], n, terms, dtype)
+    return json.dumps({
+        "energy": float(res["energy"]), "hf_energy": float(hf), "history": [float(h) for h in res["history"]],
+        "params": [float(t) for t in theta], "n_params": int(res["n_params"]), "dtype": res["dtype"],
+        "qasm": _qasm_of(ops, n),
+    })
+
+
+def qaoa_run(payload):
+    a = json.loads(payload)
+    n = int(a["n_qubits"])
+    edges = [(int(j), int(k), 1.0) for j, k in a["edges"]]
+    p = int(a["layers"])
+    dtype = _dtype(a.get("dtype"))
+    res = vn.qaoa(n, edges, p=p, maxiter=int(a["maxiter"]), seed=int(a["seed"]), dtype=dtype)
+    best = float(vn.exact_maxcut(n, edges)) if n <= 20 else None
+    return json.dumps({
+        "expectation": float(res["expectation"]), "exact_maxcut": best,
+        "ratio": None if not best else float(res["expectation"]) / best,
+        "gammas": [float(x) for x in res["gammas"]], "betas": [float(x) for x in res["betas"]],
+        "history": [float(h) for h in res["history"]], "top_states": [[s, float(q)] for s, q in res["top_states"]],
+        "dtype": res["dtype"],
+    })
 STATEVECTOR_ROWS = 4096
 
 
@@ -159,6 +213,18 @@ self.onmessage = async (event) => {
       let text;
       try {
         text = fn(event.data.qasm, event.data.shots, event.data.seed, event.data.k, event.data.noiseModel || "ideal", event.data.noiseP || 0);
+      } finally {
+        fn.destroy();
+      }
+      const result = JSON.parse(text);
+      result.elapsed_s = (performance.now() - t0) / 1000;
+      self.postMessage({ id, ok: true, result });
+    } else if (type === "vqe" || type === "qaoa") {
+      const t0 = performance.now();
+      const fn = py.globals.get(type + "_run");
+      let text;
+      try {
+        text = fn(JSON.stringify(event.data.payload));
       } finally {
         fn.destroy();
       }
