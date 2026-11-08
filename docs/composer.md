@@ -1,12 +1,13 @@
 # Composer
 
-Draw a circuit in [Quirk](https://algassert.com/quirk), which simulates it itself up to
-16 qubits. Beyond 16 qubits, with noise, or on a local kernel, use the Dense-Evolution
-engine below: the matrix product state (MPS) simulator takes the circuit as OpenQASM.
+Draw a circuit in [Quirk](https://algassert.com/quirk), of any number of qubits up to 1500. Quirk
+simulates it itself up to 16 qubits; above that it only draws and edits, and the Dense-Evolution
+engine below runs the circuit as OpenQASM (the matrix product state (MPS) simulator, with noise or
+on a local kernel too).
 
 <link rel="stylesheet" href="../assets/composer/style.css" />
 
-<h2 class="de-h">Quirk: up to 16 qubits</h2>
+<h2 class="de-h">Quirk: draw and edit up to 1500 qubits</h2>
 <iframe id="de-quirk" class="de-quirk" title="Quirk circuit editor"
   src="../assets/composer/quirk/quirk.html#circuit=%7B%22cols%22%3A%5B%5B%22H%22%5D%2C%5B%22%E2%80%A2%22%2C%22X%22%5D%5D%7D"></iframe>
 <div class="de-quirk-actions">
@@ -19,7 +20,7 @@ engine below: the matrix product state (MPS) simulator takes the circuit as Open
 </p>
 <div id="de-quirk-note" class="hint"></div>
 
-<h2 class="de-h">Dense-Evolution engine: beyond 16 qubits, noise, VQE</h2>
+<h2 class="de-h">Dense-Evolution engine: any size, noise, VQE</h2>
 
 <div id="de-composer-root">
   <div class="de-layout">
@@ -64,7 +65,7 @@ engine below: the matrix product state (MPS) simulator takes the circuit as Open
   <div class="de-main">
     <section id="de-view-build" class="de-view">
       <p class="hint">
-        Run sends the OpenQASM on the left to the engine chosen. Use it beyond 16 qubits (the
+        Run sends the OpenQASM on the left to the engine chosen. Use it above 16 qubits (the
         presets go up to 1500), with noise, or on the local kernel. A circuit drawn in Quirk is
         copied to the box at every edit.
       </p>

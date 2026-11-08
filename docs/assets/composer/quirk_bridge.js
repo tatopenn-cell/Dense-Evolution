@@ -134,7 +134,6 @@ function circuitFromHash(hash) {
 
 // ---- the other way: OpenQASM -> the circuit of Quirk ----------------------------------------
 
-const QUIRK_MAX_WIRES = 16;
 const SINGLE = {
   h: "H", x: "X", y: "Y", z: "Z", s: "Z^½", sdg: "Z^-½", t: "Z^¼", tdg: "Z^-¼", sx: "X^½",
 };
@@ -179,10 +178,7 @@ function splitStatement(statement) {
 
 // Returns {n, circuit, skipped}: the number of qubits, the circuit of Quirk ({cols: [...]}, one
 // gate in each column, in the order of the text) and one text for each gate with no Quirk gate.
-// With maxWires, the gates on a qubit from maxWires up are not drawn (Quirk has no such wire): they
-// are named in `skipped` and stay in the text, and the circuit has min(n, maxWires) wires.
-function qasmToQuirk(text, maxWires) {
-  const limit = maxWires || Infinity;
+function qasmToQuirk(text) {
   const skipped = [];
   const gates = [];
   let n = 0;
@@ -203,19 +199,14 @@ function qasmToQuirk(text, maxWires) {
     gates.push({ ...g, index });
   });
   for (const g of gates) n = Math.max(n, ...g.qubits.map((q) => q + 1));
-  const wires = Math.min(n, limit);
   const cols = [];
   const place = (cells) => {
-    const col = Array(wires).fill(1);
+    const col = Array(n).fill(1);
     Object.entries(cells).forEach(([wire, id]) => { col[wire] = id; });
     cols.push(col);
   };
   for (const { name, angle, qubits, index } of gates) {
     const q = qubits;
-    if (q.some((w) => w >= limit)) {
-      skipped.push(`${name} (statement ${index + 1}) is on a qubit beyond the ${limit} wires of Quirk`);
-      continue;
-    }
     const theta = angle === null ? null : constantAngle(angle);
     if (name in SINGLE && q.length === 1) place({ [q[0]]: SINGLE[name] });
     else if (["rx", "ry", "rz"].includes(name) && q.length === 1 && theta !== null) {
@@ -233,19 +224,6 @@ function qasmToQuirk(text, maxWires) {
   return { n: Math.max(n, 1), circuit: { cols }, skipped };
 }
 
-// The gate lines of an OpenQASM text that touch a qubit from `from` up (what Quirk cannot show),
-// to keep them when the lines on the lower qubits are written again from the circuit of Quirk.
-function linesFromQubit(text, from) {
-  const out = [];
-  String(text).replace(/\/\/[^\n]*/g, "").split(";").map((s) => s.trim()).filter(Boolean).forEach((st) => {
-    const head = st.split(/[\s(]/)[0].toLowerCase();
-    if (["openqasm", "include", "qreg", "creg", "barrier", "measure"].includes(head)) return;
-    const g = splitStatement(st);
-    if (g && g.qubits.some((q) => q >= from)) out.push(st + ";");
-  });
-  return out;
-}
-
-window.DEQuirkBridge = { quirkToQasm, circuitFromHash, qasmToQuirk, linesFromQubit, QUIRK_MAX_WIRES };
+window.DEQuirkBridge = { quirkToQasm, circuitFromHash, qasmToQuirk };
 
 })();

@@ -288,28 +288,14 @@ function quirkHash() {
 function applyQuirkCircuit(hash) {
   const circuit = window.DEQuirkBridge && window.DEQuirkBridge.circuitFromHash(hash);
   if (!circuit) return false;
-  const bridge = window.DEQuirkBridge;
-  const old = bridge.qasmToQuirk($("qasm").value);
-  const quirk = bridge.quirkToQasm(circuit);
-  let { n, qasm } = quirk;
-  const { skipped } = quirk;
-  const kept = old.n > bridge.QUIRK_MAX_WIRES ? bridge.linesFromQubit($("qasm").value, bridge.QUIRK_MAX_WIRES) : [];
-  if (old.n > bridge.QUIRK_MAX_WIRES) {
-    const lines = qasm.split("\n").filter((l) => !l.startsWith("measure"));
-    lines[2] = `qreg q[${old.n}];`;
-    lines[3] = `creg c[${old.n}];`;
-    qasm = lines.concat(kept, ["measure q -> c;"]).join("\n") + "\n";
-    n = old.n;
-  }
+  const { n, qasm, skipped } = window.DEQuirkBridge.quirkToQasm(circuit);
   $("qasm").value = qasm;
   if ($("preset-select").value !== "__custom__") $("preset-select").value = "__custom__";
   nQubits = n;
   $("n-qubits").value = String(n);
   $("de-quirk-note").textContent = skipped.length
     ? `Non eseguito (traduzione non ancora disponibile): ${skipped.join("; ")}`
-    : kept.length
-      ? `OpenQASM compilato da Quirk (qubit 0-${bridge.QUIRK_MAX_WIRES - 1}); ${kept.length} gate sui qubit oltre sono rimasti in fondo al testo (${n} qubit).`
-      : `OpenQASM compilato dal circuito di Quirk (${n} qubit).`;
+    : `OpenQASM compilato dal circuito di Quirk (${n} qubit).`;
   return true;
 }
 
@@ -338,18 +324,16 @@ function pushQasmToQuirk() {
   const frame = $("de-quirk");
   if (!frame || !window.DEQuirkBridge) return;
   const note = $("de-quirk-note");
-  const wires = window.DEQuirkBridge.QUIRK_MAX_WIRES;
-  const { n, circuit, skipped } = window.DEQuirkBridge.qasmToQuirk($("qasm").value, wires);
+  const { n, circuit, skipped } = window.DEQuirkBridge.qasmToQuirk($("qasm").value);
   quirkIgnoreUntil = Date.now() + 1500;
   try {
     frame.contentWindow.location.hash = "#circuit=" + encodeURIComponent(JSON.stringify(circuit));
   } catch (err) {
     return;
   }
-  const beyond = n > wires ? `Quirk disegna i primi ${wires} qubit di ${n}: i gate sugli altri restano nel testo e vanno al motore. ` : "";
   note.textContent = skipped.length
-    ? `${beyond}Non disegnato in Quirk: ${skipped.join("; ")}`
-    : beyond || `OpenQASM disegnato in Quirk (${n} qubit).`;
+    ? `Non disegnato in Quirk (nessun gate equivalente): ${skipped.join("; ")}`
+    : `OpenQASM disegnato in Quirk (${n} qubit).`;
 }
 
 // The box is filled once, from the circuit that Quirk loaded with; the frame follows the height of

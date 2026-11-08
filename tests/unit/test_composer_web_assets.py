@@ -31,6 +31,15 @@ def test_the_figure_files_of_the_page_are_the_ones_of_the_dashboard(name):
     assert _text(COMPOSER / "py" / "dashboard_core" / name) == _text(source)
 
 
+def test_quirk_of_the_page_draws_more_than_16_wires_and_simulates_only_16():
+    built = _text(COMPOSER / "quirk" / "quirk.html")
+    assert "SIMULATED_WIRE_COUNT" in built
+    assert re.search(r"MAX_WIRE_COUNT\s*=\s*1500", built)
+    source = _text(REPO_ROOT / "third_party" / "quirk" / "src" / "Config.js")
+    assert "Config.MAX_WIRE_COUNT = 1500;" in source
+    assert "Config.SIMULATED_WIRE_COUNT = 16;" in source
+
+
 def test_the_palette_of_the_page_is_the_one_of_the_graphical_builder():
     from dashboard_core.graphical_builder import GATE_PALETTE
 
