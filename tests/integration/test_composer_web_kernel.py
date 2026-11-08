@@ -31,10 +31,10 @@ _NETWORK_ERRORS = (
 )
 
 _RUN = """
-async ([qasm]) => {
+async ([qasm, shots, seed]) => {
     const t0 = performance.now();
     try {
-        const result = await window.DEWebKernel.run(qasm, 32);
+        const result = await window.DEWebKernel.run(qasm, {shots, seed, k: 32});
         return { ok: true, result, seconds: (performance.now() - t0) / 1000 };
     } catch (err) {
         return { ok: false, error: String(err.message || err) };
@@ -72,29 +72,45 @@ def page():
         server.shutdown()
 
 
-def _run(tab, qasm):
-    return tab.evaluate(_RUN, [qasm])
+def _run(tab, qasm, shots=1000, seed=42):
+    return tab.evaluate(_RUN, [qasm, shots, seed])
 
 
-def test_1_bell_state_built_from_the_grid_ops(page):
+def test_1_bell_state_gives_sampled_shots_like_the_local_kernel(page):
+    import numpy as np
+
     qasm = page.evaluate(
         "() => window.DEWebKernel.opsToQasm(2, [{gate: 'h', qubits: [0]},"
         " {gate: 'cx', qubits: [0, 1]}])"
     )
-    out = _run(page, qasm)
+    out = _run(page, qasm, shots=1000, seed=42)
     assert out["ok"], out
     res = out["result"]
-    assert res["large_scale"] is True
-    assert res["engine"] == "numpy-web"
-    assert res["n_qubits"] == 2
-    states = {row["state"]: row["probability"] for row in res["top_k_states"]}
-    assert set(states) >= {"00", "11"}
-    assert states["00"] == pytest.approx(0.5, abs=1e-5)
-    assert states["11"] == pytest.approx(0.5, abs=1e-5)
+    assert res["large_scale"] is False
+    rng = np.random.default_rng(42)
+    outcomes = rng.choice(4, size=1000, p=[0.5, 0.0, 0.0, 0.5])
+    expected = {
+        format(int(v), "02b"): int(c) for v, c in zip(*np.unique(outcomes, return_counts=True))
+    }
+    assert res["counts"] == expected
+    assert sum(res["counts"].values()) == 1000
+    assert set(res["counts"]) == {"00", "11"}
+    for key in ("circuit_png", "histogram_png", "qsphere_png", "bloch_png"):
+        assert res[key].startswith("iVBOR"), key
+    states = {row["state"]: row["abs"] for row in res["statevector"]}
+    assert states["00"] == pytest.approx(2**-0.5, abs=1e-5)
     assert res["mps_max_bond_used"] == 2
 
 
-def test_2_every_preset_of_the_page_runs(page):
+def test_2_qubit_zero_is_the_rightmost_bit_as_in_the_local_kernel(page):
+    qasm = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[3];\ncreg c[3];\nx q[0];\n'
+    out = _run(page, qasm, shots=50)
+    assert out["ok"], out
+    assert out["result"]["counts"] == {"001": 50}
+    assert [r["state"] for r in out["result"]["statevector"]] == ["001"]
+
+
+def test_3_every_preset_of_the_page_runs(page):
     names = page.evaluate("() => Object.keys(window.DEWebKernel.presets())")
     assert "Bell state (2 qubit)" in names
     for name in names:
@@ -103,24 +119,27 @@ def test_2_every_preset_of_the_page_runs(page):
         qasm = page.evaluate("(name) => window.DEWebKernel.presets()[name]", name)
         out = _run(page, qasm)
         assert out["ok"], (name, out)
-        total = sum(row["probability"] for row in out["result"]["top_k_states"])
-        assert 0.0 < total <= 1.0 + 1e-4, name
+        res = out["result"]
+        if res["large_scale"]:
+            assert sum(r["probability"] for r in res["top_k_states"]) <= 1.0 + 1e-4, name
+        else:
+            assert sum(res["counts"].values()) == 1000, name
 
 
-def test_3_ghz_with_1500_qubits(page):
+def test_4_ghz_with_1500_qubits_gives_the_two_most_probable_states(page):
     qasm = page.evaluate("() => window.DEWebKernel.presets()['GHZ state (1500 qubit)']")
     out = _run(page, qasm)
     assert out["ok"], out
     res = out["result"]
     print(f"BROWSER GHZ-1500: seconds={out['seconds']:.2f} bond={res['mps_max_bond_used']}")
-    assert res["n_qubits"] == 1500
+    assert res["large_scale"] is True
     states = {row["state"]: row["probability"] for row in res["top_k_states"]}
     assert states["0" * 1500] == pytest.approx(0.5, abs=2e-4)
     assert states["1" * 1500] == pytest.approx(0.5, abs=2e-4)
     assert res["mps_max_bond_used"] == 2
 
 
-def test_4_an_error_of_the_circuit_names_its_line(page):
+def test_5_an_error_of_the_circuit_names_its_line(page):
     qasm = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\nfoo q[0];\n'
     out = _run(page, qasm)
     assert out["ok"] is False
@@ -128,7 +147,7 @@ def test_4_an_error_of_the_circuit_names_its_line(page):
     assert "unknown gate" in out["error"]
 
 
-def test_5_a_gate_the_builder_cannot_place_is_refused(page):
+def test_6_a_gate_the_builder_cannot_place_is_refused(page):
     message = page.evaluate(
         "() => { try { window.DEWebKernel.opsToQasm(1, [{gate: 'foo', qubits: [0]}]); }"
         " catch (e) { return String(e.message); } return ''; }"

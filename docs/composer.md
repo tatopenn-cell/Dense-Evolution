@@ -1,11 +1,20 @@
 # Composer
 
-Build a circuit graphically or in OpenQASM, run it on the real
-`dense_evolution.DenseSVSimulator`, and see the real statevector,
-probabilities, Q-sphere and circuit diagram — the same engine documented
-throughout the [API Reference](api/index.md), not a separate demo.
+Draw a circuit in [Quirk](https://algassert.com/quirk), which simulates it itself up to
+16 qubits. Beyond 16 qubits, with noise, or on a local kernel, use the Dense-Evolution
+engine below: the matrix product state (MPS) simulator takes the circuit as OpenQASM.
 
 <link rel="stylesheet" href="../assets/composer/style.css" />
+
+<h2 class="de-h">Quirk: up to 16 qubits</h2>
+<iframe id="de-quirk" class="de-quirk" title="Quirk circuit editor"
+  src="../assets/composer/quirk/quirk.html#circuit=%7B%22cols%22%3A%5B%5B%22H%22%5D%2C%5B%22%E2%80%A2%22%2C%22X%22%5D%5D%7D"></iframe>
+<p class="hint">
+  The editor and its simulator are Quirk by Craig Gidney (Apache-2.0), unchanged.
+</p>
+<div id="de-quirk-note" class="hint"></div>
+
+<h2 class="de-h">Dense-Evolution engine: beyond 16 qubits, noise, VQE</h2>
 
 <div id="de-composer-root">
   <div class="de-layout">
@@ -47,25 +56,12 @@ throughout the [API Reference](api/index.md), not a separate demo.
   </aside>
 
   <div class="de-main">
-    <div class="de-viewbar" role="tablist">
-      <button class="de-tab active" data-view="build" role="tab">Build</button>
-      <button class="de-tab" data-view="results" role="tab">Results</button>
-    </div>
-
     <section id="de-view-build" class="de-view">
-      <div class="row row-build">
-        <div class="panel panel-palette">
-          <h3>Operations</h3>
-          <div id="palette" class="palette"></div>
-        </div>
-        <div class="panel panel-canvas">
-          <div class="panel-head">
-            <h3>Circuit</h3>
-            <button id="clear-btn" class="btn btn-ghost">Clear grid</button>
-          </div>
-          <div id="grid" class="grid"></div>
-        </div>
-      </div>
+      <p class="hint">
+        Run sends the OpenQASM on the left to the engine chosen. Use it beyond 16 qubits (the
+        presets go up to 1500), with noise, or on the local kernel. A circuit drawn in Quirk is
+        copied to the box at every edit.
+      </p>
     </section>
 
     <section id="de-view-results" class="de-view" hidden>
@@ -385,6 +381,7 @@ throughout the [API Reference](api/index.md), not a separate demo.
 </div>
 
 <script src="../assets/composer/web_kernel.js"></script>
+<script src="../assets/composer/quirk_bridge.js"></script>
 <script src="../assets/composer/app.js"></script>
 
 !!! tip "No kernel? Run the circuit in your browser"
@@ -393,10 +390,11 @@ throughout the [API Reference](api/index.md), not a separate demo.
     MPS simulator
     ([`dense_evolution/backends/mps_numpy.py`](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/dense_evolution/backends/mps_numpy.py)),
     so the circuit runs in this page and is sent nowhere. What it does: any
-    OpenQASM circuit of the supported gates, up to 1500 qubits, answered with the
-    most probable states, the bond dimension and the memory of the MPS. What it
-    does not: the full statevector, the Q-sphere and Bloch spheres, noise
-    models, VQE, Hamiltonians and mitigation, which need JAX and the local
+    OpenQASM circuit of the supported gates. Up to 20 qubits it answers as the local
+    kernel does, with the sampled shots (same seed), the statevector and the circuit,
+    histogram, Q-sphere and Bloch figures; beyond 20 qubits, up to 1500, with the most
+    probable states, the bond dimension and the memory of the MPS. What it does not:
+    noise models, VQE, Hamiltonians and mitigation, which need JAX and the local
     kernel below. The numbers are in single precision (`complex64`); the
     first load downloads Pyodide from jsDelivr, so it needs the network.
 
