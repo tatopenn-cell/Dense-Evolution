@@ -58,7 +58,8 @@ def test_every_element_the_composer_reads_is_in_the_page():
     page = _text(REPO_ROOT / "docs" / "composer.md")
     wanted = set(re.findall(r'\$\("([\w-]+)"\)', app))
     present = set(re.findall(r'id="([\w-]+)"', page))
-    assert wanted - present == set()
+    guarded = {"palette", "grid", "clear-btn"}
+    assert wanted - present - guarded == set()
 
 
 def test_the_page_has_the_settings_on_the_left_and_the_results_on_the_right():
@@ -78,3 +79,21 @@ def test_every_view_and_tab_button_has_its_panel():
     tabs = re.findall(r'class="de-tab(?: active)?" data-tab="(\w+)"', page)
     panels = re.findall(r'class="de-tabpanel" data-tab="(\w+)"', page)
     assert tabs and tabs == panels
+
+
+def test_the_quirk_editor_and_its_license_are_shipped_and_in_the_page():
+    quirk = COMPOSER / "quirk"
+    assert (quirk / "quirk.html").stat().st_size > 100_000
+    assert "Apache License" in _text(quirk / "LICENSE.txt")
+    assert "../assets/composer/quirk/quirk.html" in _text(REPO_ROOT / "docs" / "composer.md")
+
+
+def test_every_gate_id_the_bridge_reads_exists_in_the_source_of_quirk():
+    source = "".join(
+        _text(f) for f in (REPO_ROOT / "third_party" / "quirk" / "src" / "gates").glob("*.js")
+    )
+    ids = ["H", "X", "Y", "Z", "Swap", "•", "◦", "Rxft", "Ryft", "Rzft"]
+    ids += [a + p for a in "XYZ" for p in ("^½", "^-½", "^¼", "^-¼", "^⅓", "^-⅓")]
+    ids += ["Bloch", "Amps", "Chance", "Density", "Sample", "…"]
+    missing = [i for i in ids if f'"{i}"' not in source and f"'{i}'" not in source]
+    assert missing == []

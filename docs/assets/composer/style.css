@@ -483,3 +483,12 @@ body {
 .de-tabpanel[hidden] {
   display: none;
 }
+
+/* The Quirk editor, in its own frame. */
+.de-quirk {
+  width: 100%;
+  height: 760px;
+  border: 1px solid var(--de-border);
+  border-radius: 8px;
+  background: #ffffff;
+}

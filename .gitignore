@@ -22,3 +22,6 @@ build/
 site/
 # libcint shared library, built by .github/workflows/libcint.yml into the platform wheels
 dense_evolution/native_hf/_libcint/
+
+third_party/quirk/node_modules/
+third_party/quirk/out/

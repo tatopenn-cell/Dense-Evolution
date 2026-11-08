@@ -53,19 +53,14 @@ throughout the [API Reference](api/index.md), not a separate demo.
     </div>
 
     <section id="de-view-build" class="de-view">
-      <div class="row row-build">
-        <div class="panel panel-palette">
-          <h3>Operations</h3>
-          <div id="palette" class="palette"></div>
-        </div>
-        <div class="panel panel-canvas">
-          <div class="panel-head">
-            <h3>Circuit</h3>
-            <button id="clear-btn" class="btn btn-ghost">Clear grid</button>
-          </div>
-          <div id="grid" class="grid"></div>
-        </div>
-      </div>
+      <iframe id="de-quirk" class="de-quirk" title="Quirk circuit editor"
+        src="../assets/composer/quirk/quirk.html#circuit=%7B%22cols%22%3A%5B%5B%22H%22%5D%2C%5B%22%E2%80%A2%22%2C%22X%22%5D%5D%7D"></iframe>
+      <p class="hint">
+        The editor is <a href="https://algassert.com/quirk">Quirk</a> by Craig Gidney (Apache-2.0),
+        unchanged. Its circuit is copied to the OpenQASM box on the left at every edit, and Run
+        sends that text to the engine you chose.
+      </p>
+      <div id="de-quirk-note" class="hint"></div>
     </section>
 
     <section id="de-view-results" class="de-view" hidden>
@@ -385,6 +380,7 @@ throughout the [API Reference](api/index.md), not a separate demo.
 </div>
 
 <script src="../assets/composer/web_kernel.js"></script>
+<script src="../assets/composer/quirk_bridge.js"></script>
 <script src="../assets/composer/app.js"></script>
 
 !!! tip "No kernel? Run the circuit in your browser"

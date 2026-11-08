@@ -265,6 +265,40 @@ function showTab(name) {
   });
 }
 
+// Quirk is the circuit editor. It keeps its circuit in the address of its page, so the
+// OpenQASM box follows it: the address is read twice a second and, when it changes, the
+// circuit is translated (quirk_bridge.js). The first reading only records the address, so
+// that the circuit the page loaded is not overwritten before the user edits.
+function startQuirkSync() {
+  const frame = $("de-quirk");
+  if (!frame || !window.DEQuirkBridge) return;
+  let last = null;
+  setInterval(() => {
+    let hash;
+    try {
+      hash = frame.contentWindow.location.hash;
+    } catch (err) {
+      return;
+    }
+    if (last === null) {
+      last = hash;
+      return;
+    }
+    if (hash === last) return;
+    last = hash;
+    const circuit = window.DEQuirkBridge.circuitFromHash(hash);
+    if (!circuit) return;
+    const { n, qasm, skipped } = window.DEQuirkBridge.quirkToQasm(circuit);
+    $("qasm").value = qasm;
+    if ($("preset-select").value !== "__custom__") $("preset-select").value = "__custom__";
+    nQubits = n;
+    $("n-qubits").value = String(n);
+    $("de-quirk-note").textContent = skipped.length
+      ? `Non eseguito (traduzione non ancora disponibile): ${skipped.join("; ")}`
+      : "";
+  }, 400);
+}
+
 function setupTabs() {
   document.querySelectorAll(".de-viewbar .de-tab").forEach((b) => {
     b.addEventListener("click", () => showView(b.dataset.view));
@@ -289,6 +323,7 @@ const SHORT_LABEL = { "rx": "Rx", "ry": "Ry", "rz": "Rz" };
 
 function renderPalette() {
   const el = $("palette");
+  if (!el) return;
   el.innerHTML = "";
   palette.forEach((g) => {
     const chip = document.createElement("div");
@@ -306,6 +341,7 @@ function renderPalette() {
 
 function renderGrid() {
   const el = $("grid");
+  if (!el) return;
   el.innerHTML = "";
   el.style.gridTemplateColumns = `34px repeat(${N_COLS}, 38px)`;
   for (let r = 0; r < grid.length; r++) {
@@ -1269,6 +1305,7 @@ async function loadEverything() {
 
 async function init() {
   setupTabs();
+  startQuirkSync();
   buildEmptyGrid();
   renderGrid();
   renderElementPalette();
@@ -1299,7 +1336,7 @@ async function init() {
     if ($("preset-select").value !== "__custom__") $("preset-select").value = "__custom__";
   });
   $("backend-select").addEventListener("change", applyQubitLimitForBackend);
-  $("clear-btn").addEventListener("click", () => {
+  $("clear-btn")?.addEventListener("click", () => {
     buildEmptyGrid();
     renderGrid();
     // syncQasmFromGrid() no-ops on an empty grid (nothing to convert), so
