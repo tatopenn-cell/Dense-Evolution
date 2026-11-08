@@ -179,9 +179,14 @@ async function run(qasm, options) {
     shots: o.shots || 1000,
     seed: o.seed === undefined ? 42 : o.seed,
     k: o.k || 32,
+    noiseModel: o.noiseModel || "ideal",
+    noiseP: o.noiseP || 0,
   });
 }
 
-window.DEWebKernel = { MAX_QUBITS, CONTRACT_LIMIT, PALETTE, opsToQasm, presets, ready, run };
+// The models of NoiseModel.MODELS; a test compares the list with the package.
+const NOISE_MODELS = ["ideal", "depolarizing", "bitflip", "phaseflip", "amplitude_damping", "combined"];
+
+window.DEWebKernel = { MAX_QUBITS, CONTRACT_LIMIT, PALETTE, NOISE_MODELS, opsToQasm, presets, ready, run };
 
 })();
