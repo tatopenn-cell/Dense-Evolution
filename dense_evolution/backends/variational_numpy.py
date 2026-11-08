@@ -16,13 +16,17 @@ phase-separation unitary ``U(C, g) = exp(-i g C)`` (Eq. 2), the mixing operator
 ``F_p(g, b) = <g, b| C |g, b>`` (Eq. 7); for MaxCut ``C_jk = (1/2)(1 - Z_j Z_k)``
 (Eq. 12). For a weighted edge the term is multiplied by its weight.
 
-VQE uses the hardware-efficient ansatz of Kandala et al., Nature 549, 242 (2017), as
-``tools/dashboard/core/vqe.py`` does: the Hartree-Fock occupation as X gates, then
-``layers`` times a RY rotation on every qubit and a ladder of CNOT gates; and the same
-Adam loop (step 0.1, moments 0.9 and 0.999, ``eps`` 1e-8, start parameters uniform in
-[-0.1, 0.1] from ``numpy.random.default_rng(seed)``). The gradient is the
-parameter-shift rule: for a gate ``exp(-i t G / 2)`` with ``G`` a Pauli operator,
-``dF/dt = (F(t + pi/2) - F(t - pi/2)) / 2``.
+VQE uses an instance of the hardware-efficient family of Kandala et al., Nature 549, 242
+(2017), arXiv:1704.05018, PDF page 3 (single-qubit rotations and any entangler that
+generates enough entanglement), as ``tools/dashboard/core/vqe.py`` chooses it: the
+Hartree-Fock occupation as X gates, then ``layers`` times a RY rotation on every qubit and a
+ladder of CNOT gates. The Adam loop is that of the same file (step 0.1, moments 0.9 and
+0.999, ``eps`` 1e-8, start parameters uniform in [-0.1, 0.1] from
+``numpy.random.default_rng(seed)``). The gradient is the parameter-shift rule of Mitarai et
+al., arXiv:1803.00745, PDF page 3, Eqs. 2 and 3: for a gate ``U_j(t) = exp(-i t P_j / 2)``
+with ``P_j`` a Pauli product, ``dF/dt = (F(t + pi/2) - F(t - pi/2)) / 2``. It holds when
+``P_j`` has exactly two eigenvalues (Tilly et al., VQE review, PDF page 93), which is the
+case of RY, RX and of RZ between two CX gates.
 
 The module needs NumPy and the sibling file ``mps_numpy``. Bit strings follow the engine:
 qubit 0 is the leftmost character.
