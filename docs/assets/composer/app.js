@@ -229,7 +229,7 @@ async function enterWebMode() {
   }
   banner.innerHTML =
     "<strong>Modalita browser</strong> &mdash; motore MPS NumPy (precisione singola, complex64) in questa pagina. " +
-    `Fino a ${window.DEWebKernel.CONTRACT_LIMIT} qubit: shot, statevector e grafici come il kernel locale; ` +
+    `Fino a ${window.DEWebKernel.CONTRACT_LIMIT} qubit (calcolati dalla memoria di questo browser: ${window.DEWebKernel.MEMORY.basis}): shot, statevector e grafici come il kernel locale; ` +
     `oltre, fino a ${window.DEWebKernel.MAX_QUBITS} qubit, gli stati piu probabili. ` +
     `Rumore (traiettoria di Kraus come nel kernel locale) fino a ${window.DEWebKernel.CONTRACT_LIMIT} qubit. ` +
     "VQE, Hamiltoniane e mitigazione richiedono il kernel locale. " +
