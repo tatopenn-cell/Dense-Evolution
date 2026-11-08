@@ -25,7 +25,10 @@ Config.EMPTY_CIRCUIT_TITLE = 'Quirk: Quantum Circuit Simulator';
 // Also each qubit tends to increase the amount of accuracy required.
 // I see obvious errors when I set this to 20, and things get pretty laggy past 16.
 // Beware setting it too high.
-Config.MAX_WIRE_COUNT = 16;
+Config.MAX_WIRE_COUNT = 1500;
+// Dense-Evolution change: up to this many wires Quirk simulates the circuit on the GPU as always; above,
+// it only draws and edits the circuit (the displays stay empty) and the engine of Dense-Evolution runs it.
+Config.SIMULATED_WIRE_COUNT = 16;
 Config.SIMPLE_SUPERPOSITION_DRAWING_WIRE_THRESHOLD = 14;
 
 Config.MIN_WIRE_COUNT = 2;
