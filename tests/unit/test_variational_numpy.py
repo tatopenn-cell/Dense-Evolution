@@ -107,7 +107,7 @@ def test_parameter_shift_equals_finite_differences():
         assert d_beta[layer] == pytest.approx(fd, abs=1e-6)
 
 
-def test_qaoa_in_single_precision_matches_double_precision_and_beats_p1():
+def test_qaoa_in_single_precision_matches_double_precision_and_reaches_the_p1_maximum():
     n, edges = 6, _ring(6)
     out = {}
     for dtype in (np.complex64, np.complex128):
