@@ -148,7 +148,9 @@ async function webApi(path, opts) {
   if (path === "/api/build_from_ops") {
     return { qasm: window.DEWebKernel.opsToQasm(body.n_qubits, body.ops) };
   }
-  if (path === "/api/run") return window.DEWebKernel.run(body.qasm, 32);
+  if (path === "/api/run") {
+    return window.DEWebKernel.run(body.qasm, { shots: body.shots, seed: body.seed, k: 32 });
+  }
   throw new Error("non disponibile in modalita browser: serve il kernel locale");
 }
 
@@ -223,8 +225,9 @@ async function enterWebMode() {
     return;
   }
   banner.innerHTML =
-    "<strong>Modalita browser</strong> &mdash; motore MPS NumPy (precisione singola, complex64) in questa pagina, " +
-    `fino a ${window.DEWebKernel.MAX_QUBITS} qubit. Si vedono gli stati piu probabili, non lo statevector. ` +
+    "<strong>Modalita browser</strong> &mdash; motore MPS NumPy (precisione singola, complex64) in questa pagina. " +
+    `Fino a ${window.DEWebKernel.CONTRACT_LIMIT} qubit: shot, statevector e grafici come il kernel locale; ` +
+    `oltre, fino a ${window.DEWebKernel.MAX_QUBITS} qubit, gli stati piu probabili. ` +
     "VQE, Hamiltoniane, rumore e mitigazione richiedono il kernel locale. " +
     `<button id="de-local-mode" class="btn btn-ghost">Usa il kernel locale</button>`;
   document.getElementById("de-local-mode").addEventListener("click", () => {
@@ -233,12 +236,14 @@ async function enterWebMode() {
     document.querySelectorAll(".web-hidden").forEach((el) => el.classList.remove("web-hidden"));
     void loadEverything();
   });
-  ["noise-model-select", "noise-p", "backend-select", "shots", "seed"].forEach((id) => {
+  ["noise-model-select", "noise-p", "backend-select"].forEach((id) => {
     const label = $(id).closest("label");
     if (label) label.classList.add("web-hidden");
   });
   $("backend-select").value = "mps";
-  $("qubits-limit-info").textContent = `max ${window.DEWebKernel.MAX_QUBITS} qubit (MPS NumPy nel browser).`;
+  $("qubits-limit-info").textContent = `max ${window.DEWebKernel.MAX_QUBITS} qubit (MPS NumPy nel browser). Fino a ${window.DEWebKernel.CONTRACT_LIMIT} qubit con shot e grafici ` +
+    `(lo statevector sono 2^n ampiezze da 16 byte: ${window.DEWebKernel.CONTRACT_LIMIT} qubit = ` +
+    `${Math.round((2 ** window.DEWebKernel.CONTRACT_LIMIT * 16) / 1048576)} MB); oltre, gli stati piu probabili.`;
   applyQubitLimitForBackend();
   await loadPresetsAndPalette();
 }
@@ -294,10 +299,24 @@ function applyQuirkCircuit(hash) {
   return true;
 }
 
+// Quirk draws its canvas at the size it needs (more wires, more height): the frame follows it.
+function fitQuirkFrame() {
+  const frame = $("de-quirk");
+  try {
+    const canvas = frame.contentDocument.getElementById("drawCanvas");
+    if (!canvas) return;
+    const height = Math.ceil(canvas.getBoundingClientRect().bottom + frame.contentWindow.scrollY) + 16;
+    if (Math.abs(height - frame.clientHeight) > 4) frame.style.height = `${Math.max(height, 420)}px`;
+  } catch (err) {
+    return;
+  }
+}
+
 function startQuirkSync() {
   if (!$("de-quirk") || !window.DEQuirkBridge) return;
   let last = null;
   setInterval(() => {
+    fitQuirkFrame();
     const hash = quirkHash();
     if (hash === null) return;
     if (last === null) {

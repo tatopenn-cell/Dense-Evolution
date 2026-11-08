@@ -25,6 +25,12 @@ def test_the_python_files_of_the_page_are_the_ones_of_the_package(name):
     assert _text(COMPOSER / "py" / name) == _text(source)
 
 
+@pytest.mark.parametrize("name", ["state_visuals.py", "circuit_diagram.py", "_gate_tables.py"])
+def test_the_figure_files_of_the_page_are_the_ones_of_the_dashboard(name):
+    source = REPO_ROOT / "tools" / "dashboard" / "core" / name
+    assert _text(COMPOSER / "py" / "dashboard_core" / name) == _text(source)
+
+
 def test_the_palette_of_the_page_is_the_one_of_the_graphical_builder():
     from dashboard_core.graphical_builder import GATE_PALETTE
 

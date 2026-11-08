@@ -6,16 +6,17 @@ engine below: the matrix product state (MPS) simulator takes the circuit as Open
 
 <link rel="stylesheet" href="../assets/composer/style.css" />
 
-<div id="de-composer-root">
-  <h2 class="de-h">Quirk: up to 16 qubits</h2>
-  <iframe id="de-quirk" class="de-quirk" title="Quirk circuit editor"
-    src="../assets/composer/quirk/quirk.html#circuit=%7B%22cols%22%3A%5B%5B%22H%22%5D%2C%5B%22%E2%80%A2%22%2C%22X%22%5D%5D%7D"></iframe>
-  <p class="hint">
-    The editor and its simulator are Quirk by Craig Gidney (Apache-2.0), unchanged.
-  </p>
-  <div id="de-quirk-note" class="hint"></div>
+<h2 class="de-h">Quirk: up to 16 qubits</h2>
+<iframe id="de-quirk" class="de-quirk" title="Quirk circuit editor"
+  src="../assets/composer/quirk/quirk.html#circuit=%7B%22cols%22%3A%5B%5B%22H%22%5D%2C%5B%22%E2%80%A2%22%2C%22X%22%5D%5D%7D"></iframe>
+<p class="hint">
+  The editor and its simulator are Quirk by Craig Gidney (Apache-2.0), unchanged.
+</p>
+<div id="de-quirk-note" class="hint"></div>
 
-  <h2 class="de-h">Dense-Evolution engine: beyond 16 qubits, noise, VQE</h2>
+<h2 class="de-h">Dense-Evolution engine: beyond 16 qubits, noise, VQE</h2>
+
+<div id="de-composer-root">
   <div class="de-layout">
   <aside class="de-side">
   <section class="toolbar">
@@ -389,10 +390,11 @@ engine below: the matrix product state (MPS) simulator takes the circuit as Open
     MPS simulator
     ([`dense_evolution/backends/mps_numpy.py`](https://github.com/tatopenn-cell/Dense-Evolution/blob/main/dense_evolution/backends/mps_numpy.py)),
     so the circuit runs in this page and is sent nowhere. What it does: any
-    OpenQASM circuit of the supported gates, up to 1500 qubits, answered with the
-    most probable states, the bond dimension and the memory of the MPS. What it
-    does not: the full statevector, the Q-sphere and Bloch spheres, noise
-    models, VQE, Hamiltonians and mitigation, which need JAX and the local
+    OpenQASM circuit of the supported gates. Up to 20 qubits it answers as the local
+    kernel does, with the sampled shots (same seed), the statevector and the circuit,
+    histogram, Q-sphere and Bloch figures; beyond 20 qubits, up to 1500, with the most
+    probable states, the bond dimension and the memory of the MPS. What it does not:
+    noise models, VQE, Hamiltonians and mitigation, which need JAX and the local
     kernel below. The numbers are in single precision (`complex64`); the
     first load downloads Pyodide from jsDelivr, so it needs the network.
 
