@@ -85,7 +85,7 @@ function qft(n) {
   return lines.join("\n") + "\n";
 }
 
-function presets() {
+function generatedPresets() {
   const bell = header(2).concat(["h q[0];", "cx q[0],q[1];", "measure q -> c;"]).join("\n") + "\n";
   const plus = header(1).concat(["h q[0];", "measure q -> c;"]).join("\n") + "\n";
   return {
@@ -99,6 +99,23 @@ function presets() {
     "Quantum Fourier Transform (5 qubit)": qft(5),
     "Quantum Fourier Transform (20 qubit)": qft(20),
   };
+}
+
+// The circuits of the library of the dashboard (qasm_library.json is written from
+// tools/dashboard/core/qasm_library.py and a test keeps the two equal), then the larger ones that
+// only this page generates and that the library does not have.
+async function presets() {
+  const out = {};
+  try {
+    const res = await fetch(new URL("qasm_library.json", BASE).href);
+    if (res.ok) Object.assign(out, await res.json());
+  } catch (err) {
+    // the generated circuits below are still offered
+  }
+  for (const [name, text] of Object.entries(generatedPresets())) {
+    if (!(name in out)) out[name] = text;
+  }
+  return out;
 }
 
 let worker = null;
