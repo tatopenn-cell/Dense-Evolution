@@ -330,10 +330,6 @@ function pushQasmToQuirk() {
   if (!frame || !window.DEQuirkBridge) return;
   const note = $("de-quirk-note");
   const { n, circuit, skipped } = window.DEQuirkBridge.qasmToQuirk($("qasm").value);
-  if (n > window.DEQuirkBridge.QUIRK_MAX_WIRES) {
-    note.textContent = `Quirk mostra fino a ${window.DEQuirkBridge.QUIRK_MAX_WIRES} qubit: questo circuito (${n} qubit) va solo al motore.`;
-    return;
-  }
   quirkIgnoreUntil = Date.now() + 1500;
   try {
     frame.contentWindow.location.hash = "#circuit=" + encodeURIComponent(JSON.stringify(circuit));

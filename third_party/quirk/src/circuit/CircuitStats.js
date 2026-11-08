@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import {Config} from "../Config.js"
 import {CircuitDefinition} from "./CircuitDefinition.js"
 import {CircuitEvalContext} from "./CircuitEvalContext.js"
 import {CircuitShaders} from "./CircuitShaders.js"
@@ -217,7 +218,7 @@ class CircuitStats {
             time,
             [1],
             [],
-            Matrix.zero(1, 1 << circuitDefinition.numWires).times(NaN),
+            Matrix.zero(1, circuitDefinition.numWires > Config.SIMULATED_WIRE_COUNT ? 1 : 1 << circuitDefinition.numWires).times(NaN),
             new Map());
     }
 
@@ -227,6 +228,9 @@ class CircuitStats {
      * @returns {!CircuitStats}
      */
     static fromCircuitAtTime(circuitDefinition, time) {
+        if (circuitDefinition.numWires > Config.SIMULATED_WIRE_COUNT) {
+            return CircuitStats.withNanDataFromCircuitAtTime(circuitDefinition, time);
+        }
         try {
             return CircuitStats._fromCircuitAtTime_noFallback(circuitDefinition, time);
         } catch (ex) {
