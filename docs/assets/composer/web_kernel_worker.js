@@ -8,7 +8,7 @@
 // page.
 
 const PYODIDE_URL = "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js";
-const PY_FILES = ["mps_numpy.py", "qasm_subset.py", "noise_numpy.py", "variational_numpy.py"];
+const PY_FILES = ["mps_numpy.py", "qasm_subset.py", "noise_numpy.py", "variational_numpy.py", "zne_numpy.py"];
 // The figure modules of the dashboard (copies of tools/dashboard/core), which need matplotlib.
 const FIGURE_FILES = ["state_visuals.py", "circuit_diagram.py", "_gate_tables.py"];
 // Up to this many qubits the MPS is contracted to 2**n amplitudes, to sample the shots and draw
@@ -25,6 +25,7 @@ import mps_numpy as mn
 import qasm_subset as qs
 import noise_numpy as nz
 import variational_numpy as vn
+import zne_numpy as zn
 from dashboard_core import circuit_diagram as cd
 from dashboard_core import state_visuals as sv
 
@@ -65,6 +66,18 @@ def vqe_run(payload):
         "params": [float(t) for t in theta], "n_params": int(res["n_params"]), "dtype": res["dtype"],
         "qasm": _qasm_of(ops, n),
     })
+
+
+def zne_run(payload):
+    a = json.loads(payload)
+    n, ops = qs.parse_qasm_subset(a["qasm"])
+    if n > int(a["limit"]):
+        raise ValueError("ZNE nel browser: al massimo %d qubit (limite calcolato dalla memoria), il circuito ne ha %d" % (int(a["limit"]), n))
+    sim = mn.MPSSimulatorNumpy(n, max_bond=2 ** (n // 2))
+    sim.run_circuit(ops)
+    native = np.asarray(sim.contract_to_statevector(), dtype=np.complex128)
+    res = zn.zne_from_state(native, n, a["pauli_string"], a["noise_model"], float(a["noise_p"]), seed=int(a["seed"]), method=a.get("extrapolation_method", "richardson"))
+    return json.dumps(res)
 
 
 def qaoa_run(payload):
@@ -230,7 +243,7 @@ self.onmessage = async (event) => {
       result.elapsed_s = (performance.now() - t0) / 1000;
       result.wasm_heap_mb = heapMb();
       self.postMessage({ id, ok: true, result });
-    } else if (type === "vqe" || type === "qaoa") {
+    } else if (type === "vqe" || type === "qaoa" || type === "zne") {
       const t0 = performance.now();
       const fn = py.globals.get(type + "_run");
       let text;
