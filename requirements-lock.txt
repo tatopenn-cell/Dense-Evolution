@@ -61,7 +61,7 @@ mkdocs==1.6.1
 mkdocs-material==9.7.7
 mkdocstrings==1.0.6
 mkdocstrings-python==2.0.9
-mkdocs-include-markdown-plugin==7.3.0
+mkdocs-include-markdown-plugin==7.3.1
 ruff==0.17.3
 
 # build backend
